@@ -1,21 +1,12 @@
-use bytes::Bytes;
-use http_body_util::Empty;
-use hyper::{Request, body::Body, server::conn::http1, service::service_fn};
+use hyper::{Request, server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::router::Router;
+use crate::types::BoxError;
 
-pub async fn run<B>(
-    listener: TcpListener,
-    router: Router<B>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where
-    B: Body + From<Empty<Bytes>> + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
+pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     let router = Arc::new(router);
     println!("Tako listening on {}", listener.local_addr()?);
 

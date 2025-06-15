@@ -1,30 +1,21 @@
-use bytes::Bytes;
-use http_body_util::Empty;
-use hyper::{
-    Request, Response,
-    body::{Body, Incoming},
-};
+use http::Response;
+use hyper::{Request, body::Incoming};
+
+use crate::{body::TakoBody, responder::Responder};
 
 #[async_trait::async_trait]
-pub trait Handler<B>: Send + Sync + 'static
-where
-    B: Body + From<Empty<Bytes>> + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    async fn call(&self, req: Request<Incoming>) -> Response<B>;
+pub trait Handler: Send + Sync + 'static {
+    async fn call(&self, req: Request<Incoming>) -> Response<TakoBody>;
 }
 
 #[async_trait::async_trait]
-impl<B, F, Fut> Handler<B> for F
+impl<F, Fut, R> Handler for F
 where
-    B: Body + From<Empty<Bytes>> + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     F: Fn(Request<Incoming>) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Response<B>> + Send + 'static,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+    R: Responder + Send + 'static,
 {
-    async fn call(&self, req: Request<Incoming>) -> Response<B> {
-        (self)(req).await
+    async fn call(&self, req: Request<Incoming>) -> Response<TakoBody> {
+        (self)(req).await.into_response()
     }
 }

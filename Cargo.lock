@@ -474,6 +474,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bytes",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",
