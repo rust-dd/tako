@@ -10,7 +10,7 @@ pub mod router;
 pub mod server;
 pub mod types;
 
-pub async fn serve<S: AppState>(listener: TcpListener, router: Router<S>)
+pub async fn serve<S>(listener: TcpListener, router: Router<S>)
 where
     S: AppState,
 {

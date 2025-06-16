@@ -1,5 +1,10 @@
 use hyper::{Method, Request, body::Incoming};
-use tako::{extractors::state::State, responder::Responder, types::AppState as AppStateTrait};
+use tako::{
+    extractors::state::State,
+    handler::{Test, Test1, Test2},
+    responder::Responder,
+    types::AppState as AppStateTrait,
+};
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -8,14 +13,11 @@ struct AppState {
 
 impl AppStateTrait for AppState {}
 
-pub async fn hello(_req: Request<Incoming>, State(state): State<AppState>) -> impl Responder {
+pub async fn hello() -> impl Responder {
     "Hello, World!".into_response()
 }
 
-pub async fn user_created(
-    _req: Request<Incoming>,
-    State(state): State<AppState>,
-) -> impl Responder {
+pub async fn user_created(a: Test1, b: Test2, c: Test) -> impl Responder {
     String::from("User created").into_response()
 }
 
@@ -24,11 +26,11 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
         .await
         .unwrap();
-    let mut r = tako::router::Router::<AppState>::new();
+    let mut r = tako::router::Router::new();
     let state = AppState { count: 0 };
     r.state(state);
 
     r.route(Method::GET, "/", hello);
-    r.route(Method::POST, "/user", user_created);
+    r.route::<_, ((), Test1, Test2, Test)>(Method::POST, "/user", user_created);
     tako::serve(listener, r).await;
 }

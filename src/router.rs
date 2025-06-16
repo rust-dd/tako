@@ -1,19 +1,23 @@
 use ahash::AHashMap;
-use hyper::{Method, Request, Response, body::Incoming};
+use hyper::Method;
 
-use crate::{body::TakoBody, handler::Handler, types::AppState};
+use crate::{
+    body::TakoBody,
+    handler::{BoxedHandler, Handler},
+    types::{AppState, Request, Response},
+};
 
 pub struct Router<S>
 where
-    S: AppState,
+    S: AppState + Clone + Default,
 {
-    routes: AHashMap<(Method, String), Box<dyn Handler<S>>>,
+    routes: AHashMap<(Method, String), BoxedHandler<S>>,
     state: S,
 }
 
 impl<S> Router<S>
 where
-    S: AppState,
+    S: AppState + Clone + Default,
 {
     pub fn new() -> Self {
         Self {
@@ -22,21 +26,21 @@ where
         }
     }
 
-    pub fn route<H>(&mut self, method: Method, path: &str, handler: H)
+    pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H)
     where
-        H: Handler<S>,
+        H: Handler<T, S> + Clone + 'static,
     {
         self.routes
-            .insert((method, path.to_owned()), Box::new(handler));
+            .insert((method, path.to_owned()), BoxedHandler::new(handler));
     }
 
-    pub async fn dispatch(&self, req: Request<Incoming>) -> Response<TakoBody> {
+    pub async fn dispatch(&self, req: Request) -> Response {
         let key = (req.method().clone(), req.uri().path().to_owned());
 
         if let Some(h) = self.routes.get(&key) {
-            h.call(req, self.state.clone().into()).await
+            h.call(req, self.state.clone()).await
         } else {
-            Response::builder()
+            hyper::Response::builder()
                 .status(404)
                 .body(TakoBody::empty())
                 .unwrap()
@@ -44,6 +48,6 @@ where
     }
 
     pub fn state(&mut self, state: S) {
-        self.state = state
+        self.state = state;
     }
 }
