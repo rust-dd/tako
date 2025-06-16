@@ -4,9 +4,12 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::router::Router;
-use crate::types::BoxError;
+use crate::types::{AppState, BoxError};
 
-pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
+pub async fn run<S>(listener: TcpListener, router: Router<S>) -> Result<(), BoxError>
+where
+    S: AppState,
+{
     let router = Arc::new(router);
     println!("Tako listening on {}", listener.local_addr()?);
 
