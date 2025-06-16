@@ -1,13 +1,20 @@
 use ahash::AHashMap;
 use hyper::{Method, Request, Response, body::Incoming};
 
-use crate::{body::TakoBody, handler::Handler, types::AppState};
+use crate::{
+    body::TakoBody,
+    handler::Handler,
+    middleware::{Middleware, Next},
+    route::{Route, RouteCondig},
+    types::{AppState, Fut},
+};
 
 pub struct Router<S>
 where
     S: AppState,
 {
-    routes: AHashMap<(Method, String), Box<dyn Handler<S>>>,
+    pub(crate) routes: AHashMap<(Method, String), Route<S>>,
+    middlewares: Vec<Box<dyn Middleware<S>>>,
     state: S,
 }
 
@@ -18,32 +25,70 @@ where
     pub fn new() -> Self {
         Self {
             routes: AHashMap::default(),
+            middlewares: Vec::new(),
             state: S::default(),
         }
     }
 
-    pub fn route<H>(&mut self, method: Method, path: &str, handler: H)
+    pub fn route<H>(&mut self, method: Method, path: &str, handler: H) -> RouteCondig<'_, S>
     where
-        H: Handler<S>,
+        H: Handler<S> + 'static,
     {
-        self.routes
-            .insert((method, path.to_owned()), Box::new(handler));
+        self.routes.insert(
+            (method.clone(), path.to_owned()),
+            Route {
+                handler: Box::new(handler),
+                middlewares: Vec::new(),
+            },
+        );
+        RouteCondig {
+            router: self,
+            key: (method, path.to_owned()),
+        }
     }
 
     pub async fn dispatch(&self, req: Request<Incoming>) -> Response<TakoBody> {
         let key = (req.method().clone(), req.uri().path().to_owned());
 
-        if let Some(h) = self.routes.get(&key) {
-            h.call(req, self.state.clone().into()).await
-        } else {
-            Response::builder()
-                .status(404)
-                .body(TakoBody::empty())
-                .unwrap()
+        let route = match self.routes.get(&key) {
+            Some(r) => r,
+            None => {
+                return Response::builder()
+                    .status(404)
+                    .body(TakoBody::empty())
+                    .unwrap();
+            }
+        };
+
+        let chain = self
+            .middlewares
+            .into_iter()
+            .chain(route.middlewares.into_iter())
+            .collect::<Vec<_>>();
+
+        let final_step = {
+            Box::new(move |req, state: _| {
+                Box::pin(async move { route.handler.call(req, state.into()).await as Fut<'_> })
+            })
+        };
+
+        Next {
+            idx: 0,
+            chain: &chain,
+            final_step,
         }
+        .run(req, self.state.clone())
+        .await
     }
 
     pub fn state(&mut self, state: S) {
         self.state = state
+    }
+
+    pub fn middleware<M>(&mut self, middleware: M)
+    where
+        M: Middleware<S> + 'static,
+    {
+        self.middlewares.push(Box::new(middleware));
     }
 }
