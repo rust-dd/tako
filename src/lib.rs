@@ -12,7 +12,7 @@ pub mod router;
 pub mod server;
 pub mod types;
 
-pub async fn serve<S>(listener: TcpListener, router: Router<S>)
+pub async fn serve<S>(listener: TcpListener, router: Router<'static, S>)
 where
     S: AppState,
 {

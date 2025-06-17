@@ -4,19 +4,20 @@ use hyper::Method;
 use crate::{
     body::TakoBody,
     handler::{BoxedHandler, Handler},
-    types::{AppState, BoxedHandlerFuture, Request, Response},
+    route::Route,
+    types::{AppState, BoxedRequestFuture, Request, Response},
 };
 
-pub struct Router<S>
+pub struct Router<'a, S>
 where
     S: AppState + Clone + Default,
 {
-    routes: AHashMap<(Method, String), BoxedHandler<S>>,
+    routes: AHashMap<(Method, String), Route<'a, S>>,
     state: S,
-    middlewares: Vec<Box<dyn FnOnce() -> () + Send + 'static>>,
+    middlewares: Vec<Box<dyn Fn() -> BoxedRequestFuture>>,
 }
 
-impl<S> Router<S>
+impl<'a, S> Router<'a, S>
 where
     S: AppState + Clone + Default,
 {
@@ -28,19 +29,23 @@ where
         }
     }
 
-    pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H)
+    pub fn route<H, T>(&mut self, method: Method, path: &'a str, handler: H) -> Route<'a, S>
     where
         H: Handler<T, S> + Clone + 'static,
     {
-        self.routes
-            .insert((method, path.to_owned()), BoxedHandler::new(handler));
+        let route = self.routes.insert(
+            (method.clone(), path.to_owned()),
+            Route::new(path, method, BoxedHandler::new(handler)),
+        );
+        let route = route.unwrap();
+        route
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {
         let key = (req.method().clone(), req.uri().path().to_owned());
 
         if let Some(h) = self.routes.get(&key) {
-            h.call(req, self.state.clone()).await
+            h.handler.call(req, self.state.clone()).await
         } else {
             hyper::Response::builder()
                 .status(404)

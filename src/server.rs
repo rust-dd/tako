@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::router::Router;
-use crate::types::{AppState, BoxError};
+use crate::types::{AppState, BoxedError};
 
-pub async fn run<S>(listener: TcpListener, router: Router<S>) -> Result<(), BoxError>
+pub async fn run<S>(listener: TcpListener, router: Router<'static, S>) -> Result<(), BoxedError>
 where
     S: AppState,
 {
@@ -19,18 +19,18 @@ where
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 
-        tokio::spawn(async move {
-            let svc = service_fn(|req: Request<_>| {
-                let router = router.clone();
-                async move { Ok::<_, Infallible>(router.dispatch(req).await) }
-            });
+        // tokio::spawn(async move {
+        //     let svc = service_fn(|req: Request<_>| {
+        //         let router = router.clone();
+        //         async move { Ok::<_, Infallible>(router.dispatch(req).await) }
+        //     });
 
-            let http = http1::Builder::new();
-            let conn = http.serve_connection(io, svc);
+        //     let http = http1::Builder::new();
+        //     let conn = http.serve_connection(io, svc);
 
-            if let Err(err) = conn.await {
-                eprintln!("Error serving connection: {}", err);
-            }
-        });
+        //     if let Err(err) = conn.await {
+        //         eprintln!("Error serving connection: {}", err);
+        //     }
+        // });
     }
 }

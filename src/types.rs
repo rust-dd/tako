@@ -6,11 +6,12 @@ use hyper::body::Incoming;
 
 use crate::body::TakoBody;
 
-pub type BoxBody = UnsyncBoxBody<Bytes, BoxError>;
-pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
-pub type BoxedHandlerFuture = Pin<Box<dyn Future<Output = Response> + Send + 'static>>;
-
 pub type Request = hyper::Request<Incoming>;
 pub type Response = hyper::Response<TakoBody>;
+
+pub type BoxedBody = UnsyncBoxBody<Bytes, BoxedError>;
+pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
+pub type BoxedResponseFuture<R = Response> = Pin<Box<dyn Future<Output = R> + Send + 'static>>;
+pub type BoxedRequestFuture<R = Request> = Pin<Box<dyn Future<Output = R> + Send + 'static>>;
 
 pub trait AppState: Clone + Default + Send + Sync + 'static {}

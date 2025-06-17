@@ -5,7 +5,7 @@ use http::request::Parts;
 
 use crate::{
     responder::Responder,
-    types::{BoxedHandlerFuture, Request, Response},
+    types::{BoxedResponseFuture, Request, Response},
 };
 
 pub trait FromRequest<S, M = ()>: Sized {
@@ -130,7 +130,7 @@ impl_handler!([T1, T2, T3, T4, T5, T6, T7], T8);
 
 #[derive(Clone)]
 pub struct BoxedHandler<S> {
-    inner: Arc<dyn Fn(Request, S) -> BoxedHandlerFuture + Send + Sync>,
+    inner: Arc<dyn Fn(Request, S) -> BoxedResponseFuture + Send + Sync>,
     _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
@@ -142,7 +142,7 @@ impl<S> BoxedHandler<S> {
     {
         let inner = Arc::new(move |req: Request, state: S| {
             let handler = h.clone();
-            Box::pin(async move { handler.call(req.into(), state).await }) as BoxedHandlerFuture
+            Box::pin(async move { handler.call(req.into(), state).await }) as BoxedResponseFuture
         });
 
         Self {
@@ -151,7 +151,7 @@ impl<S> BoxedHandler<S> {
         }
     }
 
-    pub(crate) fn call(&self, req: Request, state: S) -> BoxedHandlerFuture {
+    pub(crate) fn call(&self, req: Request, state: S) -> BoxedResponseFuture {
         (self.inner)(req, state)
     }
 }
