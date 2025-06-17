@@ -1,10 +1,47 @@
-use hyper::{Method, Request, body::Incoming};
+use http::request::Parts;
+use hyper::Method;
 use tako::{
-    extractors::state::State,
-    handler::{Test, Test1, Test2},
+    handler::{FromRequest, FromRequestParts},
     responder::Responder,
     types::{AppState as AppStateTrait, Request as TakoRequest},
 };
+
+pub struct Test;
+pub struct Test1;
+pub struct Test2;
+
+impl<S, M> FromRequest<S, M> for Test {
+    type Rejection = ();
+
+    fn from_request(
+        _req: TakoRequest,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async { Ok(Test) }
+    }
+}
+
+impl<S> FromRequestParts<S> for Test1 {
+    type Rejection = ();
+
+    fn from_request_parts(
+        _req: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async { Ok(Test1) }
+    }
+}
+
+impl<S> FromRequestParts<S> for Test2 {
+    type Rejection = ();
+
+    fn from_request_parts(
+        _req: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async { Ok(Test2) }
+    }
+}
 
 #[derive(Clone, Default)]
 struct AppState {

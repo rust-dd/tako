@@ -17,43 +17,6 @@ pub trait FromRequest<S, M = ()>: Sized {
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send;
 }
 
-pub struct Test;
-pub struct Test1;
-pub struct Test2;
-
-impl<S, M> FromRequest<S, M> for Test {
-    type Rejection = ();
-
-    fn from_request(
-        _req: Request,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        async { Ok(Test) }
-    }
-}
-
-impl<S> FromRequestParts<S> for Test1 {
-    type Rejection = ();
-
-    fn from_request_parts(
-        _req: &mut Parts,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        async { Ok(Test1) }
-    }
-}
-
-impl<S> FromRequestParts<S> for Test2 {
-    type Rejection = ();
-
-    fn from_request_parts(
-        _req: &mut Parts,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
-        async { Ok(Test2) }
-    }
-}
-
 pub trait FromRequestParts<S>: Sized {
     type Rejection: Responder;
 
