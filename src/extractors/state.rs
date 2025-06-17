@@ -1,9 +1,43 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    convert::Infallible,
+    ops::{Deref, DerefMut},
+};
 
-use crate::types::AppState;
+use http::request::Parts;
 
-#[derive(Debug, Clone)]
+use crate::{handler::FromRequestParts, types::AppState};
+
+pub trait FromRef<T> {
+    fn from_ref(state: &T) -> Self;
+}
+
+impl<T> FromRef<T> for T
+where
+    T: Clone,
+{
+    fn from_ref(input: &T) -> Self {
+        input.clone()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct State<S>(pub S);
+
+impl<OuterState, InnerState> FromRequestParts<OuterState> for State<InnerState>
+where
+    InnerState: FromRef<OuterState>,
+    OuterState: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        _parts: &mut Parts,
+        state: &OuterState,
+    ) -> Result<Self, Self::Rejection> {
+        let inner_state = InnerState::from_ref(state);
+        Ok(Self(inner_state))
+    }
+}
 
 impl Default for State<()> {
     fn default() -> Self {

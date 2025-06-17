@@ -21,7 +21,7 @@ pub trait FromRequestParts<S>: Sized {
     type Rejection: Responder;
 
     fn from_request_parts(
-        req: &mut Parts,
+        parts: &mut Parts,
         state: &S,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send;
 }
