@@ -1,10 +1,7 @@
-use std::pin::Pin;
-
 use http::Method;
 
 use crate::{
     handler::BoxedHandler,
-    middleware::Middleware,
     types::{AppState, BoxedRequestFuture, Request},
 };
 
@@ -36,11 +33,10 @@ where
         F: Fn(Request) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Request> + Send + 'static,
     {
-        let wrapped = move |req: Request| -> Pin<Box<dyn Future<Output = Request> + Send>> {
-            Box::pin(f(req))
-        };
-
-        self.middlewares.push(Box::new(wrapped));
+        self.middlewares
+            .push(Box::new(move |req: Request| -> BoxedRequestFuture {
+                Box::pin(f(req))
+            }));
         self
     }
 }
