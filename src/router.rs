@@ -14,7 +14,7 @@ where
 {
     routes: AHashMap<(Method, String), Route<'a, S>>,
     state: S,
-    middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture>>,
+    middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>,
 }
 
 impl<'a, S> Router<'a, S>
@@ -61,7 +61,7 @@ where
     pub fn middleware<F, Fut>(&mut self, f: F)
     where
         F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Request> + Send + 'static,
+        Fut: Future<Output = Request> + Send + Sync + 'static,
     {
         self.middlewares
             .push(Box::new(move |req: Request| -> BoxedRequestFuture {

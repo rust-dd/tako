@@ -19,18 +19,22 @@ where
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 
-        // tokio::spawn(async move {
-        //     let svc = service_fn(|req: Request<_>| {
-        //         let router = router.clone();
-        //         async move { Ok::<_, Infallible>(router.dispatch(req).await) }
-        //     });
+        tokio::spawn({
+            let router = router.clone();
 
-        //     let http = http1::Builder::new();
-        //     let conn = http.serve_connection(io, svc);
+            async move {
+                let svc = Arc::new(service_fn(|req: Request<_>| {
+                    let router = router.clone();
+                    async move { Ok::<_, Infallible>(router.dispatch(req).await) }
+                }));
 
-        //     if let Err(err) = conn.await {
-        //         eprintln!("Error serving connection: {}", err);
-        //     }
-        // });
+                let http = http1::Builder::new();
+                let conn = http.serve_connection(io, svc);
+
+                if let Err(err) = conn.await {
+                    eprintln!("Error serving connection: {}", err);
+                }
+            }
+        });
     }
 }
