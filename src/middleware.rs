@@ -1,12 +1,11 @@
 use crate::types::{AppState, Request};
 
+#[async_trait::async_trait]
 pub trait Middleware<S>: Send + Sync + 'static
 where
     S: AppState,
 {
-    type Future: Future<Output = Request> + Send + 'static;
-
-    fn call(&self, request: Request) -> Self::Future;
+    async fn call(&self, _req: Request) -> Request;
 }
 
 pub struct Next;

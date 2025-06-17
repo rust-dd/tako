@@ -1,9 +1,11 @@
+use std::pin::Pin;
+
 use http::Method;
 
 use crate::{
     handler::BoxedHandler,
     middleware::Middleware,
-    types::{AppState, BoxedRequestFuture},
+    types::{AppState, BoxedRequestFuture, Request},
 };
 
 pub struct Route<'a, S>
@@ -13,7 +15,7 @@ where
     pub path: &'a str,
     pub method: Method,
     pub handler: BoxedHandler<S>,
-    pub middlewares: Vec<Box<dyn Middleware<S, Future = BoxedRequestFuture>>>,
+    middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture>>,
 }
 
 impl<'a, S> Route<'a, S>
@@ -29,11 +31,16 @@ where
         }
     }
 
-    pub fn middleware<M>(mut self, middleware: M) -> Self
+    pub fn middleware<F, Fut>(mut self, f: F) -> Self
     where
-        M: Middleware<S, Future = BoxedRequestFuture>,
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Request> + Send + 'static,
     {
-        self.middlewares.push(Box::new(middleware));
+        let wrapped = move |req: Request| -> Pin<Box<dyn Future<Output = Request> + Send>> {
+            Box::pin(f(req))
+        };
+
+        self.middlewares.push(Box::new(wrapped));
         self
     }
 }
