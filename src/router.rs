@@ -4,7 +4,7 @@ use hyper::Method;
 use crate::{
     body::TakoBody,
     handler::{BoxedHandler, Handler},
-    types::{AppState, Request, Response},
+    types::{AppState, BoxedHandlerFuture, Request, Response},
 };
 
 pub struct Router<S>
@@ -13,6 +13,7 @@ where
 {
     routes: AHashMap<(Method, String), BoxedHandler<S>>,
     state: S,
+    middlewares: Vec<Box<dyn FnOnce() -> () + Send + 'static>>,
 }
 
 impl<S> Router<S>
@@ -23,6 +24,7 @@ where
         Self {
             routes: AHashMap::default(),
             state: S::default(),
+            middlewares: Vec::new(),
         }
     }
 
