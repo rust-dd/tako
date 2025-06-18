@@ -3,6 +3,7 @@ use hyper::Method;
 use tako::{
     handler::{FromRequest, FromRequestParts},
     responder::Responder,
+    state::get_state,
     types::{AppState as AppStateTrait, Request as TakoRequest},
 };
 
@@ -44,17 +45,16 @@ impl<S> FromRequestParts<S> for Test2 {
 }
 
 #[derive(Clone, Default)]
-struct AppState {
+pub struct AppState {
     pub count: u32,
 }
 
-impl AppStateTrait for AppState {}
-
-pub async fn hello() -> impl Responder {
+pub async fn hello(_: TakoRequest) -> impl Responder {
     "Hello, World!".into_response()
 }
 
-pub async fn user_created(a: Test1, b: Test2, c: Test) -> impl Responder {
+pub async fn user_created(_: TakoRequest) -> impl Responder {
+    let state = get_state::<AppState>("app_state").unwrap();
     String::from("User created").into_response()
 }
 
@@ -69,10 +69,11 @@ async fn main() {
         .await
         .unwrap();
     let mut r = tako::router::Router::new();
-    let state = AppState { count: 0 };
-    r.state(state);
+    r.state("app_state", AppState::default());
 
-    r.route(Method::GET, "/", hello).middleware(middleware);
-    r.route::<_, ((), Test1, Test2, Test)>(Method::POST, "/user", user_created);
+    r.route(Method::GET, "/", hello)
+        .middleware(middleware)
+        .middleware(middleware);
+    r.route(Method::POST, "/user", user_created);
     tako::serve(listener, r).await;
 }
