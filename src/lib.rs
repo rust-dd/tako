@@ -1,7 +1,3 @@
-use tokio::net::TcpListener;
-
-use crate::router::Router;
-
 pub mod body;
 pub mod extractors;
 pub mod handler;
@@ -13,6 +9,4 @@ pub mod server;
 pub mod state;
 pub mod types;
 
-pub async fn serve(listener: TcpListener, router: Router<'static>) {
-    server::run(listener, router).await.unwrap();
-}
+pub use server::serve;
