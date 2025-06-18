@@ -11,12 +11,12 @@ use crate::{
     types::{BoxedRequestFuture, Request, Response},
 };
 
-pub struct Router<'a> {
-    routes: DashMap<(Method, String), Arc<Route<'a>>>,
+pub struct Router {
+    routes: DashMap<(Method, String), Arc<Route>>,
     middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>,
 }
 
-impl<'a> Router<'a> {
+impl Router {
     pub fn new() -> Self {
         Self {
             routes: DashMap::default(),
@@ -24,21 +24,32 @@ impl<'a> Router<'a> {
         }
     }
 
-    pub fn route<H>(&mut self, method: Method, path: &'a str, handler: H) -> Arc<Route<'a>>
+    pub fn route<H>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
     where
         H: Handler + Clone + 'static,
     {
-        let route = Arc::new(Route::new(path, method.clone(), BoxedHandler::new(handler)));
+        let route = Arc::new(Route::new(
+            path.to_string(),
+            method.clone(),
+            BoxedHandler::new(handler),
+        ));
         self.routes
             .insert((method.clone(), path.to_owned()), route.clone());
         route
     }
 
-    pub async fn dispatch(&self, req: Request) -> Response {
+    pub async fn dispatch(&self, mut req: Request) -> Response {
         let key = (req.method().clone(), req.uri().path().to_owned());
 
-        if let Some(h) = self.routes.get(&key) {
-            h.handler.call(req).await
+        if let Some(route) = self.routes.get(&key).map(|r| r.clone()) {
+            let r_mws = route.middlewares.read().await;
+            let mws = self.middlewares.iter().chain(r_mws.iter()).rev();
+
+            for mw in mws {
+                req = mw(req).await;
+            }
+
+            route.handler.call(req).await
         } else {
             hyper::Response::builder()
                 .status(404)

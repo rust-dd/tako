@@ -1,7 +1,6 @@
 pub mod body;
 pub mod extractors;
 pub mod handler;
-pub mod middleware;
 pub mod responder;
 pub mod route;
 pub mod router;

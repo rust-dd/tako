@@ -1,21 +1,23 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use http::Method;
+use tokio::sync::RwLock;
 
 use crate::{
     handler::BoxedHandler,
     types::{BoxedRequestFuture, Request},
 };
 
-pub struct Route<'a> {
-    pub path: &'a str,
+pub struct Route {
+    pub path: String,
     pub method: Method,
     pub handler: BoxedHandler,
-    middlewares: RwLock<Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>>,
+    pub middlewares:
+        RwLock<Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>>,
 }
 
-impl<'a> Route<'a> {
-    pub fn new(path: &'a str, method: Method, handler: BoxedHandler) -> Self {
+impl Route {
+    pub fn new(path: String, method: Method, handler: BoxedHandler) -> Self {
         Self {
             path,
             method,
@@ -27,12 +29,17 @@ impl<'a> Route<'a> {
     pub fn middleware<F, Fut>(self: Arc<Self>, f: F) -> Arc<Self>
     where
         F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Request> + Send + Sync + 'static,
+        Fut: Future<Output = Request> + Send + 'static,
     {
-        let mut lock = self.middlewares.write().unwrap();
-        lock.push(Box::new(move |req: Request| -> BoxedRequestFuture {
-            Box::pin(f(req))
-        }));
-        self.clone()
+        let this = self.clone();
+
+        tokio::spawn(async move {
+            let mut lock = this.middlewares.write().await;
+            lock.push(Box::new(move |req: Request| -> BoxedRequestFuture {
+                Box::pin(f(req))
+            }));
+        });
+
+        self
     }
 }

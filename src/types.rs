@@ -13,5 +13,3 @@ pub type BoxedBody = UnsyncBoxBody<Bytes, BoxedError>;
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 pub type BoxedResponseFuture<R = Response> = Pin<Box<dyn Future<Output = R> + Send + 'static>>;
 pub type BoxedRequestFuture<R = Request> = Pin<Box<dyn Future<Output = R> + Send + 'static>>;
-
-pub trait AppState: Clone + Default + Send + Sync + 'static {}
