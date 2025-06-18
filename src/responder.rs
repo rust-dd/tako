@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use bytes::Bytes;
 use http::Response;
 use http_body_util::Full;
@@ -31,5 +33,11 @@ impl Responder for String {
 impl Responder for () {
     fn into_response(self) -> Response<TakoBody> {
         Response::new(TakoBody::empty())
+    }
+}
+
+impl Responder for Infallible {
+    fn into_response(self) -> Response<TakoBody> {
+        match self {}
     }
 }

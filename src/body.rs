@@ -8,15 +8,15 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Body, Frame, SizeHint};
 
-use crate::types::{BoxBody, BoxError};
+use crate::types::{BoxedBody, BoxedError};
 
-pub struct TakoBody(BoxBody);
+pub struct TakoBody(BoxedBody);
 
 impl TakoBody {
     pub fn new<B>(body: B) -> Self
     where
         B: Body<Data = Bytes> + Send + 'static,
-        B::Error: Into<BoxError>,
+        B::Error: Into<BoxedError>,
     {
         Self(body.map_err(|e| e.into()).boxed_unsync())
     }
@@ -34,7 +34,7 @@ impl Default for TakoBody {
 
 impl Body for TakoBody {
     type Data = Bytes;
-    type Error = BoxError;
+    type Error = BoxedError;
 
     fn poll_frame(
         mut self: Pin<&mut Self>,

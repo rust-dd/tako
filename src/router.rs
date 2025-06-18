@@ -1,44 +1,44 @@
-use ahash::AHashMap;
+use std::sync::Arc;
+
+use dashmap::DashMap;
 use hyper::Method;
 
 use crate::{
     body::TakoBody,
     handler::{BoxedHandler, Handler},
-    types::{AppState, Request, Response},
+    route::Route,
+    state::set_state,
+    types::{BoxedRequestFuture, Request, Response},
 };
 
-pub struct Router<S>
-where
-    S: AppState + Clone + Default,
-{
-    routes: AHashMap<(Method, String), BoxedHandler<S>>,
-    state: S,
+pub struct Router<'a> {
+    routes: DashMap<(Method, String), Arc<Route<'a>>>,
+    middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>,
 }
 
-impl<S> Router<S>
-where
-    S: AppState + Clone + Default,
-{
+impl<'a> Router<'a> {
     pub fn new() -> Self {
         Self {
-            routes: AHashMap::default(),
-            state: S::default(),
+            routes: DashMap::default(),
+            middlewares: Vec::new(),
         }
     }
 
-    pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H)
+    pub fn route<H>(&mut self, method: Method, path: &'a str, handler: H) -> Arc<Route<'a>>
     where
-        H: Handler<T, S> + Clone + 'static,
+        H: Handler + Clone + 'static,
     {
+        let route = Arc::new(Route::new(path, method.clone(), BoxedHandler::new(handler)));
         self.routes
-            .insert((method, path.to_owned()), BoxedHandler::new(handler));
+            .insert((method.clone(), path.to_owned()), route.clone());
+        route
     }
 
     pub async fn dispatch(&self, req: Request) -> Response {
         let key = (req.method().clone(), req.uri().path().to_owned());
 
         if let Some(h) = self.routes.get(&key) {
-            h.call(req, self.state.clone()).await
+            h.handler.call(req).await
         } else {
             hyper::Response::builder()
                 .status(404)
@@ -47,7 +47,18 @@ where
         }
     }
 
-    pub fn state(&mut self, state: S) {
-        self.state = state;
+    pub fn state<T: Clone + Send + Sync + 'static>(&mut self, key: &str, value: T) {
+        set_state(key, value);
+    }
+
+    pub fn middleware<F, Fut>(&mut self, f: F)
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Request> + Send + Sync + 'static,
+    {
+        self.middlewares
+            .push(Box::new(move |req: Request| -> BoxedRequestFuture {
+                Box::pin(f(req))
+            }));
     }
 }
