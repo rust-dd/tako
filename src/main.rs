@@ -1,6 +1,7 @@
 use hyper::Method;
+use serde::Deserialize;
 use tako::{
-    extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap},
+    extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     responder::Responder,
     state::get_state,
     types::Request,
@@ -18,8 +19,32 @@ pub async fn hello(mut req: Request) -> impl Responder {
     "Hello, World!".into_response()
 }
 
-pub async fn user_created(_: Request) -> impl Responder {
+#[derive(Deserialize, Debug)]
+pub struct Par {
+    pub id: u32,
+}
+
+pub async fn user_created(mut req: Request) -> impl Responder {
     let state = get_state::<AppState>("app_state").unwrap();
+    let Params(params) = Params::<Par>::from_request(&mut req).await.unwrap();
+    println!("User ID: {:?}", params);
+
+    String::from("User created").into_response()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UserCompanyParams {
+    pub user_id: u32,
+    pub company_id: u32,
+}
+
+pub async fn user_company(mut req: Request) -> impl Responder {
+    let state = get_state::<AppState>("app_state").unwrap();
+    let Params(params) = Params::<UserCompanyParams>::from_request(&mut req)
+        .await
+        .unwrap();
+    println!("User ID: {:?}", params);
+
     String::from("User created").into_response()
 }
 
@@ -39,6 +64,12 @@ async fn main() {
     r.route(Method::GET, "/", hello)
         .middleware(middleware)
         .middleware(middleware);
-    r.route(Method::POST, "/user", user_created);
+    r.route_with_tsr(Method::POST, "/user", user_created);
+    r.route_with_tsr(Method::POST, "/user/{id}", user_created);
+    r.route_with_tsr(
+        Method::POST,
+        "/user/{user_id}/company/{company_id}",
+        user_company,
+    );
     tako::serve(listener, r).await;
 }

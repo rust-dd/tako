@@ -6,6 +6,7 @@ use crate::types::Request;
 pub mod bytes;
 pub mod header_map;
 pub mod json;
+pub mod params;
 pub mod path;
 pub mod query;
 
