@@ -10,7 +10,7 @@ use crate::{
     responder::Responder,
     route::Route,
     state::set_state,
-    types::{BoxedMiddleware, BoxedRequestFuture, Request, Response},
+    types::{BoxedMiddleware, Request, Response},
 };
 
 pub struct Router {
