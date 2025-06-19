@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
 use http::Method;
 use regex::Regex;
 use tokio::sync::RwLock;
