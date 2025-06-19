@@ -1,10 +1,12 @@
+use http::StatusCode;
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
+    body::TakoBody,
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     responder::Responder,
     state::get_state,
-    types::Request,
+    types::{Request, Response},
 };
 
 #[derive(Clone, Default)]
@@ -48,9 +50,16 @@ pub async fn user_company(mut req: Request) -> impl Responder {
     String::from("User created").into_response()
 }
 
-pub async fn middleware(req: Request) -> Request {
+pub async fn middleware(req: Request) -> Result<Request, Response> {
     // Your middleware logic here
-    req
+    if false {
+        return Err(hyper::Response::builder()
+            .status(401)
+            .body(TakoBody::empty())
+            .unwrap()
+            .into_response());
+    }
+    Ok(req)
 }
 
 #[tokio::main]

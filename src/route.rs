@@ -1,12 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Result;
 use http::Method;
 use regex::Regex;
 use tokio::sync::RwLock;
 
 use crate::{
     handler::BoxedHandler,
-    types::{BoxedRequestFuture, Request},
+    responder::Responder,
+    types::{BoxedMiddleware, Request},
 };
 
 pub struct Route {
@@ -16,8 +18,7 @@ pub struct Route {
     pub param_names: Vec<String>,
     pub method: Method,
     pub handler: BoxedHandler,
-    pub middlewares:
-        RwLock<Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>>,
+    pub middlewares: RwLock<Vec<BoxedMiddleware>>,
     pub tsr: bool,
 }
 
@@ -38,18 +39,26 @@ impl Route {
         }
     }
 
-    pub fn middleware<F, Fut>(self: Arc<Self>, f: F) -> Arc<Self>
+    pub fn middleware<F, Fut, R>(self: Arc<Self>, f: F) -> Arc<Self>
     where
-        F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Request> + Send + 'static,
+        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<Request, R>> + Send + 'static,
+        R: Responder + Send + 'static,
     {
-        let this = self.clone();
+        let mw: BoxedMiddleware = Box::new(move |req: Request| {
+            let f = f.clone();
+            Box::pin(async move {
+                match f(req).await {
+                    Ok(req) => Ok(req),
+                    Err(resp) => Err(resp.into_response()),
+                }
+            })
+        });
 
+        let this = self.clone();
         tokio::spawn(async move {
             let mut lock = this.middlewares.write().await;
-            lock.push(Box::new(move |req: Request| -> BoxedRequestFuture {
-                Box::pin(f(req))
-            }));
+            lock.push(mw);
         });
 
         self

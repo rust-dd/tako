@@ -7,14 +7,15 @@ use crate::{
     body::TakoBody,
     extractors::params::PathParams,
     handler::{BoxedHandler, Handler},
+    responder::Responder,
     route::Route,
     state::set_state,
-    types::{BoxedRequestFuture, Request, Response},
+    types::{BoxedMiddleware, BoxedRequestFuture, Request, Response},
 };
 
 pub struct Router {
     routes: DashMap<(Method, String), Arc<Route>>,
-    middlewares: Vec<Box<dyn Fn(Request) -> BoxedRequestFuture + Send + Sync + 'static>>,
+    middlewares: Vec<BoxedMiddleware>,
 }
 
 impl Router {
@@ -75,7 +76,10 @@ impl Router {
                 let mws = self.middlewares.iter().chain(r_mws.iter()).rev();
 
                 for mw in mws {
-                    req = mw(req).await;
+                    match mw(req).await {
+                        Ok(r) => req = r,
+                        Err(resp) => return resp,
+                    }
                 }
 
                 return route.handler.call(req).await;
@@ -108,14 +112,22 @@ impl Router {
         set_state(key, value);
     }
 
-    pub fn middleware<F, Fut>(&mut self, f: F)
+    pub fn middleware<F, Fut, R>(&mut self, f: F)
     where
-        F: Fn(Request) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Request> + Send + Sync + 'static,
+        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = Result<Request, R>> + Send + 'static,
+        R: Responder + Send + 'static,
     {
-        self.middlewares
-            .push(Box::new(move |req: Request| -> BoxedRequestFuture {
-                Box::pin(f(req))
-            }));
+        let mw: BoxedMiddleware = Box::new(move |req: Request| {
+            let f = f.clone();
+            Box::pin(async move {
+                match f(req).await {
+                    Ok(r) => Ok(r),
+                    Err(e) => Err(e.into_response()),
+                }
+            })
+        });
+
+        self.middlewares.push(mw);
     }
 }
