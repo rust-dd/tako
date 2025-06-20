@@ -1,12 +1,16 @@
+use std::time::Duration;
+
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
     body::TakoBody,
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     responder::Responder,
+    sse::{SseBytes, SseString},
     state::get_state,
     types::{Request, Response},
 };
+use tokio_stream::{StreamExt, wrappers::IntervalStream};
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -49,8 +53,21 @@ pub async fn user_company(mut req: Request) -> impl Responder {
     String::from("User created").into_response()
 }
 
+pub async fn sse_string_handler(_: Request) -> impl Responder {
+    let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
+        .map(|_| "Hello".to_string());
+
+    SseString { stream }
+}
+
+pub async fn sse_bytes_handler(_: Request) -> impl Responder {
+    let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
+        .map(|_| bytes::Bytes::from("data: hello\n\n"));
+
+    SseBytes { stream }
+}
+
 pub async fn middleware(req: Request) -> Result<Request, Response> {
-    // Your middleware logic here
     if false {
         return Err(hyper::Response::builder()
             .status(401)
@@ -79,5 +96,7 @@ async fn main() {
         "/user/{user_id}/company/{company_id}",
         user_company,
     );
+    r.route_with_tsr(Method::GET, "/sse/string", sse_string_handler);
+    r.route_with_tsr(Method::GET, "/sse/bytes", sse_bytes_handler);
     tako::serve(listener, r).await;
 }
