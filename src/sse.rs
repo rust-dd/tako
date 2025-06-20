@@ -50,14 +50,12 @@ where
             .stream
             .map(|msg| Ok::<_, Infallible>(hyper::body::Frame::data(msg)));
 
-        let body = TakoBody::new(StreamBody::new(stream));
-
         http::Response::builder()
             .status(200)
             .header(header::CONTENT_TYPE, "text/event-stream")
             .header(header::CACHE_CONTROL, "no-cache")
             .header(header::CONNECTION, "keep-alive")
-            .body(body)
+            .body(TakoBody::new(StreamBody::new(stream)))
             .unwrap()
     }
 }
