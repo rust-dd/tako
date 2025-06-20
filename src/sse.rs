@@ -1,54 +1,47 @@
 use std::convert::Infallible;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http::header;
 use http_body_util::StreamBody;
 use tokio_stream::{Stream, StreamExt};
 
-use crate::{body::TakoBody, responder::Responder, types::Response};
+use crate::{body::TakoBody, bytes::TakoBytes, responder::Responder, types::Response};
 
-pub struct SseString<S>
+const PREFIX: &[u8] = b"data: ";
+const SUFFIX: &[u8] = b"\n\n";
+
+const fn ps_len() -> usize {
+    PREFIX.len() + SUFFIX.len()
+}
+
+pub struct Sse<S>
 where
-    S: Stream<Item = String> + Send + 'static,
+    S: Stream<Item = TakoBytes> + Send + 'static,
 {
     pub stream: S,
 }
 
-impl<S> Responder for SseString<S>
+impl<S> Sse<S>
 where
-    S: Stream<Item = String> + Send + 'static,
+    S: Stream<Item = TakoBytes> + Send + 'static,
 {
-    fn into_response(self) -> Response {
-        let stream = self.stream.map(|msg| {
-            let bytes = Bytes::from(format!("data: {}\n\n", msg));
-            Ok::<_, Infallible>(hyper::body::Frame::data(bytes))
-        });
-
-        http::Response::builder()
-            .status(200)
-            .header(header::CONTENT_TYPE, "text/event-stream")
-            .header(header::CACHE_CONTROL, "no-cache")
-            .header(header::CONNECTION, "keep-alive")
-            .body(TakoBody::new(StreamBody::new(stream)))
-            .unwrap()
+    pub fn new(stream: S) -> Self {
+        Self { stream }
     }
 }
 
-pub struct SseBytes<S>
+impl<S> Responder for Sse<S>
 where
-    S: Stream<Item = Bytes> + Send + 'static,
-{
-    pub stream: S,
-}
-
-impl<S> Responder for SseBytes<S>
-where
-    S: Stream<Item = Bytes> + Send + 'static,
+    S: Stream<Item = TakoBytes> + Send + 'static,
 {
     fn into_response(self) -> Response {
-        let stream = self
-            .stream
-            .map(|msg| Ok::<_, Infallible>(hyper::body::Frame::data(msg)));
+        let stream = self.stream.map(|TakoBytes(msg)| {
+            let mut buf = BytesMut::with_capacity(ps_len() + msg.len());
+            buf.extend_from_slice(PREFIX);
+            buf.extend_from_slice(&msg);
+            buf.extend_from_slice(SUFFIX);
+            Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from(buf)))
+        });
 
         http::Response::builder()
             .status(200)

@@ -1,4 +1,5 @@
 pub mod body;
+pub mod bytes;
 pub mod extractors;
 pub mod handler;
 pub mod responder;

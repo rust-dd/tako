@@ -6,7 +6,7 @@ use tako::{
     body::TakoBody,
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     responder::Responder,
-    sse::{SseBytes, SseString},
+    sse::Sse,
     state::get_state,
     types::{Request, Response},
 };
@@ -55,16 +55,16 @@ pub async fn user_company(mut req: Request) -> impl Responder {
 
 pub async fn sse_string_handler(_: Request) -> impl Responder {
     let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
-        .map(|_| "Hello".to_string());
+        .map(|_| "Hello".to_string().into());
 
-    SseString { stream }
+    Sse::new(stream)
 }
 
 pub async fn sse_bytes_handler(_: Request) -> impl Responder {
     let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(1)))
-        .map(|_| bytes::Bytes::from("data: hello\n\n"));
+        .map(|_| bytes::Bytes::from("hello").into());
 
-    SseBytes { stream }
+    Sse::new(stream)
 }
 
 pub async fn middleware(req: Request) -> Result<Request, Response> {
