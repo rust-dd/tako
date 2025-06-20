@@ -1,4 +1,3 @@
-use http::StatusCode;
 use hyper::Method;
 use serde::Deserialize;
 use tako::{

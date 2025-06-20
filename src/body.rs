@@ -32,10 +32,29 @@ impl Default for TakoBody {
     }
 }
 
+impl From<()> for TakoBody {
+    fn from(_: ()) -> Self {
+        Self::empty()
+    }
+}
+
+macro_rules! body_from_impl {
+    ($ty:ty) => {
+        impl From<$ty> for TakoBody {
+            fn from(buf: $ty) -> Self {
+                Self::new(http_body_util::Full::from(buf))
+            }
+        }
+    };
+}
+
+body_from_impl!(String);
+
 impl Body for TakoBody {
     type Data = Bytes;
     type Error = BoxedError;
 
+    #[inline]
     fn poll_frame(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -43,10 +62,12 @@ impl Body for TakoBody {
         Pin::new(&mut self.0).poll_frame(cx)
     }
 
+    #[inline]
     fn size_hint(&self) -> SizeHint {
         self.0.size_hint()
     }
 
+    #[inline]
     fn is_end_stream(&self) -> bool {
         self.0.is_end_stream()
     }
