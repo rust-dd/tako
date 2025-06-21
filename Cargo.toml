@@ -1,5 +1,5 @@
 [package]
-name = "tako"
+name = "tako-rs"
 version = "0.1.0"
 edition = "2024"
 description = "Tako is a lightweight async web framework for Rust."
@@ -9,7 +9,7 @@ authors = ["Daniel Boros <dancixx@gmail.com>"]
 keywords = ["web", "framework", "async", "rust"]
 categories = ["web-programming", "asynchronous", "http-server"]
 readme = "README.md"
-documentation = "https://docs.rs/tako"
+documentation = "https://docs.rs/tako-rs"
 homepage = "https://github.com/rust-dd/tako"
 
 [dependencies]
