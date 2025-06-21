@@ -186,7 +186,12 @@ async fn main() -> anyhow::Result<()> {
     router.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
 
     // Start the server (HTTP/1.1 — HTTP/2 coming soon!)
-    tako::serve(listener, router).await;
+    #[cfg(not(feature = "tls"))]
+    tako::serve(listener, r).await;
+
+    #[cfg(feature = "tls")]
+    tako::serve_tls(listener, r).await;
+
     Ok(())
 }
 ```
