@@ -12,3 +12,9 @@ pub mod types;
 pub mod ws;
 
 pub use server::serve;
+
+#[cfg(feature = "tls")]
+pub mod server_tls;
+
+#[cfg(feature = "tls")]
+pub use server_tls::serve_tls;

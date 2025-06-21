@@ -152,5 +152,10 @@ async fn main() {
     r.route_with_tsr(Method::GET, "/sse/bytes", sse_bytes_handler);
     r.route_with_tsr(Method::GET, "/ws/echo", ws_echo);
     r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
+
+    #[cfg(not(feature = "tls"))]
     tako::serve(listener, r).await;
+
+    #[cfg(feature = "tls")]
+    tako::serve_tls(listener, r).await;
 }
