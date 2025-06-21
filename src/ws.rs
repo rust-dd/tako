@@ -4,10 +4,10 @@ use crate::{
     types::{Request, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use futures_util::FutureExt; // for catch_unwind
+use futures_util::FutureExt;
 use http::header;
 use hyper::upgrade::Upgraded;
-use hyper_util::rt::TokioIo; // <‑‑ adapter
+use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
 use std::future::Future;
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
