@@ -13,21 +13,22 @@ pub type Request = hyper::Request<Incoming>;
 pub type Response = hyper::Response<TakoBody>;
 
 /// A boxed body type used for HTTP responses, combining `Bytes` data with a boxed error type.
-pub type BoxedBody = UnsyncBoxBody<Bytes, BoxedError>;
+pub(crate) type BoxedBody = UnsyncBoxBody<Bytes, BoxedError>;
 
 /// A boxed error type that can be sent across threads and is compatible with dynamic dispatch.
-pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
+pub(crate) type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 
 /// A boxed future that resolves to an HTTP response. The default type is `Response`.
-pub type BoxedResponseFuture<R = Response> = Pin<Box<dyn Future<Output = R> + Send + 'static>>;
+pub(crate) type BoxedResponseFuture<R = Response> =
+    Pin<Box<dyn Future<Output = R> + Send + 'static>>;
 
 /// A boxed future that resolves to either a `Request` or a `Response` in case of an error.
-pub type BoxedRequestFuture =
+pub(crate) type BoxedRequestFuture =
     Pin<Box<dyn Future<Output = Result<Request, Response>> + Send + 'static>>;
 
 /// A boxed middleware function that processes a `Request` and returns either a modified `Request`
 /// or a `Response` in case of an error.
-pub type BoxedMiddleware = Box<
+pub(crate) type BoxedMiddleware = Box<
     dyn Fn(Request) -> Pin<Box<dyn Future<Output = Result<Request, Response>> + Send>>
         + Send
         + Sync

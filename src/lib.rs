@@ -8,25 +8,25 @@
 pub mod body;
 
 /// Module for working with byte streams and buffers.
-pub mod bytes;
+mod bytes;
 
 /// Module for extracting data from requests, such as query parameters or JSON payloads.
 pub mod extractors;
 
 /// Module for defining and managing request handlers.
-pub mod handler;
+mod handler;
 
 /// Module for creating and sending HTTP responses.
 pub mod responder;
 
 /// Module for defining application routes and their handlers.
-pub mod route;
+mod route;
 
 /// Module for managing the application's routing logic.
 pub mod router;
 
 /// Module for starting and managing the web server.
-pub mod server;
+mod server;
 
 /// Module for handling Server-Sent Events (SSE).
 pub mod sse;
