@@ -10,7 +10,7 @@ use tako::{
     sse::Sse,
     state::get_state,
     types::{Request, Response},
-    ws::WsResponder,
+    ws::TakoWs,
 };
 use tokio_stream::wrappers::IntervalStream;
 use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
@@ -71,7 +71,7 @@ pub async fn sse_bytes_handler(_: Request) -> impl Responder {
 }
 
 pub async fn ws_echo(req: Request) -> impl Responder {
-    WsResponder::new(req, |mut ws| async move {
+    TakoWs::new(req, |mut ws| async move {
         let _ = ws.send(Message::Text("Welcome to Tako WS!".into())).await;
 
         while let Some(Ok(msg)) = ws.next().await {
@@ -98,7 +98,7 @@ pub async fn ws_echo(req: Request) -> impl Responder {
 }
 
 pub async fn ws_tick(req: Request) -> impl Responder {
-    WsResponder::new(req, |mut ws| async move {
+    TakoWs::new(req, |mut ws| async move {
         let mut ticker =
             IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).enumerate();
 

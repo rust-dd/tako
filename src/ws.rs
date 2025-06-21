@@ -12,7 +12,7 @@ use sha1::{Digest, Sha1};
 use std::future::Future;
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
-pub struct WsResponder<H, Fut>
+pub struct TakoWs<H, Fut>
 where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
@@ -21,7 +21,7 @@ where
     handler: H,
 }
 
-impl<H, Fut> WsResponder<H, Fut>
+impl<H, Fut> TakoWs<H, Fut>
 where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
@@ -31,7 +31,7 @@ where
     }
 }
 
-impl<H, Fut> Responder for WsResponder<H, Fut>
+impl<H, Fut> Responder for TakoWs<H, Fut>
 where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
