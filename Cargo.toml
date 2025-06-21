@@ -9,6 +9,7 @@ async-trait = "0.1.88"
 base64 = "0.22.1"
 bytes = "1.10.1"
 dashmap = "6.1.0"
+futures-util = "0.3.31"
 http = "1.3.1"
 http-body-util = "0.1.3"
 hyper = { version = "1.6.0", features = ["full"] }
@@ -21,4 +22,5 @@ sha1 = "0.10.6"
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-stream = "0.1.17"
 tokio-tungstenite = "0.27.0"
+tokio-util = { version = "0.7.15", features = ["compat"] }
 url = "2.5.4"

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures_util::{SinkExt, StreamExt};
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
@@ -9,8 +10,10 @@ use tako::{
     sse::Sse,
     state::get_state,
     types::{Request, Response},
+    ws::WsResponder,
 };
-use tokio_stream::{StreamExt, wrappers::IntervalStream};
+use tokio_stream::wrappers::IntervalStream;
+use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -67,6 +70,55 @@ pub async fn sse_bytes_handler(_: Request) -> impl Responder {
     Sse::new(stream)
 }
 
+pub async fn ws_echo(req: Request) -> impl Responder {
+    WsResponder::new(req, |mut ws| async move {
+        let _ = ws.send(Message::Text("Welcome to Tako WS!".into())).await;
+
+        while let Some(Ok(msg)) = ws.next().await {
+            match msg {
+                Message::Text(txt) => {
+                    let _ = ws
+                        .send(Message::Text(Utf8Bytes::from(format!("Echo: {txt}"))))
+                        .await;
+                }
+                Message::Binary(bin) => {
+                    let _ = ws.send(Message::Binary(bin)).await;
+                }
+                Message::Ping(p) => {
+                    let _ = ws.send(Message::Pong(p)).await;
+                }
+                Message::Close(_) => {
+                    let _ = ws.send(Message::Close(None)).await;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    })
+}
+
+pub async fn ws_tick(req: Request) -> impl Responder {
+    WsResponder::new(req, |mut ws| async move {
+        let mut ticker =
+            IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).enumerate();
+
+        loop {
+            tokio::select! {
+                msg = ws.next() => {
+                    match msg {
+                        Some(Ok(Message::Close(_))) | None => break,
+                        _ => {}
+                    }
+                }
+
+                Some((i, _)) = ticker.next() => {
+                    let _ = ws.send(Message::Text(Utf8Bytes::from(format!("tick #{i}")))).await;
+                }
+            }
+        }
+    })
+}
+
 pub async fn middleware(req: Request) -> Result<Request, Response> {
     if false {
         return Err(hyper::Response::builder()
@@ -98,5 +150,7 @@ async fn main() {
     );
     r.route_with_tsr(Method::GET, "/sse/string", sse_string_handler);
     r.route_with_tsr(Method::GET, "/sse/bytes", sse_bytes_handler);
+    r.route_with_tsr(Method::GET, "/ws/echo", ws_echo);
+    r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
     tako::serve(listener, r).await;
 }

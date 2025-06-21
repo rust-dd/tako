@@ -9,5 +9,6 @@ pub mod server;
 pub mod sse;
 pub mod state;
 pub mod types;
+pub mod ws;
 
 pub use server::serve;

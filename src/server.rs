@@ -26,8 +26,9 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError> {
                 async move { Ok::<_, Infallible>(router.dispatch(req).await) }
             }));
 
-            let http = http1::Builder::new();
-            let conn = http.serve_connection(io, svc);
+            let mut http = http1::Builder::new();
+            http.keep_alive(true);
+            let conn = http.serve_connection(io, svc).with_upgrades();
 
             if let Err(err) = conn.await {
                 eprintln!("Error serving connection: {}", err);
