@@ -40,3 +40,6 @@ url = "2.5.4"
 [features]
 default = []
 tls = ["tokio-rustls", "rustls", "rustls-pemfile"]
+
+[lib]
+name = "tako"
