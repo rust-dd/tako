@@ -1,3 +1,7 @@
+/// This module provides the `TakoWs` struct, which is used to handle WebSocket connections.
+///
+/// The `TakoWs` struct allows for the creation of WebSocket handlers that can process
+/// WebSocket streams and respond to WebSocket upgrade requests.
 use crate::{
     body::TakoBody,
     responder::Responder,
@@ -12,6 +16,34 @@ use sha1::{Digest, Sha1};
 use std::future::Future;
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
+/// The `TakoWs` struct represents a WebSocket handler.
+///
+/// This struct is used to handle WebSocket upgrade requests and process WebSocket streams.
+///
+/// # Example
+///
+/// ```rust
+/// use tako::ws::TakoWs;
+/// use hyper::Request;
+/// use tokio_tungstenite::WebSocketStream;
+/// use hyper_util::rt::TokioIo;
+/// use futures_util::StreamExt;
+///
+/// async fn websocket_handler(ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
+///     let (mut write, mut read) = ws.split();
+///     while let Some(Ok(msg)) = read.next().await {
+///         // Process WebSocket messages here
+///     }
+/// }
+///
+/// let request: Request<_> = /* incoming request */;
+/// let ws_handler = TakoWs::new(request, websocket_handler);
+/// ```
+///
+/// # Type Parameters
+///
+/// * `H` - The handler function type.
+/// * `Fut` - The future returned by the handler function.
 pub struct TakoWs<H, Fut>
 where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
@@ -26,6 +58,16 @@ where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
+    /// Creates a new `TakoWs` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The incoming HTTP request to be upgraded to a WebSocket connection.
+    /// * `handler` - A function that processes the WebSocket stream.
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `TakoWs`.
     pub fn new(request: Request, handler: H) -> Self {
         Self { request, handler }
     }
@@ -36,6 +78,14 @@ where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
+    /// Converts the `TakoWs` instance into an HTTP response.
+    ///
+    /// This method handles the WebSocket upgrade request and spawns a task to process
+    /// the WebSocket stream using the provided handler.
+    ///
+    /// # Returns
+    ///
+    /// An HTTP response indicating the result of the WebSocket upgrade.
     fn into_response(self) -> Response {
         let (parts, body) = self.request.into_parts();
         let req = http::Request::from_parts(parts, body);
