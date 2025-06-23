@@ -15,6 +15,9 @@ use crate::{
     types::{BoxedMiddleware, Request, Response},
 };
 
+#[cfg(feature = "plugins")]
+use crate::plugins::TakoPlugin;
+
 /// The `Router` struct is responsible for managing the application's routes and middleware.
 /// It provides methods to define routes, apply middleware, and dispatch incoming requests.
 ///
@@ -33,6 +36,8 @@ use crate::{
 pub struct Router {
     routes: DashMap<(Method, String), Arc<Route>>,
     middlewares: Vec<BoxedMiddleware>,
+    #[cfg(feature = "plugins")]
+    plugins: Vec<Box<dyn TakoPlugin>>,
 }
 
 impl Router {
@@ -45,6 +50,8 @@ impl Router {
         Self {
             routes: DashMap::default(),
             middlewares: Vec::new(),
+            #[cfg(feature = "plugins")]
+            plugins: Vec::new(),
         }
     }
 

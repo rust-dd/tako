@@ -16,6 +16,10 @@ pub mod extractors;
 /// Module for defining and managing request handlers.
 mod handler;
 
+/// Module for defining and managing plugins.
+#[cfg(feature = "plugins")]
+pub mod plugins;
+
 /// Module for creating and sending HTTP responses.
 pub mod responder;
 
