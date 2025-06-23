@@ -3,6 +3,8 @@
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible async web framework for Rust.
 > It aims to keep the mental model small while giving you first‑class performance and modern conveniences out‑of‑the‑box.
 
+> **⚠️ Early‑stage software:** Tako is still under active development; use with caution and expect breaking changes.
+
 ---
 
 ## ✨ Highlights
@@ -11,7 +13,7 @@
 * **Extractor system** — Strongly‑typed request extractors for headers, query/body params, JSON, form data, etc.
 * **Streaming & SSE** — Built‑in helpers for Server‑Sent Events *and* arbitrary `Stream` responses.
 * **Middleware** — Compose synchronous or async middleware functions with minimal boilerplate.
-* **Shared State** — Application‑wide state injection.
+* **Shared State** — Application‑wide state injection without `unsafe` globals.
 * **Plugin system** — Opt‑in extensions let you add functionality without cluttering the core API.
 * **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2 & TLS** support.
 
