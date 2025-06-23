@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::router::Router;
 
+pub mod compression;
 pub mod cors;
 pub mod rate_limiter;
 

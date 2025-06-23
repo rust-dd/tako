@@ -91,6 +91,8 @@ macro_rules! body_from_impl {
 }
 
 body_from_impl!(String);
+body_from_impl!(Vec<u8>);
+body_from_impl!(Bytes);
 
 /// Implements the `Body` trait for `TakoBody`, allowing it to be used as an HTTP body.
 ///
