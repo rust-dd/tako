@@ -6,10 +6,6 @@ use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     middleware::Next,
-    plugins::{
-        cors::CorsPlugin,
-        rate_limiter::{RateLimiterBuilder, RateLimiterPlugin},
-    },
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -18,6 +14,12 @@ use tako::{
 };
 use tokio_stream::wrappers::IntervalStream;
 use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
+
+#[cfg(feature = "plugins")]
+use tako::plugins::{
+    cors::CorsPlugin,
+    rate_limiter::{RateLimiterBuilder, RateLimiterPlugin},
+};
 
 #[derive(Clone, Default)]
 pub struct AppState {
@@ -167,7 +169,11 @@ async fn main() {
     r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
 
     r.middleware(middleware3).middleware(middleware4);
+
+    #[cfg(feature = "plugins")]
     r.plugin(CorsPlugin::default());
+
+    #[cfg(feature = "plugins")]
     r.plugin(
         RateLimiterBuilder::new()
             .burst_size(5)

@@ -1,3 +1,20 @@
+/// The `CorsPlugin` provides Cross-Origin Resource Sharing (CORS) functionality for the Tako framework.
+/// It allows you to configure and enforce CORS policies, including allowed origins, methods, headers, and credentials.
+///
+/// # Example
+/// ```rust
+/// use tako::plugins::cors::CorsBuilder;
+/// use http::Method;
+///
+/// let cors = CorsBuilder::new()
+///     .allow_origin("https://example.com")
+///     .allow_methods(&[Method::GET, Method::POST])
+///     .allow_credentials(true)
+///     .max_age_secs(86400)
+///     .build();
+///
+/// router.plugin(cors);
+/// ```
 use anyhow::Result;
 use http::{
     HeaderName, HeaderValue, Method, StatusCode,
@@ -16,6 +33,9 @@ use crate::{
     types::{Request, Response},
 };
 
+/// Configuration for the `CorsPlugin`.
+///
+/// This struct defines the CORS settings, including allowed origins, methods, headers, and other options.
 #[derive(Clone)]
 pub struct Config {
     pub origins: Vec<String>,
@@ -44,6 +64,20 @@ impl Default for Config {
     }
 }
 
+/// Builder for the `CorsPlugin`.
+///
+/// The `CorsBuilder` provides a fluent interface for configuring the `CorsPlugin`.
+/// You can specify allowed origins, methods, headers, and other options.
+///
+/// # Example
+/// ```rust
+/// let cors = CorsBuilder::new()
+///     .allow_origin("https://example.com")
+///     .allow_methods(&[Method::GET, Method::POST])
+///     .allow_credentials(true)
+///     .max_age_secs(86400)
+///     .build();
+/// ```
 pub struct CorsBuilder(Config);
 
 impl CorsBuilder {
@@ -81,6 +115,20 @@ impl CorsBuilder {
     }
 }
 
+/// The `CorsPlugin` implements the TakoPlugin trait and provides CORS functionality.
+///
+/// This plugin intercepts incoming requests and applies CORS policies based on the configuration.
+/// It handles preflight `OPTIONS` requests and adds the appropriate CORS headers to responses.
+///
+/// # Example
+/// ```rust
+/// let cors = CorsBuilder::new()
+///     .allow_origin("https://example.com")
+///     .allow_methods(&[Method::GET, Method::POST])
+///     .build();
+///
+/// router.plugin(cors);
+/// ```
 #[derive(Clone)]
 pub struct CorsPlugin {
     cfg: Config,
@@ -95,10 +143,17 @@ impl Default for CorsPlugin {
 }
 
 impl TakoPlugin for CorsPlugin {
+    /// Returns the name of the plugin.
+    ///
+    /// This is used internally by the Tako framework to identify the plugin.
     fn name(&self) -> &'static str {
         "CorsPlugin"
     }
 
+    /// Sets up the `CorsPlugin` by attaching middleware to the router.
+    ///
+    /// This method is called by the Tako framework during plugin initialization.
+    /// It registers the middleware that handles CORS for incoming requests.
     fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
         router.middleware(move |req, next| {
@@ -109,6 +164,10 @@ impl TakoPlugin for CorsPlugin {
     }
 }
 
+/// Handles incoming requests and applies CORS policies.
+///
+/// This function is invoked for each request and determines whether to allow or reject the request
+/// based on the CORS configuration. It also handles preflight `OPTIONS` requests.
 async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     let origin = req.headers().get(ORIGIN).cloned();
 
@@ -126,6 +185,9 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     resp.into_response()
 }
 
+/// Adds CORS headers to the response.
+///
+/// This function modifies the response to include the appropriate CORS headers based on the configuration.
 fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Response) {
     // Origin-matching
     println!("Origin-matching");

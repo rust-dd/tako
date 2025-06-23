@@ -16,6 +16,7 @@ pub mod extractors;
 /// Module for defining and managing request handlers.
 mod handler;
 
+/// Module for defining and managing middleware.
 pub mod middleware;
 
 /// Module for defining and managing plugins.

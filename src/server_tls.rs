@@ -14,7 +14,7 @@ use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
-use crate::{router::Router, types::BoxedError};
+use crate::{router::Router, types::BoxError};
 
 /// Starts a TLS server using the provided `TcpListener` and `Router`.
 ///
@@ -26,8 +26,13 @@ use crate::{router::Router, types::BoxedError};
 /// # Panics
 ///
 /// This function will panic if the server encounters an unrecoverable error.
-pub async fn serve_tls(listener: TcpListener, router: Router) {
-    run(listener, router).await.unwrap();
+pub async fn serve_tls(
+    listener: TcpListener,
+    router: Router,
+    certs: Option<&str>,
+    key: Option<&str>,
+) {
+    run(listener, router, certs, key).await.unwrap();
 }
 
 /// Runs the TLS server, accepting connections and dispatching requests.
@@ -49,7 +54,7 @@ pub async fn run(
     router: Router,
     certs: Option<&str>,
     key: Option<&str>,
-) -> Result<(), BoxedError> {
+) -> Result<(), BoxError> {
     let certs = load_certs(certs.unwrap_or("cert.pem"));
     let key = load_key(key.unwrap_or("key.pem"));
 
