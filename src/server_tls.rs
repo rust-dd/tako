@@ -2,8 +2,12 @@
 
 /// This module provides functionality for serving Tako applications over TLS.
 /// It includes methods for setting up a TLS server and handling secure connections.
-use hyper::{Request, server::conn::http1, service::service_fn};
-use hyper_util::rt::TokioIo;
+use hyper::{
+    Request,
+    server::conn::{http1, http2},
+    service::service_fn,
+};
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
@@ -44,10 +48,20 @@ pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError
     let certs = load_certs("cert.pem");
     let key = load_key("key.pem");
 
-    let config = ServerConfig::builder()
+    let mut config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .unwrap();
+
+    #[cfg(feature = "http2")]
+    {
+        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    }
+
+    #[cfg(not(feature = "http2"))]
+    {
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    }
 
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let router = Arc::new(router);
@@ -68,6 +82,7 @@ pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError
                     return;
                 }
             };
+            let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
 
             let io = TokioIo::new(tls_stream);
             let svc = service_fn(move |req: Request<_>| {
@@ -75,11 +90,21 @@ pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError
                 async move { Ok::<_, Infallible>(r.dispatch(req).await) }
             });
 
-            let mut http = http1::Builder::new();
-            http.keep_alive(true);
+            #[cfg(feature = "http2")]
+            if proto.as_deref() == Some(b"h2") {
+                let h2 = http2::Builder::new(TokioExecutor::new());
 
-            if let Err(e) = http.serve_connection(io, svc).with_upgrades().await {
-                eprintln!("Connection error: {e}");
+                if let Err(e) = h2.serve_connection(io, svc).await {
+                    eprintln!("HTTP/2 error: {e}");
+                }
+                return;
+            }
+
+            let mut h1 = http1::Builder::new();
+            h1.keep_alive(true);
+
+            if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
+                eprintln!("HTTP/1.1 error: {e}");
             }
         });
     }

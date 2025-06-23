@@ -38,6 +38,7 @@ url = "2.5.4"
 
 [features]
 default = []
+http2 = []
 tls = ["tokio-rustls", "rustls", "rustls-pemfile"]
 
 [lib]
