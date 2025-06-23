@@ -71,6 +71,13 @@ pub async fn run(
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let router = Arc::new(router);
 
+    // Setup plugins
+    if cfg!(feature = "plugins") {
+        for plugin in router.plugins() {
+            let _ = plugin.setup(&router);
+        }
+    }
+
     println!("Tako TLS listening on {}", listener.local_addr()?);
 
     loop {

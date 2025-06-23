@@ -37,7 +37,7 @@ tokio-util = { version = "0.7.15", features = ["compat"] }
 url = "2.5.4"
 
 [features]
-default = []
+default = ["plugins"]
 http2 = []
 plugins = []
 tls = ["tokio-rustls", "rustls", "rustls-pemfile"]

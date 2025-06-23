@@ -9,7 +9,9 @@ use http::{
 
 use crate::{
     body::TakoBody,
+    middleware::Next,
     plugins::TakoPlugin,
+    responder::Responder,
     router::Router,
     types::{Request, Response},
 };
@@ -97,42 +99,36 @@ impl TakoPlugin for CorsPlugin {
         "CorsPlugin"
     }
 
-    fn setup(&self, router: &mut Router) -> Result<()> {
+    fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
-
+        router.middleware(move |req, next| {
+            let cfg = cfg.clone();
+            async move { handle_cors(req, next, cfg).await }
+        });
         Ok(())
     }
-
-    // async fn start(&self) -> anyhow::Result<()> {
-    //     Ok(())
-    // }
-
-    // async fn stop(&self) -> anyhow::Result<()> {
-    //     Ok(())
-    // }
 }
 
-async fn handle_cors(mut req: Request, next: Next<'_>, cfg: Config) -> Result<Response> {
+async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     let origin = req.headers().get(ORIGIN).cloned();
 
-    // Pre-flight?
     if req.method() == Method::OPTIONS {
         let mut resp = hyper::Response::builder()
             .status(StatusCode::NO_CONTENT)
             .body(TakoBody::empty())
             .unwrap();
         add_cors_headers(&cfg, origin, &mut resp);
-        return Ok(resp);
+        return resp.into_response();
     }
 
-    // Normál kérés
-    let mut resp = next.run(req).await?;
+    let mut resp = next.run(req).await;
     add_cors_headers(&cfg, origin, &mut resp);
-    Ok(resp)
+    resp.into_response()
 }
 
 fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Response) {
     // Origin-matching
+    println!("Origin-matching");
     let allow_origin = if cfg.origins.is_empty() {
         "*".to_string()
     } else if let Some(o) = &origin {

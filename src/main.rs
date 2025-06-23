@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     middleware::Next,
+    plugins::cors::CorsPlugin,
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -163,6 +164,7 @@ async fn main() {
     r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
 
     r.middleware(middleware3).middleware(middleware4);
+    r.plugin(CorsPlugin::default());
 
     #[cfg(not(feature = "tls"))]
     tako::serve(listener, r).await;

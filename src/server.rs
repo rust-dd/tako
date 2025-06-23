@@ -57,6 +57,13 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 
+        // Setup plugins
+        if cfg!(feature = "plugins") {
+            for plugin in router.plugins() {
+                let _ = plugin.setup(&router);
+            }
+        }
+
         // Spawn a new task to handle each incoming connection.
         tokio::spawn(async move {
             let svc = Arc::new(service_fn(|req: Request<_>| {

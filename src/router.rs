@@ -255,4 +255,18 @@ impl Router {
         self.middlewares.write().unwrap().push(mw);
         self
     }
+
+    #[cfg(feature = "plugins")]
+    pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
+    where
+        P: TakoPlugin + Clone + Send + Sync + 'static,
+    {
+        self.plugins.push(Box::new(plugin));
+        self
+    }
+
+    #[cfg(feature = "plugins")]
+    pub fn plugins(&self) -> Vec<&dyn TakoPlugin> {
+        self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
+    }
 }
