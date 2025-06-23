@@ -3,17 +3,19 @@
 /// The `Route` struct encapsulates information about a specific route, including its path,
 /// HTTP method, handler, and any associated middleware. It also provides utilities for
 /// matching paths and extracting parameters from dynamic segments.
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use http::Method;
 use regex::Regex;
-use tokio::sync::RwLock;
 
 use crate::{
-    handler::BoxedHandler,
-    middleware::{BoxedMiddleware, Next},
+    handler::BoxHandler,
+    middleware::Next,
     responder::Responder,
-    types::Request,
+    types::{BoxMiddleware, Request},
 };
 
 /// Represents an HTTP route with its associated path, method, handler, and middleware.
@@ -36,8 +38,8 @@ pub struct Route {
     pub regex: Regex,
     pub param_names: Vec<String>,
     pub method: Method,
-    pub handler: BoxedHandler,
-    pub middlewares: RwLock<Vec<BoxedMiddleware>>,
+    pub handler: BoxHandler,
+    pub middlewares: RwLock<Vec<BoxMiddleware>>,
     pub tsr: bool,
 }
 
@@ -52,7 +54,7 @@ impl Route {
     ///
     /// # Returns
     /// A new `Route` instance.
-    pub fn new(path: String, method: Method, handler: BoxedHandler, tsr: Option<bool>) -> Self {
+    pub fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
         let pattern = path.clone();
         let (regex, param_names) = Self::parse_pattern(&pattern);
 
@@ -78,19 +80,19 @@ impl Route {
     ///
     /// # Returns
     /// An `Arc` pointing to the updated `Route` instance.
-    pub fn middleware<F, Fut, R>(self: Arc<Self>, f: F) -> Arc<Self>
+    pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
     where
-        F: Fn(Request, Next<'_>) -> Fut + Clone + Send + Sync + 'static,
-        Fut: Future<Output = R> + Send + 'static,
+        F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
+        Fut: std::future::Future<Output = R> + Send + 'static,
         R: Responder + Send + 'static,
     {
-        let mw: BoxedMiddleware = Arc::new(move |req, next| {
-            let f = f(req, next);
-            Box::pin(async move { f.await.into_response() })
+        let mw: BoxMiddleware = Arc::new(move |req, next| {
+            let fut = f(req, next); // Fut<'a>
+
+            Box::pin(async move { fut.await.into_response() })
         });
 
-        self.middlewares.blocking_write().push(mw);
-
+        self.middlewares.write().unwrap().push(mw);
         self
     }
 

@@ -1,9 +1,11 @@
 /// This module defines the `Handler` trait and the `BoxedHandler` struct, which are used to handle HTTP requests in a flexible and type-safe manner.
 use std::{pin::Pin, sync::Arc};
 
+use futures_util::future::BoxFuture;
+
 use crate::{
     responder::Responder,
-    types::{BoxedResponseFuture, Request, Response},
+    types::{Request, Response},
 };
 
 /// The `Handler` trait represents an asynchronous function that processes an HTTP request and produces a response.
@@ -62,12 +64,12 @@ where
 /// let response = handler.call(Request::default()).await;
 /// ```
 #[derive(Clone)]
-pub struct BoxedHandler {
+pub struct BoxHandler {
     /// The inner function that processes the request and produces a response.
-    inner: Arc<dyn Fn(Request) -> BoxedResponseFuture + Send + Sync>,
+    inner: Arc<dyn Fn(Request) -> BoxFuture<'static, Response> + Send + Sync>,
 }
 
-impl BoxedHandler {
+impl BoxHandler {
     /// Creates a new `BoxedHandler` from a given `Handler`.
     ///
     /// # Arguments
@@ -83,7 +85,7 @@ impl BoxedHandler {
     {
         let inner = Arc::new(move |req: Request| {
             let handler = h.clone();
-            Box::pin(async move { handler.call(req.into()).await }) as BoxedResponseFuture
+            Box::pin(async move { handler.call(req.into()).await }) as BoxFuture<'_, Response>
         });
 
         Self { inner }
@@ -98,7 +100,7 @@ impl BoxedHandler {
     /// # Returns
     ///
     /// A future that resolves to the HTTP response.
-    pub(crate) fn call(&self, req: Request) -> BoxedResponseFuture {
+    pub(crate) fn call(&self, req: Request) -> BoxFuture<'_, Response> {
         (self.inner)(req)
     }
 }

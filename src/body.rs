@@ -11,7 +11,7 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Body, Frame, SizeHint};
 
-use crate::types::{BoxedBody, BoxedError};
+use crate::types::{BoxBody, BoxError};
 
 /// The `TakoBody` struct is a wrapper around a boxed HTTP body (`BoxedBody`).
 /// It provides utility methods for creating empty bodies and converting various types
@@ -26,7 +26,7 @@ use crate::types::{BoxedBody, BoxedError};
 /// let empty_body = TakoBody::empty();
 /// let string_body = TakoBody::from("Hello, world!".to_string());
 /// ```
-pub struct TakoBody(BoxedBody);
+pub struct TakoBody(BoxBody);
 
 impl TakoBody {
     /// Creates a new `TakoBody` from a given body.
@@ -47,7 +47,7 @@ impl TakoBody {
     pub fn new<B>(body: B) -> Self
     where
         B: Body<Data = Bytes> + Send + 'static,
-        B::Error: Into<BoxedError>,
+        B::Error: Into<BoxError>,
     {
         Self(body.map_err(|e| e.into()).boxed_unsync())
     }
@@ -97,7 +97,7 @@ body_from_impl!(String);
 /// This implementation delegates the actual body operations to the inner `BoxedBody`.
 impl Body for TakoBody {
     type Data = Bytes;
-    type Error = BoxedError;
+    type Error = BoxError;
 
     #[inline]
     fn poll_frame(

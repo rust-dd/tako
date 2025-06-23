@@ -1,27 +1,24 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    handler::BoxedHandler,
-    types::{Request, Response},
+    handler::BoxHandler,
+    types::{BoxMiddleware, Request, Response},
 };
 
-type BoxFutureResp<'a> = Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
-pub type BoxedMiddleware =
-    Arc<dyn for<'a> Fn(Request, Next<'a>) -> BoxFutureResp<'a> + Send + Sync>;
-
-pub struct Next<'a> {
-    pub middlewares: &'a [BoxedMiddleware],
-    pub endpoint: &'a BoxedHandler,
+pub struct Next {
+    pub middlewares: Arc<Vec<BoxMiddleware>>,
+    pub endpoint: Arc<BoxHandler>,
 }
 
-impl<'a> Next<'a> {
+impl Next {
     pub async fn run(self, req: Request) -> Response {
         if let Some((mw, rest)) = self.middlewares.split_first() {
+            let rest = Arc::new(rest.to_vec());
             mw(
                 req,
                 Next {
                     middlewares: rest,
-                    endpoint: self.endpoint,
+                    endpoint: self.endpoint.clone(),
                 },
             )
             .await

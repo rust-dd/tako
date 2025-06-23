@@ -4,13 +4,12 @@ use futures_util::{SinkExt, StreamExt};
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
-    body::TakoBody,
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     middleware::Next,
     responder::Responder,
     sse::Sse,
     state::get_state,
-    types::{Request, Response},
+    types::Request,
     ws::TakoWs,
 };
 use tokio_stream::wrappers::IntervalStream;
@@ -22,8 +21,8 @@ pub struct AppState {
 }
 
 pub async fn hello(mut req: Request) -> impl Responder {
-    let HeaderMap(headers) = HeaderMap::from_request(&mut req).await.unwrap();
-    let Bytes(bytes) = Bytes::from_request(&mut req).await.unwrap();
+    let HeaderMap(_headers) = HeaderMap::from_request(&mut req).await.unwrap();
+    let Bytes(_bytes) = Bytes::from_request(&mut req).await.unwrap();
 
     "Hello, World!".into_response()
 }
@@ -34,7 +33,7 @@ pub struct Par {
 }
 
 pub async fn user_created(mut req: Request) -> impl Responder {
-    let state = get_state::<AppState>("app_state").unwrap();
+    let _state = get_state::<AppState>("app_state").unwrap();
     let Params(params) = Params::<Par>::from_request(&mut req).await.unwrap();
     println!("User ID: {:?}", params);
 
@@ -48,7 +47,7 @@ pub struct UserCompanyParams {
 }
 
 pub async fn user_company(mut req: Request) -> impl Responder {
-    let state = get_state::<AppState>("app_state").unwrap();
+    let _state = get_state::<AppState>("app_state").unwrap();
     let Params(params) = Params::<UserCompanyParams>::from_request(&mut req)
         .await
         .unwrap();
@@ -120,7 +119,23 @@ pub async fn ws_tick(req: Request) -> impl Responder {
     })
 }
 
-pub async fn middleware(req: Request, next: Next<'_>) -> impl Responder {
+pub async fn middleware1(req: Request, next: Next) -> impl Responder {
+    println!("Middleware 1 executed");
+    next.run(req).await.into_response()
+}
+
+pub async fn middleware2(req: Request, next: Next) -> impl Responder {
+    println!("Middleware 2 executed");
+    next.run(req).await.into_response()
+}
+
+pub async fn middleware3(req: Request, next: Next) -> impl Responder {
+    println!("Middleware 3 executed");
+    next.run(req).await.into_response()
+}
+
+pub async fn middleware4(req: Request, next: Next) -> impl Responder {
+    println!("Middleware 4 executed");
     next.run(req).await.into_response()
 }
 
@@ -133,8 +148,8 @@ async fn main() {
     r.state("app_state", AppState::default());
 
     r.route(Method::GET, "/", hello)
-        .middleware(middleware)
-        .middleware(middleware);
+        .middleware(middleware1)
+        .middleware(middleware2);
     r.route_with_tsr(Method::POST, "/user", user_created);
     r.route_with_tsr(Method::POST, "/user/{id}", user_created);
     r.route_with_tsr(
@@ -147,7 +162,7 @@ async fn main() {
     r.route_with_tsr(Method::GET, "/ws/echo", ws_echo);
     r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
 
-    r.middleware(middleware).middleware(middleware);
+    r.middleware(middleware3).middleware(middleware4);
 
     #[cfg(not(feature = "tls"))]
     tako::serve(listener, r).await;
