@@ -5,15 +5,15 @@
 /// matching paths and extracting parameters from dynamic segments.
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
 use http::Method;
 use regex::Regex;
 use tokio::sync::RwLock;
 
 use crate::{
     handler::BoxedHandler,
+    middleware::{BoxedMiddleware, Next},
     responder::Responder,
-    types::{BoxedMiddleware, Request},
+    types::Request,
 };
 
 /// Represents an HTTP route with its associated path, method, handler, and middleware.
@@ -80,25 +80,16 @@ impl Route {
     /// An `Arc` pointing to the updated `Route` instance.
     pub fn middleware<F, Fut, R>(self: Arc<Self>, f: F) -> Arc<Self>
     where
-        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
-        Fut: Future<Output = Result<Request, R>> + Send + 'static,
+        F: Fn(Request, Next<'_>) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = R> + Send + 'static,
         R: Responder + Send + 'static,
     {
-        let mw: BoxedMiddleware = Box::new(move |req: Request| {
-            let f = f.clone();
-            Box::pin(async move {
-                match f(req).await {
-                    Ok(req) => Ok(req),
-                    Err(resp) => Err(resp.into_response()),
-                }
-            })
+        let mw: BoxedMiddleware = Arc::new(move |req, next| {
+            let f = f(req, next);
+            Box::pin(async move { f.await.into_response() })
         });
 
-        let this = self.clone();
-        tokio::spawn(async move {
-            let mut lock = this.middlewares.write().await;
-            lock.push(mw);
-        });
+        self.middlewares.blocking_write().push(mw);
 
         self
     }

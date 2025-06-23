@@ -9,10 +9,11 @@ use crate::{
     body::TakoBody,
     extractors::params::PathParams,
     handler::{BoxedHandler, Handler},
+    middleware::{BoxedMiddleware, Next},
     responder::Responder,
     route::Route,
     state::set_state,
-    types::{BoxedMiddleware, Request, Response},
+    types::{Request, Response},
 };
 
 #[cfg(feature = "plugins")]
@@ -160,17 +161,17 @@ impl Router {
             if let Some(params) = route.match_path(path) {
                 req.extensions_mut().insert(PathParams(params));
 
-                let r_mws = route.middlewares.read().await;
-                let mws = self.middlewares.iter().chain(r_mws.iter()).rev();
+                let g_mws = self.middlewares.clone();
+                let r_mws = route.middlewares.read().await.clone();
+                let mut chain = Vec::new();
+                chain.extend(g_mws.into_iter());
+                chain.extend(r_mws.into_iter());
 
-                for mw in mws {
-                    match mw(req).await {
-                        Ok(r) => req = r,
-                        Err(resp) => return resp,
-                    }
-                }
-
-                return route.handler.call(req).await;
+                let next = Next {
+                    middlewares: &chain,
+                    endpoint: &route.handler,
+                };
+                return next.run(req).await;
             }
         }
 
@@ -240,22 +241,18 @@ impl Router {
     ///     Ok(req)
     /// });
     /// ```
-    pub fn middleware<F, Fut, R>(&mut self, f: F)
+    pub fn middleware<F, Fut, R>(&mut self, f: F) -> &mut Self
     where
-        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
-        Fut: Future<Output = Result<Request, R>> + Send + 'static,
+        F: Fn(Request, Next<'_>) -> Fut + Clone + Send + Sync + 'static,
+        Fut: Future<Output = R> + Send + 'static,
         R: Responder + Send + 'static,
     {
-        let mw: BoxedMiddleware = Box::new(move |req: Request| {
-            let f = f.clone();
-            Box::pin(async move {
-                match f(req).await {
-                    Ok(r) => Ok(r),
-                    Err(e) => Err(e.into_response()),
-                }
-            })
+        let mw: BoxedMiddleware = Arc::new(move |req, next| {
+            let f = f(req, next);
+            Box::pin(async move { f.await.into_response() })
         });
 
         self.middlewares.push(mw);
+        self
     }
 }

@@ -16,6 +16,8 @@ pub mod extractors;
 /// Module for defining and managing request handlers.
 mod handler;
 
+pub mod middleware;
+
 /// Module for defining and managing plugins.
 #[cfg(feature = "plugins")]
 pub mod plugins;

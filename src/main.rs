@@ -6,6 +6,7 @@ use serde::Deserialize;
 use tako::{
     body::TakoBody,
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
+    middleware::Next,
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -119,15 +120,8 @@ pub async fn ws_tick(req: Request) -> impl Responder {
     })
 }
 
-pub async fn middleware(req: Request) -> Result<Request, Response> {
-    if false {
-        return Err(hyper::Response::builder()
-            .status(401)
-            .body(TakoBody::empty())
-            .unwrap()
-            .into_response());
-    }
-    Ok(req)
+pub async fn middleware(req: Request, next: Next<'_>) -> impl Responder {
+    next.run(req).await.into_response()
 }
 
 #[tokio::main]
@@ -152,6 +146,8 @@ async fn main() {
     r.route_with_tsr(Method::GET, "/sse/bytes", sse_bytes_handler);
     r.route_with_tsr(Method::GET, "/ws/echo", ws_echo);
     r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
+
+    r.middleware(middleware).middleware(middleware);
 
     #[cfg(not(feature = "tls"))]
     tako::serve(listener, r).await;
