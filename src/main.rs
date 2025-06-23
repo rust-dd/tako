@@ -157,5 +157,5 @@ async fn main() {
     tako::serve(listener, r).await;
 
     #[cfg(feature = "tls")]
-    tako::serve_tls(listener, r).await;
+    tako::serve_tls(listener, r, None, None).await;
 }

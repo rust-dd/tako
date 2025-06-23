@@ -44,9 +44,14 @@ pub async fn serve_tls(listener: TcpListener, router: Router) {
 /// # Errors
 ///
 /// Returns an error if the server fails to accept connections or handle requests.
-pub async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError> {
-    let certs = load_certs("cert.pem");
-    let key = load_key("key.pem");
+pub async fn run(
+    listener: TcpListener,
+    router: Router,
+    certs: Option<&str>,
+    key: Option<&str>,
+) -> Result<(), BoxedError> {
+    let certs = load_certs(certs.unwrap_or("cert.pem"));
+    let key = load_key(key.unwrap_or("key.pem"));
 
     let mut config = ServerConfig::builder()
         .with_no_client_auth()
