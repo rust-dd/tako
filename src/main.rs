@@ -6,7 +6,10 @@ use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
     middleware::Next,
-    plugins::cors::CorsPlugin,
+    plugins::{
+        cors::CorsPlugin,
+        rate_limiter::{RateLimiterBuilder, RateLimiterPlugin},
+    },
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -165,6 +168,13 @@ async fn main() {
 
     r.middleware(middleware3).middleware(middleware4);
     r.plugin(CorsPlugin::default());
+    r.plugin(
+        RateLimiterBuilder::new()
+            .burst_size(5)
+            .per_second(20)
+            .tick_secs(20)
+            .build(),
+    );
 
     #[cfg(not(feature = "tls"))]
     tako::serve(listener, r).await;
