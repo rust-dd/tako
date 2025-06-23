@@ -47,6 +47,7 @@ pub mod types;
 /// Module for handling WebSocket connections.
 pub mod ws;
 
+pub use hyper::Method;
 pub use server::serve;
 
 /// Module for enabling TLS support in the server.

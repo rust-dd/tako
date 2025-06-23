@@ -44,3 +44,7 @@ tls = ["tokio-rustls", "rustls", "rustls-pemfile"]
 
 [lib]
 name = "tako"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello-world/src/main.rs"
