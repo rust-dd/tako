@@ -1,6 +1,6 @@
 /// This module provides the `Router` struct, which is responsible for managing routes,
 /// dispatching requests, and applying middleware in the Tako framework.
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
 use hyper::Method;
@@ -8,11 +8,12 @@ use hyper::Method;
 use crate::{
     body::TakoBody,
     extractors::params::PathParams,
-    handler::{BoxedHandler, Handler},
+    handler::{BoxHandler, Handler},
+    middleware::Next,
     responder::Responder,
     route::Route,
     state::set_state,
-    types::{BoxedMiddleware, Request, Response},
+    types::{BoxMiddleware, Request, Response},
 };
 
 #[cfg(feature = "plugins")]
@@ -35,7 +36,7 @@ use crate::plugins::TakoPlugin;
 /// ```
 pub struct Router {
     routes: DashMap<(Method, String), Arc<Route>>,
-    middlewares: Vec<BoxedMiddleware>,
+    middlewares: RwLock<Vec<BoxMiddleware>>,
     #[cfg(feature = "plugins")]
     plugins: Vec<Box<dyn TakoPlugin>>,
 }
@@ -49,7 +50,7 @@ impl Router {
     pub fn new() -> Self {
         Self {
             routes: DashMap::default(),
-            middlewares: Vec::new(),
+            middlewares: RwLock::new(Vec::new()),
             #[cfg(feature = "plugins")]
             plugins: Vec::new(),
         }
@@ -86,7 +87,7 @@ impl Router {
         let route = Arc::new(Route::new(
             path.to_string(),
             method.clone(),
-            BoxedHandler::new(handler),
+            BoxHandler::new(handler),
             None,
         ));
         self.routes
@@ -123,7 +124,7 @@ impl Router {
         let route = Arc::new(Route::new(
             path.to_string(),
             method.clone(),
-            BoxedHandler::new(handler),
+            BoxHandler::new(handler),
             Some(true),
         ));
         self.routes
@@ -160,17 +161,17 @@ impl Router {
             if let Some(params) = route.match_path(path) {
                 req.extensions_mut().insert(PathParams(params));
 
-                let r_mws = route.middlewares.read().await;
-                let mws = self.middlewares.iter().chain(r_mws.iter()).rev();
+                let g_mws = self.middlewares.read().unwrap().clone();
+                let r_mws = route.middlewares.read().unwrap().clone();
+                let mut chain = Vec::new();
+                chain.extend(g_mws.into_iter());
+                chain.extend(r_mws.into_iter());
 
-                for mw in mws {
-                    match mw(req).await {
-                        Ok(r) => req = r,
-                        Err(resp) => return resp,
-                    }
-                }
-
-                return route.handler.call(req).await;
+                let next = Next {
+                    middlewares: Arc::new(chain),
+                    endpoint: Arc::new(route.handler.clone()),
+                };
+                return next.run(req).await;
             }
         }
 
@@ -240,22 +241,18 @@ impl Router {
     ///     Ok(req)
     /// });
     /// ```
-    pub fn middleware<F, Fut, R>(&mut self, f: F)
+    pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
     where
-        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
-        Fut: Future<Output = Result<Request, R>> + Send + 'static,
+        F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
+        Fut: std::future::Future<Output = R> + Send + 'static,
         R: Responder + Send + 'static,
     {
-        let mw: BoxedMiddleware = Box::new(move |req: Request| {
-            let f = f.clone();
-            Box::pin(async move {
-                match f(req).await {
-                    Ok(r) => Ok(r),
-                    Err(e) => Err(e.into_response()),
-                }
-            })
+        let mw: BoxMiddleware = Arc::new(move |req, next| {
+            let fut = f(req, next);
+            Box::pin(async move { fut.await.into_response() })
         });
 
-        self.middlewares.push(mw);
+        self.middlewares.write().unwrap().push(mw);
+        self
     }
 }

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::router::Router;
-use crate::types::BoxedError;
+use crate::types::BoxError;
 
 /// Starts the Tako HTTP server.
 ///
@@ -47,7 +47,7 @@ pub async fn serve(listener: TcpListener, router: Router) {
 /// # Returns
 ///
 /// A `Result` indicating success or failure.
-async fn run(listener: TcpListener, router: Router) -> Result<(), BoxedError> {
+async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     let router = Arc::new(router);
     println!("Tako listening on {}", listener.local_addr()?);
 
