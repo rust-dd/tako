@@ -52,3 +52,7 @@ name = "tako"
 [[example]]
 name = "hello-world"
 path = "examples/hello-world/src/main.rs"
+
+[[example]]
+name = "websockets"
+path = "examples/websockets/src/main.rs"

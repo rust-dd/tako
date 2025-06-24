@@ -1,19 +1,17 @@
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
-    extractors::{FromRequest, bytes::Bytes, header_map::HeaderMap, params::Params},
+    extractors::{FromRequest, params::Params},
     middleware::Next,
     responder::Responder,
     sse::Sse,
     state::get_state,
     types::Request,
-    ws::TakoWs,
 };
 use tokio_stream::wrappers::IntervalStream;
-use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 
 #[cfg(feature = "plugins")]
 use tako::plugins::{
@@ -23,13 +21,6 @@ use tako::plugins::{
 #[derive(Clone, Default)]
 pub struct AppState {
     pub count: u32,
-}
-
-pub async fn hello(mut req: Request) -> impl Responder {
-    let HeaderMap(_headers) = HeaderMap::from_request(&mut req).await.unwrap();
-    let Bytes(_bytes) = Bytes::from_request(&mut req).await.unwrap();
-
-    "Hello, World!".into_response()
 }
 
 pub async fn compression(mut _req: Request) -> impl Responder {
@@ -119,55 +110,6 @@ pub async fn sse_bytes_handler(_: Request) -> impl Responder {
     Sse::new(stream)
 }
 
-pub async fn ws_echo(req: Request) -> impl Responder {
-    TakoWs::new(req, |mut ws| async move {
-        let _ = ws.send(Message::Text("Welcome to Tako WS!".into())).await;
-
-        while let Some(Ok(msg)) = ws.next().await {
-            match msg {
-                Message::Text(txt) => {
-                    let _ = ws
-                        .send(Message::Text(Utf8Bytes::from(format!("Echo: {txt}"))))
-                        .await;
-                }
-                Message::Binary(bin) => {
-                    let _ = ws.send(Message::Binary(bin)).await;
-                }
-                Message::Ping(p) => {
-                    let _ = ws.send(Message::Pong(p)).await;
-                }
-                Message::Close(_) => {
-                    let _ = ws.send(Message::Close(None)).await;
-                    break;
-                }
-                _ => {}
-            }
-        }
-    })
-}
-
-pub async fn ws_tick(req: Request) -> impl Responder {
-    TakoWs::new(req, |mut ws| async move {
-        let mut ticker =
-            IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).enumerate();
-
-        loop {
-            tokio::select! {
-                msg = ws.next() => {
-                    match msg {
-                        Some(Ok(Message::Close(_))) | None => break,
-                        _ => {}
-                    }
-                }
-
-                Some((i, _)) = ticker.next() => {
-                    let _ = ws.send(Message::Text(Utf8Bytes::from(format!("tick #{i}")))).await;
-                }
-            }
-        }
-    })
-}
-
 pub async fn middleware1(req: Request, next: Next) -> impl Responder {
     println!("Middleware 1 executed");
     next.run(req).await.into_response()
@@ -196,9 +138,6 @@ async fn main() {
     let mut r = tako::router::Router::new();
     r.state("app_state", AppState::default());
 
-    r.route(Method::GET, "/", hello)
-        .middleware(middleware1)
-        .middleware(middleware2);
     r.route(Method::GET, "/compression", compression);
     r.route_with_tsr(Method::POST, "/user", user_created);
     r.route_with_tsr(Method::POST, "/user/{id}", user_created);
@@ -209,8 +148,6 @@ async fn main() {
     );
     r.route_with_tsr(Method::GET, "/sse/string", sse_string_handler);
     r.route_with_tsr(Method::GET, "/sse/bytes", sse_bytes_handler);
-    r.route_with_tsr(Method::GET, "/ws/echo", ws_echo);
-    r.route_with_tsr(Method::GET, "/ws/tick", ws_tick);
 
     r.middleware(middleware3).middleware(middleware4);
 
