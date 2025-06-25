@@ -50,6 +50,18 @@ where
         }
     }
 
+    pub fn static_tokens_with_verify<I>(toks: I, f: F) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        Self {
+            tokens: Some(toks.into_iter().map(Into::into).collect()),
+            verify: Some(f),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
     pub fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>

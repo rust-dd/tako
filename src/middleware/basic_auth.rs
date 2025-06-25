@@ -25,18 +25,14 @@ where
     U: Clone + Send + Sync + 'static,
 {
     pub fn single(user: impl Into<String>, pass: impl Into<String>) -> Self {
-        Self {
-            users: Some(Arc::new([(user.into(), pass.into())].into())),
-            verify: None,
-            realm: "Restricted",
-            _phantom: PhantomData,
-        }
+        Self::multiple(std::iter::once((user, pass)))
     }
 
-    pub fn multiple<I, S>(pairs: I) -> Self
+    pub fn multiple<I, T, P>(pairs: I) -> Self
     where
-        I: IntoIterator<Item = (S, S)>,
-        S: Into<String>,
+        I: IntoIterator<Item = (T, P)>,
+        T: Into<String>,
+        P: Into<String>,
     {
         Self {
             users: Some(Arc::new(
@@ -54,6 +50,24 @@ where
     pub fn with_verify(cb: F) -> Self {
         Self {
             users: None,
+            verify: Some(Arc::new(cb)),
+            realm: "Restricted",
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn users_with_verify<I, S>(pairs: I, cb: F) -> Self
+    where
+        I: IntoIterator<Item = (S, S)>,
+        S: Into<String>,
+    {
+        Self {
+            users: Some(Arc::new(
+                pairs
+                    .into_iter()
+                    .map(|(u, p)| (u.into(), p.into()))
+                    .collect(),
+            )),
             verify: Some(Arc::new(cb)),
             realm: "Restricted",
             _phantom: PhantomData,
@@ -91,12 +105,14 @@ where
                     .and_then(|s| s.split_once(':').map(|(u, p)| (u.to_owned(), p.to_owned())));
 
                 match creds {
-                    None => {}
                     Some((u, p)) => {
-                        if let Some(map) = &users {
-                            if map.get(&u).map(|pw| pw == &p).unwrap_or(false) {
-                                return next.run(req).await.into_response();
-                            }
+                        if users
+                            .as_ref()
+                            .and_then(|map| map.get(&u))
+                            .map(|pw| pw == &p)
+                            .unwrap_or(false)
+                        {
+                            return next.run(req).await.into_response();
                         }
 
                         if let Some(cb) = &verify {
@@ -106,6 +122,7 @@ where
                             }
                         }
                     }
+                    None => {}
                 }
 
                 let mut res = Response::new(TakoBody::empty());
