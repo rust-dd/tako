@@ -5,6 +5,9 @@ use crate::{
     types::{BoxMiddleware, Request, Response},
 };
 
+pub mod basic_auth;
+pub mod bearer_auth;
+
 /// The `Next` struct represents the next middleware or endpoint in the chain.
 /// It is used to manage the flow of execution through the middleware stack.
 ///

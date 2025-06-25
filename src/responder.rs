@@ -3,7 +3,7 @@
 use std::convert::Infallible;
 
 use bytes::Bytes;
-use http::Response;
+use http::{HeaderName, HeaderValue, Response, StatusCode};
 use http_body_util::Full;
 
 use crate::body::TakoBody;
@@ -75,5 +75,20 @@ impl Responder for () {
 impl Responder for Infallible {
     fn into_response(self) -> Response<TakoBody> {
         match self {}
+    }
+}
+
+impl<const N: usize> Responder for (StatusCode, [(HeaderName, &'static str); N]) {
+    fn into_response(self) -> Response<TakoBody> {
+        let (status, headers) = self;
+
+        let mut res = Response::new(TakoBody::empty());
+        *res.status_mut() = status;
+
+        for (name, value) in headers {
+            res.headers_mut()
+                .append(name, HeaderValue::from_static(value));
+        }
+        res
     }
 }

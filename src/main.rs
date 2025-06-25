@@ -5,7 +5,7 @@ use hyper::Method;
 use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, params::Params},
-    middleware::Next,
+    middleware::{Next, basic_auth, bearer_auth},
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -138,9 +138,19 @@ async fn main() {
     let mut r = tako::router::Router::new();
     r.state("app_state", AppState::default());
 
-    r.route(Method::GET, "/compression", compression);
+    let basic = basic_auth::Config::<(), fn(&str, &str) -> Option<()>>::single("admin", "pw")
+        .realm("Admin Area")
+        .into_middleware();
+
+    r.route(Method::GET, "/compression", compression)
+        .middleware(basic);
+
+    let bearer = bearer_auth::Config::<(), fn(&str) -> Option<()>>::static_token("my-secret-token")
+        .into_middleware();
     r.route_with_tsr(Method::POST, "/user", user_created);
-    r.route_with_tsr(Method::POST, "/user/{id}", user_created);
+
+    r.route_with_tsr(Method::POST, "/user/{id}", compression)
+        .middleware(bearer);
     r.route_with_tsr(
         Method::POST,
         "/user/{user_id}/company/{company_id}",
