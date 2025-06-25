@@ -74,8 +74,8 @@ pub struct Par {
 
 pub async fn user_created(mut req: Request) -> impl Responder {
     let _state = get_state::<AppState>("app_state").unwrap();
-    let Params(params) = Params::<Par>::from_request(&mut req).await.unwrap();
-    println!("User ID: {:?}", params);
+    // let Params(params) = Params::<Par>::from_request(&mut req).await.unwrap();
+    // println!("User ID: {:?}", params);
 
     String::from("User created").into_response()
 }

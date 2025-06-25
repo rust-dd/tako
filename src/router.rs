@@ -159,7 +159,9 @@ impl Router {
             }
 
             if let Some(params) = route.match_path(path) {
-                req.extensions_mut().insert(PathParams(params));
+                if !params.is_empty() {
+                    req.extensions_mut().insert(PathParams(params));
+                }
 
                 let g_mws = self.middlewares.read().unwrap().clone();
                 let r_mws = route.middlewares.read().unwrap().clone();
