@@ -5,6 +5,8 @@
 
 > **⚠️ Early‑stage software:** Tako is still under active development; use with caution and expect breaking changes.
 
+> **Blog**: (Tako in detail)[https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper]
+
 ---
 
 ## ✨ Highlights
