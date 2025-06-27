@@ -1,6 +1,4 @@
 /// This module provides the `Path` extractor, which is used to extract the path of a request.
-use std::pin::Pin;
-
 use anyhow::Result;
 use http::request::Parts;
 
@@ -30,10 +28,8 @@ pub struct Path<'a>(pub &'a str);
 /// This allows the `Path` extractor to be used in request handlers to easily access
 /// the path of the request.
 impl<'a> FromRequest<'a> for Path<'a> {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
-    fn from_request(request: &'a mut Request) -> Self::Fut {
-        Box::pin(async move { Ok(Path(request.uri().path())) })
+    fn from_request(request: &'a Request) -> Result<Self> {
+        Ok(Path(request.uri().path()))
     }
 }
 
@@ -42,9 +38,7 @@ impl<'a> FromRequest<'a> for Path<'a> {
 /// This allows the `Path` extractor to be used in request handlers to access
 /// the path from the `Parts` of a request.
 impl<'a> FromRequestParts<'a> for Path<'a> {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
-    fn from_request_parts(parts: &'a mut Parts) -> Self::Fut {
-        Box::pin(async move { Ok(Path(parts.uri.path())) })
+    fn from_request_parts(parts: &'a mut Parts) -> Result<Self> {
+        Ok(Path(parts.uri.path()))
     }
 }

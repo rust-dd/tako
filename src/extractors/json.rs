@@ -1,11 +1,9 @@
 /// This module provides the `Json` extractor, which is used to deserialize the body of a request into a strongly-typed JSON object.
-use std::pin::Pin;
-
 use anyhow::Result;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
 
-use crate::{extractors::FromRequest, types::Request};
+use crate::{extractors::AsyncFromRequestMut, types::Request};
 
 /// The `Json` struct is an extractor that wraps a deserialized JSON object of type `T`.
 ///
@@ -33,12 +31,10 @@ pub struct Json<T>(pub T);
 ///
 /// This allows the `Json` extractor to be used in request handlers to deserialize
 /// the body of the request into a strongly-typed JSON object.
-impl<'a, T> FromRequest<'a> for Json<T>
+impl<'a, T> AsyncFromRequestMut<'a> for Json<T>
 where
-    T: DeserializeOwned + Send + 'a,
+    T: DeserializeOwned + Send + 'static,
 {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
     /// Extracts and deserializes the body of the request into a JSON object of type `T`.
     ///
     /// # Arguments
@@ -48,11 +44,9 @@ where
     /// # Returns
     ///
     /// A future that resolves to a `Result` containing the `Json` extractor.
-    fn from_request(req: &'a mut Request) -> Self::Fut {
-        Box::pin(async move {
-            let bytes = req.body_mut().collect().await?.to_bytes();
-            let data = serde_json::from_slice(&bytes)?;
-            Ok(Json(data))
-        })
+    async fn from_request(req: &'_ mut Request) -> Result<Self> {
+        let bytes = req.body_mut().collect().await?.to_bytes();
+        let data = serde_json::from_slice(&bytes)?;
+        Ok(Json(data))
     }
 }

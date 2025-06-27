@@ -1,6 +1,4 @@
 /// This module provides the `HeaderMap` extractor, which is used to extract the headers of a request.
-use std::pin::Pin;
-
 use anyhow::Result;
 use http::request::Parts;
 
@@ -30,8 +28,6 @@ pub struct HeaderMap<'a>(pub &'a hyper::HeaderMap);
 /// This allows the `HeaderMap` extractor to be used in request handlers to easily access
 /// the headers of the request.
 impl<'a> FromRequest<'a> for HeaderMap<'a> {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
     /// Extracts the headers of the request.
     ///
     /// # Arguments
@@ -41,8 +37,8 @@ impl<'a> FromRequest<'a> for HeaderMap<'a> {
     /// # Returns
     ///
     /// A future that resolves to a `Result` containing the `HeaderMap` extractor.
-    fn from_request(req: &'a mut Request) -> Self::Fut {
-        Box::pin(async move { Ok(HeaderMap(req.headers())) })
+    fn from_request(req: &'a Request) -> Result<Self> {
+        Ok(HeaderMap(req.headers()))
     }
 }
 
@@ -51,8 +47,6 @@ impl<'a> FromRequest<'a> for HeaderMap<'a> {
 /// This allows the `HeaderMap` extractor to be used in request handlers to access
 /// the headers from the `Parts` of a request.
 impl<'a> FromRequestParts<'a> for HeaderMap<'a> {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
     /// Extracts the headers from the `Parts` of a request.
     ///
     /// # Arguments
@@ -62,7 +56,7 @@ impl<'a> FromRequestParts<'a> for HeaderMap<'a> {
     /// # Returns
     ///
     /// A future that resolves to a `Result` containing the `HeaderMap` extractor.
-    fn from_request_parts(parts: &'a mut Parts) -> Self::Fut {
-        Box::pin(async move { Ok(HeaderMap(&parts.headers)) })
+    fn from_request_parts(parts: &'a mut Parts) -> Result<Self> {
+        Ok(HeaderMap(&parts.headers))
     }
 }

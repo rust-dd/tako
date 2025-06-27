@@ -3,7 +3,7 @@
 ///
 /// The `Params` extractor is particularly useful for handling dynamic segments in request
 /// paths, allowing them to be easily converted into strongly-typed structures.
-use std::{collections::HashMap, pin::Pin};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use serde::de::DeserializeOwned;
@@ -48,8 +48,6 @@ impl<'a, T> FromRequest<'a> for Params<T>
 where
     T: DeserializeOwned + Send + 'a,
 {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
     /// Extracts and deserializes path parameters from the request.
     ///
     /// # Arguments
@@ -59,19 +57,17 @@ where
     /// # Returns
     ///
     /// A future that resolves to a `Result` containing the `Params` extractor.
-    fn from_request(req: &'a mut Request) -> Self::Fut {
-        Box::pin(async move {
-            let map = req
-                .extensions()
-                .get::<PathParams>()
-                .expect("PathParams not found");
+    fn from_request(req: &'a Request) -> Result<Self> {
+        let map = req
+            .extensions()
+            .get::<PathParams>()
+            .expect("PathParams not found");
 
-            let coerced = Self::coerce_params(&map.0);
-            let value = Value::Object(coerced);
-            let parsed = serde_json::from_value::<T>(value)?;
+        let coerced = Self::coerce_params(&map.0);
+        let value = Value::Object(coerced);
+        let parsed = serde_json::from_value::<T>(value)?;
 
-            Ok(Params(parsed))
-        })
+        Ok(Params(parsed))
     }
 }
 

@@ -1,6 +1,4 @@
 /// This module provides the `Bytes` extractor, which is used to extract the body of a request as bytes.
-use std::pin::Pin;
-
 use anyhow::Result;
 use hyper::body::Incoming;
 
@@ -27,8 +25,6 @@ pub struct Bytes<'a>(pub &'a Incoming);
 /// This allows the `Bytes` extractor to be used in request handlers to easily access
 /// the body of the request as bytes.
 impl<'a> FromRequest<'a> for Bytes<'a> {
-    type Fut = Pin<Box<dyn Future<Output = Result<Self>> + Send + 'a>>;
-
     /// Extracts the body of the request as bytes.
     ///
     /// # Arguments
@@ -38,7 +34,7 @@ impl<'a> FromRequest<'a> for Bytes<'a> {
     /// # Returns
     ///
     /// A future that resolves to a `Result` containing the `Bytes` extractor.
-    fn from_request(req: &'a mut Request) -> Self::Fut {
-        Box::pin(async move { Ok(Bytes(req.body())) })
+    fn from_request(req: &'a Request) -> Result<Self> {
+        Ok(Bytes(req.body()))
     }
 }
