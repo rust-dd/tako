@@ -36,14 +36,19 @@ tokio-rustls = { version = "0.26.2", optional = true }
 tokio-stream = "0.1.17"
 tokio-tungstenite = "0.27.0"
 tokio-util = { version = "0.7.15", features = ["compat"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", optional = true }
 url = "2.5.4"
+webpki-roots = { version = "1.0.1", optional = true }
 zstd = { version = "0.13.3", optional = true }
 
 [features]
+client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
 default = []
 http2 = []
 plugins = ["dep:brotli", "dep:flate2"]
-tls = ["tokio-rustls", "rustls", "rustls-pemfile"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+tako-tracing = ["dep:tracing-subscriber"]
 zstd = ["dep:zstd", "plugins"]
 
 [lib]

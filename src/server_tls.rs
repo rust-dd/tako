@@ -55,6 +55,9 @@ pub async fn run(
     certs: Option<&str>,
     key: Option<&str>,
 ) -> Result<(), BoxError> {
+    #[cfg(feature = "tako-tracing")]
+    crate::tracing::init_tracing();
+
     let certs = load_certs(certs.unwrap_or("cert.pem"));
     let key = load_key(key.unwrap_or("key.pem"));
 

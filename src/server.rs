@@ -48,6 +48,9 @@ pub async fn serve(listener: TcpListener, router: Router) {
 ///
 /// A `Result` indicating success or failure.
 async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
+    #[cfg(feature = "tako-tracing")]
+    crate::tracing::init_tracing();
+
     let router = Arc::new(router);
     println!("Tako listening on {}", listener.local_addr()?);
 

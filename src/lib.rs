@@ -10,6 +10,9 @@ pub mod body;
 /// Module for working with byte streams and buffers.
 mod bytes;
 
+#[cfg(feature = "client")]
+pub mod client;
+
 /// Module for extracting data from requests, such as query parameters or JSON payloads.
 pub mod extractors;
 
@@ -40,6 +43,9 @@ pub mod sse;
 
 /// Module for managing application state and shared data.
 pub mod state;
+
+#[cfg(feature = "tako-tracing")]
+pub mod tracing;
 
 /// Module for defining and working with custom types used in the framework.
 pub mod types;
