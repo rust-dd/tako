@@ -3,7 +3,7 @@ use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
     middleware::Next,
-    responder::Responder,
+    responder::{Responder, StaticHeaders},
     types::{Request, Response},
 };
 
@@ -139,7 +139,7 @@ where
                 // Return a 401 Unauthorized response if the token is invalid or missing.
                 (
                     StatusCode::UNAUTHORIZED,
-                    [(header::WWW_AUTHENTICATE, "Bearer")],
+                    StaticHeaders([(header::WWW_AUTHENTICATE, "Bearer")]),
                 )
                     .into_response()
             })

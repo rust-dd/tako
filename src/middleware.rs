@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use crate::{
     handler::BoxHandler,
@@ -7,6 +7,17 @@ use crate::{
 
 pub mod basic_auth;
 pub mod bearer_auth;
+pub mod body_limit;
+
+pub trait IntoMiddleware {
+    fn into_middleware(
+        self,
+    ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+    + Clone
+    + Send
+    + Sync
+    + 'static;
+}
 
 /// The `Next` struct represents the next middleware or endpoint in the chain.
 /// It is used to manage the flow of execution through the middleware stack.

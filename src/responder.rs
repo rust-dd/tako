@@ -1,6 +1,6 @@
 /// This module provides the `Responder` trait, which defines a common interface for converting various types into HTTP responses.
 /// It includes implementations for common types like `String`, `&'static str`, and `()`.
-use std::convert::Infallible;
+use std::{convert::Infallible, fmt::Display};
 
 use bytes::Bytes;
 use http::{HeaderName, HeaderValue, Response, StatusCode};
@@ -78,10 +78,11 @@ impl Responder for Infallible {
     }
 }
 
-impl<const N: usize> Responder for (StatusCode, [(HeaderName, &'static str); N]) {
-    fn into_response(self) -> Response<TakoBody> {
-        let (status, headers) = self;
+pub struct StaticHeaders<const N: usize>(pub [(HeaderName, &'static str); N]);
 
+impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
+    fn into_response(self) -> Response<TakoBody> {
+        let (status, StaticHeaders(headers)) = self;
         let mut res = Response::new(TakoBody::empty());
         *res.status_mut() = status;
 
@@ -89,6 +90,18 @@ impl<const N: usize> Responder for (StatusCode, [(HeaderName, &'static str); N])
             res.headers_mut()
                 .append(name, HeaderValue::from_static(value));
         }
+        res
+    }
+}
+
+impl<R> Responder for (StatusCode, R)
+where
+    R: Display,
+{
+    fn into_response(self) -> Response<TakoBody> {
+        let (status, body) = self;
+        let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
+        *res.status_mut() = status;
         res
     }
 }
