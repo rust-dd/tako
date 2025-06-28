@@ -7,6 +7,8 @@ use http::request::Parts;
 
 use crate::types::Request;
 
+/// Extractor for handling Basic authentication credentials in HTTP requests.
+pub mod basic;
 /// Extractor for handling Bearer tokens in HTTP requests.
 pub mod bearer;
 /// Extractor for handling raw byte data from HTTP request bodies.

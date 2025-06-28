@@ -56,3 +56,7 @@ path = "examples/hello-world/src/main.rs"
 [[example]]
 name = "websockets"
 path = "examples/websockets/src/main.rs"
+
+[[example]]
+name = "with-state"
+path = "examples/with-state/src/main.rs"
