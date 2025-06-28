@@ -2,7 +2,7 @@ use http::{StatusCode, header};
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    middleware::Next,
+    middleware::{IntoMiddleware, Next},
     responder::{Responder, StaticHeaders},
     types::{Request, Response},
 };
@@ -14,7 +14,7 @@ use crate::{
 pub struct Config<C, F>
 where
     F: Fn(&str) -> Option<C> + Send + Sync + 'static,
-    C: Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
 {
     /// Optional set of static tokens for authentication.
     tokens: Option<HashSet<String>>,
@@ -87,13 +87,19 @@ where
             _phantom: std::marker::PhantomData,
         }
     }
+}
 
+impl<C, F> IntoMiddleware for Config<C, F>
+where
+    F: Fn(&str) -> Option<C> + Send + Sync + 'static,
+    C: Clone + Send + Sync + 'static,
+{
     /// Converts the configuration into a middleware function.
     ///
     /// The middleware checks the `Authorization` header for a Bearer token and validates it
     /// against the static tokens or the custom verification function. If the token is valid,
     /// the request is passed to the next middleware; otherwise, a 401 Unauthorized response is returned.
-    pub fn into_middleware(
+    fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
     + Clone

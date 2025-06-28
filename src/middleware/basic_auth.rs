@@ -1,6 +1,6 @@
 use crate::{
     body::TakoBody,
-    middleware::Next,
+    middleware::{IntoMiddleware, Next},
     responder::Responder,
     types::{Request, Response},
 };
@@ -108,13 +108,19 @@ where
         self.realm = r;
         self
     }
+}
 
+impl<U, F> IntoMiddleware for Config<U, F>
+where
+    F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
+    U: Clone + Send + Sync + 'static,
+{
     /// Converts the configuration into a middleware function.
     ///
     /// The middleware checks the `Authorization` header for Basic credentials and validates them
     /// against the static user credentials or the custom verification function. If the credentials
     /// are valid, the request is passed to the next middleware; otherwise, a 401 Unauthorized response is returned.
-    pub fn into_middleware(
+    fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
     + Clone

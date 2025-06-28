@@ -5,7 +5,7 @@ use hyper::Method;
 use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, params::Params},
-    middleware::{Next, basic_auth, bearer_auth},
+    middleware::{IntoMiddleware, Next, basic_auth, bearer_auth},
     responder::Responder,
     sse::Sse,
     state::get_state,
