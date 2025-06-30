@@ -51,7 +51,6 @@ async fn raw_with_file(mut req: Request) -> impl Responder {
     let mut total_files = 0usize;
     while let Some(mut field) = mp.next_field().await.unwrap() {
         if field.file_name().is_some() {
-            // Clone the name **before** we borrow `field` mutably in the loop below
             let fname = field
                 .file_name()
                 .map(|s| s.to_owned())

@@ -63,8 +63,8 @@ name = "hello-world"
 path = "examples/hello-world/src/main.rs"
 
 [[example]]
-name = "hello-world"
-path = "examples/hello-world/src/main.rs"
+name = "multipart"
+path = "examples/multipart/src/main.rs"
 
 [[example]]
 name = "websockets"
