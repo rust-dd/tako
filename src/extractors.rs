@@ -24,6 +24,10 @@ pub mod path;
 /// Extractor for parsing query parameters from HTTP requests.
 pub mod query;
 
+/// Extractor for handling multipart form data from HTTP request bodies.
+#[cfg(feature = "multipart")]
+pub mod multipart;
+
 /// The `FromRequest` trait provides a synchronous mechanism for extracting data from an HTTP request.
 ///
 /// This trait is designed for types that need to synchronously extract and process data from the body,
@@ -47,6 +51,10 @@ pub mod query;
 /// ```
 pub trait FromRequest<'a>: Sized {
     fn from_request(req: &'a Request) -> Result<Self>;
+}
+
+pub trait FromRequestMut<'a>: Sized {
+    fn from_request(req: &'a mut Request) -> Result<Self>;
 }
 
 /// The `FromRequestParts` trait provides a synchronous mechanism for extracting data from specific parts of an HTTP request.
