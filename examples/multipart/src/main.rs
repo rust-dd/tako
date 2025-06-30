@@ -1,36 +1,40 @@
-async fn upload_file(mut req: Request) -> Result<String> {
+use anyhow::Result;
+use http::{Method, StatusCode};
+use tako::{
+    extractors::{
+        AsyncFromRequestMut,
+        multipart::{InMemoryFile, TakoTypedMultipart, UploadedFile},
+    },
+    responder::Responder,
+    router::Router,
+    types::Request,
+};
+use tokio::net::TcpListener;
+
+async fn upload_file(mut req: Request) -> impl Responder {
     #[derive(serde::Deserialize)]
     struct Form {
-        description: String,
-        file: UploadedFile,
+        data: String,
     }
 
     let TakoTypedMultipart::<Form, UploadedFile> { data, .. } =
-        TakoTypedMultipart::from_request(&mut req).await?;
+        TakoTypedMultipart::from_request(&mut req).await.unwrap();
+    println!("Received file: {}", data.data);
 
-    Ok(format!(
-        "Saved {} ({} bytes) at {:?}",
-        data.file.file_name.unwrap_or("<unnamed>".into()),
-        data.file.size,
-        data.file.path
-    ))
+    (StatusCode::OK, "File uploaded successfully")
 }
 
-async fn upload_mem(mut req: Request) -> Result<String> {
+async fn upload_mem(mut req: Request) -> impl Responder {
     #[derive(serde::Deserialize)]
     struct ImgForm {
         title: String,
-        image: InMemoryFile,
     }
 
     let TakoTypedMultipart::<ImgForm, InMemoryFile> { data, .. } =
-        TakoTypedMultipart::from_request(&mut req).await?;
+        TakoTypedMultipart::from_request(&mut req).await.unwrap();
+    println!("Received image: {}", data.title);
 
-    Ok(format!(
-        "Received {}: {} bytes in RAM",
-        data.image.file_name.unwrap_or("img".into()),
-        data.image.data.len()
-    ))
+    (StatusCode::OK, "Image uploaded successfully")
 }
 
 #[tokio::main]
