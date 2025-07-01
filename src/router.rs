@@ -258,6 +258,18 @@ impl Router {
         self
     }
 
+    /// Adds a plugin to the router.
+    ///
+    /// Plugins extend the functionality of the router by providing additional features
+    /// such as logging, metrics, or custom behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin` - The plugin to add, which must implement the `TakoPlugin` trait.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the `Router` for method chaining.
     #[cfg(feature = "plugins")]
     pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
     where
@@ -267,8 +279,32 @@ impl Router {
         self
     }
 
+    /// Retrieves all plugins added to the router.
+    ///
+    /// This method returns a vector of references to the plugins currently added to the router.
+    ///
+    /// # Returns
+    ///
+    /// A vector of references to the plugins.
+    /// Retrieves all plugins added to the router.
+    ///
+    /// This method returns a vector of references to the plugins currently added to the router.
+    ///
+    /// # Returns
+    ///
+    /// A vector of references to the plugins.
     #[cfg(feature = "plugins")]
     pub fn plugins(&self) -> Vec<&dyn TakoPlugin> {
         self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
+    }
+
+    pub fn merge(&mut self, other: Router) {
+        other.routes.into_iter().for_each(|route| {});
+        other
+            .middlewares
+            .read()
+            .unwrap()
+            .iter()
+            .for_each(|middleware| {});
     }
 }
