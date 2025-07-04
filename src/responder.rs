@@ -105,3 +105,9 @@ where
         res
     }
 }
+
+impl Responder for TakoBody {
+    fn into_response(self) -> Response<TakoBody> {
+        Response::new(self)
+    }
+}

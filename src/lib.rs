@@ -8,7 +8,7 @@
 pub mod body;
 
 /// Module for working with byte streams and buffers.
-mod bytes;
+pub mod bytes;
 
 #[cfg(feature = "client")]
 pub mod client;

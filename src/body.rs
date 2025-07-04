@@ -2,13 +2,15 @@
 /// It includes utility methods for creating and manipulating HTTP bodies, as well as
 /// implementations for common traits like `Default` and `Body`.
 use std::{
+    fmt::Debug,
     pin::Pin,
     task::{Context, Poll},
 };
 
 use bytes::Bytes;
 
-use http_body_util::{BodyExt, Empty};
+use futures_util::{Stream, TryStream, TryStreamExt};
+use http_body_util::{BodyExt, Empty, StreamBody};
 use hyper::body::{Body, Frame, SizeHint};
 
 use crate::types::{BoxBody, BoxError};
@@ -50,6 +52,59 @@ impl TakoBody {
         B::Error: Into<BoxError>,
     {
         Self(body.map_err(|e| e.into()).boxed_unsync())
+    }
+
+    /// Creates a `TakoBody` from a stream of `Result<Bytes, E>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream` - A stream where each item is a `Result` containing either `Bytes` or an error.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tako::body::TakoBody;
+    /// use futures_util::stream;
+    /// use bytes::Bytes;
+    ///
+    /// let stream = stream::iter(vec![Ok(Bytes::from("Hello")), Ok(Bytes::from("World"))]);
+    /// let body = TakoBody::from_stream(stream);
+    /// ```
+    pub fn from_stream<S, E>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, E>> + Send + 'static,
+        E: Into<BoxError> + Debug + 'static,
+    {
+        let stream = stream.map_err(Into::into).map_ok(hyper::body::Frame::data);
+
+        let body = StreamBody::new(stream).boxed_unsync();
+        Self(body)
+    }
+
+    /// Creates a `TakoBody` from a `TryStream` of `hyper::body::Frame<Bytes>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `stream` - A `TryStream` where each item is a `hyper::body::Frame` containing `Bytes`.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tako::body::TakoBody;
+    /// use futures_util::stream;
+    /// use hyper::body::Frame;
+    /// use bytes::Bytes;
+    ///
+    /// let stream = stream::iter(vec![Ok(Frame::data(Bytes::from("Hello"))), Ok(Frame::data(Bytes::from("World")))]);
+    /// let body = TakoBody::from_try_stream(stream);
+    /// ```
+    pub fn from_try_stream<S, E>(stream: S) -> Self
+    where
+        S: TryStream<Ok = hyper::body::Frame<Bytes>, Error = E> + Send + 'static,
+        E: Into<BoxError> + 'static,
+    {
+        let body = StreamBody::new(stream.map_err(Into::into)).boxed_unsync();
+        Self(body)
     }
 
     /// Creates an empty `TakoBody`.
