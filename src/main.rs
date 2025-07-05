@@ -140,6 +140,10 @@ async fn main() {
         .realm("Admin Area")
         .into_middleware();
 
+    let mut r2 = tako::router::Router::new();
+    r2.route(Method::GET, "/compression", compression);
+    r.merge(r2);
+
     r.route(Method::GET, "/compression", compression)
         .middleware(basic);
 

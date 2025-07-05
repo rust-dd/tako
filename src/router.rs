@@ -298,13 +298,50 @@ impl Router {
         self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
     }
 
+    /// Merges another `Router` into the current `Router`.
+    ///
+    /// This method combines the routes and middlewares of the provided `Router`
+    /// into the current `Router`. Routes from the other `Router` are added to
+    /// the current one, and its middlewares are prepended to the route-level
+    /// middlewares of the merged routes.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - The `Router` instance to merge into the current `Router`.
+    ///
+    /// # Behavior
+    ///
+    /// - Routes from the `other` router are added to the current router.
+    /// - Middlewares defined at the router level in the `other` router are
+    ///   prepended to the route-level middlewares of the merged routes.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use tako::router::Router;
+    /// use http::Method;
+    ///
+    /// let mut router1 = Router::new();
+    /// router1.route(Method::GET, "/example1", |req| async move {
+    ///     Ok(req)
+    /// });
+    ///
+    /// let mut router2 = Router::new();
+    /// router2.route(Method::POST, "/example2", |req| async move {
+    ///     Ok(req)
+    /// });
+    ///
+    /// router1.merge(router2);
+    /// ```
     pub fn merge(&mut self, other: Router) {
-        other.routes.into_iter().for_each(|route| {});
-        other
-            .middlewares
-            .read()
-            .unwrap()
-            .iter()
-            .for_each(|middleware| {});
+        other.routes.iter_mut().for_each(|mut entry| {
+            let (key, route) = entry.pair_mut();
+            // add router level middlewares at the beginning of the middlewares on route level
+            for mw in other.middlewares.read().unwrap().iter().rev() {
+                route.middlewares.write().unwrap().push_front(mw.clone());
+            }
+
+            self.routes.insert(key.to_owned(), route.to_owned());
+        });
     }
 }

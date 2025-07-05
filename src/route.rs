@@ -4,7 +4,7 @@
 /// HTTP method, handler, and any associated middleware. It also provides utilities for
 /// matching paths and extracting parameters from dynamic segments.
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, RwLock},
 };
 
@@ -39,7 +39,7 @@ pub struct Route {
     pub param_names: Vec<String>,
     pub method: Method,
     pub handler: BoxHandler,
-    pub middlewares: RwLock<Vec<BoxMiddleware>>,
+    pub middlewares: RwLock<VecDeque<BoxMiddleware>>,
     pub tsr: bool,
 }
 
@@ -65,7 +65,7 @@ impl Route {
             param_names,
             method,
             handler,
-            middlewares: RwLock::new(Vec::new()),
+            middlewares: RwLock::new(VecDeque::new()),
             tsr: tsr.unwrap_or(false),
         }
     }
@@ -92,7 +92,7 @@ impl Route {
             Box::pin(async move { fut.await.into_response() })
         });
 
-        self.middlewares.write().unwrap().push(mw);
+        self.middlewares.write().unwrap().push_back(mw);
         self
     }
 
