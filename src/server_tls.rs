@@ -80,7 +80,8 @@ pub async fn run(
     let router = Arc::new(router);
 
     // Setup plugins
-    if cfg!(feature = "plugins") {
+    #[cfg(feature = "plugins")]
+    {
         for plugin in router.plugins() {
             let _ = plugin.setup(&router);
         }
@@ -102,12 +103,17 @@ pub async fn run(
                     return;
                 }
             };
+
+            #[cfg(feature = "http2")]
             let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
 
             let io = TokioIo::new(tls_stream);
-            let svc = service_fn(move |req: Request<_>| {
+            let svc = service_fn(move |mut req: Request<_>| {
                 let r = router.clone();
-                async move { Ok::<_, Infallible>(r.dispatch(req).await) }
+                async move {
+                    req.extensions_mut().insert(addr);
+                    Ok::<_, Infallible>(r.dispatch(req).await)
+                }
             });
 
             #[cfg(feature = "http2")]

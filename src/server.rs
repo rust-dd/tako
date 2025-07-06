@@ -68,9 +68,12 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
 
         // Spawn a new task to handle each incoming connection.
         tokio::spawn(async move {
-            let svc = Arc::new(service_fn(|req: Request<_>| {
+            let svc = Arc::new(service_fn(move |mut req: Request<_>| {
                 let router = router.clone();
-                async move { Ok::<_, Infallible>(router.dispatch(req).await) }
+                async move {
+                    req.extensions_mut().insert(addr);
+                    Ok::<_, Infallible>(router.dispatch(req).await)
+                }
             }));
 
             let mut http = http1::Builder::new();
