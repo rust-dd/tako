@@ -62,3 +62,7 @@ pub mod server_tls;
 
 #[cfg(feature = "tls")]
 pub use server_tls::serve_tls;
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

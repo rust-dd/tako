@@ -34,6 +34,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_bytes = "0.11.17"
 serde_json = "1.0.140"
 sha1 = "0.10.6"
+tikv-jemallocator = { version = "0.6.0", optional = true }
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-rustls = { version = "0.26.2", optional = true }
 tokio-stream = "0.1.17"
@@ -50,6 +51,7 @@ zstd = { version = "0.13.3", optional = true }
 client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
 default = []
 http2 = []
+jemalloc = ["dep:tikv-jemallocator"]
 multipart = ["dep:multer", "dep:uuid"]
 plugins = ["dep:brotli", "dep:flate2"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
@@ -58,6 +60,8 @@ zstd = ["dep:zstd", "plugins"]
 
 [lib]
 name = "tako"
+path = "src/lib.rs"
+doctest = false
 
 [[example]]
 name = "hello-world"
@@ -66,6 +70,7 @@ path = "examples/hello-world/src/main.rs"
 [[example]]
 name = "multipart"
 path = "examples/multipart/src/main.rs"
+required-features = ["multipart"]
 
 [[example]]
 name = "streams"
