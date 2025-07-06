@@ -19,6 +19,9 @@ use crate::{
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
 
+#[cfg(feature = "plugins")]
+use std::sync::atomic::AtomicBool;
+
 /// The `Router` struct is responsible for managing the application's routes and middleware.
 /// It provides methods to define routes, apply middleware, and dispatch incoming requests.
 ///
@@ -39,6 +42,8 @@ pub struct Router {
     middlewares: RwLock<Vec<BoxMiddleware>>,
     #[cfg(feature = "plugins")]
     plugins: Vec<Box<dyn TakoPlugin>>,
+    #[cfg(feature = "plugins")]
+    plugins_initialized: AtomicBool,
 }
 
 impl Router {
@@ -53,6 +58,8 @@ impl Router {
             middlewares: RwLock::new(Vec::new()),
             #[cfg(feature = "plugins")]
             plugins: Vec::new(),
+            #[cfg(feature = "plugins")]
+            plugins_initialized: AtomicBool::new(false),
         }
     }
 
@@ -294,8 +301,19 @@ impl Router {
     ///
     /// A vector of references to the plugins.
     #[cfg(feature = "plugins")]
-    pub fn plugins(&self) -> Vec<&dyn TakoPlugin> {
+    pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
         self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
+    }
+
+    #[cfg(feature = "plugins")]
+    pub(crate) fn setup_plugins_once(&self) {
+        use std::sync::atomic::Ordering;
+
+        if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
+            for plugin in self.plugins() {
+                let _ = plugin.setup(self);
+            }
+        }
     }
 
     /// Merges another `Router` into the current `Router`.

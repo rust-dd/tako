@@ -81,11 +81,7 @@ pub async fn run(
 
     // Setup plugins
     #[cfg(feature = "plugins")]
-    {
-        for plugin in router.plugins() {
-            let _ = plugin.setup(&router);
-        }
-    }
+    router.setup_plugins_once();
 
     println!("Tako TLS listening on {}", listener.local_addr()?);
 

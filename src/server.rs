@@ -52,6 +52,10 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     crate::tracing::init_tracing();
 
     let router = Arc::new(router);
+    // Setup plugins
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once();
+
     println!("Tako listening on {}", listener.local_addr()?);
 
     loop {
@@ -59,12 +63,6 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
         println!("Accepted connection from {}", addr);
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
-
-        // Setup plugins
-        #[cfg(feature = "plugins")]
-        for plugin in router.plugins() {
-            let _ = plugin.setup(&router);
-        }
 
         // Spawn a new task to handle each incoming connection.
         tokio::spawn(async move {
