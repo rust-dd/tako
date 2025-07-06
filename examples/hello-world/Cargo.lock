@@ -769,6 +769,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8437fd221bde2d4ca316d61b90e337e9e702b3820b87d63caa9ba6c02bd06d96"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -863,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -878,12 +887,14 @@ dependencies = [
  "once_cell",
  "regex",
  "serde",
+ "serde_bytes",
  "serde_json",
  "sha1",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
+ "tracing",
  "url",
 ]
 
@@ -990,7 +1001,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
 dependencies = [
  "pin-project-lite",
+ "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81383ab64e72a7a8b8e13130c49e3dab29def6d0c7d76a03087b3cf71c5c6903"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

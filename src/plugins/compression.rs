@@ -28,11 +28,24 @@ use http::{
 use http_body_util::BodyExt;
 use std::io::{Read, Write};
 
+pub mod brotli_stream;
+pub mod gzip_stream;
+pub mod zstd_stream;
+
 #[cfg(feature = "zstd")]
 use zstd::stream::encode_all as zstd_encode;
 
+#[cfg(feature = "zstd")]
+use crate::plugins::compression::zstd_stream::stream_zstd;
 use crate::{
-    body::TakoBody, middleware::Next, plugins::TakoPlugin, responder::Responder, router::Router,
+    body::TakoBody,
+    middleware::Next,
+    plugins::{
+        TakoPlugin,
+        compression::{brotli_stream::stream_brotli, gzip_stream::stream_gzip},
+    },
+    responder::Responder,
+    router::Router,
     types::Request,
 };
 
@@ -256,6 +269,73 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
             .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
     } else {
         *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
+    }
+
+    resp.into_response()
+}
+
+/// Middleware function for compressing responses with streaming.
+pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -> impl Responder {
+    // Parse the `Accept-Encoding` header to determine supported encodings.
+    let accepted = req
+        .headers()
+        .get(ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Process the request and get the response.
+    let mut resp = next.run(req).await;
+    let chosen = choose_encoding(&accepted, &cfg.enabled);
+
+    // Skip compression for non-successful responses or if already encoded.
+    let status = resp.status();
+    if !(status.is_success() || status == StatusCode::NOT_MODIFIED) {
+        return resp.into_response();
+    }
+
+    if resp.headers().contains_key(CONTENT_ENCODING) {
+        return resp.into_response();
+    }
+
+    // Skip compression for unsupported content types.
+    if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
+        let ct = ct.to_str().unwrap_or("");
+        if !(ct.starts_with("text/")
+            || ct.contains("json")
+            || ct.contains("javascript")
+            || ct.contains("xml"))
+        {
+            return resp.into_response();
+        }
+    }
+
+    // Estimate size from `Content-Length`.
+    if let Some(len) = resp
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        if len < cfg.min_size {
+            return resp.into_response();
+        }
+    }
+
+    if let Some(enc) = chosen {
+        let body = std::mem::replace(resp.body_mut(), TakoBody::empty());
+        let new_body = match enc {
+            Encoding::Gzip => stream_gzip(body, cfg.gzip_level),
+            Encoding::Brotli => stream_brotli(body, cfg.brotli_level),
+            #[cfg(feature = "zstd")]
+            Encoding::Zstd => stream_zstd(body, cfg.zstd_level),
+        };
+        *resp.body_mut() = new_body;
+        resp.headers_mut()
+            .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
+        resp.headers_mut().remove(CONTENT_LENGTH);
+        resp.headers_mut()
+            .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
     }
 
     resp.into_response()

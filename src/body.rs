@@ -9,6 +9,7 @@ use std::{
 
 use bytes::Bytes;
 
+use anyhow::Result;
 use futures_util::{Stream, TryStream, TryStreamExt};
 use http_body_util::{BodyExt, Empty, StreamBody};
 use hyper::body::{Body, Frame, SizeHint};
@@ -76,7 +77,6 @@ impl TakoBody {
         E: Into<BoxError> + Debug + 'static,
     {
         let stream = stream.map_err(Into::into).map_ok(hyper::body::Frame::data);
-
         let body = StreamBody::new(stream).boxed_unsync();
         Self(body)
     }
@@ -100,7 +100,7 @@ impl TakoBody {
     /// ```
     pub fn from_try_stream<S, E>(stream: S) -> Self
     where
-        S: TryStream<Ok = hyper::body::Frame<Bytes>, Error = E> + Send + 'static,
+        S: TryStream<Ok = Frame<Bytes>, Error = E> + Send + 'static,
         E: Into<BoxError> + 'static,
     {
         let body = StreamBody::new(stream.map_err(Into::into)).boxed_unsync();
