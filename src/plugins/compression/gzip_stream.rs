@@ -91,39 +91,48 @@ where
     type Item = Result<Bytes, BoxError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project(); // biztonságos „projection”
+        let mut this = self.project();
 
-        if *this.pos < this.encoder.get_ref().len() {
-            let buf = &this.encoder.get_ref()[*this.pos..];
-            *this.pos = this.encoder.get_ref().len();
-            return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
-        }
-
-        if *this.done {
-            return Poll::Ready(None);
-        }
-
-        match this.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(chunk))) => {
-                if let Err(e) = this.encoder.write_all(&chunk) {
-                    return Poll::Ready(Some(Err(Box::new(e))));
-                }
-                if let Err(e) = this.encoder.flush() {
-                    return Poll::Ready(Some(Err(Box::new(e))));
-                }
-                cx.waker().wake_by_ref();
-                Poll::Pending
+        loop {
+            // 1) Do we still have unread bytes in the encoder buffer?
+            if *this.pos < this.encoder.get_ref().len() {
+                let buf = &this.encoder.get_ref()[*this.pos..];
+                *this.pos = this.encoder.get_ref().len();
+                // Immediately send the chunk and return Ready.
+                return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
             }
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
-            Poll::Ready(None) => {
-                *this.done = true;
-                if let Err(e) = this.encoder.try_finish() {
-                    return Poll::Ready(Some(Err(Box::new(e))));
-                }
-                cx.waker().wake_by_ref();
-                Poll::Pending
+            // 2) If we already finished and nothing is left, end the stream.
+            if *this.done {
+                return Poll::Ready(None);
             }
-            Poll::Pending => Poll::Pending,
+            // 3) Poll the inner stream for more input data.
+            match this.inner.as_mut().poll_next(cx) {
+                // New chunk arrived: compress it, then loop again
+                // (now the buffer certainly contains data).
+                Poll::Ready(Some(Ok(chunk))) => {
+                    if let Err(e) = this
+                        .encoder
+                        .write_all(&chunk)
+                        .and_then(|_| this.encoder.flush())
+                    {
+                        return Poll::Ready(Some(Err(Box::new(e))));
+                    }
+                    continue;
+                }
+                // Error from the inner stream — propagate it.
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                // Inner stream finished: finalize the encoder,
+                // then loop to drain the remaining bytes.
+                Poll::Ready(None) => {
+                    *this.done = true;
+                    if let Err(e) = this.encoder.try_finish() {
+                        return Poll::Ready(Some(Err(Box::new(e))));
+                    }
+                    continue;
+                }
+                // No new input and no buffered output: we must wait.
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
 }

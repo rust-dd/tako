@@ -81,71 +81,69 @@ where
 {
     type Item = Result<Bytes, io::Error>;
 
-    /// Polls the next compressed chunk from the stream.
-    ///
-    /// This method implements the `Stream` trait and handles the compression of incoming data
-    /// from the inner stream. It returns compressed chunks as `Bytes` or an error if compression fails.
-    ///
-    /// # Arguments
-    ///
-    /// * `cx` - The task context used for polling.
-    ///
-    /// # Returns
-    ///
-    /// A `Poll` indicating whether the next compressed chunk is ready, pending, or if the stream has ended.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        if *this.pos < this.buffer.len() {
-            let chunk = &this.buffer[*this.pos..];
-            *this.pos = this.buffer.len();
-            return Poll::Ready(Some(Ok(Bytes::copy_from_slice(chunk))));
-        }
-
-        if *this.done && this.encoder.is_none() {
-            return Poll::Ready(None);
-        }
-
-        match this.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(data))) => {
-                if let Some(enc) = this.encoder.as_mut() {
-                    if let Err(e) = enc.write_all(&data) {
-                        return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
-                    }
-                    if let Err(e) = enc.flush() {
-                        return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
-                    }
-
-                    let out = enc.get_ref();
-                    if *this.pos < out.len() {
-                        *this.buffer = out.clone();
-                        *this.pos = 0;
-                        cx.waker().wake_by_ref();
-                    }
-                }
-                Poll::Pending
+        loop {
+            // 1) Drain the buffer first, if there is unread output.
+            if *this.pos < this.buffer.len() {
+                let chunk = &this.buffer[*this.pos..];
+                *this.pos = this.buffer.len();
+                return Poll::Ready(Some(Ok(Bytes::copy_from_slice(chunk))));
             }
-            Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))))
+            // 2) If we are done and the encoder is already consumed,
+            //    the stream is finished.
+            if *this.done && this.encoder.is_none() {
+                return Poll::Ready(None);
             }
-            Poll::Ready(None) => {
-                *this.done = true;
-                if let Some(enc) = this.encoder.take() {
-                    match enc.finish() {
-                        Ok(mut vec) => {
-                            this.buffer.clear();
-                            this.buffer.append(&mut vec);
-                            *this.pos = 0;
-                            cx.waker().wake_by_ref();
-                            Poll::Pending
+            // 3) Poll the inner stream for more input data.
+            match this.inner.as_mut().poll_next(cx) {
+                // — New chunk arrived: compress it, then loop to drain.
+                Poll::Ready(Some(Ok(data))) => {
+                    if let Some(enc) = this.encoder.as_mut() {
+                        if let Err(e) = enc.write_all(&data).and_then(|_| enc.flush()) {
+                            return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
                         }
-                        Err(e) => Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e)))),
+                        // Copy freshly compressed bytes into our buffer.
+                        let out = enc.get_ref();
+                        if !out.is_empty() {
+                            this.buffer.clear();
+                            this.buffer.extend_from_slice(out);
+                            *this.pos = 0;
+                        }
                     }
-                } else {
-                    Poll::Ready(None)
+                    continue; // go back to step 1
                 }
+                // — Propagate an error from the inner stream.
+                Poll::Ready(Some(Err(e))) => {
+                    return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
+                }
+                // — Inner stream ended: finalise the encoder,
+                //   then loop to emit the remaining bytes.
+                Poll::Ready(None) => {
+                    *this.done = true;
+                    if let Some(enc) = this.encoder.take() {
+                        match enc.finish() {
+                            Ok(mut vec) => {
+                                this.buffer.clear();
+                                this.buffer.append(&mut vec);
+                                *this.pos = 0;
+                                continue; // step 1 will send the tail bytes
+                            }
+                            Err(e) => {
+                                return Poll::Ready(Some(Err(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    e,
+                                ))));
+                            }
+                        }
+                    } else {
+                        return Poll::Ready(None);
+                    }
+                }
+                // — No new input and nothing buffered.
+                Poll::Pending => return Poll::Pending,
             }
-            Poll::Pending => Poll::Pending,
         }
     }
 }
