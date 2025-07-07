@@ -73,6 +73,11 @@ path = "examples/multipart/src/main.rs"
 required-features = ["multipart"]
 
 [[example]]
+name = "stream-compression"
+path = "examples/stream-compression/src/main.rs"
+required-features = ["plugins"]
+
+[[example]]
 name = "streams"
 path = "examples/streams/src/main.rs"
 

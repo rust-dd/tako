@@ -44,7 +44,7 @@ use crate::{
         TakoPlugin,
         compression::{brotli_stream::stream_brotli, gzip_stream::stream_gzip},
     },
-    responder::Responder,
+    responder::{CompressionResponse, Responder},
     router::Router,
     types::Request,
 };
@@ -84,6 +84,8 @@ pub struct Config {
     /// Compression level for Zstd (if enabled).
     #[cfg(feature = "zstd")]
     pub zstd_level: i32,
+    /// Whether to use streaming compression.
+    pub stream: bool,
 }
 
 impl Default for Config {
@@ -96,6 +98,7 @@ impl Default for Config {
             brotli_level: 5,
             #[cfg(feature = "zstd")]
             zstd_level: 3,
+            stream: false,
         }
     }
 }
@@ -140,6 +143,12 @@ impl CompressionBuilder {
         if !yes {
             self.0.enabled.retain(|e| *e != Encoding::Zstd)
         }
+        self
+    }
+
+    /// Sets whether to use streaming compression.
+    pub fn enable_stream(mut self, stream: bool) -> Self {
+        self.0.stream = stream;
         self
     }
 
@@ -201,7 +210,20 @@ impl TakoPlugin for CompressionPlugin {
         let cfg = self.cfg.clone();
         router.middleware(move |req, next| {
             let cfg = cfg.clone();
-            async move { compress_middleware(req, next, cfg).await }
+            let stream = cfg.stream.clone();
+            async move {
+                if stream == false {
+                    return CompressionResponse::Plain(
+                        compress_middleware(req, next, cfg).await.into_response(),
+                    );
+                } else {
+                    return CompressionResponse::Stream(
+                        compress_stream_middleware(req, next, cfg)
+                            .await
+                            .into_response(),
+                    );
+                }
+            }
         });
         Ok(())
     }

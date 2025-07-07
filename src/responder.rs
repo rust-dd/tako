@@ -111,3 +111,23 @@ impl Responder for TakoBody {
         Response::new(self)
     }
 }
+
+pub enum CompressionResponse<R>
+where
+    R: Responder,
+{
+    Plain(R),
+    Stream(R),
+}
+
+impl<R> Responder for CompressionResponse<R>
+where
+    R: Responder,
+{
+    fn into_response(self) -> Response<TakoBody> {
+        match self {
+            CompressionResponse::Plain(r) => r.into_response(),
+            CompressionResponse::Stream(r) => r.into_response(),
+        }
+    }
+}
