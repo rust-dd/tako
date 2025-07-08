@@ -9,7 +9,7 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::FutureExt;
-use http::header;
+use http::{StatusCode, header};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
@@ -94,7 +94,7 @@ where
             Some(k) => k,
             None => {
                 return hyper::Response::builder()
-                    .status(400)
+                    .status(StatusCode::BAD_REQUEST)
                     .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
                     .unwrap();
             }
@@ -109,7 +109,7 @@ where
         };
 
         let response = hyper::Response::builder()
-            .status(101)
+            .status(StatusCode::SWITCHING_PROTOCOLS)
             .header(header::UPGRADE, "websocket")
             .header(header::CONNECTION, "Upgrade")
             .header("Sec-WebSocket-Accept", accept)

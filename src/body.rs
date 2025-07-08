@@ -135,6 +135,13 @@ impl From<()> for TakoBody {
     }
 }
 
+impl From<&str> for TakoBody {
+    fn from(buf: &str) -> Self {
+        let owned = buf.to_owned();
+        Self::new(http_body_util::Full::from(owned))
+    }
+}
+
 macro_rules! body_from_impl {
     ($ty:ty) => {
         impl From<$ty> for TakoBody {

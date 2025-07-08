@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use anyhow::Result;
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
-use http::header;
+use http::{StatusCode, header};
 use hyper::body::Frame;
 use tako::{
     Method, body::TakoBody, bytes::TakoBytes, responder::Responder, router::Router, sse::Sse,
@@ -19,8 +19,8 @@ async fn numbers(_: Request) -> impl Responder {
         })
         .map(|b| Ok::<_, Infallible>(b));
 
-    http::Response::builder()
-        .status(200)
+    hyper::Response::builder()
+        .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/event-stream")
         .header(header::CACHE_CONTROL, "no-cache")
         .header(header::CONNECTION, "keep-alive")
@@ -43,8 +43,8 @@ async fn json_ticks(_: Request) -> impl Responder {
         }
     });
 
-    http::Response::builder()
-        .status(200)
+    hyper::Response::builder()
+        .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/event-stream")
         .header(header::CACHE_CONTROL, "no-cache")
         .header(header::CONNECTION, "keep-alive")

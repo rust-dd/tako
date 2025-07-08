@@ -3,6 +3,7 @@
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
+use http::StatusCode;
 use hyper::Method;
 
 use crate::{
@@ -193,7 +194,7 @@ impl Router {
         for route in self.routes.iter() {
             if &route.method == method && route.tsr && route.match_path(&tsr_path).is_some() {
                 return hyper::Response::builder()
-                    .status(307)
+                    .status(StatusCode::TEMPORARY_REDIRECT)
                     .header("Location", tsr_path)
                     .body(TakoBody::empty())
                     .unwrap();
@@ -201,7 +202,7 @@ impl Router {
         }
 
         hyper::Response::builder()
-            .status(404)
+            .status(StatusCode::NOT_FOUND)
             .body(TakoBody::empty())
             .unwrap()
     }

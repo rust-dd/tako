@@ -44,6 +44,9 @@ pub mod sse;
 /// Module for managing application state and shared data.
 pub mod state;
 
+/// Module for managing static assets.
+pub mod r#static;
+
 #[cfg(feature = "tako-tracing")]
 pub mod tracing;
 

@@ -5,7 +5,7 @@
 use std::convert::Infallible;
 
 use bytes::{Bytes, BytesMut};
-use http::header;
+use http::{StatusCode, header};
 use http_body_util::StreamBody;
 use tokio_stream::{Stream, StreamExt};
 
@@ -86,8 +86,8 @@ where
             Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from(buf)))
         });
 
-        http::Response::builder()
-            .status(200)
+        hyper::Response::builder()
+            .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "text/event-stream")
             .header(header::CACHE_CONTROL, "no-cache")
             .header(header::CONNECTION, "keep-alive")

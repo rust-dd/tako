@@ -18,7 +18,7 @@ use crate::body::TakoBody;
 /// ```rust
 /// use tako::responder::Responder;
 /// use tako::body::TakoBody;
-/// use http::Response;
+/// use hyper::Response;
 ///
 /// impl Responder for &'static str {
 ///     fn into_response(self) -> Response<TakoBody> {
