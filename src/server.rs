@@ -60,7 +60,6 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
 
     loop {
         let (stream, addr) = listener.accept().await?;
-        println!("Accepted connection from {}", addr);
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 

@@ -21,6 +21,21 @@
 
 ---
 
+## 🔥 Benchmarking the Hello World
+
++---------------------------+------------------+------------------+---------------+
+| Framework 🦀              |   Requests/sec   |   Avg Latency    | Transfer/sec  |
++---------------------------+------------------+------------------+---------------+
+| Tako (not taco! 🌮)       |    ~148,800      |    ~649 µs       |    ~12.6 MB/s |
+| Axum (the hype one 🌀)    |    ~153,500      |    ~607 µs       |    ~19 MB/s   |
+| Actix (speed demon 💥)    |    ~126,300      |    ~860 µs       |    ~15.7 MB/s |
++---------------------------+------------------+------------------+---------------+
+
+✅ The benchmark ran successfully! 🎉
+👉 Command used: `wrk -t4 -c100 -d30s http://127.0.0.1:8080/`
+
+---
+
 ## 📦 Installation
 
 Add **Tako** to your `Cargo.toml`:

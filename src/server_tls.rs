@@ -87,7 +87,6 @@ pub async fn run(
 
     loop {
         let (stream, addr) = listener.accept().await?;
-        println!("Accepted TLS connection from {addr}");
         let acceptor = acceptor.clone();
         let router = router.clone();
 
