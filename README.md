@@ -7,7 +7,6 @@
 
 > [**Blog**: Tako in detail](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
 
----
 
 ## ✨ Highlights
 
@@ -19,7 +18,6 @@
 * **Plugin system** — Opt‑in extensions let you add functionality without cluttering the core API.
 * **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2 & TLS** support.
 
----
 
 ## 🔥 Benchmarking the Hello World
 
@@ -35,7 +33,6 @@
 👉 Command used: `wrk -t4 -c100 -d30s http://127.0.0.1:8080/`
 ```
 
----
 
 ## 📦 Installation
 
@@ -46,7 +43,6 @@ Add **Tako** to your `Cargo.toml`:
 tako-rs = "*"
 ```
 
----
 
 ## 🚀 Quick Start
 
@@ -88,6 +84,5 @@ async fn main() -> Result<()> {
 
 `MIT` — see [LICENSE](./LICENSE) for details.
 
----
 
 Made with ❤️ & 🦀 by the Tako contributors.
