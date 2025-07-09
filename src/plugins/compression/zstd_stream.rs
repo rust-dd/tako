@@ -1,7 +1,7 @@
 #![cfg(feature = "zstd")]
 
 use std::{
-    io::{self, Write},
+    io::Write,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -79,7 +79,7 @@ impl<S> Stream for ZstdStream<S>
 where
     S: Stream<Item = Result<Bytes, BoxError>>,
 {
-    type Item = Result<Bytes, io::Error>;
+    type Item = Result<Bytes, BoxError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -102,7 +102,7 @@ where
                 Poll::Ready(Some(Ok(data))) => {
                     if let Some(enc) = this.encoder.as_mut() {
                         if let Err(e) = enc.write_all(&data).and_then(|_| enc.flush()) {
-                            return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
+                            return Poll::Ready(Some(Err(e.into())));
                         }
                         // Copy freshly compressed bytes into our buffer.
                         let out = enc.get_ref();
@@ -116,7 +116,7 @@ where
                 }
                 // — Propagate an error from the inner stream.
                 Poll::Ready(Some(Err(e))) => {
-                    return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
+                    return Poll::Ready(Some(Err(e)));
                 }
                 // — Inner stream ended: finalise the encoder,
                 //   then loop to emit the remaining bytes.
@@ -131,10 +131,7 @@ where
                                 continue; // step 1 will send the tail bytes
                             }
                             Err(e) => {
-                                return Poll::Ready(Some(Err(io::Error::new(
-                                    io::ErrorKind::Other,
-                                    e,
-                                ))));
+                                return Poll::Ready(Some(Err(e.into())));
                             }
                         }
                     } else {
@@ -142,7 +139,9 @@ where
                     }
                 }
                 // — No new input and nothing buffered.
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
             }
         }
     }

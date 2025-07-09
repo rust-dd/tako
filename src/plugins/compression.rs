@@ -20,7 +20,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
-use flate2::{Compression as GzLevel, write::GzEncoder};
+use flate2::{
+    Compression as GzLevel,
+    write::{DeflateEncoder, GzEncoder},
+};
 use http::{
     HeaderValue, StatusCode,
     header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, VARY},
@@ -29,6 +32,7 @@ use http_body_util::BodyExt;
 use std::io::{Read, Write};
 
 pub mod brotli_stream;
+pub mod deflate_stream;
 pub mod gzip_stream;
 pub mod zstd_stream;
 
@@ -42,7 +46,9 @@ use crate::{
     middleware::Next,
     plugins::{
         TakoPlugin,
-        compression::{brotli_stream::stream_brotli, gzip_stream::stream_gzip},
+        compression::{
+            brotli_stream::stream_brotli, deflate_stream::stream_deflate, gzip_stream::stream_gzip,
+        },
     },
     responder::{CompressionResponse, Responder},
     router::Router,
@@ -54,6 +60,7 @@ use crate::{
 pub enum Encoding {
     Gzip,
     Brotli,
+    Deflate,
     #[cfg(feature = "zstd")]
     Zstd,
 }
@@ -64,6 +71,7 @@ impl Encoding {
         match self {
             Encoding::Gzip => "gzip",
             Encoding::Brotli => "br",
+            Encoding::Deflate => "deflate",
             #[cfg(feature = "zstd")]
             Encoding::Zstd => "zstd",
         }
@@ -81,6 +89,8 @@ pub struct Config {
     pub gzip_level: u32,
     /// Compression level for Brotli.
     pub brotli_level: u32,
+    /// Compression level for Deflate.
+    pub deflate_level: u32,
     /// Compression level for Zstd (if enabled).
     #[cfg(feature = "zstd")]
     pub zstd_level: i32,
@@ -92,10 +102,11 @@ impl Default for Config {
     /// Provides default configuration values.
     fn default() -> Self {
         Self {
-            enabled: vec![Encoding::Gzip, Encoding::Brotli],
+            enabled: vec![Encoding::Gzip, Encoding::Brotli, Encoding::Deflate],
             min_size: 1024,
             gzip_level: 5,
             brotli_level: 5,
+            deflate_level: 5,
             #[cfg(feature = "zstd")]
             zstd_level: 3,
             stream: false,
@@ -134,6 +145,17 @@ impl CompressionBuilder {
         self
     }
 
+    /// Enables or disables Deflate compression.
+    pub fn enable_deflate(mut self, yes: bool) -> Self {
+        if yes && !self.0.enabled.contains(&Encoding::Deflate) {
+            self.0.enabled.push(Encoding::Deflate)
+        }
+        if !yes {
+            self.0.enabled.retain(|e| *e != Encoding::Deflate)
+        }
+        self
+    }
+
     /// Enables or disables Zstd compression (if supported).
     #[cfg(feature = "zstd")]
     pub fn enable_zstd(mut self, yes: bool) -> Self {
@@ -167,6 +189,12 @@ impl CompressionBuilder {
     /// Sets the compression level for Brotli.
     pub fn brotli_level(mut self, lvl: u32) -> Self {
         self.0.brotli_level = lvl.min(11);
+        self
+    }
+
+    /// Sets the compression level for Deflate.
+    pub fn deflate_level(mut self, lvl: u32) -> Self {
+        self.0.deflate_level = lvl.min(9);
         self
     }
 
@@ -278,7 +306,10 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
             match enc {
                 Encoding::Gzip => compress_gzip(&body_bytes, cfg.gzip_level)
                     .unwrap_or_else(|_| body_bytes.to_vec()),
-                Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level),
+                Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level)
+                    .unwrap_or_else(|_| body_bytes.to_vec()),
+                Encoding::Deflate => compress_deflate(&body_bytes, cfg.deflate_level)
+                    .unwrap_or_else(|_| body_bytes.to_vec()),
                 #[cfg(feature = "zstd")]
                 Encoding::Zstd => compress_zstd(&body_bytes, cfg.zstd_level)
                     .unwrap_or_else(|_| body_bytes.to_vec()),
@@ -349,6 +380,7 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
         let new_body = match enc {
             Encoding::Gzip => stream_gzip(body, cfg.gzip_level),
             Encoding::Brotli => stream_brotli(body, cfg.brotli_level),
+            Encoding::Deflate => stream_deflate(body, cfg.deflate_level),
             #[cfg(feature = "zstd")]
             Encoding::Zstd => stream_zstd(body, cfg.zstd_level),
         };
@@ -371,6 +403,8 @@ fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
         Some(Encoding::Brotli)
     } else if test(Encoding::Gzip) {
         Some(Encoding::Gzip)
+    } else if test(Encoding::Deflate) {
+        Some(Encoding::Deflate)
     } else {
         #[cfg(feature = "zstd")]
         {
@@ -390,12 +424,19 @@ fn compress_gzip(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 }
 
 /// Compresses data using Brotli.
-fn compress_brotli(data: &[u8], lvl: u32) -> Vec<u8> {
+fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     brotli::CompressorReader::new(data, 4096, lvl, 22)
         .read_to_end(&mut out)
-        .unwrap_or(0);
-    out
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Failed to compress data"))?;
+    Ok(out)
+}
+
+/// Compresses data using Deflate.
+fn compress_deflate(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
+    let mut enc = DeflateEncoder::new(Vec::new(), flate2::Compression::new(lvl));
+    enc.write_all(data)?;
+    enc.finish()
 }
 
 /// Compresses data using Zstd (if supported).

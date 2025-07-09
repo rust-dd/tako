@@ -10,7 +10,6 @@ use futures_util::{Stream, TryStreamExt};
 use http_body_util::BodyExt;
 use hyper::body::{Body, Frame};
 use pin_project_lite::pin_project;
-use tokio::io;
 
 use crate::{body::TakoBody, types::BoxError};
 
@@ -87,7 +86,7 @@ impl<S> Stream for BrotliStream<S>
 where
     S: Stream<Item = Result<Bytes, BoxError>>,
 {
-    type Item = Result<Bytes, io::Error>;
+    type Item = Result<Bytes, BoxError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -113,24 +112,26 @@ where
                         .write_all(&chunk)
                         .and_then(|_| this.encoder.flush())
                     {
-                        return Poll::Ready(Some(Err(e)));
+                        return Poll::Ready(Some(Err(e.into())));
                     }
                     continue; // encoder now contains data → step 1
                 }
                 // Propagate an error from the inner stream.
                 Poll::Ready(Some(Err(e))) => {
-                    return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::Other, e))));
+                    return Poll::Ready(Some(Err(e)));
                 }
                 // Inner stream ended: finalize the encoder, then loop to drain it.
                 Poll::Ready(None) => {
                     *this.done = true;
                     if let Err(e) = this.encoder.flush() {
-                        return Poll::Ready(Some(Err(e)));
+                        return Poll::Ready(Some(Err(e.into())));
                     }
                     continue; // encoder may hold final bytes → step 1
                 }
                 // Still waiting for more input and nothing buffered.
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
             }
         }
     }

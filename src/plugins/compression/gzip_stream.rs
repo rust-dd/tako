@@ -115,23 +115,27 @@ where
                         .write_all(&chunk)
                         .and_then(|_| this.encoder.flush())
                     {
-                        return Poll::Ready(Some(Err(Box::new(e))));
+                        return Poll::Ready(Some(Err(e.into())));
                     }
                     continue;
                 }
                 // Error from the inner stream — propagate it.
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                Poll::Ready(Some(Err(e))) => {
+                    return Poll::Ready(Some(Err(e)));
+                }
                 // Inner stream finished: finalize the encoder,
                 // then loop to drain the remaining bytes.
                 Poll::Ready(None) => {
                     *this.done = true;
-                    if let Err(e) = this.encoder.try_finish() {
-                        return Poll::Ready(Some(Err(Box::new(e))));
+                    if let Err(e) = this.encoder.flush() {
+                        return Poll::Ready(Some(Err(e.into())));
                     }
                     continue;
                 }
                 // No new input and no buffered output: we must wait.
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
             }
         }
     }
