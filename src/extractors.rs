@@ -7,16 +7,22 @@ use http::request::Parts;
 
 use crate::types::Request;
 
+/// Extractor for handling Accept-Language header in HTTP requests.
+pub mod acc_lang;
 /// Extractor for handling Basic authentication credentials in HTTP requests.
 pub mod basic;
 /// Extractor for handling Bearer tokens in HTTP requests.
 pub mod bearer;
 /// Extractor for handling raw byte data from HTTP request bodies.
 pub mod bytes;
+/// Extractor for handling cookie data from HTTP request headers.
+pub mod cookie;
 /// Extractor for handling x-www-form-urlencoded data from HTTP request bodies.
 pub mod form;
 /// Extractor for working with HTTP headers as a map.
 pub mod header_map;
+/// Extractor for handling IP address data from HTTP request headers.
+pub mod ipaddr;
 /// Extractor for parsing JSON data from HTTP request bodies.
 pub mod json;
 /// Extractor for handling route or path parameters in HTTP requests.
