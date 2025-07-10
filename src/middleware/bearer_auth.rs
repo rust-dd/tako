@@ -14,7 +14,7 @@ use crate::{
 ///
 /// This struct allows you to configure static tokens or a custom verification function
 /// to authenticate incoming requests using the Bearer token scheme.
-pub struct Config<C, F>
+pub struct BearerAuth<C, F>
 where
     F: Fn(&str) -> Option<C> + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
@@ -27,9 +27,9 @@ where
     _phantom: std::marker::PhantomData<C>,
 }
 
-/// Implementation of the `Config` struct, providing methods to configure
+/// Implementation of the `BearerAuth` struct, providing methods to configure
 /// static tokens, custom verification functions, or a combination of both.
-impl<C, F> Config<C, F>
+impl<C, F> BearerAuth<C, F>
 where
     F: Fn(&str) -> Option<C> + Clone + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,
@@ -92,7 +92,7 @@ where
     }
 }
 
-impl<C, F> IntoMiddleware for Config<C, F>
+impl<C, F> IntoMiddleware for BearerAuth<C, F>
 where
     F: Fn(&str) -> Option<C> + Send + Sync + 'static,
     C: Clone + Send + Sync + 'static,

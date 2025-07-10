@@ -136,7 +136,7 @@ async fn main() {
     let mut r = tako::router::Router::new();
     r.state("app_state", AppState::default());
 
-    let basic = basic_auth::Config::<(), fn(&str, &str) -> Option<()>>::single("admin", "pw")
+    let basic = basic_auth::BasicAuth::<(), fn(&str, &str) -> Option<()>>::single("admin", "pw")
         .realm("Admin Area")
         .into_middleware();
 
@@ -147,8 +147,9 @@ async fn main() {
     r.route(Method::GET, "/compression", compression)
         .middleware(basic);
 
-    let bearer = bearer_auth::Config::<(), fn(&str) -> Option<()>>::static_token("my-secret-token")
-        .into_middleware();
+    let bearer =
+        bearer_auth::BearerAuth::<(), fn(&str) -> Option<()>>::static_token("my-secret-token")
+            .into_middleware();
     r.route_with_tsr(Method::POST, "/user", user_created);
 
     r.route_with_tsr(Method::POST, "/user/{id}", compression)

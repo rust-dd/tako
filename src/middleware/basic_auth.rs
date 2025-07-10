@@ -14,7 +14,7 @@ use std::{collections::HashMap, marker::PhantomData, pin::Pin, sync::Arc};
 ///
 /// This struct allows you to configure static user credentials or a custom verification function
 /// to authenticate incoming requests using the Basic authentication scheme.
-pub struct Config<U, F>
+pub struct BasicAuth<U, F>
 where
     F: Fn(&str, &str) -> Option<U> + Send + Sync + 'static,
     U: Send + Sync + 'static,
@@ -29,7 +29,7 @@ where
     _phantom: PhantomData<U>,
 }
 
-impl<U, F> Config<U, F>
+impl<U, F> BasicAuth<U, F>
 where
     F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
@@ -112,7 +112,7 @@ where
     }
 }
 
-impl<U, F> IntoMiddleware for Config<U, F>
+impl<U, F> IntoMiddleware for BasicAuth<U, F>
 where
     F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,

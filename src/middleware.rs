@@ -8,6 +8,7 @@ use crate::{
 pub mod basic_auth;
 pub mod bearer_auth;
 pub mod body_limit;
+pub mod jwt_auth;
 
 pub trait IntoMiddleware {
     fn into_middleware(
