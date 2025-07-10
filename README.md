@@ -18,6 +18,9 @@
 * **Plugin system** — Opt‑in extensions let you add functionality without cluttering the core API.
 * **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2 & TLS** support.
 
+## Documentation
+
+[API Documentation](https://docs.rs/tako/latest/tako/) is mostly generated using AI from the source code. Please note that the documentation is still a work in progress and may contain errors or inaccuracies.
 
 ## 🔥 Benchmarking the Hello World
 
