@@ -16,7 +16,7 @@ pub mod bearer;
 /// Extractor for handling raw byte data from HTTP request bodies.
 pub mod bytes;
 /// Extractor for handling cookie data from HTTP request headers.
-pub mod cookie;
+pub mod cookie_jar;
 /// Extractor for handling x-www-form-urlencoded data from HTTP request bodies.
 pub mod form;
 /// Extractor for working with HTTP headers as a map.
