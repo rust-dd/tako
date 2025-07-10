@@ -7,13 +7,25 @@ use crate::{
     types::Request,
 };
 
+/// Represents the Basic authentication credentials extracted from a request.
 pub struct Basic {
+    /// The username extracted from the Basic auth token.
     pub username: String,
+    /// The password extracted from the Basic auth token.
     pub password: String,
+    /// The raw Basic auth token as received in the request.
     pub raw: String,
 }
 
 impl<'a> FromRequest<'a> for Basic {
+    /// Extracts Basic authentication credentials from a full HTTP request.
+    ///
+    /// # Arguments
+    /// * `req` - A reference to the HTTP request from which the Basic auth token is extracted.
+    ///
+    /// # Returns
+    /// * `Ok(Basic)` - If a valid Basic auth token is found in the "Authorization" header.
+    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Basic auth token.
     fn from_request(req: &'a Request) -> Result<Self> {
         let token = req
             .headers()
@@ -43,6 +55,14 @@ impl<'a> FromRequest<'a> for Basic {
 }
 
 impl<'a> FromRequestParts<'a> for Basic {
+    /// Extracts Basic authentication credentials from the parts of an HTTP request.
+    ///
+    /// # Arguments
+    /// * `parts` - A mutable reference to the HTTP request parts from which the Basic auth token is extracted.
+    ///
+    /// # Returns
+    /// * `Ok(Basic)` - If a valid Basic auth token is found in the "Authorization" header.
+    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Basic auth token.
     fn from_request_parts(parts: &'a mut Parts) -> Result<Self> {
         let token = parts
             .headers
