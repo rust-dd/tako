@@ -1,3 +1,5 @@
+/// This module provides middleware for handling JWT authentication in a web application.
+/// It supports multiple algorithms for verifying JWTs and integrates with the application's request/response lifecycle.
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use http::{StatusCode, header::AUTHORIZATION};
@@ -10,6 +12,8 @@ use crate::{
     types::{Request, Response},
 };
 
+/// Represents a verification key for various JWT algorithms.
+/// This enum supports multiple algorithms, including HMAC, RSA, and EdDSA.
 pub enum AnyVerifyKey {
     HS256(Arc<HS256Key>),
     HS384(Arc<HS384Key>),
@@ -32,6 +36,10 @@ pub enum AnyVerifyKey {
 }
 
 impl AnyVerifyKey {
+    /// Returns the algorithm identifier for the verification key.
+    ///
+    /// # Returns
+    /// A static string representing the algorithm (e.g., "HS256", "RS256").
     pub fn alg_id(&self) -> &'static str {
         match self {
             Self::HS256(_) => "HS256",
@@ -55,6 +63,13 @@ impl AnyVerifyKey {
         }
     }
 
+    /// Verifies a JWT token using the current verification key.
+    ///
+    /// # Parameters
+    /// - `token`: The JWT token to verify.
+    ///
+    /// # Returns
+    /// A `Result` containing the decoded claims if verification succeeds, or an error otherwise.
     pub fn verify<C>(&self, token: &str) -> Result<JWTClaims<C>, jwt_simple::Error>
     where
         C: Serialize + DeserializeOwned,
@@ -83,6 +98,10 @@ impl AnyVerifyKey {
     }
 }
 
+/// Middleware for handling JWT authentication.
+///
+/// This struct allows configuring multiple verification keys for different algorithms
+/// and integrates with the application's middleware chain.
 pub struct JwtAuth<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
@@ -95,6 +114,14 @@ impl<T> JwtAuth<T>
 where
     T: DeserializeOwned + Send + Sync + 'static,
 {
+    /// Creates a new instance of `JwtAuth` with the provided verification keys.
+    ///
+    /// # Parameters
+    /// - `keys`: A `HashMap` where the key is the algorithm identifier (e.g., "HS256")
+    ///   and the value is the corresponding verification key.
+    ///
+    /// # Returns
+    /// A new `JwtAuth` instance.
     pub fn new(keys: HashMap<&'static str, AnyVerifyKey>) -> Self {
         Self {
             keys: Arc::new(keys),
@@ -107,6 +134,13 @@ impl<T> IntoMiddleware for JwtAuth<T>
 where
     T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
+    /// Converts the `JwtAuth` instance into a middleware function.
+    ///
+    /// The middleware extracts the JWT token from the `Authorization` header,
+    /// verifies it using the configured keys, and injects the claims into the request's extensions.
+    ///
+    /// # Returns
+    /// A closure that represents the middleware function.
     fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
