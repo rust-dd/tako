@@ -5,7 +5,9 @@ use crate::{
     types::{Request, Response},
 };
 use base64::Engine;
+use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header};
+use http_body_util::Full;
 use std::{collections::HashMap, marker::PhantomData, pin::Pin, sync::Arc};
 
 /// Configuration for Basic Authentication middleware.
@@ -166,7 +168,19 @@ where
                             }
                         }
                     }
-                    None => {}
+                    None => {
+                        return hyper::Response::builder()
+                            .status(StatusCode::UNAUTHORIZED)
+                            .header(
+                                header::WWW_AUTHENTICATE,
+                                HeaderValue::from_str(&format!("Basic realm=\"{realm}\"")).unwrap(),
+                            )
+                            .body(TakoBody::new(Full::from(Bytes::from(
+                                "Missing credentials",
+                            ))))
+                            .unwrap()
+                            .into_response();
+                    }
                 }
 
                 // Return a 401 Unauthorized response if the credentials are invalid or missing.

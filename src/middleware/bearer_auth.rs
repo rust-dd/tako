@@ -1,9 +1,12 @@
+use bytes::Bytes;
 use http::{StatusCode, header};
+use http_body_util::Full;
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
+    body::TakoBody,
     middleware::{IntoMiddleware, Next},
-    responder::{Responder, StaticHeaders},
+    responder::Responder,
     types::{Request, Response},
 };
 
@@ -124,7 +127,14 @@ where
 
                 // Match the extracted token and validate it.
                 match tok {
-                    None => {}
+                    None => {
+                        return hyper::Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .header(header::WWW_AUTHENTICATE, "Bearer")
+                            .body(TakoBody::new(Full::from(Bytes::from("Token is missing"))))
+                            .unwrap()
+                            .into_response();
+                    }
                     Some(t) => {
                         // Check if the token exists in the static token set.
                         if let Some(set) = &tokens {
@@ -143,10 +153,11 @@ where
                 }
 
                 // Return a 401 Unauthorized response if the token is invalid or missing.
-                (
-                    StatusCode::UNAUTHORIZED,
-                    StaticHeaders([(header::WWW_AUTHENTICATE, "Bearer")]),
-                )
+                hyper::Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .header(header::WWW_AUTHENTICATE, "Bearer")
+                    .body(TakoBody::empty())
+                    .unwrap()
                     .into_response()
             })
         }
