@@ -13,6 +13,8 @@ pub mod basic;
 pub mod bearer;
 /// Extractor for handling raw byte data from HTTP request bodies.
 pub mod bytes;
+/// Extractor for handling x-www-form-urlencoded data from HTTP request bodies.
+pub mod form;
 /// Extractor for working with HTTP headers as a map.
 pub mod header_map;
 /// Extractor for parsing JSON data from HTTP request bodies.
