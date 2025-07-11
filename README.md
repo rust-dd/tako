@@ -22,6 +22,8 @@
 
 [API Documentation](https://docs.rs/tako/latest/tako/) is mostly generated using AI from the source code. Please note that the documentation is still a work in progress and may contain errors or inaccuracies.
 
+MSRV 1.87.0
+
 ## 🔥 Benchmarking the Hello World
 
 ```
