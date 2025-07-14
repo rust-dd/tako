@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
-    extractors::{FromRequest, params::Params},
+    extractors::{FromRequest, json::Json, params::Params},
     middleware::{IntoMiddleware, Next, basic_auth, bearer_auth},
     responder::Responder,
     sse::Sse,
