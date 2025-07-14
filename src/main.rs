@@ -88,9 +88,14 @@ pub struct UserCompanyParams {
 
 pub async fn user_company(mut req: Request) -> impl Responder {
     let _state = get_state::<AppState>("app_state").unwrap();
-    let Params(params) = Params::<UserCompanyParams>::from_request(&mut req).unwrap();
+    let Params(params) = Params::<UserCompanyParams>::from_request(&mut req)
+        .await
+        .unwrap();
     println!("User ID: {:?}", params);
-
+    // let SimdJson(json) = SimdJson::<UserCompanyParams>::from_request(&mut req)
+    //     .await
+    //     .unwrap();
+    // println!("User ID: {:?}", json);
     String::from("User created").into_response()
 }
 

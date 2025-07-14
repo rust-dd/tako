@@ -1,9 +1,10 @@
-use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use http::request::Parts;
+use http::{StatusCode, request::Parts};
+use std::future::ready;
 
 use crate::{
     extractors::{FromRequest, FromRequestParts},
+    responder::Responder,
     types::Request,
 };
 
@@ -17,76 +18,99 @@ pub struct Basic {
     pub raw: String,
 }
 
-impl<'a> FromRequest<'a> for Basic {
-    /// Extracts Basic authentication credentials from a full HTTP request.
-    ///
-    /// # Arguments
-    /// * `req` - A reference to the HTTP request from which the Basic auth token is extracted.
-    ///
-    /// # Returns
-    /// * `Ok(Basic)` - If a valid Basic auth token is found in the "Authorization" header.
-    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Basic auth token.
-    fn from_request(req: &'a Request) -> Result<Self> {
-        let token = req
-            .headers()
-            .get("Authorization")
-            .and_then(|v| v.to_str().ok());
+/// Error type for Basic authentication extraction.
+#[derive(Debug)]
+pub enum BasicAuthError {
+    MissingAuthHeader,
+    InvalidAuthHeader,
+    InvalidBasicFormat,
+    InvalidBase64,
+    InvalidUtf8,
+    InvalidCredentialsFormat,
+}
 
-        match token {
-            Some(token) if token.starts_with("Basic") => {
-                let encoded = &token[6..];
-                let decoded = STANDARD.decode(encoded)?;
-                let decoded = str::from_utf8(&decoded)?;
-
-                let parts = decoded.splitn(2, ":").collect::<Vec<_>>();
-                if parts.len() != 2 {
-                    Err(anyhow::anyhow!("Invalid Basic auth token"))
-                } else {
-                    Ok(Basic {
-                        username: parts[0].to_string(),
-                        password: parts[1].to_string(),
-                        raw: token.to_string(),
-                    })
-                }
+impl Responder for BasicAuthError {
+    fn into_response(self) -> crate::types::Response {
+        let (status, message) = match self {
+            BasicAuthError::MissingAuthHeader => {
+                (StatusCode::UNAUTHORIZED, "Missing Authorization header")
             }
-            _ => Err(anyhow::anyhow!("Missing Basic auth token")),
+            BasicAuthError::InvalidAuthHeader => {
+                (StatusCode::UNAUTHORIZED, "Invalid Authorization header")
+            }
+            BasicAuthError::InvalidBasicFormat => (
+                StatusCode::UNAUTHORIZED,
+                "Authorization header is not Basic auth",
+            ),
+            BasicAuthError::InvalidBase64 => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid Base64 encoding in Basic auth",
+            ),
+            BasicAuthError::InvalidUtf8 => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid UTF-8 in Basic auth credentials",
+            ),
+            BasicAuthError::InvalidCredentialsFormat => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid credentials format in Basic auth",
+            ),
+        };
+        (status, message).into_response()
+    }
+}
+
+impl Basic {
+    fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BasicAuthError> {
+        let auth_header = headers
+            .get("Authorization")
+            .ok_or(BasicAuthError::MissingAuthHeader)?;
+
+        let auth_str = auth_header
+            .to_str()
+            .map_err(|_| BasicAuthError::InvalidAuthHeader)?;
+
+        if !auth_str.starts_with("Basic ") {
+            return Err(BasicAuthError::InvalidBasicFormat);
         }
+
+        let encoded = &auth_str[6..];
+        let decoded = STANDARD
+            .decode(encoded)
+            .map_err(|_| BasicAuthError::InvalidBase64)?;
+
+        let decoded_str = std::str::from_utf8(&decoded).map_err(|_| BasicAuthError::InvalidUtf8)?;
+
+        let parts: Vec<&str> = decoded_str.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            return Err(BasicAuthError::InvalidCredentialsFormat);
+        }
+
+        Ok(Basic {
+            username: parts[0].to_string(),
+            password: parts[1].to_string(),
+            raw: auth_str.to_string(),
+        })
+    }
+}
+
+impl<'a> FromRequest<'a> for Basic {
+    type Error = BasicAuthError;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_headers(req.headers()))
     }
 }
 
 impl<'a> FromRequestParts<'a> for Basic {
-    /// Extracts Basic authentication credentials from the parts of an HTTP request.
-    ///
-    /// # Arguments
-    /// * `parts` - A mutable reference to the HTTP request parts from which the Basic auth token is extracted.
-    ///
-    /// # Returns
-    /// * `Ok(Basic)` - If a valid Basic auth token is found in the "Authorization" header.
-    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Basic auth token.
-    fn from_request_parts(parts: &'a mut Parts) -> Result<Self> {
-        let token = parts
-            .headers
-            .get("Authorization")
-            .and_then(|v| v.to_str().ok());
+    type Error = BasicAuthError;
 
-        match token {
-            Some(token) if token.starts_with("Basic") => {
-                let encoded = &token[6..];
-                let decoded = STANDARD.decode(encoded)?;
-                let decoded = str::from_utf8(&decoded)?;
-
-                let parts = decoded.splitn(2, ":").collect::<Vec<_>>();
-                if parts.len() != 2 {
-                    Err(anyhow::anyhow!("Invalid Basic auth token"))
-                } else {
-                    Ok(Basic {
-                        username: parts[0].to_string(),
-                        password: parts[1].to_string(),
-                        raw: token.to_string(),
-                    })
-                }
-            }
-            _ => Err(anyhow::anyhow!("Missing Basic auth token")),
-        }
+    fn from_request_parts(
+        parts: &'a mut Parts,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_headers(&parts.headers))
     }
 }

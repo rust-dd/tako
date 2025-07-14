@@ -112,6 +112,12 @@ impl Responder for TakoBody {
     }
 }
 
+impl Responder for anyhow::Error {
+    fn into_response(self) -> Response<TakoBody> {
+        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+    }
+}
+
 pub enum CompressionResponse<R>
 where
     R: Responder,

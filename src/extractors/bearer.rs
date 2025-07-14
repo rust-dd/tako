@@ -1,8 +1,9 @@
-use anyhow::Result;
-use http::request::Parts;
+use http::{StatusCode, request::Parts};
+use std::future::ready;
 
 use crate::{
     extractors::{FromRequest, FromRequestParts},
+    responder::Responder,
     types::Request,
 };
 
@@ -14,52 +15,78 @@ pub struct Bearer {
     pub with_bearer: String,
 }
 
-impl<'a> FromRequest<'a> for Bearer {
-    /// Extracts the Bearer authentication token from a full HTTP request.
-    ///
-    /// # Arguments
-    /// * `req` - A reference to the HTTP request from which the Bearer token is extracted.
-    ///
-    /// # Returns
-    /// * `Ok(Bearer)` - If a valid Bearer token is found in the "Authorization" header.
-    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Bearer token.
-    fn from_request(req: &'a Request) -> Result<Self> {
-        let token = req
-            .headers()
-            .get("Authorization")
-            .and_then(|value| value.to_str().ok());
+/// Error type for Bearer authentication extraction.
+#[derive(Debug)]
+pub enum BearerAuthError {
+    MissingAuthHeader,
+    InvalidAuthHeader,
+    InvalidBearerFormat,
+    EmptyToken,
+}
 
-        match token {
-            Some(token) if token.starts_with("Bearer ") => Ok(Bearer {
-                token: token[7..].to_string(),
-                with_bearer: token.to_string(),
-            }),
-            _ => Err(anyhow::anyhow!("Invalid bearer token")),
+impl Responder for BearerAuthError {
+    fn into_response(self) -> crate::types::Response {
+        let (status, message) = match self {
+            BearerAuthError::MissingAuthHeader => {
+                (StatusCode::UNAUTHORIZED, "Missing Authorization header")
+            }
+            BearerAuthError::InvalidAuthHeader => {
+                (StatusCode::UNAUTHORIZED, "Invalid Authorization header")
+            }
+            BearerAuthError::InvalidBearerFormat => (
+                StatusCode::UNAUTHORIZED,
+                "Authorization header is not Bearer token",
+            ),
+            BearerAuthError::EmptyToken => (StatusCode::UNAUTHORIZED, "Bearer token is empty"),
+        };
+        (status, message).into_response()
+    }
+}
+
+impl Bearer {
+    fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BearerAuthError> {
+        let auth_header = headers
+            .get("Authorization")
+            .ok_or(BearerAuthError::MissingAuthHeader)?;
+
+        let auth_str = auth_header
+            .to_str()
+            .map_err(|_| BearerAuthError::InvalidAuthHeader)?;
+
+        if !auth_str.starts_with("Bearer ") {
+            return Err(BearerAuthError::InvalidBearerFormat);
         }
+
+        let token = &auth_str[7..];
+        if token.is_empty() {
+            return Err(BearerAuthError::EmptyToken);
+        }
+
+        Ok(Bearer {
+            token: token.to_string(),
+            with_bearer: auth_str.to_string(),
+        })
+    }
+}
+
+impl<'a> FromRequest<'a> for Bearer {
+    type Error = BearerAuthError;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_headers(req.headers()))
     }
 }
 
 impl<'a> FromRequestParts<'a> for Bearer {
-    /// Extracts the Bearer authentication token from the parts of an HTTP request.
-    ///
-    /// # Arguments
-    /// * `parts` - A mutable reference to the HTTP request parts from which the Bearer token is extracted.
-    ///
-    /// # Returns
-    /// * `Ok(Bearer)` - If a valid Bearer token is found in the "Authorization" header.
-    /// * `Err` - If the "Authorization" header is missing or does not contain a valid Bearer token.
-    fn from_request_parts(parts: &'a mut Parts) -> Result<Self> {
-        let token = parts
-            .headers
-            .get("Authorization")
-            .and_then(|value| value.to_str().ok());
+    type Error = BearerAuthError;
 
-        match token {
-            Some(token) if token.starts_with("Bearer ") => Ok(Bearer {
-                token: token[7..].to_string(),
-                with_bearer: token.to_string(),
-            }),
-            _ => Err(anyhow::anyhow!("Invalid bearer token")),
-        }
+    fn from_request_parts(
+        parts: &'a mut Parts,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_headers(&parts.headers))
     }
 }

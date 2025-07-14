@@ -2,10 +2,7 @@
 ///
 /// It includes both synchronous and asynchronous mechanisms for extracting data from
 /// various parts of an HTTP request, such as headers, query parameters, and request bodies.
-use anyhow::Result;
 use http::request::Parts;
-
-use crate::types::Request;
 
 /// Extractor for handling Accept-Language header in HTTP requests.
 pub mod acc_lang;
@@ -17,6 +14,12 @@ pub mod bearer;
 pub mod bytes;
 /// Extractor for handling cookie data from HTTP request headers.
 pub mod cookie_jar;
+/// Extractor for cookie key expansion and derivation.
+pub mod cookie_key_expansion;
+/// Extractor for handling private (encrypted) cookies.
+pub mod cookie_private;
+/// Extractor for handling signed cookies with HMAC verification.
+pub mod cookie_signed;
 /// Extractor for handling x-www-form-urlencoded data from HTTP request bodies.
 pub mod form;
 /// Extractor for working with HTTP headers as a map.
@@ -62,11 +65,14 @@ pub mod simdjson;
 /// }
 /// ```
 pub trait FromRequest<'a>: Sized {
-    fn from_request(req: &'a Request) -> Result<Self>;
-}
+    /// Extractor-specific error which can be turned into an HTTP response.
+    type Error: crate::responder::Responder;
 
-pub trait FromRequestMut<'a>: Sized {
-    fn from_request(req: &'a mut Request) -> Result<Self>;
+    /// Perform the extraction. Synchronous extractors can return
+    /// `core::future::ready(Ok(Self))`.
+    fn from_request(
+        req: &'a mut crate::types::Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }
 
 /// The `FromRequestParts` trait provides a synchronous mechanism for extracting data from specific parts of an HTTP request.
@@ -91,61 +97,11 @@ pub trait FromRequestMut<'a>: Sized {
 /// }
 /// ```
 pub trait FromRequestParts<'a>: Sized {
-    fn from_request_parts(parts: &'a mut Parts) -> Result<Self>;
-}
+    /// Extractor-specific error which can be turned into an HTTP response.
+    type Error: crate::responder::Responder;
 
-/// The `AsyncFromRequest` trait provides an asynchronous mechanism for extracting data from an HTTP request.
-///
-/// This trait is designed for types that need to perform asynchronous operations while extracting
-/// and processing data from the body, headers, query parameters, or other components of an incoming HTTP request.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::extractors::AsyncFromRequest;
-/// use tako::types::Request;
-/// use anyhow::Result;
-/// use std::future::Future;
-///
-/// struct MyAsyncExtractor;
-///
-/// impl<'a> AsyncFromRequest<'a> for MyAsyncExtractor {
-///     fn from_request(req: &'a Request) -> impl Future<Output = Result<Self>> {
-///         async move {
-///             // Perform asynchronous extraction
-///             Ok(MyAsyncExtractor)
-///         }
-///     }
-/// }
-/// ```
-pub trait AsyncFromRequest<'a>: Sized {
-    fn from_request(req: &'a Request) -> impl Future<Output = Result<Self>>;
-}
-
-/// The `AsyncFromRequestMut` trait provides an asynchronous mechanism for extracting data from a mutable HTTP request.
-///
-/// This trait is designed for types that need to perform asynchronous operations while extracting
-/// and processing data from the body, headers, query parameters, or other components of an incoming mutable HTTP request.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::extractors::AsyncFromRequestMut;
-/// use tako::types::Request;
-/// use anyhow::Result;
-/// use std::future::Future;
-///
-/// struct MyAsyncMutExtractor;
-///
-/// impl<'a> AsyncFromRequestMut<'a> for MyAsyncMutExtractor {
-///     fn from_request(req: &'a mut Request) -> impl Future<Output = Result<Self>> {
-///         async move {
-///             // Perform asynchronous extraction
-///             Ok(MyAsyncMutExtractor)
-///         }
-///     }
-/// }
-/// ```
-pub trait AsyncFromRequestMut<'a>: Sized {
-    fn from_request(req: &'a mut Request) -> impl Future<Output = Result<Self>>;
+    /// Perform the extraction from request parts.
+    fn from_request_parts(
+        parts: &'a mut Parts,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }

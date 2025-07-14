@@ -1,16 +1,14 @@
-use anyhow::{Result, anyhow};
 use http::StatusCode;
 use http_body_util::BodyExt;
 use hyper::{
     HeaderMap,
     header::{self, HeaderValue},
 };
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
     body::TakoBody,
-    extractors::AsyncFromRequestMut,
+    extractors::FromRequest,
     responder::Responder,
     types::{Request, Response},
 };
@@ -37,6 +35,40 @@ use crate::{
 /// ```
 pub struct SimdJson<T>(pub T);
 
+/// Error type for SimdJson extraction.
+#[derive(Debug)]
+pub enum SimdJsonError {
+    InvalidContentType,
+    MissingContentType,
+    BodyReadError(String),
+    DeserializationError(String),
+}
+
+impl Responder for SimdJsonError {
+    fn into_response(self) -> Response {
+        match self {
+            SimdJsonError::InvalidContentType => (
+                StatusCode::BAD_REQUEST,
+                "Invalid content type; expected JSON",
+            )
+                .into_response(),
+            SimdJsonError::MissingContentType => {
+                (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
+            }
+            SimdJsonError::BodyReadError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read request body: {}", err),
+            )
+                .into_response(),
+            SimdJsonError::DeserializationError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to deserialize JSON: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 /// Returns `true` when the `Content-Type` header denotes JSON.
 ///
 /// Accepts `application/json`, `application/*+json`, etc.
@@ -44,7 +76,7 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
     headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .and_then(|ct| ct.parse::<mime::Mime>().ok())
+        .and_then(|ct| ct.parse::<mime_guess::Mime>().ok())
         .map(|mime| {
             mime.type_() == "application"
                 && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
@@ -52,33 +84,48 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-/// Implementation of [`AsyncFromRequestMut`] for [`SimdJson`].
+/// Implementation of [`FromRequest`] for [`SimdJson`].
 ///
 /// Enables asynchronous extraction of JSON payloads from HTTP requests while
 /// leveraging SIMD-accelerated parsing via the `simd_json` crate.
-impl<'a, T> AsyncFromRequestMut<'a> for SimdJson<T>
+impl<'a, T> FromRequest<'a> for SimdJson<T>
 where
     T: DeserializeOwned + Send + 'static,
 {
+    type Error = SimdJsonError;
+
     /// Attempts to construct a `SimdJson<T>` from the incoming HTTP request.
     ///
     /// The extraction fails when:
     /// 1. The `Content-Type` header is not recognised as JSON.
     /// 2. The request body cannot be fully read.
     /// 3. Deserialisation with `simd_json` fails.
-    async fn from_request(req: &'a mut Request) -> Result<Self> {
-        // Basic content-type validation so we can fail fast.
-        if !is_json_content_type(req.headers()) {
-            return Err(anyhow!("invalid content type; expected JSON"));
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        async move {
+            // Basic content-type validation so we can fail fast.
+            if !is_json_content_type(req.headers()) {
+                return Err(SimdJsonError::InvalidContentType);
+            }
+
+            // Collect the entire request body.
+            let bytes = req
+                .body_mut()
+                .collect()
+                .await
+                .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
+                .to_bytes();
+
+            let mut owned = bytes.to_vec();
+
+            // SIMD-accelerated deserialization.
+            let data = simd_json::from_slice::<T>(&mut owned)
+                .map_err(|e| SimdJsonError::DeserializationError(e.to_string()))?;
+
+            Ok(SimdJson(data))
         }
-
-        // Collect the entire request body.
-        let bytes = req.body_mut().collect().await?.to_bytes();
-        let mut owned = bytes.to_vec();
-
-        // SIMD-accelerated deserialization.
-        let data = simd_json::from_slice::<T>(&mut owned)?;
-        Ok(SimdJson(data))
     }
 }
 

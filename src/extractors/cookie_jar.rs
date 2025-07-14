@@ -1,11 +1,14 @@
 /// This module provides functionality for extracting and managing cookies in HTTP requests.
 /// It includes a `CookieJar` struct that wraps the `cookie` crate's `CookieJar`
 /// and integrates with the application's request lifecycle.
-use anyhow::Result;
 use cookie::{Cookie, CookieJar as RawJar};
-use http::{HeaderMap, header::COOKIE};
+use http::{HeaderMap, header::COOKIE, request::Parts};
+use std::{convert::Infallible, future::ready};
 
-use crate::{extractors::FromRequest, types::Request};
+use crate::{
+    extractors::{FromRequest, FromRequestParts},
+    types::Request,
+};
 
 /// A wrapper around the `cookie::CookieJar` that provides methods for managing cookies
 /// in HTTP requests and responses.
@@ -81,17 +84,23 @@ impl CookieJar {
 }
 
 impl<'a> FromRequest<'a> for CookieJar {
-    /// Extracts a `CookieJar` from an HTTP request.
-    ///
-    /// This implementation reads the `Cookie` header from the request and populates
-    /// the `CookieJar` with the parsed cookies.
-    ///
-    /// # Parameters
-    /// - `req`: A reference to the HTTP request.
-    ///
-    /// # Returns
-    /// A `Result` containing the `CookieJar` if successful.
-    fn from_request(req: &'a Request) -> Result<Self> {
-        Ok(CookieJar::from_headers(req.headers()))
+    type Error = Infallible;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Ok(CookieJar::from_headers(req.headers())))
+    }
+}
+
+impl<'a> FromRequestParts<'a> for CookieJar {
+    type Error = Infallible;
+
+    fn from_request_parts(
+        parts: &'a mut Parts,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Ok(CookieJar::from_headers(&parts.headers)))
     }
 }
