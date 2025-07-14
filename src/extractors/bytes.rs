@@ -1,6 +1,6 @@
-/// This module provides the `Bytes` extractor, which is used to extract the body of a request as bytes.
-use anyhow::Result;
 use hyper::body::Incoming;
+/// This module provides the `Bytes` extractor, which is used to extract the body of a request as bytes.
+use std::{convert::Infallible, future::ready};
 
 use crate::{extractors::FromRequest, types::Request};
 
@@ -20,21 +20,13 @@ use crate::{extractors::FromRequest, types::Request};
 /// ```
 pub struct Bytes<'a>(pub &'a Incoming);
 
-/// Implementation of the `FromRequest` trait for the `Bytes` extractor.
-///
-/// This allows the `Bytes` extractor to be used in request handlers to easily access
-/// the body of the request as bytes.
 impl<'a> FromRequest<'a> for Bytes<'a> {
-    /// Extracts the body of the request as bytes.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - A mutable reference to the incoming request.
-    ///
-    /// # Returns
-    ///
-    /// A future that resolves to a `Result` containing the `Bytes` extractor.
-    fn from_request(req: &'a Request) -> Result<Self> {
-        Ok(Bytes(req.body()))
+    type Error = Infallible;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Ok(Bytes(req.body())))
     }
 }

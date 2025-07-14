@@ -1,18 +1,98 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
-use http::header::CONTENT_TYPE;
+use http::{StatusCode, header::CONTENT_TYPE};
 use http_body_util::BodyExt;
 use multer::Multipart;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
+use std::future::ready;
 use tokio::{fs::File, io::AsyncWriteExt};
 use uuid::Uuid;
 
-use crate::{
-    extractors::{AsyncFromRequestMut, FromRequestMut},
-    types::Request,
-};
+use crate::{extractors::FromRequest, responder::Responder, types::Request};
+
+/// Error type for multipart extraction.
+#[derive(Debug)]
+pub enum MultipartError {
+    MissingContentType,
+    InvalidContentType,
+    InvalidUtf8,
+    BoundaryParseError(String),
+}
+
+impl Responder for MultipartError {
+    fn into_response(self) -> crate::types::Response {
+        let message = match self {
+            MultipartError::MissingContentType => {
+                (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
+            }
+            MultipartError::InvalidContentType => {
+                (StatusCode::BAD_REQUEST, "Invalid Content-Type header").into_response()
+            }
+            MultipartError::InvalidUtf8 => (
+                StatusCode::BAD_REQUEST,
+                "Content-Type header contains invalid UTF-8",
+            )
+                .into_response(),
+            MultipartError::BoundaryParseError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Not multipart/form-data or boundary missing: {}", err),
+            )
+                .into_response(),
+        };
+        message
+    }
+}
+
+/// Error type for typed multipart extraction.
+#[derive(Debug)]
+pub enum TypedMultipartError {
+    MissingContentType,
+    InvalidContentType,
+    InvalidUtf8,
+    BoundaryParseError(String),
+    FieldError(String),
+    DeserializationError(String),
+    IoError(String),
+}
+
+impl Responder for TypedMultipartError {
+    fn into_response(self) -> crate::types::Response {
+        match self {
+            TypedMultipartError::MissingContentType => {
+                (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
+            }
+            TypedMultipartError::InvalidContentType => {
+                (StatusCode::BAD_REQUEST, "Invalid Content-Type header").into_response()
+            }
+            TypedMultipartError::InvalidUtf8 => (
+                StatusCode::BAD_REQUEST,
+                "Content-Type header contains invalid UTF-8",
+            )
+                .into_response(),
+            TypedMultipartError::BoundaryParseError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Not multipart/form-data or boundary missing: {}", err),
+            )
+                .into_response(),
+            TypedMultipartError::FieldError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Field processing error: {}", err),
+            )
+                .into_response(),
+            TypedMultipartError::DeserializationError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Deserialization error: {}", err),
+            )
+                .into_response(),
+            TypedMultipartError::IoError(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("IO error: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
 
 /// Wrapper around `multer::Multipart` to provide additional functionality.
 pub struct TakoMultipart<'a>(pub Multipart<'a>);
@@ -25,35 +105,49 @@ impl<'a> TakoMultipart<'a> {
     }
 }
 
-impl<'a> FromRequestMut<'a> for TakoMultipart<'a> {
+impl<'a> FromRequest<'a> for TakoMultipart<'a> {
+    type Error = MultipartError;
+
     /// Extracts a `TakoMultipart` instance from an HTTP request.
     ///
     /// This function checks for the `Content-Type` header, parses the boundary,
     /// and creates a `Multipart` instance from the request body.
-    fn from_request(req: &'a mut Request) -> Result<Self> {
-        let ct = req
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_multipart(req))
+    }
+}
+
+impl<'a> TakoMultipart<'a> {
+    fn extract_multipart(req: &'a mut Request) -> Result<TakoMultipart<'a>, MultipartError> {
+        let content_type = req
             .headers()
             .get(CONTENT_TYPE)
-            .context("Missing `Content-Type` header")?
+            .ok_or(MultipartError::MissingContentType)?;
+
+        let content_type_str = content_type
             .to_str()
-            .context("Invalid `Content-Type` header")?;
+            .map_err(|_| MultipartError::InvalidUtf8)?;
 
-        let boundary = multer::parse_boundary(ct)
-            .context("Request is not multipart/form-data or boundary is missing")?;
+        let boundary = multer::parse_boundary(content_type_str)
+            .map_err(|e| MultipartError::BoundaryParseError(e.to_string()))?;
+
         let body_stream = req.body_mut().into_data_stream();
-
-        Ok(Self(Multipart::new(body_stream, boundary)))
+        Ok(TakoMultipart(Multipart::new(body_stream, boundary)))
     }
 }
 
 /// Trait for types that can be constructed from a multipart field.
 pub trait FromMultipartField: Serialize + Sized {
     /// Constructs an instance of the type from a `multer::Field`.
-    fn from_field(field: multer::Field<'_>) -> impl Future<Output = Result<Self>>;
+    fn from_field(
+        field: multer::Field<'_>,
+    ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send;
 }
 
 /// Represents a file uploaded to the server and saved to disk.
-/// Represents a file uploaded to the server and stored in memory.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UploadedFile {
     pub file_name: Option<String>,    // Original file name, if provided.
@@ -66,7 +160,7 @@ impl FromMultipartField for UploadedFile {
     /// Creates an `UploadedFile` instance from a multipart field.
     ///
     /// The file is saved to a temporary directory, and its metadata is stored in the struct.
-    async fn from_field(mut field: multer::Field<'_>) -> Result<Self> {
+    async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
         let original = field.file_name().map(|s| s.to_owned());
         let content_type = field.content_type().map(|m| m.to_string());
         let tmp_path = {
@@ -92,6 +186,7 @@ impl FromMultipartField for UploadedFile {
     }
 }
 
+/// Represents a file uploaded to the server and stored in memory.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InMemoryFile {
     pub file_name: Option<String>,    // Original file name, if provided.
@@ -104,7 +199,7 @@ impl FromMultipartField for InMemoryFile {
     /// Creates an `InMemoryFile` instance from a multipart field.
     ///
     /// The file content is stored in memory as a byte array.
-    async fn from_field(field: multer::Field<'_>) -> Result<Self> {
+    async fn from_field(field: multer::Field<'_>) -> anyhow::Result<Self> {
         let file_name = field.file_name().map(|s| s.to_owned());
         let content_type = field.content_type().map(|m| m.to_string());
         let data = field.bytes().await?.to_vec();
@@ -126,47 +221,78 @@ pub struct TakoTypedMultipart<'a, T, F> {
     _marker: core::marker::PhantomData<&'a F>, // Marker for the field type.
 }
 
-impl<'a, T, F> AsyncFromRequestMut<'a> for TakoTypedMultipart<'a, T, F>
+impl<'a, T, F> FromRequest<'a> for TakoTypedMultipart<'a, T, F>
 where
     T: DeserializeOwned + 'static,
     F: FromMultipartField + serde::Serialize + 'static,
 {
+    type Error = TypedMultipartError;
+
     /// Extracts a `TakoTypedMultipart` instance from an HTTP request.
     ///
     /// This function parses the multipart form data, deserializes text fields into
     /// a JSON-compatible structure, and processes file fields using the `FromMultipartField` trait.
-    async fn from_request(req: &'a mut Request) -> Result<Self> {
-        let ct = req
-            .headers()
-            .get(CONTENT_TYPE)
-            .context("Content-Type is missing")?
-            .to_str()
-            .context("Content-Type is not UTF-8")?;
-        let boundary =
-            multer::parse_boundary(ct).context("Not multipart/form-data or boundary missing")?;
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        async move {
+            let content_type = req
+                .headers()
+                .get(CONTENT_TYPE)
+                .ok_or(TypedMultipartError::MissingContentType)?;
 
-        let mut mp = Multipart::new(req.body_mut().into_data_stream(), boundary);
-        let mut map = Map::<String, Value>::new();
+            let content_type_str = content_type
+                .to_str()
+                .map_err(|_| TypedMultipartError::InvalidUtf8)?;
 
-        while let Some(field) = mp.next_field().await? {
-            let name = field
-                .name()
-                .map(|s| s.to_owned())
-                .context("field name missing")?;
+            let boundary = multer::parse_boundary(content_type_str)
+                .map_err(|e| TypedMultipartError::BoundaryParseError(e.to_string()))?;
 
-            if field.file_name().is_some() {
-                let file_val: F = F::from_field(field).await?;
-                map.insert(name, serde_json::to_value(file_val)?);
-            } else {
-                let text = String::from_utf8(field.bytes().await?.to_vec())?;
-                map.insert(name, Value::String(text));
+            let mut multipart = Multipart::new(req.body_mut().into_data_stream(), boundary);
+            let mut map = Map::<String, Value>::new();
+
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?
+            {
+                let field_name = field
+                    .name()
+                    .ok_or_else(|| {
+                        TypedMultipartError::FieldError("Field name missing".to_string())
+                    })?
+                    .to_owned();
+
+                if field.file_name().is_some() {
+                    let file_value: F = F::from_field(field)
+                        .await
+                        .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?;
+
+                    let json_value = serde_json::to_value(file_value)
+                        .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
+
+                    map.insert(field_name, json_value);
+                } else {
+                    let field_bytes = field
+                        .bytes()
+                        .await
+                        .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?;
+
+                    let text = String::from_utf8(field_bytes.to_vec())
+                        .map_err(|_| TypedMultipartError::InvalidUtf8)?;
+
+                    map.insert(field_name, Value::String(text));
+                }
             }
-        }
 
-        let data: T = serde_json::from_value(Value::Object(map))?;
-        Ok(Self {
-            data,
-            _marker: core::marker::PhantomData,
-        })
+            let data: T = serde_json::from_value(Value::Object(map))
+                .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
+
+            Ok(Self {
+                data,
+                _marker: core::marker::PhantomData,
+            })
+        }
     }
 }

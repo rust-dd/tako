@@ -1,9 +1,9 @@
 /// This module provides the `Json` extractor, which is used to deserialize the body of a request into a strongly-typed JSON object.
-use anyhow::Result;
+use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
 
-use crate::{extractors::AsyncFromRequestMut, types::Request};
+use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
 /// The `Json` struct is an extractor that wraps a deserialized JSON object of type `T`.
 ///
@@ -27,26 +27,84 @@ use crate::{extractors::AsyncFromRequestMut, types::Request};
 /// ```
 pub struct Json<T>(pub T);
 
-/// Implementation of the `FromRequest` trait for the `Json` extractor.
+/// Error type for JSON extraction.
+#[derive(Debug)]
+pub enum JsonError {
+    InvalidContentType,
+    MissingContentType,
+    BodyReadError(String),
+    DeserializationError(String),
+}
+
+impl Responder for JsonError {
+    fn into_response(self) -> crate::types::Response {
+        match self {
+            JsonError::InvalidContentType => (
+                StatusCode::BAD_REQUEST,
+                "Invalid content type; expected application/json",
+            )
+                .into_response(),
+            JsonError::MissingContentType => {
+                (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
+            }
+            JsonError::BodyReadError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read request body: {}", err),
+            )
+                .into_response(),
+            JsonError::DeserializationError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to deserialize JSON: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Returns `true` when the `Content-Type` header denotes JSON.
 ///
-/// This allows the `Json` extractor to be used in request handlers to deserialize
-/// the body of the request into a strongly-typed JSON object.
-impl<'a, T> AsyncFromRequestMut<'a> for Json<T>
+/// Accepts `application/json`, `application/*+json`, etc.
+fn is_json_content_type(headers: &http::HeaderMap) -> bool {
+    headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ct| ct.parse::<mime::Mime>().ok())
+        .map(|mime| {
+            mime.type_() == "application"
+                && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
+        })
+        .unwrap_or(false)
+}
+
+impl<'a, T> FromRequest<'a> for Json<T>
 where
     T: DeserializeOwned + Send + 'static,
 {
-    /// Extracts and deserializes the body of the request into a JSON object of type `T`.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - A mutable reference to the incoming request.
-    ///
-    /// # Returns
-    ///
-    /// A future that resolves to a `Result` containing the `Json` extractor.
-    async fn from_request(req: &'_ mut Request) -> Result<Self> {
-        let bytes = req.body_mut().collect().await?.to_bytes();
-        let data = serde_json::from_slice(&bytes)?;
-        Ok(Json(data))
+    type Error = JsonError;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        async move {
+            // Check content type
+            if !is_json_content_type(req.headers()) {
+                return Err(JsonError::InvalidContentType);
+            }
+
+            // Read the request body
+            let body_bytes = req
+                .body_mut()
+                .collect()
+                .await
+                .map_err(|e| JsonError::BodyReadError(e.to_string()))?
+                .to_bytes();
+
+            // Deserialize JSON
+            let data = serde_json::from_slice(&body_bytes)
+                .map_err(|e| JsonError::DeserializationError(e.to_string()))?;
+
+            Ok(Json(data))
+        }
     }
 }

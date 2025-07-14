@@ -2,7 +2,7 @@ use anyhow::Result;
 use http::{Method, StatusCode};
 use tako::{
     extractors::{
-        AsyncFromRequestMut, FromRequestMut,
+        FromRequest,
         multipart::{InMemoryFile, TakoMultipart, TakoTypedMultipart, UploadedFile},
     },
     responder::Responder,
@@ -46,7 +46,7 @@ async fn upload_mem(mut req: Request) -> impl Responder {
 }
 
 async fn raw_with_file(mut req: Request) -> impl Responder {
-    let TakoMultipart(mut mp) = TakoMultipart::from_request(&mut req).unwrap();
+    let TakoMultipart(mut mp) = TakoMultipart::from_request(&mut req).await.unwrap();
 
     let mut total_files = 0usize;
     while let Some(mut field) = mp.next_field().await.unwrap() {
@@ -71,7 +71,7 @@ async fn raw_with_file(mut req: Request) -> impl Responder {
 async fn raw_text(mut req: Request) -> impl Responder {
     use std::collections::HashMap;
 
-    let TakoMultipart(mut mp) = TakoMultipart::from_request(&mut req).unwrap();
+    let TakoMultipart(mut mp) = TakoMultipart::from_request(&mut req).await.unwrap();
     let mut map = HashMap::new();
 
     while let Some(field) = mp.next_field().await.unwrap() {

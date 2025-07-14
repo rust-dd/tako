@@ -1,50 +1,106 @@
-use std::collections::HashMap;
-
+use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 
-use crate::{extractors::AsyncFromRequestMut, types::Request};
+use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
 /// Represents a form extracted from an HTTP request body.
 ///
 /// This generic struct wraps the deserialized form data of type `T`.
 pub struct Form<T>(pub T);
 
-/// Implementation of the `AsyncFromRequestMut` trait for extracting form data from an HTTP request.
-///
-/// This implementation supports asynchronous extraction of form data from requests with the
-/// `application/x-www-form-urlencoded` content type. The extracted data is deserialized into
-/// the generic type `T`.
-impl<'a, T> AsyncFromRequestMut<'a> for Form<T>
-where
-    T: DeserializeOwned + Send,
-{
-    /// Extracts form data from the HTTP request body.
-    ///
-    /// # Arguments
-    /// * `req` - A mutable reference to the HTTP request from which the form data is extracted.
-    ///
-    /// # Returns
-    /// * `Ok(Form<T>)` - If the request contains valid form data that can be deserialized into type `T`.
-    /// * `Err` - If the content type is invalid or the form data cannot be parsed or deserialized.
-    async fn from_request(req: &'a mut Request) -> anyhow::Result<Self> {
-        if req
-            .headers()
-            .get(hyper::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            != Some("application/x-www-form-urlencoded")
-        {
-            return Err(anyhow::anyhow!("Invalid content type"));
-        }
+/// Error type for Form extraction.
+#[derive(Debug)]
+pub enum FormError {
+    InvalidContentType,
+    BodyReadError(String),
+    InvalidUtf8,
+    ParseError(String),
+    DeserializationError(String),
+}
 
-        let body_bytes = req.body_mut().collect().await?.to_bytes();
-        let body_str = std::str::from_utf8(&body_bytes)?;
-        let form = url::form_urlencoded::parse(body_str.as_bytes())
-            .into_owned()
-            .collect::<Vec<(String, String)>>();
-        let form_map = HashMap::<String, String>::from_iter(form);
-        let json = serde_json::to_value(form_map)?;
-        let form = serde_json::from_value::<T>(json)?;
-        Ok(Form(form))
+impl Responder for FormError {
+    fn into_response(self) -> crate::types::Response {
+        match self {
+            FormError::InvalidContentType => (
+                StatusCode::BAD_REQUEST,
+                "Invalid content type; expected application/x-www-form-urlencoded",
+            )
+                .into_response(),
+            FormError::BodyReadError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read request body: {}", err),
+            )
+                .into_response(),
+            FormError::InvalidUtf8 => (
+                StatusCode::BAD_REQUEST,
+                "Request body contains invalid UTF-8",
+            )
+                .into_response(),
+            FormError::ParseError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to parse form data: {}", err),
+            )
+                .into_response(),
+            FormError::DeserializationError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to deserialize form data: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+impl<'a, T> FromRequest<'a> for Form<T>
+where
+    T: DeserializeOwned + Send + 'static,
+{
+    type Error = FormError;
+
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        async move {
+            // Check content type
+            let content_type = req
+                .headers()
+                .get(hyper::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok());
+
+            if content_type != Some("application/x-www-form-urlencoded") {
+                return Err(FormError::InvalidContentType);
+            }
+
+            // Read the request body
+            let body_bytes = req
+                .body_mut()
+                .collect()
+                .await
+                .map_err(|e| FormError::BodyReadError(e.to_string()))?
+                .to_bytes();
+
+            // Convert to string
+            let body_str = std::str::from_utf8(&body_bytes).map_err(|_| FormError::InvalidUtf8)?;
+
+            // Parse form data
+            let form_data = url::form_urlencoded::parse(body_str.as_bytes())
+                .into_owned()
+                .collect::<Vec<(String, String)>>();
+
+            // Convert to HashMap
+            let form_map = HashMap::<String, String>::from_iter(form_data);
+
+            // Convert to JSON value for deserialization
+            let json_value =
+                serde_json::to_value(form_map).map_err(|e| FormError::ParseError(e.to_string()))?;
+
+            // Deserialize to target type
+            let form_data = serde_json::from_value::<T>(json_value)
+                .map_err(|e| FormError::DeserializationError(e.to_string()))?;
+
+            Ok(Form(form_data))
+        }
     }
 }

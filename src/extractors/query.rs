@@ -2,13 +2,17 @@
 ///
 /// The `Query` extractor allows deserialization of query parameters into a strongly-typed structure,
 /// making it easier to work with query strings in a type-safe manner.
-use std::collections::HashMap;
+use std::{collections::HashMap, future::ready};
 
-use anyhow::Result;
+use http::{StatusCode, request::Parts};
 use serde::de::DeserializeOwned;
 use url::form_urlencoded;
 
-use crate::{extractors::FromRequest, types::Request};
+use crate::{
+    extractors::{FromRequest, FromRequestParts},
+    responder::Responder,
+    types::Request,
+};
 
 /// The `Query` struct is an extractor that wraps a deserialized representation of the query parameters.
 ///
@@ -33,31 +37,85 @@ use crate::{extractors::FromRequest, types::Request};
 /// ```
 pub struct Query<T>(pub T);
 
-/// Implementation of the `FromRequest` trait for the `Query` extractor.
-///
-/// This allows the `Query` extractor to be used in request handlers to easily access
-/// and deserialize query parameters from the request URI.
+/// Error type for query parameter extraction.
+#[derive(Debug)]
+pub enum QueryError {
+    MissingQueryString,
+    ParseError(String),
+    DeserializationError(String),
+}
+
+impl Responder for QueryError {
+    fn into_response(self) -> crate::types::Response {
+        match self {
+            QueryError::MissingQueryString => (
+                StatusCode::BAD_REQUEST,
+                "No query string found in request URI",
+            )
+                .into_response(),
+            QueryError::ParseError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to parse query parameters: {}", err),
+            )
+                .into_response(),
+            QueryError::DeserializationError(err) => (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to deserialize query parameters: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+impl<T> Query<T>
+where
+    T: DeserializeOwned,
+{
+    /// Extracts and deserializes query parameters from a URI query string.
+    fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
+        let query = query_string.unwrap_or_default();
+
+        // Parse query parameters into a HashMap
+        let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+            .into_owned()
+            .collect();
+
+        // Convert to JSON value for deserialization
+        let json_value =
+            serde_json::to_value(params).map_err(|e| QueryError::ParseError(e.to_string()))?;
+
+        // Deserialize to target type
+        let query_data = serde_json::from_value::<T>(json_value)
+            .map_err(|e| QueryError::DeserializationError(e.to_string()))?;
+
+        Ok(Query(query_data))
+    }
+}
+
 impl<'a, T> FromRequest<'a> for Query<T>
 where
     T: DeserializeOwned + Send + 'a,
 {
-    /// Extracts and deserializes query parameters from the request URI.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - A mutable reference to the incoming request.
-    ///
-    /// # Returns
-    ///
-    /// A future that resolves to a `Result` containing the `Query` extractor.
-    fn from_request(req: &'a Request) -> Result<Self> {
-        let query = req.uri().query().unwrap_or_default();
-        let kv = form_urlencoded::parse(query.as_bytes())
-            .into_owned()
-            .collect::<HashMap<String, String>>();
-        let value = serde_json::to_value(kv).unwrap();
-        let value = serde_json::from_value::<T>(value).unwrap();
+    type Error = QueryError;
 
-        Ok(Query(value))
+    fn from_request(
+        req: &'a mut Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_query_string(req.uri().query()))
+    }
+}
+
+impl<'a, T> FromRequestParts<'a> for Query<T>
+where
+    T: DeserializeOwned + Send + 'a,
+{
+    type Error = QueryError;
+
+    fn from_request_parts(
+        parts: &'a mut Parts,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
+    {
+        ready(Self::extract_from_query_string(parts.uri.query()))
     }
 }
