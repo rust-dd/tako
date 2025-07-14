@@ -36,6 +36,10 @@ pub mod query;
 #[cfg(feature = "multipart")]
 pub mod multipart;
 
+/// Extractor for parsing JSON data from HTTP request bodies accelerated by SIMD.
+#[cfg(feature = "simd")]
+pub mod simdjson;
+
 /// The `FromRequest` trait provides a synchronous mechanism for extracting data from an HTTP request.
 ///
 /// This trait is designed for types that need to synchronously extract and process data from the body,
