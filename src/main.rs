@@ -4,7 +4,7 @@ use futures_util::StreamExt;
 use hyper::Method;
 use serde::Deserialize;
 use tako::{
-    extractors::{FromRequest, json::Json, params::Params},
+    extractors::{FromRequest, params::Params},
     middleware::{IntoMiddleware, Next, basic_auth, bearer_auth},
     responder::Responder,
     sse::Sse,
@@ -92,7 +92,10 @@ pub async fn user_company(mut req: Request) -> impl Responder {
         .await
         .unwrap();
     println!("User ID: {:?}", params);
-
+    // let SimdJson(json) = SimdJson::<UserCompanyParams>::from_request(&mut req)
+    //     .await
+    //     .unwrap();
+    // println!("User ID: {:?}", json);
     String::from("User created").into_response()
 }
 
