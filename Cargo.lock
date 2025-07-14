@@ -2146,6 +2146,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jwt-simple",
+ "mime",
  "mime_guess",
  "multer",
  "once_cell",
