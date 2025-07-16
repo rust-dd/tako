@@ -1,3 +1,27 @@
+//! Form data extraction from HTTP request bodies.
+//!
+//! This module provides the [`Form`] extractor for parsing `application/x-www-form-urlencoded`
+//! request bodies into strongly-typed Rust structures. It uses serde for deserialization,
+//! allowing automatic parsing of form data into any type that implements `DeserializeOwned`.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::form::Form;
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct LoginForm {
+//!     username: String,
+//!     password: String,
+//! }
+//!
+//! async fn login_handler(Form(form): Form<LoginForm>) {
+//!     println!("Username: {}", form.username);
+//!     // Handle login logic...
+//! }
+//! ```
+
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
@@ -7,20 +31,70 @@ use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
 /// Represents a form extracted from an HTTP request body.
 ///
-/// This generic struct wraps the deserialized form data of type `T`.
+/// This generic struct wraps the deserialized form data of type `T`. It automatically
+/// parses `application/x-www-form-urlencoded` request bodies and deserializes them
+/// into the specified type using serde.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::form::Form;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct ContactForm {
+///     name: String,
+///     email: String,
+///     message: String,
+/// }
+///
+/// async fn contact_handler(Form(contact): Form<ContactForm>) {
+///     println!("Received message from {} ({}): {}",
+///              contact.name, contact.email, contact.message);
+/// }
+/// ```
 pub struct Form<T>(pub T);
 
 /// Error type for Form extraction.
+///
+/// Represents various failure modes that can occur when extracting and parsing
+/// form data from HTTP request bodies.
 #[derive(Debug)]
 pub enum FormError {
+    /// Request content type is not `application/x-www-form-urlencoded`.
     InvalidContentType,
+    /// Failed to read the request body.
     BodyReadError(String),
+    /// Request body contains invalid UTF-8 sequences.
     InvalidUtf8,
+    /// Failed to parse the form data format.
     ParseError(String),
+    /// Failed to deserialize form data into the target type.
     DeserializationError(String),
 }
 
 impl Responder for FormError {
+    /// Converts the error into an HTTP response.
+    ///
+    /// Maps form extraction errors to appropriate HTTP status codes with descriptive
+    /// error messages. All errors result in `400 Bad Request` as they indicate
+    /// client-side issues with the request format or content.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::form::FormError;
+    /// use tako::responder::Responder;
+    /// use http::StatusCode;
+    ///
+    /// let error = FormError::InvalidContentType;
+    /// let response = error.into_response();
+    /// assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    ///
+    /// let error = FormError::InvalidUtf8;
+    /// let response = error.into_response();
+    /// assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    /// ```
     fn into_response(self) -> crate::types::Response {
         match self {
             FormError::InvalidContentType => (
@@ -58,6 +132,49 @@ where
 {
     type Error = FormError;
 
+    /// Extracts form data from an HTTP request body.
+    ///
+    /// This implementation validates the content type, reads the request body,
+    /// parses the URL-encoded form data, and deserializes it into the target type.
+    ///
+    /// # Requirements
+    ///
+    /// - Content-Type must be `application/x-www-form-urlencoded`
+    /// - Request body must be valid UTF-8
+    /// - Form data must be parseable and deserializable into type `T`
+    ///
+    /// # Errors
+    ///
+    /// Returns `FormError` if:
+    /// - Content type is not `application/x-www-form-urlencoded`
+    /// - Request body cannot be read
+    /// - Body contains invalid UTF-8
+    /// - Form data parsing fails
+    /// - Deserialization into type `T` fails
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::extractors::{FromRequest, form::Form};
+    /// use tako::types::Request;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct UserRegistration {
+    ///     username: String,
+    ///     email: String,
+    ///     age: u32,
+    /// }
+    ///
+    /// async fn register_handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
+    ///     let Form(registration) = Form::<UserRegistration>::from_request(&mut req).await?;
+    ///
+    ///     println!("New user: {} ({}) age {}",
+    ///              registration.username, registration.email, registration.age);
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a

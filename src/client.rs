@@ -1,3 +1,37 @@
+//! HTTP client implementations for making outbound requests with TLS support.
+//!
+//! This module provides HTTP clients for making requests to external services. It includes
+//! `TakoClient` for plain HTTP connections and `TakoTlsClient` for secure HTTPS connections
+//! using rustls. Both clients support HTTP/1.1 protocol and handle connection management
+//! automatically. The clients are generic over body types to support different request
+//! payload formats while maintaining type safety and performance.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use tako::client::{TakoClient, TakoTlsClient};
+//! use http_body_util::Empty;
+//! use bytes::Bytes;
+//! use http::Request;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Plain HTTP client
+//! let mut client = TakoClient::<Empty<Bytes>>::new("httpbin.org", Some(80)).await?;
+//! let request = Request::builder()
+//!     .uri("/get")
+//!     .body(Empty::new())?;
+//! let response = client.request(request).await?;
+//!
+//! // HTTPS client with TLS
+//! let mut tls_client = TakoTlsClient::<Empty<Bytes>>::new("httpbin.org", None).await?;
+//! let tls_request = Request::builder()
+//!     .uri("/get")
+//!     .body(Empty::new())?;
+//! let tls_response = tls_client.request(tls_request).await?;
+//! # Ok(())
+//! # }
+//! ```
+
 use std::{error::Error, sync::Arc};
 
 use http_body_util::BodyExt;
@@ -12,13 +46,50 @@ use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 
+/// HTTPS client with TLS encryption support using rustls.
+///
+/// `TakoTlsClient` provides a secure HTTP client that establishes TLS-encrypted
+/// connections to remote servers. It uses rustls for TLS implementation and includes
+/// built-in root certificate validation. The client maintains a persistent connection
+/// and handles the TLS handshake automatically during initialization.
+///
+/// # Type Parameters
+///
+/// * `B` - Body type for HTTP requests, must implement `Body + Send + 'static`
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::client::TakoTlsClient;
+/// use http_body_util::Empty;
+/// use bytes::Bytes;
+/// use http::Request;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Create HTTPS client for api.example.com on port 443
+/// let mut client = TakoTlsClient::<Empty<Bytes>>::new("api.example.com", None).await?;
+///
+/// // Make authenticated API request
+/// let request = Request::builder()
+///     .method("GET")
+///     .uri("/v1/users")
+///     .header("authorization", "Bearer token123")
+///     .body(Empty::new())?;
+///
+/// let response = client.request(request).await?;
+/// println!("Status: {}", response.status());
+/// # Ok(())
+/// # }
+/// ```
 pub struct TakoTlsClient<B: Body>
 where
     B: Body + Send + 'static,
     B::Data: Send + 'static,
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
+    /// HTTP/1.1 request sender for the established TLS connection.
     sender: SendRequest<B>,
+    /// Background task handle managing the connection lifecycle.
     _conn_handle: JoinHandle<Result<(), hyper::Error>>,
 }
 
@@ -28,6 +99,34 @@ where
     B::Data: Send + 'static,
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
+    /// Creates a new HTTPS client with TLS encryption.
+    ///
+    /// Establishes a secure connection to the specified host and port using TLS.
+    /// The client uses system root certificates for server validation and defaults
+    /// to port 443 if no port is specified. A background task is spawned to manage
+    /// the connection lifecycle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TCP connection fails, TLS handshake fails, or the
+    /// HTTP/1.1 protocol handshake fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::client::TakoTlsClient;
+    /// use http_body_util::Empty;
+    /// use bytes::Bytes;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Connect to HTTPS API on default port 443
+    /// let client = TakoTlsClient::<Empty<Bytes>>::new("api.github.com", None).await?;
+    ///
+    /// // Connect to custom HTTPS port
+    /// let custom_client = TakoTlsClient::<Empty<Bytes>>::new("localhost", Some(8443)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn new<'a>(host: &'a str, port: Option<u16>) -> Result<Self, Box<dyn Error>>
     where
         'a: 'static,
@@ -65,6 +164,40 @@ where
         })
     }
 
+    /// Sends an HTTP request and returns the response with body as bytes.
+    ///
+    /// This method sends the request over the established TLS connection and reads
+    /// the complete response body into memory as a byte vector. The response headers
+    /// and status are preserved while the body is collected into a `Vec<u8>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails to send, the response cannot be read,
+    /// or connection issues occur during the request/response cycle.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::client::TakoTlsClient;
+    /// use http_body_util::Empty;
+    /// use bytes::Bytes;
+    /// use http::{Request, Method};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = TakoTlsClient::<Empty<Bytes>>::new("httpbin.org", None).await?;
+    ///
+    /// let request = Request::builder()
+    ///     .method(Method::GET)
+    ///     .uri("/json")
+    ///     .header("accept", "application/json")
+    ///     .body(Empty::new())?;
+    ///
+    /// let response = client.request(request).await?;
+    /// println!("Status: {}", response.status());
+    /// println!("Body length: {} bytes", response.body().len());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn request(&mut self, req: Request<B>) -> Result<Response<Vec<u8>>, Box<dyn Error>> {
         let mut response = self.sender.send_request(req).await?;
         let mut body_bytes = Vec::new();
@@ -82,13 +215,49 @@ where
     }
 }
 
+/// Plain HTTP client for unencrypted connections.
+///
+/// `TakoClient` provides a standard HTTP client that establishes plain TCP connections
+/// to remote servers without encryption. It's suitable for internal services, development
+/// environments, or when TLS termination is handled by a proxy. The client maintains
+/// a persistent connection and uses HTTP/1.1 protocol.
+///
+/// # Type Parameters
+///
+/// * `B` - Body type for HTTP requests, must implement `Body + Send + 'static`
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::client::TakoClient;
+/// use http_body_util::Empty;
+/// use bytes::Bytes;
+/// use http::Request;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// // Create HTTP client for local development server
+/// let mut client = TakoClient::<Empty<Bytes>>::new("localhost", Some(3000)).await?;
+///
+/// // Make request to health check endpoint
+/// let request = Request::builder()
+///     .method("GET")
+///     .uri("/health")
+///     .body(Empty::new())?;
+///
+/// let response = client.request(request).await?;
+/// println!("Health check: {}", response.status());
+/// # Ok(())
+/// # }
+/// ```
 pub struct TakoClient<B: Body>
 where
     B: Body + Send + 'static,
     B::Data: Send + 'static,
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
+    /// HTTP/1.1 request sender for the established TCP connection.
     sender: SendRequest<B>,
+    /// Background task handle managing the connection lifecycle.
     _conn_handle: JoinHandle<Result<(), hyper::Error>>,
 }
 
@@ -98,6 +267,33 @@ where
     B::Data: Send + 'static,
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
+    /// Creates a new HTTP client for plain TCP connections.
+    ///
+    /// Establishes a TCP connection to the specified host and port without encryption.
+    /// The client defaults to port 80 if no port is specified. A background task is
+    /// spawned to manage the connection lifecycle and handle protocol operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TCP connection fails or the HTTP/1.1 protocol
+    /// handshake fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::client::TakoClient;
+    /// use http_body_util::Empty;
+    /// use bytes::Bytes;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Connect to HTTP service on default port 80
+    /// let client = TakoClient::<Empty<Bytes>>::new("httpbin.org", None).await?;
+    ///
+    /// // Connect to development server on custom port
+    /// let dev_client = TakoClient::<Empty<Bytes>>::new("localhost", Some(8080)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn new<'a>(host: &'a str, port: Option<u16>) -> Result<Self, Box<dyn Error>>
     where
         'a: 'static,
@@ -123,6 +319,41 @@ where
         })
     }
 
+    /// Sends an HTTP request and returns the response with body as bytes.
+    ///
+    /// This method sends the request over the established TCP connection and reads
+    /// the complete response body into memory as a byte vector. The response headers
+    /// and status are preserved while the body is collected into a `Vec<u8>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails to send, the response cannot be read,
+    /// or connection issues occur during the request/response cycle.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::client::TakoClient;
+    /// use http_body_util::Empty;
+    /// use bytes::Bytes;
+    /// use http::{Request, Method};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = TakoClient::<Empty<Bytes>>::new("httpbin.org", Some(80)).await?;
+    ///
+    /// let request = Request::builder()
+    ///     .method(Method::POST)
+    ///     .uri("/post")
+    ///     .header("content-type", "application/json")
+    ///     .body(Empty::new())?;
+    ///
+    /// let response = client.request(request).await?;
+    /// println!("Status: {}", response.status());
+    /// let body_text = String::from_utf8_lossy(response.body());
+    /// println!("Response: {}", body_text);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn request(&mut self, req: Request<B>) -> Result<Response<Vec<u8>>, Box<dyn Error>> {
         let mut response = self.sender.send_request(req).await?;
         let mut body_bytes = Vec::new();

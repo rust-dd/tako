@@ -1,3 +1,31 @@
+//! Client IP address extraction from HTTP request headers.
+//!
+//! This module provides the [`IpAddr`] extractor for determining the client's IP address
+//! from various HTTP headers commonly used by proxies, load balancers, and CDNs.
+//! It supports both IPv4 and IPv6 addresses and provides methods for inspecting
+//! IP address properties like whether it's private, loopback, etc.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::ipaddr::IpAddr;
+//! use std::net::IpAddr as StdIpAddr;
+//!
+//! async fn handle_request(ip: IpAddr) {
+//!     println!("Client IP: {}", ip);
+//!
+//!     if ip.is_private() {
+//!         println!("Request from private network");
+//!     }
+//!
+//!     if ip.is_ipv4() {
+//!         println!("IPv4 address");
+//!     } else {
+//!         println!("IPv6 address");
+//!     }
+//! }
+//! ```
+
 use http::{StatusCode, request::Parts};
 use std::{future::ready, net::IpAddr as StdIpAddr, str::FromStr};
 
@@ -8,18 +36,70 @@ use crate::{
 };
 
 /// Extractor for client IP address from HTTP request headers.
+///
+/// This extractor attempts to determine the real client IP address by examining
+/// various HTTP headers in priority order. It's particularly useful when your
+/// application is behind proxies, load balancers, or CDNs that add forwarding headers.
+///
+/// The extractor checks headers in the following priority order:
+/// 1. `X-Forwarded-For`
+/// 2. `X-Real-IP`
+/// 3. `X-Client-IP`
+/// 4. `CF-Connecting-IP` (Cloudflare)
+/// 5. `X-Forwarded`
+/// 6. `Forwarded-For`
+/// 7. `Forwarded`
+/// 8. `True-Client-IP`
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::ipaddr::IpAddr;
+/// use std::net::IpAddr as StdIpAddr;
+///
+/// let ip = IpAddr::new("192.168.1.1".parse().unwrap());
+/// assert!(ip.is_ipv4());
+/// assert!(ip.is_private());
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct IpAddr(pub StdIpAddr);
 
 /// Error type for IP address extraction.
+///
+/// Represents various failure modes that can occur when extracting IP addresses
+/// from HTTP request headers.
 #[derive(Debug)]
 pub enum IpAddrError {
+    /// No valid IP address found in any of the checked headers.
     NoIpFound,
+    /// The IP address format in the header is invalid.
     InvalidIpFormat(String),
+    /// Failed to parse the IP address from the header value.
     HeaderParseError,
 }
 
 impl Responder for IpAddrError {
+    /// Converts the error into an HTTP response.
+    ///
+    /// Maps IP address extraction errors to appropriate HTTP status codes with
+    /// descriptive error messages. All errors result in `400 Bad Request` as they
+    /// indicate issues with the client's request headers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddrError;
+    /// use tako::responder::Responder;
+    /// use http::StatusCode;
+    ///
+    /// let error = IpAddrError::NoIpFound;
+    /// let response = error.into_response();
+    /// assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    ///
+    /// let error = IpAddrError::InvalidIpFormat("not-an-ip".to_string());
+    /// let response = error.into_response();
+    /// assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    /// ```
     fn into_response(self) -> crate::types::Response {
         match self {
             IpAddrError::NoIpFound => (
@@ -43,31 +123,125 @@ impl Responder for IpAddrError {
 
 impl IpAddr {
     /// Creates a new IpAddr wrapper.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - The IP address to wrap
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    /// use std::net::IpAddr as StdIpAddr;
+    ///
+    /// let ip_addr: StdIpAddr = "192.168.1.1".parse().unwrap();
+    /// let wrapper = IpAddr::new(ip_addr);
+    /// assert_eq!(wrapper.to_string(), "192.168.1.1");
+    /// ```
     pub fn new(addr: StdIpAddr) -> Self {
         Self(addr)
     }
 
     /// Gets the inner IP address.
+    ///
+    /// Returns the wrapped `std::net::IpAddr` for use with standard library functions.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    /// use std::net::IpAddr as StdIpAddr;
+    ///
+    /// let original: StdIpAddr = "::1".parse().unwrap();
+    /// let wrapper = IpAddr::new(original);
+    /// let inner = wrapper.inner();
+    ///
+    /// assert_eq!(inner, original);
+    /// assert!(inner.is_loopback());
+    /// ```
     pub fn inner(&self) -> StdIpAddr {
         self.0
     }
 
     /// Checks if the IP address is IPv4.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    ///
+    /// let ipv4 = IpAddr::new("192.168.1.1".parse().unwrap());
+    /// let ipv6 = IpAddr::new("::1".parse().unwrap());
+    ///
+    /// assert!(ipv4.is_ipv4());
+    /// assert!(!ipv6.is_ipv4());
+    /// ```
     pub fn is_ipv4(&self) -> bool {
         self.0.is_ipv4()
     }
 
     /// Checks if the IP address is IPv6.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    ///
+    /// let ipv4 = IpAddr::new("192.168.1.1".parse().unwrap());
+    /// let ipv6 = IpAddr::new("::1".parse().unwrap());
+    ///
+    /// assert!(!ipv4.is_ipv6());
+    /// assert!(ipv6.is_ipv6());
+    /// ```
     pub fn is_ipv6(&self) -> bool {
         self.0.is_ipv6()
     }
 
     /// Checks if the IP address is a loopback address.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    ///
+    /// let localhost_v4 = IpAddr::new("127.0.0.1".parse().unwrap());
+    /// let localhost_v6 = IpAddr::new("::1".parse().unwrap());
+    /// let public_ip = IpAddr::new("8.8.8.8".parse().unwrap());
+    ///
+    /// assert!(localhost_v4.is_loopback());
+    /// assert!(localhost_v6.is_loopback());
+    /// assert!(!public_ip.is_loopback());
+    /// ```
     pub fn is_loopback(&self) -> bool {
         self.0.is_loopback()
     }
 
     /// Checks if the IP address is a private address.
+    ///
+    /// For IPv4, this includes addresses in the ranges:
+    /// - 10.0.0.0/8
+    /// - 172.16.0.0/12
+    /// - 192.168.0.0/16
+    /// - 127.0.0.0/8 (loopback)
+    ///
+    /// For IPv6, this includes:
+    /// - fc00::/7 (Unique Local Addresses)
+    /// - fe80::/10 (Link-Local Addresses)
+    /// - ::1 (loopback)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    ///
+    /// let private_v4 = IpAddr::new("192.168.1.1".parse().unwrap());
+    /// let public_v4 = IpAddr::new("8.8.8.8".parse().unwrap());
+    /// let private_v6 = IpAddr::new("fc00::1".parse().unwrap());
+    ///
+    /// assert!(private_v4.is_private());
+    /// assert!(!public_v4.is_private());
+    /// assert!(private_v6.is_private());
+    /// ```
     pub fn is_private(&self) -> bool {
         match self.0 {
             StdIpAddr::V4(ipv4) => ipv4.is_private(),
@@ -85,6 +259,30 @@ impl IpAddr {
     }
 
     /// Extracts IP address from HTTP headers.
+    ///
+    /// Examines various HTTP headers in priority order to find the client's real IP address.
+    /// This is particularly useful when the application is behind proxies or load balancers.
+    ///
+    /// # Arguments
+    ///
+    /// * `headers` - HTTP headers to examine for IP address information
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpAddrError::NoIpFound` if no valid IP address is found in any header.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    /// use http::HeaderMap;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert("x-forwarded-for", "203.0.113.1, 198.51.100.1".parse().unwrap());
+    ///
+    /// let ip = IpAddr::extract_from_headers(&headers).unwrap();
+    /// assert_eq!(ip.to_string(), "203.0.113.1");
+    /// ```
     fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, IpAddrError> {
         // Priority order of headers to check
         let header_names = [
@@ -112,7 +310,28 @@ impl IpAddr {
     }
 
     /// Parses an IP address from a header value.
-    /// Handles comma-separated lists (takes the first valid IP).
+    ///
+    /// Handles various header formats including comma-separated lists (common in
+    /// X-Forwarded-For) and takes the first valid IP address found. Also handles
+    /// IPv6 addresses with brackets and port numbers.
+    ///
+    /// # Arguments
+    ///
+    /// * `header_value` - The header value string to parse
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use tako::extractors::ipaddr::IpAddr;
+    /// # impl IpAddr {
+    /// #     fn parse_ip_from_header(header_value: &str) -> Option<std::net::IpAddr> {
+    /// #         // Implementation details...
+    /// #         Some("192.168.1.1".parse().unwrap())
+    /// #     }
+    /// # }
+    /// let ip = IpAddr::parse_ip_from_header("192.168.1.1, 10.0.0.1");
+    /// assert!(ip.is_some());
+    /// ```
     fn parse_ip_from_header(header_value: &str) -> Option<StdIpAddr> {
         // Handle comma-separated values (common in X-Forwarded-For)
         for part in header_value.split(',') {
@@ -168,18 +387,55 @@ impl IpAddr {
 }
 
 impl std::fmt::Display for IpAddr {
+    /// Formats the IP address for display.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    ///
+    /// let ip = IpAddr::new("192.168.1.1".parse().unwrap());
+    /// assert_eq!(format!("{}", ip), "192.168.1.1");
+    ///
+    /// let ipv6 = IpAddr::new("::1".parse().unwrap());
+    /// assert_eq!(format!("{}", ipv6), "::1");
+    /// ```
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
 impl From<StdIpAddr> for IpAddr {
+    /// Converts from `std::net::IpAddr` to `IpAddr`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    /// use std::net::IpAddr as StdIpAddr;
+    ///
+    /// let std_ip: StdIpAddr = "192.168.1.1".parse().unwrap();
+    /// let ip: IpAddr = std_ip.into();
+    /// assert_eq!(ip.to_string(), "192.168.1.1");
+    /// ```
     fn from(addr: StdIpAddr) -> Self {
         Self(addr)
     }
 }
 
 impl From<IpAddr> for StdIpAddr {
+    /// Converts from `IpAddr` to `std::net::IpAddr`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::extractors::ipaddr::IpAddr;
+    /// use std::net::IpAddr as StdIpAddr;
+    ///
+    /// let ip = IpAddr::new("192.168.1.1".parse().unwrap());
+    /// let std_ip: StdIpAddr = ip.into();
+    /// assert_eq!(std_ip.to_string(), "192.168.1.1");
+    /// ```
     fn from(addr: IpAddr) -> Self {
         addr.0
     }
@@ -188,6 +444,35 @@ impl From<IpAddr> for StdIpAddr {
 impl<'a> FromRequest<'a> for IpAddr {
     type Error = IpAddrError;
 
+    /// Extracts client IP address from an HTTP request.
+    ///
+    /// Examines various HTTP headers to determine the client's real IP address,
+    /// which is particularly useful when the application is behind proxies,
+    /// load balancers, or CDNs.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpAddrError::NoIpFound` if no valid IP address can be extracted
+    /// from the request headers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::extractors::{FromRequest, ipaddr::IpAddr};
+    /// use tako::types::Request;
+    ///
+    /// async fn handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
+    ///     let ip = IpAddr::from_request(&mut req).await?;
+    ///
+    ///     println!("Client IP: {}", ip);
+    ///
+    ///     if ip.is_private() {
+    ///         println!("Request from private network");
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
@@ -199,6 +484,34 @@ impl<'a> FromRequest<'a> for IpAddr {
 impl<'a> FromRequestParts<'a> for IpAddr {
     type Error = IpAddrError;
 
+    /// Extracts client IP address from HTTP request parts.
+    ///
+    /// Examines various HTTP headers to determine the client's real IP address,
+    /// which is particularly useful when the application is behind proxies,
+    /// load balancers, or CDNs.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IpAddrError::NoIpFound` if no valid IP address can be extracted
+    /// from the request headers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tako::extractors::{FromRequestParts, ipaddr::IpAddr};
+    /// use http::request::Parts;
+    ///
+    /// async fn handler(mut parts: Parts) -> Result<(), Box<dyn std::error::Error>> {
+    ///     let ip = IpAddr::from_request_parts(&mut parts).await?;
+    ///
+    ///     // Log the client IP for security monitoring
+    ///     if !ip.is_private() {
+    ///         println!("External request from: {}", ip);
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
     fn from_request_parts(
         parts: &'a mut Parts,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
