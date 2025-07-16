@@ -108,42 +108,11 @@ where
     U: Clone + Send + Sync + 'static,
 {
     /// Creates authentication middleware with a single static user credential.
-    ///
-    /// This is the simplest way to set up basic authentication for applications
-    /// that need only one authenticated user. The credentials are stored in memory
-    /// and checked against incoming requests.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    ///
-    /// let auth = BasicAuth::<(), _>::single("admin", "secret123");
-    /// // Requests with "Authorization: Basic YWRtaW46c2VjcmV0MTIz" will be authenticated
-    /// ```
     pub fn single(user: impl Into<String>, pass: impl Into<String>) -> Self {
         Self::multiple(std::iter::once((user, pass)))
     }
 
     /// Creates authentication middleware with multiple static user credentials.
-    ///
-    /// Allows multiple username/password combinations for authentication. All
-    /// credentials are stored in memory and any valid combination will authenticate
-    /// the request.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    ///
-    /// let auth = BasicAuth::<(), _>::multiple([
-    ///     ("alice", "password1"),
-    ///     ("bob", "password2"),
-    ///     ("charlie", "password3"),
-    /// ]);
-    ///
-    /// // Any of the three users can authenticate
-    /// ```
     pub fn multiple<I, T, P>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (T, P)>,
@@ -164,41 +133,6 @@ where
     }
 
     /// Creates authentication middleware with a custom verification function.
-    ///
-    /// The verification function receives the username and password from the request
-    /// and can perform any authentication logic including database lookups, external
-    /// API calls, or other verification methods. Returning `Some(user_object)` grants
-    /// access and injects the user object into request extensions.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    ///
-    /// #[derive(Clone)]
-    /// struct User {
-    ///     id: u32,
-    ///     username: String,
-    ///     role: String,
-    /// }
-    ///
-    /// let auth = BasicAuth::with_verify(|username, password| {
-    ///     // Custom verification logic
-    ///     match (username, password) {
-    ///         ("admin", "admin_pass") => Some(User {
-    ///             id: 1,
-    ///             username: username.to_string(),
-    ///             role: "admin".to_string(),
-    ///         }),
-    ///         ("user", "user_pass") => Some(User {
-    ///             id: 2,
-    ///             username: username.to_string(),
-    ///             role: "user".to_string(),
-    ///         }),
-    ///         _ => None,
-    ///     }
-    /// });
-    /// ```
     pub fn with_verify(cb: F) -> Self {
         Self {
             users: None,
@@ -209,32 +143,6 @@ where
     }
 
     /// Creates authentication middleware with both static credentials and custom verification.
-    ///
-    /// This configuration first checks static credentials, then falls back to the
-    /// custom verification function if no static match is found. This is useful
-    /// for having some hardcoded admin accounts while also supporting dynamic
-    /// user authentication.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    ///
-    /// #[derive(Clone)]
-    /// struct User { name: String }
-    ///
-    /// let auth = BasicAuth::users_with_verify(
-    ///     [("admin", "static_pass")],
-    ///     |username, password| {
-    ///         // Check dynamic users after static ones
-    ///         if username.starts_with("user_") && password == "dynamic_pass" {
-    ///             Some(User { name: username.to_string() })
-    ///         } else {
-    ///             None
-    ///         }
-    ///     }
-    /// );
-    /// ```
     pub fn users_with_verify<I, S>(pairs: I, cb: F) -> Self
     where
         I: IntoIterator<Item = (S, S)>,
@@ -254,22 +162,6 @@ where
     }
 
     /// Sets the authentication realm for the WWW-Authenticate header.
-    ///
-    /// The realm is included in the WWW-Authenticate header when authentication
-    /// fails, providing a description of the protected resource to users. This
-    /// appears in browser authentication dialogs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    ///
-    /// let auth = BasicAuth::<(), _>::single("user", "pass")
-    ///     .realm("Admin Dashboard");
-    ///
-    /// // Unauthorized responses will include:
-    /// // WWW-Authenticate: Basic realm="Admin Dashboard"
-    /// ```
     pub fn realm(mut self, r: &'static str) -> Self {
         self.realm = r;
         self
@@ -282,28 +174,6 @@ where
     U: Clone + Send + Sync + 'static,
 {
     /// Converts the authentication configuration into middleware.
-    ///
-    /// The resulting middleware validates HTTP Basic authentication credentials from
-    /// the Authorization header. On successful authentication, the request proceeds
-    /// to the next middleware. On failure, returns a 401 Unauthorized response with
-    /// appropriate WWW-Authenticate header.
-    ///
-    /// If a verification function returns a user object, it is inserted into the
-    /// request extensions for access by downstream handlers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::basic_auth::BasicAuth;
-    /// use tako::middleware::IntoMiddleware;
-    ///
-    /// let auth_middleware = BasicAuth::<(), _>::single("admin", "secret")
-    ///     .realm("Protected Area")
-    ///     .into_middleware();
-    ///
-    /// // Use in router:
-    /// // router.middleware(auth_middleware);
-    /// ```
     fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>

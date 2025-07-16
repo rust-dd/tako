@@ -71,23 +71,6 @@ pub trait Handler: Send + Sync + 'static {
     type Future: Future<Output = Response> + Send + 'static;
 
     /// Calls the handler with the given request.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::handler::Handler;
-    /// use tako::types::Request;
-    /// use tako::body::TakoBody;
-    ///
-    /// async fn example_handler(_req: Request) -> &'static str {
-    ///     "Example response"
-    /// }
-    ///
-    /// # async fn test() {
-    /// let request = Request::builder().body(TakoBody::empty()).unwrap();
-    /// let response = example_handler.call(request).await;
-    /// # }
-    /// ```
     fn call(self, req: Request) -> Self::Future;
 }
 
@@ -128,32 +111,6 @@ where
 }
 
 /// Type-erased handler wrapper for dynamic storage and composition.
-///
-/// `BoxHandler` provides a way to store handlers with different concrete types
-/// under a single type, enabling dynamic handler dispatch in routing systems.
-/// It wraps handlers in an `Arc` for efficient cloning and shared ownership.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::handler::BoxHandler;
-/// use tako::types::{Request, Response};
-/// use tako::body::TakoBody;
-///
-/// async fn text_handler(_req: Request) -> &'static str {
-///     "Text response"
-/// }
-///
-/// async fn json_handler(_req: Request) -> Response {
-///     Response::new(TakoBody::from(r#"{"status": "ok"}"#))
-/// }
-///
-/// // Store different handler types in a collection
-/// let handlers = vec![
-///     BoxHandler::new(text_handler),
-///     BoxHandler::new(json_handler),
-/// ];
-/// ```
 #[derive(Clone)]
 pub struct BoxHandler {
     /// The inner function that processes requests and produces responses.
@@ -162,24 +119,6 @@ pub struct BoxHandler {
 
 impl BoxHandler {
     /// Creates a new boxed handler from any handler implementation.
-    ///
-    /// The handler is wrapped in an `Arc` for efficient cloning and stored with
-    /// type erasure to enable dynamic dispatch.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::handler::BoxHandler;
-    /// use tako::types::Request;
-    /// use http::StatusCode;
-    ///
-    /// async fn status_handler(_req: Request) -> (StatusCode, &'static str) {
-    ///     (StatusCode::OK, "Success")
-    /// }
-    ///
-    /// let boxed = BoxHandler::new(status_handler);
-    /// let cloned = boxed.clone(); // Efficient Arc clone
-    /// ```
     pub(crate) fn new<H>(h: H) -> Self
     where
         H: Handler + Clone,
@@ -193,27 +132,6 @@ impl BoxHandler {
     }
 
     /// Calls the boxed handler with the provided request.
-    ///
-    /// This method invokes the inner handler function and returns a future
-    /// that resolves to the HTTP response.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::handler::BoxHandler;
-    /// use tako::types::Request;
-    /// use tako::body::TakoBody;
-    ///
-    /// async fn example_handler(_req: Request) -> &'static str {
-    ///     "Handler response"
-    /// }
-    ///
-    /// # async fn test() {
-    /// let handler = BoxHandler::new(example_handler);
-    /// let request = Request::builder().body(TakoBody::empty()).unwrap();
-    /// let response = handler.call(request).await;
-    /// # }
-    /// ```
     pub(crate) fn call(&self, req: Request) -> BoxFuture<'_, Response> {
         (self.inner)(req)
     }

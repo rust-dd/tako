@@ -83,23 +83,6 @@ pub struct Config {
 
 impl Default for Config {
     /// Provides sensible default rate limiting configuration.
-    ///
-    /// Default settings allow 60 requests per second with a burst capacity of 60 requests,
-    /// token replenishment every second, and returns HTTP 429 (Too Many Requests) status
-    /// when limits are exceeded.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::Config;
-    /// use http::StatusCode;
-    ///
-    /// let config = Config::default();
-    /// assert_eq!(config.burst_size, 60);
-    /// assert_eq!(config.per_second, 60);
-    /// assert_eq!(config.tick_secs, 1);
-    /// assert_eq!(config.status_on_limit, StatusCode::TOO_MANY_REQUESTS);
-    /// ```
     fn default() -> Self {
         Self {
             burst_size: 60,
@@ -141,116 +124,35 @@ pub struct RateLimiterBuilder(Config);
 
 impl RateLimiterBuilder {
     /// Creates a new rate limiter configuration builder with default settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    ///
-    /// let builder = RateLimiterBuilder::new();
-    /// let limiter = builder.build();
-    /// ```
     pub fn new() -> Self {
         Self(Config::default())
     }
 
     /// Sets the maximum burst size for the token bucket.
-    ///
-    /// The burst size determines how many requests can be made in quick succession
-    /// before rate limiting takes effect. Higher values allow for more bursty
-    /// traffic patterns while maintaining the overall rate limit.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    ///
-    /// let limiter = RateLimiterBuilder::new()
-    ///     .burst_size(500) // Allow up to 500 requests in burst
-    ///     .build();
-    /// ```
     pub fn burst_size(mut self, n: u32) -> Self {
         self.0.burst_size = n;
         self
     }
 
     /// Sets the token replenishment rate per second.
-    ///
-    /// This determines the sustained rate at which requests are allowed over time.
-    /// The bucket is replenished with this many tokens every second (distributed
-    /// across tick intervals).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    ///
-    /// let limiter = RateLimiterBuilder::new()
-    ///     .per_second(100) // Allow 100 requests per second sustained
-    ///     .build();
-    /// ```
     pub fn per_second(mut self, n: u32) -> Self {
         self.0.per_second = n;
         self
     }
 
     /// Sets the token replenishment interval in seconds.
-    ///
-    /// This controls how frequently tokens are added to buckets. Shorter intervals
-    /// provide smoother rate limiting but higher overhead. The minimum value is 1 second.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    ///
-    /// let limiter = RateLimiterBuilder::new()
-    ///     .tick_secs(2) // Replenish tokens every 2 seconds
-    ///     .build();
-    /// ```
     pub fn tick_secs(mut self, s: u64) -> Self {
         self.0.tick_secs = s.max(1);
         self
     }
 
     /// Sets the HTTP status code returned when rate limits are exceeded.
-    ///
-    /// This allows customization of the error response when clients exceed their
-    /// rate limits. Common values include 429 (Too Many Requests) or 503 (Service
-    /// Unavailable).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    /// use http::StatusCode;
-    ///
-    /// let limiter = RateLimiterBuilder::new()
-    ///     .status(StatusCode::SERVICE_UNAVAILABLE)
-    ///     .build();
-    /// ```
     pub fn status(mut self, st: StatusCode) -> Self {
         self.0.status_on_limit = st;
         self
     }
 
     /// Builds the rate limiter plugin with the configured settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let limiter = RateLimiterBuilder::new()
-    ///     .burst_size(100)
-    ///     .per_second(50)
-    ///     .build();
-    ///
-    /// let mut router = Router::new();
-    /// router.plugin(limiter);
-    /// ```
     pub fn build(self) -> RateLimiterPlugin {
         RateLimiterPlugin {
             cfg: self.0,
@@ -321,40 +223,11 @@ pub struct RateLimiterPlugin {
 
 impl TakoPlugin for RateLimiterPlugin {
     /// Returns the plugin name for identification and debugging.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::RateLimiterPlugin;
-    /// use tako::plugins::TakoPlugin;
-    ///
-    /// let plugin = RateLimiterPlugin {
-    ///     cfg: Default::default(),
-    ///     store: Default::default(),
-    /// };
-    /// assert_eq!(plugin.name(), "RateLimiterPlugin");
-    /// ```
     fn name(&self) -> &'static str {
         "RateLimiterPlugin"
     }
 
     /// Sets up the rate limiter by registering middleware and starting background tasks.
-    ///
-    /// This method installs the rate limiting middleware that checks and updates token
-    /// buckets for each request. It also spawns a background task that periodically
-    /// replenishes tokens and cleans up inactive buckets to prevent memory leaks.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::rate_limiter::{RateLimiterPlugin, RateLimiterBuilder};
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let plugin = RateLimiterBuilder::new().build();
-    /// let router = Router::new();
-    /// plugin.setup(&router).unwrap();
-    /// ```
     fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
         let store = self.store.clone();

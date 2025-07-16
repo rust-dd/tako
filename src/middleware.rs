@@ -71,11 +71,6 @@ pub trait IntoMiddleware {
 }
 
 /// Represents the next step in the middleware execution chain.
-///
-/// The `Next` struct manages the flow of execution through a middleware stack,
-/// ensuring each middleware is called in order before reaching the final endpoint
-/// handler. It contains references to the remaining middlewares and the final
-/// endpoint to be executed.
 pub struct Next {
     /// Remaining middlewares to be executed in the chain.
     pub middlewares: Arc<Vec<BoxMiddleware>>,
@@ -85,32 +80,6 @@ pub struct Next {
 
 impl Next {
     /// Executes the next middleware or endpoint in the chain.
-    ///
-    /// This method processes the middleware chain by either calling the next middleware
-    /// (if any remain) or the final endpoint handler. It maintains the proper execution
-    /// order and passes the request through each layer of the middleware stack.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::Next;
-    /// use tako::types::Request;
-    /// use std::sync::Arc;
-    ///
-    /// # async fn example() {
-    /// # let middlewares = Arc::new(Vec::new());
-    /// # let endpoint = Arc::new(|_req| Box::pin(async {
-    /// #     tako::types::Response::new(tako::body::TakoBody::empty())
-    /// # }) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
-    /// let next = Next {
-    ///     middlewares,
-    ///     endpoint,
-    /// };
-    ///
-    /// let request = Request::builder().body(tako::body::TakoBody::empty()).unwrap();
-    /// let response = next.run(request).await;
-    /// # }
-    /// ```
     pub async fn run(self, req: Request) -> Response {
         if let Some((mw, rest)) = self.middlewares.split_first() {
             let rest = Arc::new(rest.to_vec());

@@ -121,25 +121,6 @@ pub enum AnyVerifyKey {
 
 impl AnyVerifyKey {
     /// Returns the algorithm identifier for this verification key.
-    ///
-    /// The algorithm identifier corresponds to the "alg" field in JWT headers
-    /// and follows the RFC 7518 specification for JSON Web Algorithms.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::jwt_auth::AnyVerifyKey;
-    /// use jwt_simple::prelude::*;
-    /// use std::sync::Arc;
-    ///
-    /// let hmac_key = AnyVerifyKey::HS256(Arc::new(HS256Key::generate()));
-    /// assert_eq!(hmac_key.alg_id(), "HS256");
-    ///
-    /// let rsa_key = AnyVerifyKey::RS256(Arc::new(
-    ///     RS256PublicKey::from_pem("-----BEGIN PUBLIC KEY-----...").unwrap()
-    /// ));
-    /// assert_eq!(rsa_key.alg_id(), "RS256");
-    /// ```
     pub fn alg_id(&self) -> &'static str {
         match self {
             Self::HS256(_) => "HS256",
@@ -164,48 +145,6 @@ impl AnyVerifyKey {
     }
 
     /// Verifies a JWT token using this key and returns the decoded claims.
-    ///
-    /// This method validates the token signature, checks expiration and other
-    /// standard claims, and deserializes the custom claims payload. The verification
-    /// uses default options which include standard validations like expiration
-    /// time checking.
-    ///
-    /// # Errors
-    ///
-    /// Returns `jwt_simple::Error` if:
-    /// - Token signature is invalid
-    /// - Token is expired or not yet valid
-    /// - Token format is malformed
-    /// - Claims cannot be deserialized to type `C`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::jwt_auth::AnyVerifyKey;
-    /// use jwt_simple::prelude::*;
-    /// use serde::{Deserialize, Serialize};
-    /// use std::sync::Arc;
-    ///
-    /// #[derive(Serialize, Deserialize, Clone)]
-    /// struct MyClaims {
-    ///     user_id: u32,
-    ///     role: String,
-    /// }
-    ///
-    /// # fn example() -> Result<(), jwt_simple::Error> {
-    /// let key = HS256Key::generate();
-    /// let verify_key = AnyVerifyKey::HS256(Arc::new(key.clone()));
-    ///
-    /// // Create a token (in practice, this comes from the client)
-    /// let claims = MyClaims { user_id: 123, role: "admin".to_string() };
-    /// let token = key.authenticate(claims)?;
-    ///
-    /// // Verify the token
-    /// let decoded_claims = verify_key.verify::<MyClaims>(&token)?;
-    /// assert_eq!(decoded_claims.custom.user_id, 123);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn verify<C>(&self, token: &str) -> Result<JWTClaims<C>, jwt_simple::Error>
     where
         C: Serialize + DeserializeOwned,
@@ -290,46 +229,6 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
 {
     /// Creates a new JWT authentication middleware with the specified verification keys.
-    ///
-    /// The keys map allows supporting multiple algorithms simultaneously, which is
-    /// useful for key rotation, supporting multiple token issuers, or transitioning
-    /// between algorithms. The algorithm from each token's header is matched against
-    /// the available keys for validation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::jwt_auth::{JwtAuth, AnyVerifyKey};
-    /// use jwt_simple::prelude::*;
-    /// use serde::{Deserialize, Serialize};
-    /// use std::collections::HashMap;
-    /// use std::sync::Arc;
-    ///
-    /// #[derive(Serialize, Deserialize, Clone)]
-    /// struct UserClaims {
-    ///     sub: String,
-    ///     role: String,
-    ///     exp: u64,
-    /// }
-    ///
-    /// // Setup with multiple algorithms for flexibility
-    /// let mut keys = HashMap::new();
-    ///
-    /// // HMAC key for service-to-service communication
-    /// keys.insert("HS256", AnyVerifyKey::HS256(Arc::new(HS256Key::generate())));
-    ///
-    /// // RSA key for user authentication tokens
-    /// keys.insert("RS256", AnyVerifyKey::RS256(Arc::new(
-    ///     RS256PublicKey::from_pem("-----BEGIN PUBLIC KEY-----...").unwrap()
-    /// )));
-    ///
-    /// // EdDSA for modern high-security tokens
-    /// keys.insert("EdDSA", AnyVerifyKey::EdDSA(Arc::new(
-    ///     Ed25519PublicKey::from_pem("-----BEGIN PUBLIC KEY-----...").unwrap()
-    /// )));
-    ///
-    /// let jwt_auth = JwtAuth::<UserClaims>::new(keys);
-    /// ```
     pub fn new(keys: HashMap<&'static str, AnyVerifyKey>) -> Self {
         Self {
             keys: Arc::new(keys),
@@ -343,52 +242,6 @@ where
     T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     /// Converts the JWT authentication configuration into middleware.
-    ///
-    /// The resulting middleware extracts JWT tokens from Authorization headers,
-    /// validates them using the configured verification keys, and injects the
-    /// decoded claims into request extensions. The middleware performs the
-    /// following steps:
-    ///
-    /// 1. Extract Bearer token from Authorization header
-    /// 2. Decode token metadata to get algorithm
-    /// 3. Find matching verification key for the algorithm
-    /// 4. Verify token signature and claims
-    /// 5. Inject decoded claims into request extensions
-    /// 6. Pass request to next middleware
-    ///
-    /// On any failure, returns a 401 Unauthorized response with an appropriate
-    /// error message.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::jwt_auth::{JwtAuth, AnyVerifyKey};
-    /// use tako::middleware::IntoMiddleware;
-    /// use jwt_simple::prelude::*;
-    /// use serde::{Deserialize, Serialize};
-    /// use std::collections::HashMap;
-    /// use std::sync::Arc;
-    ///
-    /// #[derive(Serialize, Deserialize, Clone)]
-    /// struct Claims {
-    ///     user_id: u32,
-    ///     exp: u64,
-    /// }
-    ///
-    /// let mut keys = HashMap::new();
-    /// keys.insert("HS256", AnyVerifyKey::HS256(Arc::new(HS256Key::generate())));
-    ///
-    /// let middleware = JwtAuth::<Claims>::new(keys).into_middleware();
-    ///
-    /// // Use in router:
-    /// // router.middleware(middleware);
-    ///
-    /// // In handlers, access the claims:
-    /// // async fn protected_handler(req: Request) -> impl Responder {
-    /// //     let claims = req.extensions().get::<JWTClaims<Claims>>().unwrap();
-    /// //     format!("Hello user {}", claims.custom.user_id)
-    /// // }
-    /// ```
     fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>

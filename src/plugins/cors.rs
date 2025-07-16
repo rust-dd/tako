@@ -85,23 +85,6 @@ pub struct Config {
 
 impl Default for Config {
     /// Provides permissive default CORS configuration suitable for development.
-    ///
-    /// Default settings allow all common HTTP methods, no credential sharing,
-    /// and a 1-hour preflight cache duration. The origins list is empty by default,
-    /// which results in wildcard (*) origin acceptance.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::Config;
-    /// use http::Method;
-    ///
-    /// let config = Config::default();
-    /// assert!(config.origins.is_empty());
-    /// assert!(config.methods.contains(&Method::GET));
-    /// assert!(!config.allow_credentials);
-    /// assert_eq!(config.max_age_secs, Some(3600));
-    /// ```
     fn default() -> Self {
         Self {
             origins: Vec::new(),
@@ -152,149 +135,41 @@ pub struct CorsBuilder(Config);
 
 impl CorsBuilder {
     /// Creates a new CORS configuration builder with default settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    ///
-    /// let builder = CorsBuilder::new();
-    /// let cors = builder.build();
-    /// ```
     pub fn new() -> Self {
         Self(Config::default())
     }
 
     /// Adds an allowed origin to the CORS policy.
-    ///
-    /// Origins must be specified as complete URLs including protocol and port if
-    /// non-standard. Each origin added will be permitted to make cross-origin requests.
-    /// If no origins are specified, all origins (*) are allowed.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .allow_origin("https://app.example.com")
-    ///     .allow_origin("https://admin.example.com:8443")
-    ///     .allow_origin("http://localhost:3000")
-    ///     .build();
-    /// ```
     pub fn allow_origin(mut self, o: impl Into<String>) -> Self {
         self.0.origins.push(o.into());
         self
     }
 
     /// Sets the allowed HTTP methods for cross-origin requests.
-    ///
-    /// This replaces the default method list with the specified methods. Include
-    /// OPTIONS if you want to handle preflight requests properly.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    /// use http::Method;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .allow_methods(&[
-    ///         Method::GET,
-    ///         Method::POST,
-    ///         Method::PUT,
-    ///         Method::DELETE,
-    ///         Method::OPTIONS,
-    ///     ])
-    ///     .build();
-    /// ```
     pub fn allow_methods(mut self, m: &[Method]) -> Self {
         self.0.methods = m.to_vec();
         self
     }
 
     /// Sets the allowed request headers for cross-origin requests.
-    ///
-    /// This replaces any existing header list with the specified headers. Common
-    /// headers like Content-Type are often automatically allowed by browsers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    /// use http::HeaderName;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .allow_headers(&[
-    ///         HeaderName::from_static("authorization"),
-    ///         HeaderName::from_static("x-api-key"),
-    ///         HeaderName::from_static("content-type"),
-    ///     ])
-    ///     .build();
-    /// ```
     pub fn allow_headers(mut self, h: &[HeaderName]) -> Self {
         self.0.headers = h.to_vec();
         self
     }
 
     /// Enables or disables credential sharing in cross-origin requests.
-    ///
-    /// When enabled, browsers will include cookies, authorization headers, and
-    /// client certificates in cross-origin requests. This requires specific
-    /// origins (not wildcard) for security.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .allow_origin("https://app.example.com")
-    ///     .allow_credentials(true)
-    ///     .build();
-    /// ```
     pub fn allow_credentials(mut self, allow: bool) -> Self {
         self.0.allow_credentials = allow;
         self
     }
 
     /// Sets the maximum age for preflight request caching.
-    ///
-    /// This controls how long browsers cache the results of preflight OPTIONS
-    /// requests, reducing the number of preflight requests for subsequent
-    /// cross-origin requests from the same origin.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .max_age_secs(86400) // 24 hours
-    ///     .build();
-    /// ```
     pub fn max_age_secs(mut self, secs: u32) -> Self {
         self.0.max_age_secs = Some(secs);
         self
     }
 
     /// Builds the CORS plugin with the configured settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsBuilder;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let cors = CorsBuilder::new()
-    ///     .allow_origin("https://app.example.com")
-    ///     .allow_credentials(true)
-    ///     .build();
-    ///
-    /// let mut router = Router::new();
-    /// router.plugin(cors);
-    /// ```
     pub fn build(self) -> CorsPlugin {
         CorsPlugin { cfg: self.0 }
     }
@@ -335,22 +210,6 @@ pub struct CorsPlugin {
 
 impl Default for CorsPlugin {
     /// Creates a CORS plugin with permissive default configuration.
-    ///
-    /// Default settings allow all origins, common HTTP methods, no credentials,
-    /// and a 1-hour preflight cache. This is suitable for development environments
-    /// but should be restricted for production use.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsPlugin;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let cors = CorsPlugin::default();
-    /// let mut router = Router::new();
-    /// router.plugin(cors);
-    /// ```
     fn default() -> Self {
         Self {
             cfg: Config::default(),
@@ -360,37 +219,11 @@ impl Default for CorsPlugin {
 
 impl TakoPlugin for CorsPlugin {
     /// Returns the plugin name for identification and debugging.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsPlugin;
-    /// use tako::plugins::TakoPlugin;
-    ///
-    /// let plugin = CorsPlugin::default();
-    /// assert_eq!(plugin.name(), "CorsPlugin");
-    /// ```
     fn name(&self) -> &'static str {
         "CorsPlugin"
     }
 
     /// Sets up the CORS plugin by registering middleware with the router.
-    ///
-    /// This method installs CORS middleware that intercepts all requests to handle
-    /// preflight OPTIONS requests and add appropriate CORS headers to responses.
-    /// The middleware applies the configured CORS policy to all routes.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::cors::CorsPlugin;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let plugin = CorsPlugin::default();
-    /// let router = Router::new();
-    /// plugin.setup(&router).unwrap();
-    /// ```
     fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
         router.middleware(move |req, next| {
@@ -402,11 +235,6 @@ impl TakoPlugin for CorsPlugin {
 }
 
 /// Handles CORS processing for incoming requests including preflight and actual requests.
-///
-/// This function implements the core CORS logic by checking the request origin against
-/// the configured policy, handling preflight OPTIONS requests, and adding appropriate
-/// CORS headers to responses. It follows the W3C CORS specification for proper
-/// cross-origin request handling.
 async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     let origin = req.headers().get(ORIGIN).cloned();
 
@@ -425,11 +253,6 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
 }
 
 /// Adds CORS headers to HTTP responses based on configuration and request origin.
-///
-/// This function implements the CORS header logic by validating the request origin
-/// against the configured policy and adding appropriate Access-Control headers to
-/// the response. It handles origin validation, method exposure, header permissions,
-/// credential policies, and preflight caching.
 fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Response) {
     // Origin validation and Access-Control-Allow-Origin header
     let allow_origin = if cfg.origins.is_empty() {

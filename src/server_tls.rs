@@ -45,40 +45,6 @@ use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 use crate::{router::Router, types::BoxError};
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
-///
-/// This function configures TLS using the provided certificate and key files, sets up
-/// ALPN protocol negotiation (supporting HTTP/2 if enabled), and starts the secure
-/// server. If certificate or key paths are not provided, defaults to "cert.pem" and
-/// "key.pem" respectively.
-///
-/// # Arguments
-///
-/// * `listener` - TCP listener for accepting incoming connections
-/// * `router` - Router instance for handling request dispatch
-/// * `certs` - Optional path to certificate file (defaults to "cert.pem")
-/// * `key` - Optional path to private key file (defaults to "key.pem")
-///
-/// # Panics
-///
-/// Panics if the server encounters an unrecoverable error during startup or if
-/// certificate/key files cannot be loaded.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "tls")]
-/// use tako::{serve_tls, router::Router};
-/// # #[cfg(feature = "tls")]
-/// use tokio::net::TcpListener;
-///
-/// # #[cfg(feature = "tls")]
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let listener = TcpListener::bind("127.0.0.1:8443").await?;
-/// let router = Router::new();
-/// serve_tls(listener, router, Some("server.crt"), Some("server.key")).await;
-/// # Ok(())
-/// # }
-/// ```
 pub async fn serve_tls(
     listener: TcpListener,
     router: Router,
@@ -89,41 +55,6 @@ pub async fn serve_tls(
 }
 
 /// Runs the TLS server loop, handling secure connections and request dispatch.
-///
-/// This function sets up the TLS configuration, initializes the acceptor, and enters
-/// the main server loop. It handles TLS handshakes, protocol negotiation (HTTP/1.1
-/// and HTTP/2), and spawns tasks for concurrent connection handling.
-///
-/// # Arguments
-///
-/// * `listener` - TCP listener for accepting connections
-/// * `router` - Router instance for request handling
-/// * `certs` - Optional path to certificate file
-/// * `key` - Optional path to private key file
-///
-/// # Errors
-///
-/// Returns an error if the server fails to accept connections, perform TLS handshakes,
-/// load certificates, or encounters other I/O issues.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "tls")]
-/// use tako::{router::Router};
-/// # #[cfg(feature = "tls")]
-/// use tokio::net::TcpListener;
-/// # #[cfg(feature = "tls")]
-/// use tako::server_tls::run;
-///
-/// # #[cfg(feature = "tls")]
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let listener = TcpListener::bind("127.0.0.1:8443").await?;
-/// let router = Router::new();
-/// run(listener, router, None, None).await?;
-/// # Ok(())
-/// # }
-/// ```
 pub async fn run(
     listener: TcpListener,
     router: Router,

@@ -111,51 +111,6 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     /// Creates a new WebSocket handler with the given request and handler function.
-    ///
-    /// The request must contain the necessary WebSocket upgrade headers for a valid
-    /// handshake. The handler function will be called with the established WebSocket
-    /// connection for message processing.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::ws::TakoWs;
-    /// use tako::types::Request;
-    /// use tako::body::TakoBody;
-    /// use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
-    /// use hyper_util::rt::TokioIo;
-    /// use futures_util::StreamExt;
-    ///
-    /// async fn chat_handler(mut ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
-    ///     while let Some(msg) = ws.next().await {
-    ///         match msg {
-    ///             Ok(Message::Text(text)) => {
-    ///                 println!("Chat message: {}", text);
-    ///                 // Broadcast to other clients, etc.
-    ///             }
-    ///             Ok(Message::Close(_)) => {
-    ///                 println!("Client disconnected");
-    ///                 break;
-    ///             }
-    ///             _ => {}
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let request = Request::builder()
-    ///     .method("GET")
-    ///     .uri("/chat")
-    ///     .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-    ///     .header("upgrade", "websocket")
-    ///     .header("connection", "upgrade")
-    ///     .header("sec-websocket-version", "13")
-    ///     .body(TakoBody::empty())?;
-    ///
-    /// let ws = TakoWs::new(request, chat_handler);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn new(request: Request, handler: H) -> Self {
         Self { request, handler }
     }
@@ -167,42 +122,6 @@ where
     Fut: Future<Output = ()> + Send + 'static,
 {
     /// Converts the WebSocket handler into an HTTP response with upgrade protocol.
-    ///
-    /// This method performs the WebSocket handshake according to RFC 6455, validates
-    /// the required headers, generates the appropriate response headers, and spawns
-    /// a task to handle the WebSocket connection. If the handshake fails, returns
-    /// an appropriate error response.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::ws::TakoWs;
-    /// use tako::responder::Responder;
-    /// use tako::types::Request;
-    /// use tako::body::TakoBody;
-    /// use tokio_tungstenite::WebSocketStream;
-    /// use hyper_util::rt::TokioIo;
-    /// use http::StatusCode;
-    ///
-    /// async fn simple_handler(_ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
-    ///     // Handle WebSocket connection
-    /// }
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let request = Request::builder()
-    ///     .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-    ///     .header("upgrade", "websocket")
-    ///     .header("connection", "upgrade")
-    ///     .body(TakoBody::empty())?;
-    ///
-    /// let ws = TakoWs::new(request, simple_handler);
-    /// let response = ws.into_response();
-    ///
-    /// // Should return switching protocols status for valid requests
-    /// assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
-    /// # Ok(())
-    /// # }
-    /// ```
     fn into_response(self) -> Response {
         let (parts, body) = self.request.into_parts();
         let req = http::Request::from_parts(parts, body);

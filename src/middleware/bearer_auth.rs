@@ -113,19 +113,6 @@ where
     C: Clone + Send + Sync + 'static,
 {
     /// Creates authentication middleware with a single static token.
-    ///
-    /// This is the simplest way to set up Bearer token authentication for applications
-    /// that use a single API key or access token. The token is stored in memory and
-    /// checked against incoming Authorization headers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::bearer_auth::BearerAuth;
-    ///
-    /// let auth = BearerAuth::<(), _>::static_token("my-secret-api-key");
-    /// // Requests with "Authorization: Bearer my-secret-api-key" will be authenticated
-    /// ```
     pub fn static_token(token: impl Into<String>) -> Self {
         Self {
             tokens: Some([token.into()].into()),
@@ -135,25 +122,6 @@ where
     }
 
     /// Creates authentication middleware with multiple static tokens.
-    ///
-    /// Allows multiple valid tokens for authentication, useful for supporting
-    /// multiple API keys, different service accounts, or temporary tokens alongside
-    /// permanent ones. Any token in the collection will authenticate the request.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::bearer_auth::BearerAuth;
-    ///
-    /// let auth = BearerAuth::<(), _>::static_tokens([
-    ///     "api-key-development",
-    ///     "api-key-production",
-    ///     "admin-override-token",
-    ///     "service-account-token",
-    /// ]);
-    ///
-    /// // Any of the four tokens will authenticate successfully
-    /// ```
     pub fn static_tokens<I>(tokens: I) -> Self
     where
         I: IntoIterator,
@@ -167,43 +135,6 @@ where
     }
 
     /// Creates authentication middleware with a custom verification function.
-    ///
-    /// The verification function receives the bearer token from the request and can
-    /// perform any authentication logic including JWT validation, database lookups,
-    /// external API calls, or other verification methods. Returning `Some(claims)`
-    /// grants access and injects the claims object into request extensions.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::bearer_auth::BearerAuth;
-    ///
-    /// #[derive(Clone)]
-    /// struct ApiClaims {
-    ///     client_id: String,
-    ///     scopes: Vec<String>,
-    ///     expires_at: u64,
-    /// }
-    ///
-    /// let auth = BearerAuth::with_verify(|token| {
-    ///     // Custom token validation logic
-    ///     if token.starts_with("client_") && token.len() > 20 {
-    ///         Some(ApiClaims {
-    ///             client_id: "client_123".to_string(),
-    ///             scopes: vec!["read".to_string(), "write".to_string()],
-    ///             expires_at: 1234567890,
-    ///         })
-    ///     } else if token == "admin_token" {
-    ///         Some(ApiClaims {
-    ///             client_id: "admin".to_string(),
-    ///             scopes: vec!["admin".to_string()],
-    ///             expires_at: 9999999999,
-    ///         })
-    ///     } else {
-    ///         None
-    ///     }
-    /// });
-    /// ```
     pub fn with_verify(f: F) -> Self {
         Self {
             tokens: None,
@@ -213,42 +144,6 @@ where
     }
 
     /// Creates authentication middleware with both static tokens and custom verification.
-    ///
-    /// This configuration first checks static tokens for quick validation, then falls
-    /// back to the custom verification function if no static match is found. This is
-    /// useful for having some hardcoded service tokens while also supporting dynamic
-    /// token validation like JWTs or database-backed tokens.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::bearer_auth::BearerAuth;
-    ///
-    /// #[derive(Clone)]
-    /// struct TokenInfo { user_id: u32, token_type: String }
-    ///
-    /// let auth = BearerAuth::static_tokens_with_verify(
-    ///     ["static-admin-token", "static-service-token"],
-    ///     |token| {
-    ///         // Check dynamic tokens after static ones
-    ///         if token.starts_with("jwt_") {
-    ///             // JWT validation logic here
-    ///             Some(TokenInfo {
-    ///                 user_id: 456,
-    ///                 token_type: "jwt".to_string()
-    ///             })
-    ///         } else if token.starts_with("temp_") {
-    ///             // Temporary token validation
-    ///             Some(TokenInfo {
-    ///                 user_id: 789,
-    ///                 token_type: "temporary".to_string()
-    ///             })
-    ///         } else {
-    ///             None
-    ///         }
-    ///     }
-    /// );
-    /// ```
     pub fn static_tokens_with_verify<I>(tokens: I, f: F) -> Self
     where
         I: IntoIterator,
@@ -268,29 +163,6 @@ where
     C: Clone + Send + Sync + 'static,
 {
     /// Converts the authentication configuration into middleware.
-    ///
-    /// The resulting middleware validates Bearer tokens from the Authorization header.
-    /// On successful authentication, the request proceeds to the next middleware.
-    /// On failure, returns a 401 Unauthorized or 400 Bad Request response with
-    /// appropriate WWW-Authenticate header.
-    ///
-    /// If a verification function returns claims or user data, it is inserted into
-    /// the request extensions for access by downstream handlers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::middleware::bearer_auth::BearerAuth;
-    /// use tako::middleware::IntoMiddleware;
-    ///
-    /// let auth_middleware = BearerAuth::<(), _>::static_tokens([
-    ///     "development-key",
-    ///     "production-key",
-    /// ]).into_middleware();
-    ///
-    /// // Use in router:
-    /// // router.middleware(auth_middleware);
-    /// ```
     fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>

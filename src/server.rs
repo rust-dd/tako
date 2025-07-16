@@ -33,53 +33,11 @@ use crate::router::Router;
 use crate::types::BoxError;
 
 /// Starts the Tako HTTP server with the given listener and router.
-///
-/// This function initializes tracing (if enabled), sets up plugins (if enabled),
-/// and enters the main server loop to accept and handle incoming connections.
-/// Each connection is handled in a separate tokio task for concurrent processing.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use tako::{serve, router::Router};
-/// use tokio::net::TcpListener;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let listener = TcpListener::bind("127.0.0.1:8080").await?;
-/// let router = Router::new();
-/// serve(listener, router).await;
-/// # Ok(())
-/// # }
-/// ```
 pub async fn serve(listener: TcpListener, router: Router) {
     run(listener, router).await.unwrap();
 }
 
 /// Runs the main server loop, accepting connections and dispatching requests.
-///
-/// This function handles the core server logic including connection acceptance,
-/// task spawning for concurrent request handling, and request dispatching through
-/// the router. It also handles HTTP/1.1 protocol specifics and connection upgrades.
-///
-/// # Errors
-///
-/// Returns an error if the server fails to bind to the listener address, accept
-/// incoming connections, or encounters other I/O related issues.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use tako::{router::Router};
-/// use tokio::net::TcpListener;
-/// use tako::server::run;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let listener = TcpListener::bind("127.0.0.1:8080").await?;
-/// let router = Router::new();
-/// run(listener, router).await?;
-/// # Ok(())
-/// # }
-/// ```
 async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     #[cfg(feature = "tako-tracing")]
     crate::tracing::init_tracing();

@@ -40,26 +40,9 @@ use crate::{body::TakoBody, bytes::TakoBytes, responder::Responder, types::Respo
 const PREFIX: &[u8] = b"data: ";
 
 /// SSE event terminator sequence.
-///
-/// Each SSE event must end with two newline characters ("\n\n") to signal
-/// the end of the event to the client's EventSource parser.
 const SUFFIX: &[u8] = b"\n\n";
 
 /// Calculates the total length of SSE prefix and suffix bytes.
-///
-/// This const function computes the combined length of the SSE data prefix
-/// and suffix for efficient buffer allocation during event formatting.
-///
-/// # Examples
-///
-/// ```rust
-/// # const PREFIX: &[u8] = b"data: ";
-/// # const SUFFIX: &[u8] = b"\n\n";
-/// # const fn ps_len() -> usize {
-/// #     PREFIX.len() + SUFFIX.len()
-/// # }
-/// assert_eq!(ps_len(), 8); // "data: " (6) + "\n\n" (2)
-/// ```
 const fn ps_len() -> usize {
     PREFIX.len() + SUFFIX.len()
 }
@@ -105,26 +88,6 @@ where
     S: Stream<Item = TakoBytes> + Send + 'static,
 {
     /// Creates a new SSE wrapper around the provided stream.
-    ///
-    /// The stream should yield `TakoBytes` items that will be formatted as SSE
-    /// events. Each item becomes a separate SSE event sent to connected clients.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::sse::Sse;
-    /// use tako::bytes::TakoBytes;
-    /// use tokio_stream::{StreamExt, wrappers::IntervalStream};
-    /// use std::time::Duration;
-    /// use tokio::time::interval;
-    ///
-    /// // Create a periodic update stream
-    /// let updates = IntervalStream::new(interval(Duration::from_millis(500)))
-    ///     .enumerate()
-    ///     .map(|(i, _)| TakoBytes::from(format!("Update #{}", i)));
-    ///
-    /// let sse = Sse::new(updates);
-    /// ```
     pub fn new(stream: S) -> Self {
         Self { stream }
     }
@@ -135,34 +98,6 @@ where
     S: Stream<Item = TakoBytes> + Send + 'static,
 {
     /// Converts the SSE stream into an HTTP response with proper headers.
-    ///
-    /// This method configures the response with the required SSE headers including
-    /// Content-Type, Cache-Control, and Connection headers. It also formats each
-    /// stream item with the proper SSE data prefix and event terminator.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::sse::Sse;
-    /// use tako::responder::Responder;
-    /// use tako::bytes::TakoBytes;
-    /// use tokio_stream::iter;
-    /// use http::StatusCode;
-    ///
-    /// let messages = vec![TakoBytes::from("Hello, SSE!".to_string())];
-    /// let sse = Sse::new(iter(messages));
-    /// let response = sse.into_response();
-    ///
-    /// assert_eq!(response.status(), StatusCode::OK);
-    /// assert_eq!(
-    ///     response.headers().get("content-type").unwrap(),
-    ///     "text/event-stream"
-    /// );
-    /// assert_eq!(
-    ///     response.headers().get("cache-control").unwrap(),
-    ///     "no-cache"
-    /// );
-    /// ```
     fn into_response(self) -> Response {
         let stream = self.stream.map(|TakoBytes(msg)| {
             let mut buf = BytesMut::with_capacity(ps_len() + msg.len());

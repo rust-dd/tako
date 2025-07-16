@@ -92,15 +92,6 @@ pub struct Router {
 
 impl Router {
     /// Creates a new, empty router.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::router::Router;
-    ///
-    /// let router = Router::new();
-    /// // Router is ready to accept route registrations
-    /// ```
     pub fn new() -> Self {
         Self {
             routes: DashMap::default(),
@@ -194,30 +185,6 @@ impl Router {
     }
 
     /// Dispatches an incoming request to the appropriate route handler.
-    ///
-    /// This method performs route matching based on HTTP method and path, extracts
-    /// path parameters, and executes the handler through the middleware chain. If
-    /// no route matches, it attempts trailing slash redirection or returns a 404.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::{router::Router, Method, types::Request, body::TakoBody};
-    ///
-    /// # async fn example() {
-    /// let mut router = Router::new();
-    /// router.route(Method::GET, "/users/{id}", |_req| async { "User page" });
-    ///
-    /// let request = Request::builder()
-    ///     .method(Method::GET)
-    ///     .uri("/users/123")
-    ///     .body(TakoBody::empty())
-    ///     .unwrap();
-    ///
-    /// let response = router.dispatch(request).await;
-    /// assert_eq!(response.status(), 200);
-    /// # }
-    /// ```
     pub async fn dispatch(&self, mut req: Request) -> Response {
         let method = req.method();
         let path = req.uri().path();
@@ -386,18 +353,12 @@ impl Router {
     }
 
     /// Returns references to all registered plugins.
-    ///
-    /// This internal method provides access to the plugin list for initialization
-    /// and management purposes.
     #[cfg(feature = "plugins")]
     pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
         self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
     }
 
     /// Initializes all registered plugins exactly once.
-    ///
-    /// This internal method ensures plugins are set up during server startup
-    /// and prevents duplicate initialization.
     #[cfg(feature = "plugins")]
     pub(crate) fn setup_plugins_once(&self) {
         use std::sync::atomic::Ordering;

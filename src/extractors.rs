@@ -121,43 +121,9 @@ pub mod simdjson;
 /// ```
 pub trait FromRequest<'a>: Sized {
     /// Error type returned when extraction fails.
-    ///
-    /// The error type must implement `Responder` so it can be converted into an
-    /// HTTP response when extraction fails, allowing for custom error handling
-    /// and user-friendly error messages.
     type Error: crate::responder::Responder;
 
     /// Extracts the type from the HTTP request.
-    ///
-    /// This method performs the actual extraction logic, which may involve parsing
-    /// the request body, validating headers, or other request processing. The method
-    /// is asynchronous to support streaming body parsing and other async operations.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::extractors::FromRequest;
-    /// use tako::types::Request;
-    /// use tako::body::TakoBody;
-    ///
-    /// struct TextBody(String);
-    ///
-    /// impl<'a> FromRequest<'a> for TextBody {
-    ///     type Error = &'static str;
-    ///
-    ///     async fn from_request(req: &'a mut Request) -> Result<Self, Self::Error> {
-    ///         // In a real implementation, this would read the request body
-    ///         Ok(TextBody("Hello, World!".to_string()))
-    ///     }
-    /// }
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut request = Request::builder().body(TakoBody::empty())?;
-    /// let text_body = TextBody::from_request(&mut request).await.unwrap();
-    /// assert_eq!(text_body.0, "Hello, World!");
-    /// # Ok(())
-    /// # }
-    /// ```
     fn from_request(
         req: &'a mut crate::types::Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
@@ -194,57 +160,9 @@ pub trait FromRequest<'a>: Sized {
 /// ```
 pub trait FromRequestParts<'a>: Sized {
     /// Error type returned when extraction fails.
-    ///
-    /// The error type must implement `Responder` so it can be converted into an
-    /// HTTP response when extraction fails, enabling custom error responses and
-    /// proper error handling in the application.
     type Error: crate::responder::Responder;
 
     /// Extracts the type from the HTTP request parts.
-    ///
-    /// This method performs extraction using only the request metadata, making it
-    /// suitable for extractors that work with headers, query parameters, path
-    /// parameters, or other non-body data. Multiple `FromRequestParts` extractors
-    /// can be used in the same handler since they don't consume the request body.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::extractors::FromRequestParts;
-    /// use http::request::Parts;
-    /// use http::{Method, Uri};
-    ///
-    /// struct RequestInfo {
-    ///     method: Method,
-    ///     path: String,
-    /// }
-    ///
-    /// impl<'a> FromRequestParts<'a> for RequestInfo {
-    ///     type Error = &'static str;
-    ///
-    ///     async fn from_request_parts(parts: &'a mut Parts) -> Result<Self, Self::Error> {
-    ///         Ok(RequestInfo {
-    ///             method: parts.method.clone(),
-    ///             path: parts.uri.path().to_string(),
-    ///         })
-    ///     }
-    /// }
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let mut parts = Parts {
-    ///     method: Method::GET,
-    ///     uri: "/users/123".parse()?,
-    ///     version: http::Version::HTTP_11,
-    ///     headers: Default::default(),
-    ///     extensions: Default::default(),
-    /// };
-    ///
-    /// let info = RequestInfo::from_request_parts(&mut parts).await.unwrap();
-    /// assert_eq!(info.method, Method::GET);
-    /// assert_eq!(info.path, "/users/123");
-    /// # Ok(())
-    /// # }
-    /// ```
     fn from_request_parts(
         parts: &'a mut Parts,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;

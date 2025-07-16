@@ -73,15 +73,6 @@ pub mod types;
 pub mod ws;
 
 /// HTTP method enumeration re-exported from hyper.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::Method;
-///
-/// let method = Method::GET;
-/// assert_eq!(method, Method::GET);
-/// ```
 pub use hyper::Method;
 
 /// Starts the HTTP server with the given listener and router.
@@ -134,9 +125,6 @@ pub mod server_tls;
 pub use server_tls::serve_tls;
 
 /// Global memory allocator using jemalloc for improved performance.
-///
-/// This allocator is automatically used when the "jemalloc" feature is enabled,
-/// providing better memory allocation patterns for high-throughput web applications.
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

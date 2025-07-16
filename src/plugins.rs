@@ -78,73 +78,8 @@ pub mod rate_limiter;
 /// ```
 pub trait TakoPlugin: Send + Sync + 'static {
     /// Returns the unique name identifier for this plugin.
-    ///
-    /// The name should be unique across all plugins and is used for identification
-    /// and debugging purposes. It's recommended to use lowercase, descriptive names.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    /// use anyhow::Result;
-    ///
-    /// struct AuthPlugin;
-    ///
-    /// impl TakoPlugin for AuthPlugin {
-    ///     fn name(&self) -> &'static str {
-    ///         "authentication"
-    ///     }
-    ///
-    ///     fn setup(&self, _router: &Router) -> Result<()> {
-    ///         Ok(())
-    ///     }
-    /// }
-    ///
-    /// let plugin = AuthPlugin;
-    /// assert_eq!(plugin.name(), "authentication");
-    /// ```
     fn name(&self) -> &'static str;
 
     /// Configures and initializes the plugin with the given router.
-    ///
-    /// This method is called during plugin registration and should perform all
-    /// necessary setup including adding middleware, registering routes, or
-    /// configuring external services. The router reference allows plugins to
-    /// modify the application's routing behavior.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if plugin setup fails, which will prevent the application
-    /// from starting successfully.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    /// use anyhow::Result;
-    ///
-    /// struct MetricsPlugin {
-    ///     enabled: bool,
-    /// }
-    ///
-    /// impl TakoPlugin for MetricsPlugin {
-    ///     fn name(&self) -> &'static str {
-    ///         "metrics"
-    ///     }
-    ///
-    ///     fn setup(&self, _router: &Router) -> Result<()> {
-    ///         if self.enabled {
-    ///             println!("Metrics collection enabled");
-    ///         }
-    ///         Ok(())
-    ///     }
-    /// }
-    ///
-    /// let plugin = MetricsPlugin { enabled: true };
-    /// let router = Router::new();
-    /// plugin.setup(&router).unwrap();
-    /// ```
     fn setup(&self, router: &Router) -> Result<()>;
 }

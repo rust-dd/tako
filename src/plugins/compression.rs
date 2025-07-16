@@ -73,22 +73,6 @@ use crate::{
 };
 
 /// Supported HTTP compression encoding algorithms.
-///
-/// This enum represents the different compression algorithms supported by the compression
-/// plugin. Each encoding corresponds to a standard HTTP Content-Encoding value and
-/// provides different trade-offs between compression ratio, speed, and compatibility.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::plugins::compression::Encoding;
-///
-/// let gzip = Encoding::Gzip;
-/// assert_eq!(gzip.as_str(), "gzip");
-///
-/// let brotli = Encoding::Brotli;
-/// assert_eq!(brotli.as_str(), "br");
-/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Encoding {
     /// Gzip compression (RFC 1952) - widely supported, good compression ratio.
@@ -104,16 +88,6 @@ pub enum Encoding {
 
 impl Encoding {
     /// Returns the HTTP Content-Encoding header value for this compression algorithm.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::Encoding;
-    ///
-    /// assert_eq!(Encoding::Gzip.as_str(), "gzip");
-    /// assert_eq!(Encoding::Brotli.as_str(), "br");
-    /// assert_eq!(Encoding::Deflate.as_str(), "deflate");
-    /// ```
     fn as_str(&self) -> &'static str {
         match self {
             Encoding::Gzip => "gzip",
@@ -126,26 +100,6 @@ impl Encoding {
 }
 
 /// Configuration settings for HTTP response compression.
-///
-/// This struct defines all configurable aspects of the compression plugin including
-/// enabled algorithms, compression levels, minimum response sizes, and streaming options.
-/// It provides sensible defaults while allowing fine-tuned control over compression behavior.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::plugins::compression::{Config, Encoding};
-///
-/// let config = Config {
-///     enabled: vec![Encoding::Gzip, Encoding::Brotli],
-///     min_size: 2048,
-///     gzip_level: 6,
-///     brotli_level: 4,
-///     deflate_level: 6,
-///     stream: true,
-///     ..Default::default()
-/// };
-/// ```
 #[derive(Clone)]
 pub struct Config {
     /// List of enabled compression encodings in preference order.
@@ -167,20 +121,6 @@ pub struct Config {
 
 impl Default for Config {
     /// Provides sensible default compression configuration.
-    ///
-    /// Default settings enable Gzip, Brotli, and DEFLATE with balanced compression levels,
-    /// 1KB minimum size threshold, and buffered (non-streaming) compression.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::{Config, Encoding};
-    ///
-    /// let config = Config::default();
-    /// assert_eq!(config.min_size, 1024);
-    /// assert_eq!(config.gzip_level, 5);
-    /// assert!(!config.stream);
-    /// ```
     fn default() -> Self {
         Self {
             enabled: vec![Encoding::Gzip, Encoding::Brotli, Encoding::Deflate],
@@ -225,33 +165,11 @@ pub struct CompressionBuilder(Config);
 
 impl CompressionBuilder {
     /// Creates a new compression configuration builder with default settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let builder = CompressionBuilder::new();
-    /// let compression = builder.build();
-    /// ```
     pub fn new() -> Self {
         Self(Config::default())
     }
 
     /// Enables or disables Gzip compression.
-    ///
-    /// When enabled, Gzip compression will be available for client negotiation.
-    /// Gzip offers wide browser compatibility and good compression ratios.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .enable_gzip(true)
-    ///     .build();
-    /// ```
     pub fn enable_gzip(mut self, yes: bool) -> Self {
         if yes && !self.0.enabled.contains(&Encoding::Gzip) {
             self.0.enabled.push(Encoding::Gzip)
@@ -263,19 +181,6 @@ impl CompressionBuilder {
     }
 
     /// Enables or disables Brotli compression.
-    ///
-    /// When enabled, Brotli compression will be available for client negotiation.
-    /// Brotli provides excellent compression ratios and is supported by modern browsers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .enable_brotli(true)
-    ///     .build();
-    /// ```
     pub fn enable_brotli(mut self, yes: bool) -> Self {
         if yes && !self.0.enabled.contains(&Encoding::Brotli) {
             self.0.enabled.push(Encoding::Brotli)
@@ -287,19 +192,6 @@ impl CompressionBuilder {
     }
 
     /// Enables or disables DEFLATE compression.
-    ///
-    /// When enabled, DEFLATE compression will be available for client negotiation.
-    /// DEFLATE offers fast compression with good compatibility across HTTP clients.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .enable_deflate(true)
-    ///     .build();
-    /// ```
     pub fn enable_deflate(mut self, yes: bool) -> Self {
         if yes && !self.0.enabled.contains(&Encoding::Deflate) {
             self.0.enabled.push(Encoding::Deflate)
@@ -311,21 +203,6 @@ impl CompressionBuilder {
     }
 
     /// Enables or disables Zstandard compression (requires zstd feature).
-    ///
-    /// When enabled, Zstandard compression will be available for client negotiation.
-    /// Zstd provides excellent compression ratios with fast compression/decompression.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # #[cfg(feature = "zstd")]
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// # #[cfg(feature = "zstd")]
-    /// let compression = CompressionBuilder::new()
-    ///     .enable_zstd(true)
-    ///     .build();
-    /// ```
     #[cfg(feature = "zstd")]
     pub fn enable_zstd(mut self, yes: bool) -> Self {
         if yes && !self.0.enabled.contains(&Encoding::Zstd) {
@@ -338,117 +215,36 @@ impl CompressionBuilder {
     }
 
     /// Enables or disables streaming compression mode.
-    ///
-    /// When streaming is enabled, responses are compressed on-the-fly without
-    /// buffering the entire response in memory. This is more memory-efficient
-    /// for large responses but may have slightly higher CPU overhead.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let streaming = CompressionBuilder::new()
-    ///     .enable_stream(true)
-    ///     .build();
-    /// ```
     pub fn enable_stream(mut self, stream: bool) -> Self {
         self.0.stream = stream;
         self
     }
 
     /// Sets the minimum response size threshold for compression.
-    ///
-    /// Responses smaller than this size will not be compressed, as the overhead
-    /// of compression may exceed the bandwidth savings for small responses.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .min_size(2048) // Only compress responses >= 2KB
-    ///     .build();
-    /// ```
     pub fn min_size(mut self, bytes: usize) -> Self {
         self.0.min_size = bytes;
         self
     }
 
     /// Sets the Gzip compression level (1-9).
-    ///
-    /// Higher levels provide better compression at the cost of increased CPU usage.
-    /// Level 6 is typically a good balance for web content.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .gzip_level(8) // High compression
-    ///     .build();
-    /// ```
     pub fn gzip_level(mut self, lvl: u32) -> Self {
         self.0.gzip_level = lvl.min(9);
         self
     }
 
     /// Sets the Brotli compression level (1-11).
-    ///
-    /// Higher levels provide better compression at the cost of increased CPU usage.
-    /// Level 4-6 is typically recommended for web content.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .brotli_level(6) // Balanced compression
-    ///     .build();
-    /// ```
     pub fn brotli_level(mut self, lvl: u32) -> Self {
         self.0.brotli_level = lvl.min(11);
         self
     }
 
     /// Sets the DEFLATE compression level (1-9).
-    ///
-    /// Higher levels provide better compression at the cost of increased CPU usage.
-    /// Level 6 is typically a good balance for web content.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .deflate_level(7) // High compression
-    ///     .build();
-    /// ```
     pub fn deflate_level(mut self, lvl: u32) -> Self {
         self.0.deflate_level = lvl.min(9);
         self
     }
 
     /// Sets the Zstandard compression level (1-22, requires zstd feature).
-    ///
-    /// Higher levels provide better compression at the cost of increased CPU usage.
-    /// Level 3-6 is typically recommended for web content.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # #[cfg(feature = "zstd")]
-    /// use tako::plugins::compression::CompressionBuilder;
-    ///
-    /// # #[cfg(feature = "zstd")]
-    /// let compression = CompressionBuilder::new()
-    ///     .zstd_level(6) // Balanced compression
-    ///     .build();
-    /// ```
     #[cfg(feature = "zstd")]
     pub fn zstd_level(mut self, lvl: i32) -> Self {
         self.0.zstd_level = lvl.clamp(1, 22);
@@ -456,23 +252,6 @@ impl CompressionBuilder {
     }
 
     /// Builds the compression plugin with the configured settings.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionBuilder;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let compression = CompressionBuilder::new()
-    ///     .enable_gzip(true)
-    ///     .gzip_level(6)
-    ///     .min_size(1024)
-    ///     .build();
-    ///
-    /// let mut router = Router::new();
-    /// router.plugin(compression);
-    /// ```
     pub fn build(self) -> CompressionPlugin {
         CompressionPlugin { cfg: self.0 }
     }
@@ -512,21 +291,6 @@ pub struct CompressionPlugin {
 
 impl Default for CompressionPlugin {
     /// Creates a compression plugin with default configuration settings.
-    ///
-    /// Default settings enable Gzip, Brotli, and DEFLATE compression with balanced
-    /// compression levels and a 1KB minimum size threshold.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionPlugin;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let compression = CompressionPlugin::default();
-    /// let mut router = Router::new();
-    /// router.plugin(compression);
-    /// ```
     fn default() -> Self {
         Self {
             cfg: Config::default(),
@@ -537,36 +301,11 @@ impl Default for CompressionPlugin {
 #[async_trait]
 impl TakoPlugin for CompressionPlugin {
     /// Returns the plugin name for identification and debugging.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionPlugin;
-    /// use tako::plugins::TakoPlugin;
-    ///
-    /// let plugin = CompressionPlugin::default();
-    /// assert_eq!(plugin.name(), "CompressionPlugin");
-    /// ```
     fn name(&self) -> &'static str {
         "CompressionPlugin"
     }
 
     /// Sets up the compression plugin by registering middleware with the router.
-    ///
-    /// This method installs the compression middleware that will automatically
-    /// compress responses based on the plugin configuration and client capabilities.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::CompressionPlugin;
-    /// use tako::plugins::TakoPlugin;
-    /// use tako::router::Router;
-    ///
-    /// let plugin = CompressionPlugin::default();
-    /// let router = Router::new();
-    /// plugin.setup(&router).unwrap();
-    /// ```
     fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
         router.middleware(move |req, next| {
@@ -762,9 +501,6 @@ fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
 }
 
 /// Compresses data using Gzip algorithm.
-///
-/// This function performs complete Gzip compression of the input data and returns
-/// the compressed result. It's used for buffered compression mode.
 fn compress_gzip(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
     let mut enc = GzEncoder::new(Vec::new(), GzLevel::new(lvl));
     enc.write_all(data)?;
@@ -772,9 +508,6 @@ fn compress_gzip(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 }
 
 /// Compresses data using Brotli algorithm.
-///
-/// This function performs complete Brotli compression of the input data and returns
-/// the compressed result. It's used for buffered compression mode.
 fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
     let mut out = Vec::new();
     brotli::CompressorReader::new(data, 4096, lvl, 22)
@@ -784,9 +517,6 @@ fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 }
 
 /// Compresses data using DEFLATE algorithm.
-///
-/// This function performs complete DEFLATE compression of the input data and returns
-/// the compressed result. It's used for buffered compression mode.
 fn compress_deflate(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
     let mut enc = DeflateEncoder::new(Vec::new(), flate2::Compression::new(lvl));
     enc.write_all(data)?;
@@ -794,9 +524,6 @@ fn compress_deflate(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 }
 
 /// Compresses data using Zstandard algorithm (requires zstd feature).
-///
-/// This function performs complete Zstandard compression of the input data and returns
-/// the compressed result. It's used for buffered compression mode.
 #[cfg(feature = "zstd")]
 fn compress_zstd(data: &[u8], lvl: i32) -> std::io::Result<Vec<u8>> {
     zstd_encode(data, lvl)

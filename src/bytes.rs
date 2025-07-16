@@ -53,52 +53,12 @@ use bytes::Bytes;
 /// ```
 pub struct TakoBytes(pub Bytes);
 
-/// Converts `Bytes` into `TakoBytes` with zero-copy efficiency.
-///
-/// This conversion wraps the existing `Bytes` instance without copying the
-/// underlying data, maintaining the performance benefits of the bytes crate's
-/// reference-counted implementation.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::bytes::TakoBytes;
-/// use bytes::Bytes;
-///
-/// let original = Bytes::from_static(b"Hello, bytes!");
-/// let wrapped = TakoBytes::from(original);
-///
-/// assert_eq!(wrapped.0.len(), 14);
-/// assert_eq!(&wrapped.0[..], b"Hello, bytes!");
-/// ```
 impl From<Bytes> for TakoBytes {
     fn from(b: Bytes) -> Self {
         TakoBytes(b)
     }
 }
 
-/// Converts `String` into `TakoBytes` by consuming the string data.
-///
-/// This conversion takes ownership of the string and converts it into bytes
-/// efficiently. The string's buffer is reused when possible, avoiding
-/// unnecessary allocations.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::bytes::TakoBytes;
-///
-/// let message = "Hello, Tako!".to_string();
-/// let bytes = TakoBytes::from(message);
-///
-/// assert_eq!(bytes.0.len(), 12);
-/// assert_eq!(&bytes.0[..], b"Hello, Tako!");
-///
-/// // Demonstrate with formatted string
-/// let formatted = format!("User ID: {}", 42);
-/// let formatted_bytes = TakoBytes::from(formatted);
-/// assert_eq!(&formatted_bytes.0[..], b"User ID: 42");
-/// ```
 impl From<String> for TakoBytes {
     fn from(s: String) -> Self {
         TakoBytes(Bytes::from(s))

@@ -100,33 +100,6 @@ where
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
     /// Creates a new HTTPS client with TLS encryption.
-    ///
-    /// Establishes a secure connection to the specified host and port using TLS.
-    /// The client uses system root certificates for server validation and defaults
-    /// to port 443 if no port is specified. A background task is spawned to manage
-    /// the connection lifecycle.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the TCP connection fails, TLS handshake fails, or the
-    /// HTTP/1.1 protocol handshake fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::client::TakoTlsClient;
-    /// use http_body_util::Empty;
-    /// use bytes::Bytes;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Connect to HTTPS API on default port 443
-    /// let client = TakoTlsClient::<Empty<Bytes>>::new("api.github.com", None).await?;
-    ///
-    /// // Connect to custom HTTPS port
-    /// let custom_client = TakoTlsClient::<Empty<Bytes>>::new("localhost", Some(8443)).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn new<'a>(host: &'a str, port: Option<u16>) -> Result<Self, Box<dyn Error>>
     where
         'a: 'static,
@@ -268,32 +241,6 @@ where
     B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
     /// Creates a new HTTP client for plain TCP connections.
-    ///
-    /// Establishes a TCP connection to the specified host and port without encryption.
-    /// The client defaults to port 80 if no port is specified. A background task is
-    /// spawned to manage the connection lifecycle and handle protocol operations.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the TCP connection fails or the HTTP/1.1 protocol
-    /// handshake fails.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::client::TakoClient;
-    /// use http_body_util::Empty;
-    /// use bytes::Bytes;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Connect to HTTP service on default port 80
-    /// let client = TakoClient::<Empty<Bytes>>::new("httpbin.org", None).await?;
-    ///
-    /// // Connect to development server on custom port
-    /// let dev_client = TakoClient::<Empty<Bytes>>::new("localhost", Some(8080)).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn new<'a>(host: &'a str, port: Option<u16>) -> Result<Self, Box<dyn Error>>
     where
         'a: 'static,
