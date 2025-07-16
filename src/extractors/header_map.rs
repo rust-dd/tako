@@ -62,28 +62,6 @@ pub struct HeaderMap<'a>(pub &'a hyper::HeaderMap);
 impl<'a> FromRequest<'a> for HeaderMap<'a> {
     type Error = Infallible;
 
-    /// Extracts headers from an HTTP request.
-    ///
-    /// Returns a wrapper around the request's header map, providing access
-    /// to all HTTP headers sent by the client.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::extractors::{FromRequest, header_map::HeaderMap};
-    /// use tako::types::Request;
-    ///
-    /// async fn handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
-    ///     let HeaderMap(headers) = HeaderMap::from_request(&mut req).await?;
-    ///
-    ///     // Access specific headers
-    ///     if let Some(host) = headers.get("host") {
-    ///         println!("Host: {:?}", host);
-    ///     }
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
@@ -95,28 +73,6 @@ impl<'a> FromRequest<'a> for HeaderMap<'a> {
 impl<'a> FromRequestParts<'a> for HeaderMap<'a> {
     type Error = Infallible;
 
-    /// Extracts headers from HTTP request parts.
-    ///
-    /// Returns a wrapper around the request parts' header map, providing access
-    /// to all HTTP headers sent by the client.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::extractors::{FromRequestParts, header_map::HeaderMap};
-    /// use http::request::Parts;
-    ///
-    /// async fn handler(mut parts: Parts) -> Result<(), Box<dyn std::error::Error>> {
-    ///     let HeaderMap(headers) = HeaderMap::from_request_parts(&mut parts).await?;
-    ///
-    ///     // Check for custom headers
-    ///     if let Some(api_key) = headers.get("x-api-key") {
-    ///         println!("API Key present");
-    ///     }
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     fn from_request_parts(
         parts: &'a mut Parts,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a

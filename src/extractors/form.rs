@@ -132,49 +132,6 @@ where
 {
     type Error = FormError;
 
-    /// Extracts form data from an HTTP request body.
-    ///
-    /// This implementation validates the content type, reads the request body,
-    /// parses the URL-encoded form data, and deserializes it into the target type.
-    ///
-    /// # Requirements
-    ///
-    /// - Content-Type must be `application/x-www-form-urlencoded`
-    /// - Request body must be valid UTF-8
-    /// - Form data must be parseable and deserializable into type `T`
-    ///
-    /// # Errors
-    ///
-    /// Returns `FormError` if:
-    /// - Content type is not `application/x-www-form-urlencoded`
-    /// - Request body cannot be read
-    /// - Body contains invalid UTF-8
-    /// - Form data parsing fails
-    /// - Deserialization into type `T` fails
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::extractors::{FromRequest, form::Form};
-    /// use tako::types::Request;
-    /// use serde::Deserialize;
-    ///
-    /// #[derive(Deserialize)]
-    /// struct UserRegistration {
-    ///     username: String,
-    ///     email: String,
-    ///     age: u32,
-    /// }
-    ///
-    /// async fn register_handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
-    ///     let Form(registration) = Form::<UserRegistration>::from_request(&mut req).await?;
-    ///
-    ///     println!("New user: {} ({}) age {}",
-    ///              registration.username, registration.email, registration.age);
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a

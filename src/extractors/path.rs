@@ -58,30 +58,6 @@ pub struct Path<'a>(pub &'a str);
 impl<'a> FromRequest<'a> for Path<'a> {
     type Error = Infallible;
 
-    /// Extracts the path from an HTTP request.
-    ///
-    /// Returns a wrapper around the request's URI path, providing access
-    /// to the path string sent by the client.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::extractors::{FromRequest, path::Path};
-    /// use tako::types::Request;
-    ///
-    /// async fn handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
-    ///     let Path(path) = Path::from_request(&mut req).await?;
-    ///
-    ///     // Route based on path
-    ///     match path {
-    ///         "/" => println!("Home page"),
-    ///         "/about" => println!("About page"),
-    ///         _ => println!("Path: {}", path),
-    ///     }
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
@@ -93,32 +69,6 @@ impl<'a> FromRequest<'a> for Path<'a> {
 impl<'a> FromRequestParts<'a> for Path<'a> {
     type Error = Infallible;
 
-    /// Extracts the path from HTTP request parts.
-    ///
-    /// Returns a wrapper around the request parts' URI path, providing access
-    /// to the path string sent by the client.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use tako::extractors::{FromRequestParts, path::Path};
-    /// use http::request::Parts;
-    ///
-    /// async fn handler(mut parts: Parts) -> Result<(), Box<dyn std::error::Error>> {
-    ///     let Path(path) = Path::from_request_parts(&mut parts).await?;
-    ///
-    ///     // Extract path segments for routing
-    ///     let segments: Vec<&str> = path.split('/').skip(1).collect();
-    ///
-    ///     match segments.as_slice() {
-    ///         ["api", "v1", "users"] => println!("Users API v1"),
-    ///         ["api", "v1", "posts"] => println!("Posts API v1"),
-    ///         _ => println!("Unmatched path: {}", path),
-    ///     }
-    ///
-    ///     Ok(())
-    /// }
-    /// ```
     fn from_request_parts(
         parts: &'a mut Parts,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
