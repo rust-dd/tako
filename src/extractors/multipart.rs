@@ -1,3 +1,33 @@
+//! Multipart form data extraction and file upload handling.
+//!
+//! This module provides extractors for parsing `multipart/form-data` request bodies,
+//! commonly used for file uploads and complex form submissions. It supports both
+//! raw multipart access through [`TakoMultipart`] and strongly-typed extraction
+//! through [`TakoTypedMultipart`], with built-in support for file uploads to disk
+//! or memory.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::multipart::{TakoTypedMultipart, UploadedFile};
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct FileUploadForm {
+//!     title: String,
+//!     description: String,
+//!     file: UploadedFile,
+//! }
+//!
+//! async fn upload_handler(
+//!     TakoTypedMultipart { data: form, .. }: TakoTypedMultipart<'_, FileUploadForm, UploadedFile>
+//! ) {
+//!     println!("Uploaded file: {:?}", form.file.file_name);
+//!     println!("File size: {} bytes", form.file.size);
+//!     println!("Saved to: {:?}", form.file.path);
+//! }
+//! ```
+
 use std::path::PathBuf;
 
 use http::{StatusCode, header::CONTENT_TYPE};
@@ -14,13 +44,18 @@ use crate::{extractors::FromRequest, responder::Responder, types::Request};
 /// Error type for multipart extraction.
 #[derive(Debug)]
 pub enum MultipartError {
+    /// Content-Type header is missing from the request.
     MissingContentType,
+    /// Content-Type header is not multipart/form-data.
     InvalidContentType,
+    /// Content-Type header contains invalid UTF-8 sequences.
     InvalidUtf8,
+    /// Failed to parse boundary from Content-Type header.
     BoundaryParseError(String),
 }
 
 impl Responder for MultipartError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         let message = match self {
             MultipartError::MissingContentType => {
@@ -47,16 +82,24 @@ impl Responder for MultipartError {
 /// Error type for typed multipart extraction.
 #[derive(Debug)]
 pub enum TypedMultipartError {
+    /// Content-Type header is missing from the request.
     MissingContentType,
+    /// Content-Type header is not multipart/form-data.
     InvalidContentType,
+    /// Content-Type header contains invalid UTF-8 sequences.
     InvalidUtf8,
+    /// Failed to parse boundary from Content-Type header.
     BoundaryParseError(String),
+    /// Error processing a multipart field.
     FieldError(String),
+    /// Failed to deserialize form data into the target type.
     DeserializationError(String),
+    /// I/O error occurred during processing.
     IoError(String),
 }
 
 impl Responder for TypedMultipartError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         match self {
             TypedMultipartError::MissingContentType => {
@@ -95,6 +138,34 @@ impl Responder for TypedMultipartError {
 }
 
 /// Wrapper around `multer::Multipart` to provide additional functionality.
+///
+/// This wrapper provides a unified interface for processing multipart form data
+/// while maintaining compatibility with the underlying `multer` crate. It can be
+/// used for manual processing of multipart fields when more control is needed
+/// than the typed multipart extractor provides.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::extractors::multipart::TakoMultipart;
+/// use tako::extractors::FromRequest;
+/// use tako::types::Request;
+///
+/// async fn manual_multipart_handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
+///     let TakoMultipart(mut multipart) = TakoMultipart::from_request(&mut req).await?;
+///
+///     while let Some(field) = multipart.next_field().await? {
+///         if let Some(name) = field.name() {
+///             println!("Field name: {}", name);
+///             if let Some(filename) = field.file_name() {
+///                 println!("File: {}", filename);
+///             }
+///         }
+///     }
+///
+///     Ok(())
+/// }
+/// ```
 pub struct TakoMultipart<'a>(pub Multipart<'a>);
 
 impl<'a> TakoMultipart<'a> {
@@ -108,10 +179,6 @@ impl<'a> TakoMultipart<'a> {
 impl<'a> FromRequest<'a> for TakoMultipart<'a> {
     type Error = MultipartError;
 
-    /// Extracts a `TakoMultipart` instance from an HTTP request.
-    ///
-    /// This function checks for the `Content-Type` header, parses the boundary,
-    /// and creates a `Multipart` instance from the request body.
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
@@ -140,6 +207,35 @@ impl<'a> TakoMultipart<'a> {
 }
 
 /// Trait for types that can be constructed from a multipart field.
+///
+/// This trait allows custom types to define how they should be created from
+/// individual multipart fields, enabling flexible handling of different field
+/// types including files and text data.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::multipart::FromMultipartField;
+/// use serde::{Serialize, Deserialize};
+/// use multer::Field;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct CustomFile {
+///     name: String,
+///     size: usize,
+/// }
+///
+/// impl FromMultipartField for CustomFile {
+///     async fn from_field(field: Field<'_>) -> anyhow::Result<Self> {
+///         let name = field.file_name().unwrap_or("unknown").to_string();
+///         let data = field.bytes().await?;
+///         Ok(CustomFile {
+///             name,
+///             size: data.len(),
+///         })
+///     }
+/// }
+/// ```
 pub trait FromMultipartField: Serialize + Sized {
     /// Constructs an instance of the type from a `multer::Field`.
     fn from_field(
@@ -150,16 +246,18 @@ pub trait FromMultipartField: Serialize + Sized {
 /// Represents a file uploaded to the server and saved to disk.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UploadedFile {
-    pub file_name: Option<String>,    // Original file name, if provided.
-    pub content_type: Option<String>, // MIME type of the file.
-    pub path: PathBuf,                // Path to the saved file on disk.
-    pub size: u64,                    // Size of the file in bytes.
+    /// Original file name provided by the client, if any.
+    pub file_name: Option<String>,
+    /// MIME type of the uploaded file, if provided.
+    pub content_type: Option<String>,
+    /// Path to the saved file on disk.
+    pub path: PathBuf,
+    /// Size of the uploaded file in bytes.
+    pub size: u64,
 }
 
 impl FromMultipartField for UploadedFile {
     /// Creates an `UploadedFile` instance from a multipart field.
-    ///
-    /// The file is saved to a temporary directory, and its metadata is stored in the struct.
     async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
         let original = field.file_name().map(|s| s.to_owned());
         let content_type = field.content_type().map(|m| m.to_string());
@@ -189,16 +287,17 @@ impl FromMultipartField for UploadedFile {
 /// Represents a file uploaded to the server and stored in memory.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InMemoryFile {
-    pub file_name: Option<String>,    // Original file name, if provided.
-    pub content_type: Option<String>, // MIME type of the file.
+    /// Original file name provided by the client, if any.
+    pub file_name: Option<String>,
+    /// MIME type of the uploaded file, if provided.
+    pub content_type: Option<String>,
+    /// File content stored as a byte array.
     #[serde(with = "serde_bytes")]
-    pub data: Vec<u8>, // File content stored as a byte array.
+    pub data: Vec<u8>,
 }
 
 impl FromMultipartField for InMemoryFile {
     /// Creates an `InMemoryFile` instance from a multipart field.
-    ///
-    /// The file content is stored in memory as a byte array.
     async fn from_field(field: multer::Field<'_>) -> anyhow::Result<Self> {
         let file_name = field.file_name().map(|s| s.to_owned());
         let content_type = field.content_type().map(|m| m.to_string());
@@ -215,10 +314,18 @@ impl FromMultipartField for InMemoryFile {
 /// Represents a strongly-typed multipart request.
 ///
 /// This struct allows deserialization of multipart form data into a strongly-typed
-/// structure, combining both file and text fields.
+/// structure, combining both file and text fields. It provides automatic handling
+/// of different field types and deserializes the entire form into a single data structure.
+///
+/// # Type Parameters
+///
+/// * `T` - The target type to deserialize form data into
+/// * `F` - The type used for file fields (must implement `FromMultipartField`)
 pub struct TakoTypedMultipart<'a, T, F> {
-    pub data: T, // Deserialized data from the multipart request.
-    _marker: core::marker::PhantomData<&'a F>, // Marker for the field type.
+    /// Deserialized data from the multipart request.
+    pub data: T,
+    /// Marker for the field type (used for type inference).
+    _marker: core::marker::PhantomData<&'a F>,
 }
 
 impl<'a, T, F> FromRequest<'a> for TakoTypedMultipart<'a, T, F>
@@ -228,10 +335,6 @@ where
 {
     type Error = TypedMultipartError;
 
-    /// Extracts a `TakoTypedMultipart` instance from an HTTP request.
-    ///
-    /// This function parses the multipart form data, deserializes text fields into
-    /// a JSON-compatible structure, and processes file fields using the `FromMultipartField` trait.
     fn from_request(
         req: &'a mut Request,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a

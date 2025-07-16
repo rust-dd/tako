@@ -1,3 +1,32 @@
+//! Private cookie extraction and management for HTTP requests.
+//!
+//! This module provides the [`CookiePrivate`] extractor that manages encrypted cookies
+//! using a master key. Private cookies are encrypted to ensure that cookie values
+//! cannot be read or tampered with by clients, providing a secure way to store
+//! sensitive data in client-side cookies.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::cookie_private::CookiePrivate;
+//! use cookie::{Cookie, Key};
+//!
+//! async fn handle_private_cookies(mut private: CookiePrivate) {
+//!     // Add an encrypted cookie
+//!     private.add(Cookie::new("user_id", "12345"));
+//!
+//!     // Retrieve and decrypt a cookie
+//!     if let Some(user_id) = private.get_value("user_id") {
+//!         println!("User ID: {}", user_id);
+//!     }
+//!
+//!     // Check if a cookie exists and can be decrypted
+//!     if private.contains("session_token") {
+//!         println!("Valid session found");
+//!     }
+//! }
+//! ```
+
 use cookie::{Cookie, CookieJar, Key};
 use http::{HeaderMap, StatusCode, header::COOKIE, request::Parts};
 use std::future::ready;
@@ -11,7 +40,30 @@ use crate::{
 /// A wrapper that provides methods for managing encrypted cookies in HTTP requests and responses.
 ///
 /// Private cookies are encrypted using a master key, ensuring that cookie
-/// values cannot be read or tampered with by clients.
+/// values cannot be read or tampered with by clients. This provides a secure
+/// way to store sensitive information in cookies while maintaining compatibility
+/// with standard HTTP cookie mechanisms.
+///
+/// The extractor automatically decrypts cookies when retrieving them and encrypts
+/// cookies when adding them to the jar.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::cookie_private::CookiePrivate;
+/// use cookie::{Cookie, Key};
+///
+/// let key = Key::generate();
+/// let mut private = CookiePrivate::new(key);
+///
+/// // Add an encrypted cookie
+/// private.add(Cookie::new("secret", "sensitive_data"));
+///
+/// // Retrieve the decrypted value
+/// if let Some(secret_cookie) = private.get("secret") {
+///     assert_eq!(secret_cookie.value(), "sensitive_data");
+/// }
+/// ```
 pub struct CookiePrivate {
     jar: CookieJar,
     key: Key,
@@ -20,13 +72,18 @@ pub struct CookiePrivate {
 /// Error type for private cookie extraction.
 #[derive(Debug)]
 pub enum CookiePrivateError {
+    /// Private cookie master key not found in request extensions.
     MissingKey,
+    /// Invalid private cookie master key.
     InvalidKey,
+    /// Failed to decrypt private cookie with the specified error message.
     DecryptionFailed(String),
+    /// Invalid cookie format in request.
     InvalidCookieFormat,
 }
 
 impl Responder for CookiePrivateError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         match self {
             CookiePrivateError::MissingKey => (
@@ -53,12 +110,6 @@ impl Responder for CookiePrivateError {
 
 impl CookiePrivate {
     /// Creates a new `CookiePrivate` instance with the given master key.
-    ///
-    /// # Parameters
-    /// - `key`: The master key used for encrypting and decrypting cookies.
-    ///
-    /// # Returns
-    /// A new `CookiePrivate` instance.
     pub fn new(key: Key) -> Self {
         Self {
             jar: CookieJar::new(),
@@ -67,13 +118,6 @@ impl CookiePrivate {
     }
 
     /// Creates a `CookiePrivate` instance from HTTP headers and a master key.
-    ///
-    /// # Parameters
-    /// - `headers`: A reference to the HTTP headers containing the `Cookie` header.
-    /// - `key`: The master key used for decrypting cookies.
-    ///
-    /// # Returns
-    /// A `CookiePrivate` populated with cookies from the `Cookie` header.
     pub fn from_headers(headers: &HeaderMap, key: Key) -> Self {
         let mut jar = CookieJar::new();
 
@@ -89,19 +133,11 @@ impl CookiePrivate {
     }
 
     /// Adds a private cookie to the jar.
-    ///
-    /// The cookie will be encrypted when serialized.
-    ///
-    /// # Parameters
-    /// - `cookie`: The cookie to add and encrypt.
     pub fn add(&mut self, cookie: Cookie<'static>) {
         self.jar.private_mut(&self.key).add(cookie);
     }
 
     /// Removes a private cookie from the jar by its name.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to remove.
     pub fn remove(&mut self, name: &str) {
         self.jar
             .private_mut(&self.key)
@@ -109,59 +145,31 @@ impl CookiePrivate {
     }
 
     /// Retrieves and decrypts a private cookie from the jar by its name.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to retrieve.
-    ///
-    /// # Returns
-    /// An `Option` containing the decrypted cookie if it exists and
-    /// can be successfully decrypted, or `None` otherwise.
     pub fn get(&self, name: &str) -> Option<Cookie<'static>> {
         self.jar.private(&self.key).get(name)
     }
 
     /// Gets the value of a private cookie after decryption.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie whose value to retrieve.
-    ///
-    /// # Returns
-    /// An `Option` containing the cookie value if the cookie exists and can be decrypted.
     pub fn get_value(&self, name: &str) -> Option<String> {
         self.get(name).map(|cookie| cookie.value().to_string())
     }
 
     /// Checks if a private cookie with the given name exists and can be decrypted.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to check.
-    ///
-    /// # Returns
-    /// `true` if the cookie exists and can be decrypted, `false` otherwise.
     pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
 
     /// Gets the inner `CookieJar` for advanced operations.
-    ///
-    /// # Returns
-    /// A reference to the inner `CookieJar`.
     pub fn inner(&self) -> &CookieJar {
         &self.jar
     }
 
     /// Gets a mutable reference to the inner `CookieJar` for advanced operations.
-    ///
-    /// # Returns
-    /// A mutable reference to the inner `CookieJar`.
     pub fn inner_mut(&mut self) -> &mut CookieJar {
         &mut self.jar
     }
 
     /// Gets the key used for private cookie operations.
-    ///
-    /// # Returns
-    /// A reference to the encryption key.
     pub fn key(&self) -> &Key {
         &self.key
     }

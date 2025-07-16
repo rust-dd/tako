@@ -1,8 +1,33 @@
-/// This module defines the `Route` struct and its associated methods for managing HTTP routes.
-///
-/// The `Route` struct encapsulates information about a specific route, including its path,
-/// HTTP method, handler, and any associated middleware. It also provides utilities for
-/// matching paths and extracting parameters from dynamic segments.
+//! HTTP route definition and path matching functionality.
+//!
+//! This module provides the core `Route` struct for defining HTTP routes with path patterns,
+//! parameter extraction, and middleware support. Routes can contain dynamic segments like
+//! `{id}` that are captured as parameters, and support method-specific handlers with
+//! optional trailing slash redirection and route-specific middleware chains.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::route::Route;
+//! use tako::handler::BoxHandler;
+//! use tako::types::Request;
+//! use http::Method;
+//!
+//! async fn handler(_req: Request) -> &'static str {
+//!     "Hello, World!"
+//! }
+//!
+//! let route = Route::new(
+//!     "/users/{id}".to_string(),
+//!     Method::GET,
+//!     BoxHandler::new(handler),
+//!     None
+//! );
+//!
+//! let params = route.match_path("/users/123").unwrap();
+//! assert_eq!(params.get("id"), Some(&"123".to_string()));
+//! ```
+
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, RwLock},
@@ -18,42 +43,28 @@ use crate::{
     types::{BoxMiddleware, Request},
 };
 
-/// Represents an HTTP route with its associated path, method, handler, and middleware.
-///
-/// The `Route` struct is responsible for storing route-specific information and provides
-/// methods for matching paths and managing middleware.
-///
-/// # Fields
-/// - `path`: The original path string for the route.
-/// - `pattern`: The pattern used for matching the route.
-/// - `regex`: A compiled regular expression for matching the route.
-/// - `param_names`: A list of parameter names extracted from the route pattern.
-/// - `method`: The HTTP method associated with the route.
-/// - `handler`: The handler function to be executed when the route is matched.
-/// - `middlewares`: A list of middleware functions to be executed before the handler.
-/// - `tsr`: A flag indicating whether trailing slash redirection is enabled.
+/// HTTP route with path pattern matching and middleware support.
 pub struct Route {
+    /// Original path string used to create this route.
     pub path: String,
+    /// Pattern string used for matching (currently same as path).
     pub pattern: String,
+    /// Compiled regular expression for efficient path matching.
     pub regex: Regex,
+    /// Names of parameters extracted from dynamic path segments.
     pub param_names: Vec<String>,
+    /// HTTP method this route responds to.
     pub method: Method,
+    /// Handler function to execute when route is matched.
     pub handler: BoxHandler,
+    /// Route-specific middleware chain.
     pub middlewares: RwLock<VecDeque<BoxMiddleware>>,
+    /// Whether trailing slash redirection is enabled.
     pub tsr: bool,
 }
 
 impl Route {
-    /// Creates a new `Route` instance.
-    ///
-    /// # Arguments
-    /// - `path`: The path string for the route.
-    /// - `method`: The HTTP method associated with the route.
-    /// - `handler`: The handler function to be executed when the route is matched.
-    /// - `tsr`: An optional flag indicating whether trailing slash redirection is enabled.
-    ///
-    /// # Returns
-    /// A new `Route` instance.
+    /// Creates a new route with the specified path, method, and handler.
     pub fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
         let pattern = path.clone();
         let (regex, param_names) = Self::parse_pattern(&pattern);
@@ -70,16 +81,7 @@ impl Route {
         }
     }
 
-    /// Adds a middleware function to the route.
-    ///
-    /// Middleware functions are executed before the route's handler and can modify
-    /// the request or return a response directly.
-    ///
-    /// # Arguments
-    /// - `f`: A middleware function that takes a `Request` and returns a `Future`.
-    ///
-    /// # Returns
-    /// An `Arc` pointing to the updated `Route` instance.
+    /// Adds middleware to this route's execution chain.
     pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
     where
         F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
@@ -96,17 +98,7 @@ impl Route {
         self
     }
 
-    /// Matches a given path against the route's pattern.
-    ///
-    /// If the path matches, this method extracts and returns the dynamic parameters
-    /// as a `HashMap`. If the path does not match, it returns `None`.
-    ///
-    /// # Arguments
-    /// - `path`: The path string to match against the route's pattern.
-    ///
-    /// # Returns
-    /// An `Option` containing a `HashMap` of parameter names and values if the path matches,
-    /// or `None` if it does not.
+    /// Matches the given path against this route's pattern and extracts parameters.
     pub fn match_path(&self, path: &str) -> Option<HashMap<String, String>> {
         self.regex.captures(path).map(|caps| {
             self.param_names
@@ -120,18 +112,7 @@ impl Route {
         })
     }
 
-    /// Parses a route pattern into a regular expression and extracts parameter names.
-    ///
-    /// This method converts a route pattern (e.g., `/users/{id}`) into a regular expression
-    /// for matching paths and extracts the names of dynamic parameters (e.g., `id`).
-    ///
-    /// # Arguments
-    /// - `pattern`: The route pattern string to parse.
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// - A `Regex` for matching paths.
-    /// - A `Vec<String>` of parameter names.
+    /// Parses a route pattern into a regex and extracts parameter names.
     fn parse_pattern(pattern: &str) -> (Regex, Vec<String>) {
         let mut regex_str = String::from("^");
         let mut param_names = Vec::new();

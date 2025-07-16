@@ -1,7 +1,51 @@
-/// This module provides the `Query` extractor, which is used to extract query parameters from a request.
-///
-/// The `Query` extractor allows deserialization of query parameters into a strongly-typed structure,
-/// making it easier to work with query strings in a type-safe manner.
+//! Query parameter extraction and deserialization from URL query strings.
+//!
+//! This module provides extractors for parsing URL query parameters into strongly-typed Rust
+//! structures using serde. It handles URL-encoded query strings from GET requests and other
+//! HTTP methods, automatically deserializing them into custom types. The extractor supports
+//! nested structures, optional fields, and automatic type coercion for common data types
+//! like numbers and booleans.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::query::Query;
+//! use tako::extractors::FromRequest;
+//! use tako::types::Request;
+//! use serde::Deserialize;
+//!
+//! #[derive(Debug, Deserialize)]
+//! struct SearchQuery {
+//!     q: String,
+//!     page: Option<u32>,
+//!     limit: Option<u32>,
+//!     sort: Option<String>,
+//! }
+//!
+//! // For URL: /search?q=rust&page=2&limit=20&sort=date
+//! async fn search_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//!     let query: Query<SearchQuery> = Query::from_request(&mut req).await?;
+//!
+//!     let page = query.0.page.unwrap_or(1);
+//!     let limit = query.0.limit.unwrap_or(10);
+//!     let sort = query.0.sort.unwrap_or_else(|| "relevance".to_string());
+//!
+//!     Ok(format!("Searching for '{}' (page {}, limit {}, sort by {})",
+//!                query.0.q, page, limit, sort))
+//! }
+//!
+//! // Simple query parameter extraction
+//! #[derive(Deserialize)]
+//! struct Pagination {
+//!     page: u32,
+//!     per_page: u32,
+//! }
+//!
+//! async fn list_items(query: Query<Pagination>) -> String {
+//!     format!("Page {} with {} items per page", query.0.page, query.0.per_page)
+//! }
+//! ```
+
 use std::{collections::HashMap, future::ready};
 
 use http::{StatusCode, request::Parts};
@@ -14,38 +58,22 @@ use crate::{
     types::Request,
 };
 
-/// The `Query` struct is an extractor that wraps a deserialized representation of the query parameters.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::extractors::query::Query;
-/// use tako::types::Request;
-/// use serde::Deserialize;
-///
-/// #[derive(Deserialize)]
-/// struct MyQuery {
-///     param1: String,
-///     param2: i32,
-/// }
-///
-/// async fn handle_request(mut req: Request) -> anyhow::Result<()> {
-///     let query = Query::<MyQuery>::from_request(&mut req).await?;
-///     // Use the extracted query parameters here
-///     Ok(())
-/// }
-/// ```
+/// Query parameter extractor with automatic deserialization to typed structures.
 pub struct Query<T>(pub T);
 
-/// Error type for query parameter extraction.
+/// Error types for query parameter extraction and deserialization.
 #[derive(Debug)]
 pub enum QueryError {
+    /// No query string found in the request URI.
     MissingQueryString,
+    /// Failed to parse query parameters from the query string.
     ParseError(String),
+    /// Query parameter deserialization failed (type mismatch, missing field, etc.).
     DeserializationError(String),
 }
 
 impl Responder for QueryError {
+    /// Converts query parameter errors into appropriate HTTP error responses.
     fn into_response(self) -> crate::types::Response {
         match self {
             QueryError::MissingQueryString => (

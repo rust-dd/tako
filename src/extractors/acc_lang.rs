@@ -1,3 +1,12 @@
+//! Accept-Language header parsing and locale preference extraction for internationalization.
+//!
+//! This module provides extractors for parsing HTTP Accept-Language headers to determine
+//! client language preferences. It supports quality values (q-values) as defined in RFC 7231
+//! and automatically sorts preferences by quality and order. The extractors enable easy
+//! internationalization by providing structured access to client language preferences
+//! with proper fallback handling.
+//!
+
 use http::{StatusCode, request::Parts};
 use std::future::ready;
 
@@ -7,31 +16,39 @@ use crate::{
     types::Request,
 };
 
-/// Represents a language preference with its quality value.
+/// Language preference with quality value from Accept-Language header.
+///
+/// Represents a single language preference as specified in RFC 7231, including
+/// the language tag and its associated quality value. Quality values range from
+/// 0.0 to 1.0, with 1.0 being the default when no quality is specified.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LanguagePreference {
-    /// The language tag (e.g., "en-US", "fr", "de")
+    /// Language tag (e.g., "en-US", "fr", "zh-CN") following RFC 5646.
     pub language: String,
-    /// Quality value from 0.0 to 1.0 (default is 1.0)
+    /// Quality value from 0.0 to 1.0 indicating preference strength (default: 1.0).
     pub quality: f32,
 }
 
-/// Extractor for the Accept-Language header.
+/// Accept-Language header extractor for determining client language preferences.
 #[derive(Debug, Clone)]
 pub struct AcceptLanguage {
-    /// Languages in order of preference (highest quality first)
+    /// Language preferences sorted by quality (highest first), then by order.
     pub languages: Vec<LanguagePreference>,
 }
 
-/// Error type for Accept-Language extraction.
+/// Error types for Accept-Language header extraction and parsing.
 #[derive(Debug)]
 pub enum AcceptLanguageError {
+    /// Accept-Language header is missing from the request.
     MissingHeader,
+    /// Accept-Language header contains invalid UTF-8 or cannot be parsed as text.
     InvalidHeader,
+    /// Failed to parse header value (contains specific error details).
     ParseError(String),
 }
 
 impl Responder for AcceptLanguageError {
+    /// Converts Accept-Language errors into appropriate HTTP error responses.
     fn into_response(self) -> crate::types::Response {
         match self {
             AcceptLanguageError::MissingHeader => {
@@ -50,29 +67,29 @@ impl Responder for AcceptLanguageError {
 }
 
 impl AcceptLanguage {
-    /// Creates a new AcceptLanguage with no preferences.
+    /// Creates a new empty AcceptLanguage with no preferences.
     pub fn new() -> Self {
         Self {
             languages: Vec::new(),
         }
     }
 
-    /// Gets the most preferred language.
+    /// Returns the most preferred language based on quality values and order.
     pub fn preferred(&self) -> Option<&LanguagePreference> {
         self.languages.first()
     }
 
-    /// Gets all languages in preference order.
+    /// Returns all language preferences in order of preference.
     pub fn preferences(&self) -> &[LanguagePreference] {
         &self.languages
     }
 
-    /// Checks if a specific language is accepted.
+    /// Verifies if a specific language is accepted by the client.
     pub fn accepts(&self, language: &str) -> bool {
         self.languages.iter().any(|pref| pref.language == language)
     }
 
-    /// Extracts Accept-Language from headers.
+    /// Parses Accept-Language preferences from HTTP headers.
     fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, AcceptLanguageError> {
         let header_value = headers
             .get("Accept-Language")
@@ -85,8 +102,8 @@ impl AcceptLanguage {
         Self::parse_accept_language(header_str)
     }
 
-    /// Parses the Accept-Language header value.
-    fn parse_accept_language(header_value: &str) -> Result<Self, AcceptLanguageError> {
+    /// Converts an Accept-Language header value into structured preferences.
+    pub fn parse_accept_language(header_value: &str) -> Result<Self, AcceptLanguageError> {
         let mut languages = Vec::new();
 
         for part in header_value.split(',') {
@@ -135,6 +152,7 @@ impl AcceptLanguage {
 }
 
 impl Default for AcceptLanguage {
+    /// Initializes an AcceptLanguage instance with no preferences.
     fn default() -> Self {
         Self::new()
     }

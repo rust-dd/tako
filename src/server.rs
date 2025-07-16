@@ -1,6 +1,29 @@
-/// This module provides the `serve` function and related utilities for running a Tako HTTP server.
-///
-/// The server is built on top of Hyper and supports asynchronous request handling.
+//! HTTP server implementation and lifecycle management.
+//!
+//! This module provides the core server functionality for Tako, built on top of Hyper.
+//! It handles incoming TCP connections, dispatches requests through the router, and
+//! manages the server lifecycle. The main entry point is the `serve` function which
+//! starts an HTTP server with the provided listener and router configuration.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! use tako::{serve, router::Router, Method, responder::Responder, types::Request};
+//! use tokio::net::TcpListener;
+//!
+//! async fn hello(_: Request) -> impl Responder {
+//!     "Hello, World!".into_response()
+//! }
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let listener = TcpListener::bind("127.0.0.1:8080").await?;
+//! let mut router = Router::new();
+//! router.route(Method::GET, "/", hello);
+//! serve(listener, router).await;
+//! # Ok(())
+//! # }
+//! ```
+
 use hyper::{Request, server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -9,44 +32,12 @@ use tokio::net::TcpListener;
 use crate::router::Router;
 use crate::types::BoxError;
 
-/// Starts the Tako HTTP server.
-///
-/// # Arguments
-///
-/// * `listener` - A `TcpListener` that listens for incoming connections.
-/// * `router` - A `Router` instance that defines the routes and handlers for the server.
-///
-/// # Example
-///
-/// ```no_run
-/// use tako::router::Router;
-/// use tokio::net::TcpListener;
-/// use tako::server::serve;
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
-///     let router = Router::new();
-///     serve(listener, router).await;
-/// }
-/// ```
+/// Starts the Tako HTTP server with the given listener and router.
 pub async fn serve(listener: TcpListener, router: Router) {
     run(listener, router).await.unwrap();
 }
 
-/// Internal function to run the server loop.
-///
-/// This function accepts incoming connections, spawns tasks to handle them,
-/// and uses the provided router to dispatch requests.
-///
-/// # Arguments
-///
-/// * `listener` - A `TcpListener` for accepting connections.
-/// * `router` - A `Router` instance for handling requests.
-///
-/// # Returns
-///
-/// A `Result` indicating success or failure.
+/// Runs the main server loop, accepting connections and dispatching requests.
 async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     #[cfg(feature = "tako-tracing")]
     crate::tracing::init_tracing();

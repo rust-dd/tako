@@ -1,4 +1,29 @@
-/// This module provides the `Path` extractor, which is used to extract the path of a request.
+//! Path extraction from HTTP requests.
+//!
+//! This module provides the [`Path`] extractor for accessing the URI path from
+//! incoming HTTP requests. It wraps a reference to the path string, allowing
+//! efficient access to the request path without copying the underlying data.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::path::Path;
+//! use tako::types::Request;
+//!
+//! async fn handle_path(Path(path): Path<'_>) {
+//!     println!("Request path: {}", path);
+//!
+//!     // Check specific path patterns
+//!     if path.starts_with("/api/") {
+//!         println!("API endpoint");
+//!     }
+//!
+//!     // Extract path segments
+//!     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+//!     println!("Path segments: {:?}", segments);
+//! }
+//! ```
+
 use http::request::Parts;
 use std::{convert::Infallible, future::ready};
 
@@ -7,18 +32,25 @@ use crate::{
     types::Request,
 };
 
-/// The `Path` struct is an extractor that wraps a reference to the path of a request.
+/// Path extractor that provides access to the HTTP request path.
 ///
-/// # Example
+/// This extractor wraps a reference to the URI path of a request, providing
+/// efficient access to the path string without copying the underlying data.
+/// It can be used to inspect, validate, or extract information from the request path.
+///
+/// # Examples
 ///
 /// ```rust
 /// use tako::extractors::path::Path;
 /// use tako::types::Request;
 ///
-/// async fn handle_request(mut req: Request) -> anyhow::Result<()> {
-///     let path = Path::from_request(&mut req).await?;
-///     // Use the extracted path here
-///     Ok(())
+/// async fn handler(Path(path): Path<'_>) {
+///     match path {
+///         "/health" => println!("Health check endpoint"),
+///         "/api/users" => println!("Users API endpoint"),
+///         _ if path.starts_with("/static/") => println!("Static file request"),
+///         _ => println!("Other path: {}", path),
+///     }
 /// }
 /// ```
 pub struct Path<'a>(pub &'a str);

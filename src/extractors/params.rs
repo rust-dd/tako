@@ -1,8 +1,43 @@
-/// This module provides the `Params` extractor, which is used to extract and deserialize
-/// path parameters from a request.
-///
-/// The `Params` extractor is particularly useful for handling dynamic segments in request
-/// paths, allowing them to be easily converted into strongly-typed structures.
+//! Path parameter extraction and deserialization for dynamic route segments.
+//!
+//! This module provides extractors for parsing path parameters from dynamic route segments
+//! into strongly-typed Rust structures. It handles parameter extraction from routes like
+//! `/users/{id}` or `/posts/{post_id}/comments/{comment_id}` and automatically deserializes
+//! them using serde. The extractor supports type coercion for common types like integers,
+//! floats, and strings, making it easy to work with typed path parameters in handlers.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::params::Params;
+//! use tako::extractors::FromRequest;
+//! use tako::types::Request;
+//! use serde::Deserialize;
+//!
+//! #[derive(Debug, Deserialize)]
+//! struct UserParams {
+//!     id: u64,
+//!     name: String,
+//! }
+//!
+//! // For route: /users/{id}/profile/{name}
+//! async fn user_profile(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//!     let params: Params<UserParams> = Params::from_request(&mut req).await?;
+//!
+//!     Ok(format!("User ID: {}, Name: {}", params.0.id, params.0.name))
+//! }
+//!
+//! // Simple single parameter extraction
+//! #[derive(Deserialize)]
+//! struct IdParam {
+//!     id: u32,
+//! }
+//!
+//! async fn get_item(params: Params<IdParam>) -> String {
+//!     format!("Item ID: {}", params.0.id)
+//! }
+//! ```
+
 use std::{collections::HashMap, future::ready};
 
 use http::StatusCode;
@@ -11,43 +46,24 @@ use serde_json::{Map, Value};
 
 use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
-/// A helper struct that stores path parameters as a `HashMap`.
-///
-/// This struct is used internally to manage path parameters extracted from the request.
+/// Internal helper struct for storing path parameters extracted from routes.
 #[derive(Clone, Default)]
 pub(crate) struct PathParams(pub HashMap<String, String>);
 
-/// The `Params` struct is an extractor that wraps a deserialized representation of path parameters.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::extractors::params::Params;
-/// use tako::types::Request;
-/// use serde::Deserialize;
-///
-/// #[derive(Deserialize)]
-/// struct MyParams {
-///     id: u64,
-///     name: String,
-/// }
-///
-/// async fn handle_request(mut req: Request) -> anyhow::Result<()> {
-///     let params = Params::<MyParams>::from_request(&mut req).await?;
-///     // Use the extracted and deserialized parameters here
-///     Ok(())
-/// }
-/// ```
+/// Path parameter extractor with automatic deserialization to typed structures.
 pub struct Params<T>(pub T);
 
-/// Error type for path parameter extraction.
+/// Error types for path parameter extraction and deserialization.
 #[derive(Debug)]
 pub enum ParamsError {
+    /// Path parameters not found in request extensions (internal routing error).
     MissingPathParams,
+    /// Parameter deserialization failed (type mismatch, missing field, etc.).
     DeserializationError(String),
 }
 
 impl Responder for ParamsError {
+    /// Converts path parameter errors into appropriate HTTP error responses.
     fn into_response(self) -> crate::types::Response {
         match self {
             ParamsError::MissingPathParams => (
@@ -97,17 +113,7 @@ where
         Ok(Params(parsed))
     }
 
-    /// Converts a `HashMap` of string parameters into a `Map` of JSON values.
-    ///
-    /// This function attempts to coerce string values into numeric types where possible.
-    ///
-    /// # Arguments
-    ///
-    /// * `map` - A reference to the `HashMap` containing string parameters.
-    ///
-    /// # Returns
-    ///
-    /// A `Map` where the values are JSON-compatible types.
+    /// Converts string parameters into JSON-compatible values with type coercion.
     fn coerce_params(map: &HashMap<String, String>) -> Map<String, Value> {
         let mut result = Map::new();
 

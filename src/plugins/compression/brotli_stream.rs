@@ -1,3 +1,28 @@
+//! Brotli compression streaming utilities for efficient HTTP response compression.
+//!
+//! This module provides streaming Brotli compression for HTTP response bodies, enabling
+//! efficient compression of large responses without loading entire content into memory.
+//! The implementation uses the brotli crate for high-quality compression with configurable
+//! compression levels. Streaming compression is ideal for large responses, real-time data,
+//! or memory-constrained environments.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::plugins::compression::brotli_stream::stream_brotli;
+//! use tako::body::TakoBody;
+//! use http_body_util::Full;
+//! use bytes::Bytes;
+//!
+//! // Compress a simple body with Brotli level 6
+//! let body = Full::from(Bytes::from("Hello, World! This is some test data."));
+//! let compressed = stream_brotli(body, 6);
+//!
+//! // High compression for static content
+//! let static_content = Full::from(Bytes::from("Large static content here..."));
+//! let high_compression = stream_brotli(static_content, 11);
+//! ```
+
 use std::{
     io::Write,
     pin::Pin,
@@ -13,26 +38,7 @@ use pin_project_lite::pin_project;
 
 use crate::{body::TakoBody, types::BoxError};
 
-/// Compresses an HTTP body stream using Brotli compression.
-///
-/// # Arguments
-///
-/// * `body` - The HTTP body to compress, which must implement the `Body` trait.
-/// * `lvl` - The Brotli compression level (1-11, where 11 is the highest compression).
-///
-/// # Returns
-///
-/// A `TakoBody` containing the compressed stream.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::plugins::compression::stream_brotli;
-/// use hyper::Body;
-///
-/// let body = Body::from("example data");
-/// let compressed_body = stream_brotli(body, 5);
-/// ```
+/// Compresses an HTTP body stream using Brotli compression algorithm.
 pub fn stream_brotli<B>(body: B, lvl: u32) -> TakoBody
 where
     B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -43,16 +49,7 @@ where
 }
 
 pin_project! {
-    /// A stream that compresses data using Brotli compression.
-    ///
-    /// This struct wraps an inner stream and compresses its output on the fly
-    /// using the Brotli algorithm. It is designed to be used with asynchronous
-    /// streams of data.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `S` - The type of the inner stream, which must implement `Stream` and
-    ///   yield `Result<Bytes, BoxError>`.
+    /// Streaming Brotli compressor that wraps an inner data stream.
     pub struct BrotliStream<S> {
         #[pin] inner: S,
         encoder: brotli::CompressorWriter<Vec<u8>>,
@@ -62,16 +59,7 @@ pin_project! {
 }
 
 impl<S> BrotliStream<S> {
-    /// Creates a new `BrotliStream` with the specified inner stream and compression level.
-    ///
-    /// # Arguments
-    ///
-    /// * `stream` - The inner stream to wrap and compress.
-    /// * `level` - The Brotli compression level (1-11, where 11 is the highest compression).
-    ///
-    /// # Returns
-    ///
-    /// A new `BrotliStream` instance.
+    /// Creates a new Brotli compression stream with the specified compression level.
     fn new(stream: S, level: u32) -> Self {
         Self {
             inner: stream,
@@ -88,11 +76,12 @@ where
 {
     type Item = Result<Bytes, BoxError>;
 
+    /// Polls the stream for the next compressed data chunk.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
         loop {
-            // 1) Do we have unread bytes in the encoder’s buffer?
+            // 1) Do we have unread bytes in the encoder's buffer?
             if *this.pos < this.encoder.get_ref().len() {
                 let buf = &this.encoder.get_ref()[*this.pos..];
                 *this.pos = this.encoder.get_ref().len();

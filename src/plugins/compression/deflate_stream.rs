@@ -1,3 +1,27 @@
+//! DEFLATE compression streaming utilities for efficient HTTP response compression.
+//!
+//! This module provides streaming DEFLATE compression for HTTP response bodies using the
+//! flate2 crate. DEFLATE compression offers good compression ratios with fast processing
+//! speeds, making it suitable for real-time web content compression. The streaming
+//! implementation enables memory-efficient compression of large responses without
+//! buffering entire content in memory.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::plugins::compression::deflate_stream::stream_deflate;
+//! use http_body_util::Full;
+//! use bytes::Bytes;
+//!
+//! // Compress a response body with DEFLATE level 6
+//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let compressed = stream_deflate(body, 6);
+//!
+//! // Fast compression for dynamic content
+//! let dynamic_content = Full::from(Bytes::from("API response data..."));
+//! let fast_compressed = stream_deflate(dynamic_content, 1);
+//! ```
+
 use std::{
     io::Write,
     pin::Pin,
@@ -14,14 +38,7 @@ use pin_project_lite::pin_project;
 
 use crate::{body::TakoBody, types::BoxError};
 
-/// Compresses a given body stream using the DEFLATE algorithm and returns a `TakoBody`.
-///
-/// # Arguments
-/// - `body`: The input body stream to be compressed.
-/// - `level`: The compression level (0-9, where 0 is no compression and 9 is maximum compression).
-///
-/// # Returns
-/// A `TakoBody` containing the compressed stream.
+/// Compresses an HTTP body stream using the DEFLATE compression algorithm.
 pub fn stream_deflate<B>(body: B, level: u32) -> TakoBody
 where
     B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -32,9 +49,7 @@ where
 }
 
 pin_project! {
-    /// A stream that compresses data using the DEFLATE algorithm.
-    ///
-    /// This struct wraps an inner stream and applies DEFLATE compression to its output.
+    /// Streaming DEFLATE compressor that wraps an inner data stream.
     pub struct DeflateStream<S> {
         #[pin] inner: S,
         encoder: DeflateEncoder<Vec<u8>>,
@@ -44,14 +59,7 @@ pin_project! {
 }
 
 impl<S> DeflateStream<S> {
-    /// Creates a new `DeflateStream` with the specified inner stream and compression level.
-    ///
-    /// # Arguments
-    /// - `inner`: The inner stream to be compressed.
-    /// - `level`: The compression level (0-9, where 0 is no compression and 9 is maximum compression).
-    ///
-    /// # Returns
-    /// A new `DeflateStream` instance.
+    /// Creates a new DEFLATE compression stream with the specified compression level.
     pub fn new(inner: S, level: u32) -> Self {
         Self {
             inner,
@@ -68,21 +76,7 @@ where
 {
     type Item = Result<Bytes, BoxError>;
 
-    /// Polls the next compressed chunk from the stream.
-    ///
-    /// This method handles the following:
-    /// - If there is data in the encoder's buffer, it returns the next chunk.
-    /// - If the inner stream has more data, it compresses it and continues.
-    /// - If the inner stream is finished, it finalizes the compression and returns the remaining data.
-    ///
-    /// # Arguments
-    /// - `cx`: The context for the asynchronous operation.
-    ///
-    /// # Returns
-    /// - `Poll::Ready(Some(Ok(Bytes)))`: A compressed chunk of data.
-    /// - `Poll::Ready(Some(Err(BoxError)))`: An error occurred during compression.
-    /// - `Poll::Ready(None)`: The stream has finished.
-    /// - `Poll::Pending`: The stream is not ready yet.
+    /// Polls the stream for the next compressed data chunk.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 

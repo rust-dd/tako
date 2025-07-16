@@ -1,3 +1,31 @@
+//! Client IP address extraction from HTTP request headers.
+//!
+//! This module provides the [`IpAddr`] extractor for determining the client's IP address
+//! from various HTTP headers commonly used by proxies, load balancers, and CDNs.
+//! It supports both IPv4 and IPv6 addresses and provides methods for inspecting
+//! IP address properties like whether it's private, loopback, etc.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::ipaddr::IpAddr;
+//! use std::net::IpAddr as StdIpAddr;
+//!
+//! async fn handle_request(ip: IpAddr) {
+//!     println!("Client IP: {}", ip);
+//!
+//!     if ip.is_private() {
+//!         println!("Request from private network");
+//!     }
+//!
+//!     if ip.is_ipv4() {
+//!         println!("IPv4 address");
+//!     } else {
+//!         println!("IPv6 address");
+//!     }
+//! }
+//! ```
+
 use http::{StatusCode, request::Parts};
 use std::{future::ready, net::IpAddr as StdIpAddr, str::FromStr};
 
@@ -8,18 +36,47 @@ use crate::{
 };
 
 /// Extractor for client IP address from HTTP request headers.
+///
+/// This extractor attempts to determine the real client IP address by examining
+/// various HTTP headers in priority order. It's particularly useful when your
+/// application is behind proxies, load balancers, or CDNs that add forwarding headers.
+///
+/// The extractor checks headers in the following priority order:
+/// 1. `X-Forwarded-For`
+/// 2. `X-Real-IP`
+/// 3. `X-Client-IP`
+/// 4. `CF-Connecting-IP` (Cloudflare)
+/// 5. `X-Forwarded`
+/// 6. `Forwarded-For`
+/// 7. `Forwarded`
+/// 8. `True-Client-IP`
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::ipaddr::IpAddr;
+/// use std::net::IpAddr as StdIpAddr;
+///
+/// let ip = IpAddr::new("192.168.1.1".parse().unwrap());
+/// assert!(ip.is_ipv4());
+/// assert!(ip.is_private());
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct IpAddr(pub StdIpAddr);
 
 /// Error type for IP address extraction.
 #[derive(Debug)]
 pub enum IpAddrError {
+    /// No valid IP address found in any of the checked headers.
     NoIpFound,
+    /// The IP address format in the header is invalid.
     InvalidIpFormat(String),
+    /// Failed to parse the IP address from the header value.
     HeaderParseError,
 }
 
 impl Responder for IpAddrError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         match self {
             IpAddrError::NoIpFound => (
@@ -68,6 +125,17 @@ impl IpAddr {
     }
 
     /// Checks if the IP address is a private address.
+    ///
+    /// For IPv4, this includes addresses in the ranges:
+    /// - 10.0.0.0/8
+    /// - 172.16.0.0/12
+    /// - 192.168.0.0/16
+    /// - 127.0.0.0/8 (loopback)
+    ///
+    /// For IPv6, this includes:
+    /// - fc00::/7 (Unique Local Addresses)
+    /// - fe80::/10 (Link-Local Addresses)
+    /// - ::1 (loopback)
     pub fn is_private(&self) -> bool {
         match self.0 {
             StdIpAddr::V4(ipv4) => ipv4.is_private(),
@@ -112,7 +180,6 @@ impl IpAddr {
     }
 
     /// Parses an IP address from a header value.
-    /// Handles comma-separated lists (takes the first valid IP).
     fn parse_ip_from_header(header_value: &str) -> Option<StdIpAddr> {
         // Handle comma-separated values (common in X-Forwarded-For)
         for part in header_value.split(',') {

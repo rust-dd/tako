@@ -1,3 +1,32 @@
+//! Signed cookie extraction and management for HTTP requests.
+//!
+//! This module provides the [`CookieSigned`] extractor that manages HMAC-signed cookies
+//! using a master key. Signed cookies use HMAC (Hash-based Message Authentication Code)
+//! to ensure that cookie values haven't been tampered with, while keeping the content
+//! readable. This provides integrity protection without confidentiality.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::cookie_signed::CookieSigned;
+//! use cookie::{Cookie, Key};
+//!
+//! async fn handle_signed_cookies(mut signed: CookieSigned) {
+//!     // Add a signed cookie
+//!     signed.add(Cookie::new("user_id", "12345"));
+//!
+//!     // Retrieve and verify a cookie
+//!     if let Some(user_id) = signed.get_value("user_id") {
+//!         println!("User ID: {}", user_id);
+//!     }
+//!
+//!     // Check if a cookie exists and has valid signature
+//!     if signed.verify("session_token") {
+//!         println!("Valid session found");
+//!     }
+//! }
+//! ```
+
 use cookie::{Cookie, CookieJar, Key};
 use http::{HeaderMap, StatusCode, header::COOKIE, request::Parts};
 use std::future::ready;
@@ -12,6 +41,29 @@ use crate::{
 ///
 /// Signed cookies use HMAC (Hash-based Message Authentication Code) to ensure
 /// that cookie values haven't been tampered with, while keeping the content readable.
+/// This provides integrity protection without confidentiality - the cookie values
+/// can still be read by clients, but any tampering will be detected.
+///
+/// The extractor automatically verifies signatures when retrieving cookies and signs
+/// cookies when adding them to the jar.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::extractors::cookie_signed::CookieSigned;
+/// use cookie::{Cookie, Key};
+///
+/// let key = Key::generate();
+/// let mut signed = CookieSigned::new(key);
+///
+/// // Add a signed cookie
+/// signed.add(Cookie::new("username", "alice"));
+///
+/// // Retrieve the verified value
+/// if let Some(username_cookie) = signed.get("username") {
+///     assert_eq!(username_cookie.value(), "alice");
+/// }
+/// ```
 pub struct CookieSigned {
     jar: CookieJar,
     key: Key,
@@ -20,14 +72,20 @@ pub struct CookieSigned {
 /// Error type for signed cookie extraction.
 #[derive(Debug)]
 pub enum CookieSignedError {
+    /// Signed cookie master key not found in request extensions.
     MissingKey,
+    /// Invalid signed cookie master key.
     InvalidKey,
+    /// Failed to verify signed cookie with the specified error message.
     VerificationFailed(String),
+    /// Invalid cookie format in request.
     InvalidCookieFormat,
+    /// Invalid signature for the specified cookie name.
     InvalidSignature(String),
 }
 
 impl Responder for CookieSignedError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         match self {
             CookieSignedError::MissingKey => (
@@ -59,12 +117,6 @@ impl Responder for CookieSignedError {
 
 impl CookieSigned {
     /// Creates a new `CookieSigned` instance with the given master key.
-    ///
-    /// # Parameters
-    /// - `key`: The master key used for signing and verifying cookies.
-    ///
-    /// # Returns
-    /// A new `CookieSigned` instance.
     pub fn new(key: Key) -> Self {
         Self {
             jar: CookieJar::new(),
@@ -73,13 +125,6 @@ impl CookieSigned {
     }
 
     /// Creates a `CookieSigned` instance from HTTP headers and a master key.
-    ///
-    /// # Parameters
-    /// - `headers`: A reference to the HTTP headers containing the `Cookie` header.
-    /// - `key`: The master key used for verifying cookie signatures.
-    ///
-    /// # Returns
-    /// A `CookieSigned` populated with cookies from the `Cookie` header.
     pub fn from_headers(headers: &HeaderMap, key: Key) -> Self {
         let mut jar = CookieJar::new();
 
@@ -95,19 +140,11 @@ impl CookieSigned {
     }
 
     /// Adds a signed cookie to the jar.
-    ///
-    /// The cookie will be signed with HMAC when serialized.
-    ///
-    /// # Parameters
-    /// - `cookie`: The cookie to add and sign.
     pub fn add(&mut self, cookie: Cookie<'static>) {
         self.jar.signed_mut(&self.key).add(cookie);
     }
 
     /// Removes a signed cookie from the jar by its name.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to remove.
     pub fn remove(&mut self, name: &str) {
         self.jar
             .signed_mut(&self.key)
@@ -115,70 +152,36 @@ impl CookieSigned {
     }
 
     /// Retrieves and verifies a signed cookie from the jar by its name.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to retrieve.
-    ///
-    /// # Returns
-    /// An `Option` containing the verified cookie if it exists and
-    /// has a valid signature, or `None` otherwise.
     pub fn get(&self, name: &str) -> Option<Cookie<'static>> {
         self.jar.signed(&self.key).get(name)
     }
 
     /// Gets the inner `CookieJar` for advanced operations.
-    ///
-    /// # Returns
-    /// A reference to the inner `CookieJar`.
     pub fn inner(&self) -> &CookieJar {
         &self.jar
     }
 
     /// Gets a mutable reference to the inner `CookieJar` for advanced operations.
-    ///
-    /// # Returns
-    /// A mutable reference to the inner `CookieJar`.
     pub fn inner_mut(&mut self) -> &mut CookieJar {
         &mut self.jar
     }
 
     /// Verifies if a cookie with the given name exists and has a valid signature.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to verify.
-    ///
-    /// # Returns
-    /// `true` if the cookie exists and has a valid signature, `false` otherwise.
     pub fn verify(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
 
     /// Gets the value of a signed cookie after verification.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie whose value to retrieve.
-    ///
-    /// # Returns
-    /// An `Option` containing the cookie value if the cookie exists and has a valid signature.
     pub fn get_value(&self, name: &str) -> Option<String> {
         self.get(name).map(|cookie| cookie.value().to_string())
     }
 
     /// Checks if a signed cookie with the given name exists and has a valid signature.
-    ///
-    /// # Parameters
-    /// - `name`: The name of the cookie to check.
-    ///
-    /// # Returns
-    /// `true` if the cookie exists and has a valid signature, `false` otherwise.
     pub fn contains(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
 
     /// Gets the key used for signed cookie operations.
-    ///
-    /// # Returns
-    /// A reference to the signing key.
     pub fn key(&self) -> &Key {
         &self.key
     }

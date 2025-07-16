@@ -1,71 +1,130 @@
-//! Tako: A lightweight web framework for building asynchronous web applications in Rust.
+//! A lightweight and modular web framework for building async applications in Rust.
 //!
-//! This library provides a modular and extensible framework for creating web servers,
-//! handling requests, and managing application state. It is designed to be fast, ergonomic,
-//! and easy to use.
+//! Tako provides core components for routing, middleware, request handling, and response
+//! generation. The framework is designed around composable modules that can be mixed and
+//! matched based on application needs. Key types include `Router` for routing requests,
+//! various extractors for parsing request data, and responders for generating responses.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::{Method, router::Router, responder::Responder, types::Request};
+//!
+//! async fn hello(_: Request) -> impl Responder {
+//!     "Hello, World!".into_response()
+//! }
+//!
+//! let mut router = Router::new();
+//! router.route(Method::GET, "/", hello);
+//! ```
 
-/// Module for handling HTTP request and response bodies.
+/// HTTP request and response body handling utilities.
 pub mod body;
 
-/// Module for working with byte streams and buffers.
+/// Byte stream and buffer manipulation utilities.
 pub mod bytes;
 
+/// HTTP client implementation for making outbound requests.
 #[cfg(feature = "client")]
 pub mod client;
 
-/// Module for extracting data from requests, such as query parameters or JSON payloads.
+/// Request data extraction utilities for parsing query params, JSON, and more.
 pub mod extractors;
 
-/// Module for defining and managing request handlers.
+/// Request handler traits and implementations.
 mod handler;
 
-/// Module for defining and managing middleware.
+/// Middleware for processing requests and responses in a pipeline.
 pub mod middleware;
 
-/// Module for defining and managing plugins.
+/// Plugin system for extending framework functionality.
 #[cfg(feature = "plugins")]
 pub mod plugins;
 
-/// Module for creating and sending HTTP responses.
+/// Response generation utilities and traits.
 pub mod responder;
 
-/// Module for defining application routes and their handlers.
+/// Route definition and matching logic.
 mod route;
 
-/// Module for managing the application's routing logic.
+/// Request routing and dispatch functionality.
 pub mod router;
 
-/// Module for starting and managing the web server.
+/// HTTP server implementation and configuration.
 mod server;
 
-/// Module for handling Server-Sent Events (SSE).
+/// Server-Sent Events (SSE) support for real-time communication.
 pub mod sse;
 
-/// Module for managing application state and shared data.
+/// Application state management and dependency injection.
 pub mod state;
 
-/// Module for managing static assets.
+/// Static file serving utilities.
 pub mod r#static;
 
+/// Distributed tracing integration for observability.
 #[cfg(feature = "tako-tracing")]
 pub mod tracing;
 
-/// Module for defining and working with custom types used in the framework.
+/// Core type definitions used throughout the framework.
 pub mod types;
 
-/// Module for handling WebSocket connections.
+/// WebSocket connection handling and message processing.
 pub mod ws;
 
+/// HTTP method enumeration re-exported from hyper.
 pub use hyper::Method;
+
+/// Starts the HTTP server with the given listener and router.
+///
+/// This is the main entry point for starting a Tako web server. The function takes
+/// ownership of a TCP listener and router, then serves incoming connections until
+/// the server is shut down.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::{serve, router::Router};
+/// use tokio::net::TcpListener;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let listener = TcpListener::bind("127.0.0.1:8080").await?;
+/// let router = Router::new();
+/// serve(listener, router).await;
+/// # Ok(())
+/// # }
+/// ```
 pub use server::serve;
 
-/// Module for enabling TLS support in the server.
+/// TLS/SSL server implementation for secure connections.
 #[cfg(feature = "tls")]
 pub mod server_tls;
 
+/// Starts the HTTPS server with TLS encryption support.
+///
+/// Similar to `serve` but enables TLS encryption for secure connections. Requires
+/// the "tls" feature to be enabled and proper TLS configuration.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "tls")]
+/// use tako::{serve_tls, router::Router};
+/// # #[cfg(feature = "tls")]
+/// use tokio::net::TcpListener;
+///
+/// # #[cfg(feature = "tls")]
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let listener = TcpListener::bind("127.0.0.1:8443").await?;
+/// let router = Router::new();
+/// // serve_tls(listener, router, tls_config).await;
+/// # Ok(())
+/// # }
+/// ```
 #[cfg(feature = "tls")]
 pub use server_tls::serve_tls;
 
+/// Global memory allocator using jemalloc for improved performance.
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

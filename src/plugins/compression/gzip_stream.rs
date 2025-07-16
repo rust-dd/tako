@@ -1,3 +1,27 @@
+//! Gzip compression streaming utilities for efficient HTTP response compression.
+//!
+//! This module provides streaming Gzip compression for HTTP response bodies using the
+//! flate2 crate. Gzip is one of the most widely supported compression formats on the web,
+//! offering excellent compatibility across all browsers and HTTP clients. The streaming
+//! implementation enables memory-efficient compression of large responses without
+//! buffering entire content in memory, making it ideal for real-time web applications.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::plugins::compression::gzip_stream::stream_gzip;
+//! use http_body_util::Full;
+//! use bytes::Bytes;
+//!
+//! // Compress a response body with Gzip level 6
+//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let compressed = stream_gzip(body, 6);
+//!
+//! // Fast compression for dynamic API responses
+//! let api_response = Full::from(Bytes::from("JSON API data..."));
+//! let fast_compressed = stream_gzip(api_response, 1);
+//! ```
+
 use std::{
     io::Write,
     pin::Pin,
@@ -14,27 +38,7 @@ use pin_project_lite::pin_project;
 
 use crate::{body::TakoBody, types::BoxError};
 
-/// Compresses an HTTP body stream using Gzip compression.
-///
-/// # Arguments
-///
-/// * `body` - The HTTP body to compress, which must implement the `Body` trait.
-/// * `level` - The compression level to use (1-9, where 9 is the highest compression).
-///
-/// # Returns
-///
-/// A `TakoBody` containing the Gzip-compressed stream.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::plugins::compression::stream_gzip;
-/// use hyper::Body;
-/// use bytes::Bytes;
-///
-/// let body = Body::from(Bytes::from("Hello, world!"));
-/// let compressed_body = stream_gzip(body, 6);
-/// ```
+/// Compresses an HTTP body stream using Gzip compression algorithm.
 pub fn stream_gzip<B>(body: B, level: u32) -> TakoBody
 where
     B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -45,26 +49,7 @@ where
 }
 
 pin_project! {
-    /// A stream that compresses data using Gzip compression.
-    ///
-    /// This struct wraps an inner stream and compresses its output on-the-fly
-    /// using the Gzip algorithm. It is designed to be used with asynchronous
-    /// streams in Rust.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `S` - The inner stream that provides the data to be compressed.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use tako::plugins::compression::GzipStream;
-    /// use futures_util::stream;
-    /// use bytes::Bytes;
-    ///
-    /// let data_stream = stream::iter(vec![Ok(Bytes::from("Hello")), Ok(Bytes::from("World"))]);
-    /// let gzip_stream = GzipStream::new(data_stream, 6);
-    /// ```
+    /// Streaming Gzip compressor that wraps an inner data stream.
     pub struct GzipStream<S> {
         #[pin] inner: S,
         encoder: GzEncoder<Vec<u8>>,
@@ -74,6 +59,7 @@ pin_project! {
 }
 
 impl<S> GzipStream<S> {
+    /// Creates a new Gzip compression stream with the specified compression level.
     fn new(stream: S, level: u32) -> Self {
         Self {
             inner: stream,
@@ -90,6 +76,7 @@ where
 {
     type Item = Result<Bytes, BoxError>;
 
+    /// Polls the stream for the next compressed data chunk.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 

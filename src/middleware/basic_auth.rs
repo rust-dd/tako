@@ -1,3 +1,40 @@
+//! Basic HTTP authentication middleware for securing web application endpoints.
+//!
+//! This module provides middleware for implementing RFC 7617 Basic HTTP Authentication.
+//! It supports both static user credentials and dynamic verification functions, allowing
+//! flexible authentication strategies. The middleware validates credentials from the
+//! Authorization header and can inject user objects into request extensions for use
+//! by downstream handlers.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::middleware::basic_auth::BasicAuth;
+//! use tako::middleware::IntoMiddleware;
+//!
+//! // Single user authentication
+//! let auth = BasicAuth::<(), _>::single("admin", "password");
+//! let middleware = auth.into_middleware();
+//!
+//! // Multiple users with custom realm
+//! let multi_auth = BasicAuth::<(), _>::multiple([
+//!     ("alice", "secret1"),
+//!     ("bob", "secret2"),
+//! ]).realm("Admin Area");
+//!
+//! // Dynamic verification with user object
+//! #[derive(Clone)]
+//! struct User { id: u32, name: String }
+//!
+//! let dynamic_auth = BasicAuth::with_verify(|username, password| {
+//!     if username == "user" && password == "pass" {
+//!         Some(User { id: 1, name: username.to_string() })
+//!     } else {
+//!         None
+//!     }
+//! });
+//! ```
+
 use crate::{
     body::TakoBody,
     middleware::{IntoMiddleware, Next},
@@ -8,24 +45,60 @@ use base64::Engine;
 use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header};
 use http_body_util::Full;
-use std::{collections::HashMap, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, marker::PhantomData, pin::Pin, sync::Arc};
 
-/// Configuration for Basic Authentication middleware.
+/// Basic HTTP authentication middleware configuration.
 ///
-/// This struct allows you to configure static user credentials or a custom verification function
-/// to authenticate incoming requests using the Basic authentication scheme.
+/// `BasicAuth` provides flexible configuration for HTTP Basic authentication using either
+/// static user credentials, dynamic verification functions, or both. The middleware
+/// validates credentials from the Authorization header and can inject authenticated
+/// user objects into request extensions for downstream handlers.
+///
+/// # Type Parameters
+///
+/// * `U` - User object type returned by verification functions
+/// * `F` - Verification function type that takes username/password and returns `Option<U>`
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::middleware::basic_auth::BasicAuth;
+/// use std::collections::HashMap;
+///
+/// // Simple static authentication
+/// let auth = BasicAuth::<(), _>::single("admin", "secret");
+///
+/// // Multiple static users
+/// let multi = BasicAuth::<(), _>::multiple([
+///     ("user1", "pass1"),
+///     ("user2", "pass2"),
+/// ]);
+///
+/// // Custom verification with user data
+/// #[derive(Clone)]
+/// struct UserInfo { id: u32, role: String }
+///
+/// let custom = BasicAuth::with_verify(|user, pass| {
+///     // Verify against database, LDAP, etc.
+///     if user == "admin" && pass == "secret" {
+///         Some(UserInfo { id: 1, role: "admin".to_string() })
+///     } else {
+///         None
+///     }
+/// });
+/// ```
 pub struct BasicAuth<U, F>
 where
     F: Fn(&str, &str) -> Option<U> + Send + Sync + 'static,
     U: Send + Sync + 'static,
 {
-    /// Optional map of static user credentials (username-password pairs).
+    /// Static user credentials map (username -> password).
     users: Option<Arc<HashMap<String, String>>>,
-    /// Optional custom verification function for dynamic user validation.
+    /// Custom verification function for dynamic authentication.
     verify: Option<Arc<F>>,
-    /// The authentication realm to be included in the `WWW-Authenticate` header.
+    /// Authentication realm for WWW-Authenticate header.
     realm: &'static str,
-    /// Phantom data to associate the generic type `U` without storing it.
+    /// Phantom data for generic type association.
     _phantom: PhantomData<U>,
 }
 
@@ -34,19 +107,12 @@ where
     F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
 {
-    /// Creates a configuration with a single static user credential.
-    ///
-    /// # Arguments
-    /// * `user` - The username for authentication.
-    /// * `pass` - The password for authentication.
+    /// Creates authentication middleware with a single static user credential.
     pub fn single(user: impl Into<String>, pass: impl Into<String>) -> Self {
         Self::multiple(std::iter::once((user, pass)))
     }
 
-    /// Creates a configuration with multiple static user credentials.
-    ///
-    /// # Arguments
-    /// * `pairs` - An iterator of username-password pairs for authentication.
+    /// Creates authentication middleware with multiple static user credentials.
     pub fn multiple<I, T, P>(pairs: I) -> Self
     where
         I: IntoIterator<Item = (T, P)>,
@@ -66,10 +132,7 @@ where
         }
     }
 
-    /// Creates a configuration with a custom verification function.
-    ///
-    /// # Arguments
-    /// * `cb` - A function that takes a username and password and returns an optional value of type `U`.
+    /// Creates authentication middleware with a custom verification function.
     pub fn with_verify(cb: F) -> Self {
         Self {
             users: None,
@@ -79,11 +142,7 @@ where
         }
     }
 
-    /// Creates a configuration with both static user credentials and a custom verification function.
-    ///
-    /// # Arguments
-    /// * `pairs` - An iterator of username-password pairs for authentication.
-    /// * `cb` - A function that takes a username and password and returns an optional value of type `U`.
+    /// Creates authentication middleware with both static credentials and custom verification.
     pub fn users_with_verify<I, S>(pairs: I, cb: F) -> Self
     where
         I: IntoIterator<Item = (S, S)>,
@@ -102,10 +161,7 @@ where
         }
     }
 
-    /// Sets the authentication realm for the `WWW-Authenticate` header.
-    ///
-    /// # Arguments
-    /// * `r` - The realm string to be used.
+    /// Sets the authentication realm for the WWW-Authenticate header.
     pub fn realm(mut self, r: &'static str) -> Self {
         self.realm = r;
         self
@@ -117,11 +173,7 @@ where
     F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
     U: Clone + Send + Sync + 'static,
 {
-    /// Converts the configuration into a middleware function.
-    ///
-    /// The middleware checks the `Authorization` header for Basic credentials and validates them
-    /// against the static user credentials or the custom verification function. If the credentials
-    /// are valid, the request is passed to the next middleware; otherwise, a 401 Unauthorized response is returned.
+    /// Converts the authentication configuration into middleware.
     fn into_middleware(
         self,
     ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
@@ -138,7 +190,7 @@ where
             let verify = verify.clone();
 
             Box::pin(async move {
-                // Extract the Basic credentials from the `Authorization` header.
+                // Extract Basic credentials from Authorization header
                 let creds = req
                     .headers()
                     .get(header::AUTHORIZATION)
@@ -150,7 +202,7 @@ where
 
                 match creds {
                     Some((u, p)) => {
-                        // Check if the credentials match the static user credentials.
+                        // Check static user credentials first
                         if users
                             .as_ref()
                             .and_then(|map| map.get(&u))
@@ -160,7 +212,7 @@ where
                             return next.run(req).await.into_response();
                         }
 
-                        // If a custom verification function is provided, use it to validate the credentials.
+                        // Use custom verification function if available
                         if let Some(cb) = &verify {
                             if let Some(obj) = cb(&u, &p) {
                                 req.extensions_mut().insert(obj);
@@ -183,7 +235,7 @@ where
                     }
                 }
 
-                // Return a 401 Unauthorized response if the credentials are invalid or missing.
+                // Return 401 Unauthorized for invalid credentials
                 let mut res = Response::new(TakoBody::empty());
                 *res.status_mut() = StatusCode::UNAUTHORIZED;
                 res.headers_mut().append(

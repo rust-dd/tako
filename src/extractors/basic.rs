@@ -1,3 +1,35 @@
+//! Basic HTTP authentication credential extraction from Authorization headers.
+//!
+//! This module provides extractors for parsing HTTP Basic authentication credentials
+//! as defined in RFC 7617. It extracts and validates the Authorization header with
+//! Basic scheme, decodes the Base64-encoded credentials, and provides structured
+//! access to username and password. The extractor handles proper error cases and
+//! provides detailed error information for authentication failures.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::basic::Basic;
+//! use tako::extractors::FromRequest;
+//! use tako::types::Request;
+//!
+//! async fn protected_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//!     let basic_auth = Basic::from_request(&mut req).await?;
+//!
+//!     // Validate credentials (in production, check against database/LDAP/etc.)
+//!     if basic_auth.username == "admin" && basic_auth.password == "secret" {
+//!         Ok(format!("Welcome, {}!", basic_auth.username))
+//!     } else {
+//!         Ok("Invalid credentials".to_string())
+//!     }
+//! }
+//!
+//! // Usage in middleware or handlers
+//! async fn auth_middleware_example(basic: Basic) -> String {
+//!     format!("Authenticated user: {}", basic.username)
+//! }
+//! ```
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use http::{StatusCode, request::Parts};
 use std::future::ready;
@@ -8,28 +40,40 @@ use crate::{
     types::Request,
 };
 
-/// Represents the Basic authentication credentials extracted from a request.
+/// Basic HTTP authentication credentials extracted from Authorization header.
+///
+/// Represents the username and password extracted from a Basic authentication
+/// Authorization header. The credentials are Base64-decoded and split on the
+/// first colon character as per RFC 7617. The raw token is also preserved
+/// for logging or advanced use cases.
 pub struct Basic {
-    /// The username extracted from the Basic auth token.
+    /// Username extracted from the Basic auth token.
     pub username: String,
-    /// The password extracted from the Basic auth token.
+    /// Password extracted from the Basic auth token.
     pub password: String,
-    /// The raw Basic auth token as received in the request.
+    /// Raw Basic auth token as received in the Authorization header.
     pub raw: String,
 }
 
-/// Error type for Basic authentication extraction.
+/// Error types for Basic authentication extraction and validation.
 #[derive(Debug)]
 pub enum BasicAuthError {
+    /// Authorization header is missing from the request.
     MissingAuthHeader,
+    /// Authorization header contains invalid UTF-8 or cannot be parsed.
     InvalidAuthHeader,
+    /// Authorization header does not use Basic authentication scheme.
     InvalidBasicFormat,
+    /// Base64 encoding in the Basic auth token is invalid.
     InvalidBase64,
+    /// Decoded credentials contain invalid UTF-8 characters.
     InvalidUtf8,
+    /// Credentials format is invalid (missing colon separator).
     InvalidCredentialsFormat,
 }
 
 impl Responder for BasicAuthError {
+    /// Converts Basic authentication errors into appropriate HTTP responses.
     fn into_response(self) -> crate::types::Response {
         let (status, message) = match self {
             BasicAuthError::MissingAuthHeader => {
@@ -60,6 +104,7 @@ impl Responder for BasicAuthError {
 }
 
 impl Basic {
+    /// Parses Basic authentication credentials from HTTP headers.
     fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BasicAuthError> {
         let auth_header = headers
             .get("Authorization")

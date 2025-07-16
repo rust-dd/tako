@@ -1,3 +1,32 @@
+//! Core type definitions and aliases used throughout the Tako framework.
+//!
+//! This module provides fundamental type aliases that standardize the types used across
+//! the framework for requests, responses, errors, and middleware. These aliases ensure
+//! consistency and make the API more ergonomic by hiding complex generic parameters.
+//! The main types include `Request` and `Response` for HTTP handling, and `BoxMiddleware`
+//! for middleware function composition.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::types::{Request, Response, BoxMiddleware};
+//! use tako::middleware::Next;
+//! use std::sync::Arc;
+//!
+//! // Using the Request type in a handler
+//! async fn handler(req: Request) -> Response {
+//!     Response::new(tako::body::TakoBody::from("Hello, World!"))
+//! }
+//!
+//! // Creating middleware using BoxMiddleware
+//! let middleware: BoxMiddleware = Arc::new(|req, next| {
+//!     Box::pin(async move {
+//!         println!("Request to: {}", req.uri());
+//!         next.run(req).await
+//!     })
+//! });
+//! ```
+
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -7,17 +36,17 @@ use hyper::body::Incoming;
 
 use crate::{body::TakoBody, middleware::Next};
 
-/// Represents an HTTP request with an incoming body.
+/// HTTP request type with streaming body support.
 pub type Request = hyper::Request<Incoming>;
 
-/// Represents an HTTP response with a `TakoBody`.
+/// HTTP response type with Tako's custom body implementation.
 pub type Response = hyper::Response<TakoBody>;
 
-/// A boxed body type used for HTTP responses, combining `Bytes` data with a boxed error type.
+/// Boxed HTTP body type for internal response handling.
 pub(crate) type BoxBody = UnsyncBoxBody<Bytes, BoxError>;
 
-/// A boxed error type that can be sent across threads and is compatible with dynamic dispatch.
+/// Boxed error type for thread-safe error handling.
 pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-/// A boxed middleware type that can be sent across threads and is compatible with dynamic dispatch.
+/// Boxed middleware function type for dynamic middleware composition.
 pub type BoxMiddleware = Arc<dyn Fn(Request, Next) -> BoxFuture<'static, Response> + Send + Sync>;

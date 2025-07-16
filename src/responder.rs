@@ -1,5 +1,26 @@
-/// This module provides the `Responder` trait, which defines a common interface for converting various types into HTTP responses.
-/// It includes implementations for common types like `String`, `&'static str`, and `()`.
+//! Response generation utilities and trait implementations for HTTP responses.
+//!
+//! This module provides the core `Responder` trait that enables various types to be
+//! converted into HTTP responses. It includes implementations for common types like
+//! strings, status codes, and custom response types. The trait allows handlers to
+//! return different types that are automatically converted to proper HTTP responses.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::responder::Responder;
+//! use http::StatusCode;
+//!
+//! // String response
+//! let response = "Hello, World!".into_response();
+//!
+//! // Status code with body
+//! let response = (StatusCode::OK, "Success").into_response();
+//!
+//! // Empty response
+//! let response = ().into_response();
+//! ```
+
 use std::{convert::Infallible, fmt::Display};
 
 use bytes::Bytes;
@@ -8,41 +29,47 @@ use http_body_util::Full;
 
 use crate::body::TakoBody;
 
-/// The `Responder` trait defines a method for converting a type into an HTTP response.
+/// Trait for converting types into HTTP responses.
 ///
-/// Types implementing this trait can be used as return values in request handlers,
-/// allowing seamless conversion into `Response<TakoBody>`.
+/// This trait provides a unified interface for converting various types into
+/// `Response<TakoBody>` objects. It enables handlers to return different types
+/// that are automatically converted to proper HTTP responses, making the API
+/// more ergonomic and flexible.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use tako::responder::Responder;
 /// use tako::body::TakoBody;
-/// use hyper::Response;
+/// use http::Response;
 ///
-/// impl Responder for &'static str {
+/// // Custom implementation
+/// struct JsonResponse {
+///     data: String,
+/// }
+///
+/// impl Responder for JsonResponse {
 ///     fn into_response(self) -> Response<TakoBody> {
-///         Response::new(TakoBody::from(self))
+///         let mut response = Response::new(TakoBody::from(self.data));
+///         response.headers_mut().insert(
+///             "content-type",
+///             "application/json".parse().unwrap()
+///         );
+///         response
 ///     }
 /// }
 /// ```
 pub trait Responder {
+    /// Converts the implementing type into an HTTP response.
     fn into_response(self) -> Response<TakoBody>;
 }
 
-/// Implementation of the `Responder` trait for `Response<TakoBody>`.
-///
-/// This allows an existing `Response<TakoBody>` to be directly used as a response
-/// without any additional conversion.
 impl Responder for Response<TakoBody> {
     fn into_response(self) -> Response<TakoBody> {
         self
     }
 }
 
-/// Implementation of the `Responder` trait for `&'static str`.
-///
-/// This converts a static string slice into an HTTP response with a `text/plain` body.
 impl Responder for &'static str {
     fn into_response(self) -> Response<TakoBody> {
         Response::new(TakoBody::new(Full::from(Bytes::from_static(
@@ -51,27 +78,18 @@ impl Responder for &'static str {
     }
 }
 
-/// Implementation of the `Responder` trait for `String`.
-///
-/// This converts a `String` into an HTTP response with a `text/plain` body.
 impl Responder for String {
     fn into_response(self) -> Response<TakoBody> {
         Response::new(TakoBody::new(Full::from(Bytes::from(self))))
     }
 }
 
-/// Implementation of the `Responder` trait for `()`.
-///
-/// This creates an empty HTTP response with no body.
 impl Responder for () {
     fn into_response(self) -> Response<TakoBody> {
         Response::new(TakoBody::empty())
     }
 }
 
-/// Implementation of the `Responder` trait for `Infallible`.
-///
-/// Since `Infallible` cannot have any value, this implementation is unreachable.
 impl Responder for Infallible {
     fn into_response(self) -> Response<TakoBody> {
         match self {}
@@ -122,7 +140,9 @@ pub enum CompressionResponse<R>
 where
     R: Responder,
 {
+    /// Plain, uncompressed response.
     Plain(R),
+    /// Compressed or streaming response.
     Stream(R),
 }
 

@@ -1,7 +1,46 @@
-/// This module provides the `TakoWs` struct, which is used to handle WebSocket connections.
-///
-/// The `TakoWs` struct allows for the creation of WebSocket handlers that can process
-/// WebSocket streams and respond to WebSocket upgrade requests.
+//! WebSocket connection handling and message processing utilities.
+//!
+//! This module provides the `TakoWs` struct for handling WebSocket upgrade requests and
+//! processing WebSocket connections. It implements the WebSocket handshake protocol
+//! according to RFC 6455, manages connection upgrades, and provides a clean interface
+//! for handling WebSocket streams. The module integrates with Tako's responder system
+//! to enable seamless WebSocket support in web applications.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::ws::TakoWs;
+//! use tako::types::Request;
+//! use tako::body::TakoBody;
+//! use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+//! use hyper_util::rt::TokioIo;
+//! use futures_util::{StreamExt, SinkExt};
+//!
+//! async fn websocket_handler(mut ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
+//!     while let Some(msg) = ws.next().await {
+//!         match msg {
+//!             Ok(Message::Text(text)) => {
+//!                 println!("Received: {}", text);
+//!                 let _ = ws.send(Message::Text(format!("Echo: {}", text))).await;
+//!             }
+//!             Ok(Message::Close(_)) => break,
+//!             _ => {}
+//!         }
+//!     }
+//! }
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let request = Request::builder()
+//!     .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+//!     .header("upgrade", "websocket")
+//!     .header("connection", "upgrade")
+//!     .body(TakoBody::empty())?;
+//!
+//! let ws = TakoWs::new(request, websocket_handler);
+//! # Ok(())
+//! # }
+//! ```
+
 use crate::{
     body::TakoBody,
     responder::Responder,
@@ -16,34 +55,47 @@ use sha1::{Digest, Sha1};
 use std::future::Future;
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
-/// The `TakoWs` struct represents a WebSocket handler.
+/// WebSocket connection handler with upgrade protocol support.
 ///
-/// This struct is used to handle WebSocket upgrade requests and process WebSocket streams.
-///
-/// # Example
-///
-/// ```rust
-/// use tako::ws::TakoWs;
-/// use hyper::Request;
-/// use tokio_tungstenite::WebSocketStream;
-/// use hyper_util::rt::TokioIo;
-/// use futures_util::StreamExt;
-///
-/// async fn websocket_handler(ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
-///     let (mut write, mut read) = ws.split();
-///     while let Some(Ok(msg)) = read.next().await {
-///         // Process WebSocket messages here
-///     }
-/// }
-///
-/// let request: Request<_> = /* incoming request */;
-/// let ws_handler = TakoWs::new(request, websocket_handler);
-/// ```
+/// `TakoWs` manages the WebSocket handshake process and connection upgrade from HTTP
+/// to WebSocket protocol. It validates the WebSocket upgrade request, performs the
+/// RFC 6455 handshake, and spawns a task to handle the WebSocket connection using
+/// the provided handler function.
 ///
 /// # Type Parameters
 ///
-/// * `H` - The handler function type.
-/// * `Fut` - The future returned by the handler function.
+/// * `H` - Handler function type that processes the WebSocket connection
+/// * `Fut` - Future type returned by the handler function
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::ws::TakoWs;
+/// use tako::types::Request;
+/// use tako::body::TakoBody;
+/// use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
+/// use hyper_util::rt::TokioIo;
+/// use futures_util::{StreamExt, SinkExt};
+///
+/// async fn echo_handler(mut ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>) {
+///     while let Some(msg) = ws.next().await {
+///         if let Ok(Message::Text(text)) = msg {
+///             let _ = ws.send(Message::Text(format!("Echo: {}", text))).await;
+///         }
+///     }
+/// }
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let request = Request::builder()
+///     .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+///     .header("upgrade", "websocket")
+///     .header("connection", "upgrade")
+///     .body(TakoBody::empty())?;
+///
+/// let ws_handler = TakoWs::new(request, echo_handler);
+/// # Ok(())
+/// # }
+/// ```
 pub struct TakoWs<H, Fut>
 where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
@@ -58,16 +110,7 @@ where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    /// Creates a new `TakoWs` instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The incoming HTTP request to be upgraded to a WebSocket connection.
-    /// * `handler` - A function that processes the WebSocket stream.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `TakoWs`.
+    /// Creates a new WebSocket handler with the given request and handler function.
     pub fn new(request: Request, handler: H) -> Self {
         Self { request, handler }
     }
@@ -78,14 +121,7 @@ where
     H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    /// Converts the `TakoWs` instance into an HTTP response.
-    ///
-    /// This method handles the WebSocket upgrade request and spawns a task to process
-    /// the WebSocket stream using the provided handler.
-    ///
-    /// # Returns
-    ///
-    /// An HTTP response indicating the result of the WebSocket upgrade.
+    /// Converts the WebSocket handler into an HTTP response with upgrade protocol.
     fn into_response(self) -> Response {
         let (parts, body) = self.request.into_parts();
         let req = http::Request::from_parts(parts, body);

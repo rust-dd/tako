@@ -1,5 +1,34 @@
-/// This module provides the `Router` struct, which is responsible for managing routes,
-/// dispatching requests, and applying middleware in the Tako framework.
+//! HTTP request routing and dispatch functionality.
+//!
+//! This module provides the core `Router` struct that manages HTTP routes, middleware chains,
+//! and request dispatching. The router supports dynamic path parameters, middleware composition,
+//! plugin integration, and global state management. It handles matching incoming requests to
+//! registered routes and executing the appropriate handlers through middleware pipelines.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::{router::Router, Method, responder::Responder, types::Request};
+//!
+//! async fn hello(_req: Request) -> impl Responder {
+//!     "Hello, World!"
+//! }
+//!
+//! async fn user_handler(_req: Request) -> impl Responder {
+//!     "User profile"
+//! }
+//!
+//! let mut router = Router::new();
+//! router.route(Method::GET, "/", hello);
+//! router.route(Method::GET, "/users/{id}", user_handler);
+//!
+//! // Add global middleware
+//! router.middleware(|req, next| async move {
+//!     println!("Processing request to: {}", req.uri());
+//!     next.run(req).await
+//! });
+//! ```
+
 use std::sync::{Arc, RwLock};
 
 use dashmap::DashMap;
@@ -23,36 +52,46 @@ use crate::plugins::TakoPlugin;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
 
-/// The `Router` struct is responsible for managing the application's routes and middleware.
-/// It provides methods to define routes, apply middleware, and dispatch incoming requests.
+/// HTTP router for managing routes, middleware, and request dispatching.
 ///
-/// # Example
+/// The `Router` is the central component for routing HTTP requests to appropriate
+/// handlers. It supports dynamic path parameters, middleware chains, plugin integration,
+/// and global state management. Routes are matched based on HTTP method and path pattern,
+/// with support for trailing slash redirection and parameter extraction.
+///
+/// # Examples
 ///
 /// ```rust
-/// use tako::router::Router;
-/// use http::Method;
+/// use tako::{router::Router, Method, responder::Responder, types::Request};
+///
+/// async fn index(_req: Request) -> impl Responder {
+///     "Welcome to the home page!"
+/// }
+///
+/// async fn user_profile(_req: Request) -> impl Responder {
+///     "User profile page"
+/// }
 ///
 /// let mut router = Router::new();
-/// router.route(Method::GET, "/example", |req| async move {
-///     // Handle the request
-///     Ok(req)
-/// });
+/// router.route(Method::GET, "/", index);
+/// router.route(Method::GET, "/users/{id}", user_profile);
+/// router.state("app_name", "MyApp".to_string());
 /// ```
 pub struct Router {
+    /// Map of registered routes keyed by (method, path) pairs.
     routes: DashMap<(Method, String), Arc<Route>>,
+    /// Global middleware chain applied to all routes.
     middlewares: RwLock<Vec<BoxMiddleware>>,
+    /// Registered plugins for extending functionality.
     #[cfg(feature = "plugins")]
     plugins: Vec<Box<dyn TakoPlugin>>,
+    /// Flag to ensure plugins are initialized only once.
     #[cfg(feature = "plugins")]
     plugins_initialized: AtomicBool,
 }
 
 impl Router {
-    /// Creates a new, empty `Router`.
-    ///
-    /// # Returns
-    ///
-    /// A new instance of `Router` with no routes or middleware.
+    /// Creates a new, empty router.
     pub fn new() -> Self {
         Self {
             routes: DashMap::default(),
@@ -64,29 +103,29 @@ impl Router {
         }
     }
 
-    /// Adds a new route to the router.
+    /// Registers a new route with the router.
     ///
-    /// # Arguments
+    /// Associates an HTTP method and path pattern with a handler function. The path
+    /// can contain dynamic segments using curly braces (e.g., `/users/{id}`), which
+    /// are extracted as parameters during request processing.
     ///
-    /// * `method` - The HTTP method for the route (e.g., GET, POST).
-    /// * `path` - The path pattern for the route (e.g., "/example").
-    /// * `handler` - The handler function to process requests matching this route.
-    ///
-    /// # Returns
-    ///
-    /// An `Arc` pointing to the created `Route`.
-    ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
-    /// use tako::router::Router;
-    /// use http::Method;
+    /// use tako::{router::Router, Method, responder::Responder, types::Request};
+    ///
+    /// async fn get_user(_req: Request) -> impl Responder {
+    ///     "User details"
+    /// }
+    ///
+    /// async fn create_user(_req: Request) -> impl Responder {
+    ///     "User created"
+    /// }
     ///
     /// let mut router = Router::new();
-    /// router.route(Method::GET, "/example", |req| async move {
-    ///     // Handle the request
-    ///     Ok(req)
-    /// });
+    /// router.route(Method::GET, "/users/{id}", get_user);
+    /// router.route(Method::POST, "/users", create_user);
+    /// router.route(Method::GET, "/health", |_req| async { "OK" });
     /// ```
     pub fn route<H>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
     where
@@ -103,24 +142,29 @@ impl Router {
         route
     }
 
-    /// Adds a new route with Trailing Slash Redirection (TSR) enabled.
+    /// Registers a route with trailing slash redirection enabled.
     ///
-    /// TSR ensures that requests to paths with or without a trailing slash are redirected
-    /// to the canonical version of the path.
-    ///
-    /// # Arguments
-    ///
-    /// * `method` - The HTTP method for the route (e.g., GET, POST).
-    /// * `path` - The path pattern for the route (e.g., "/example").
-    /// * `handler` - The handler function to process requests matching this route.
-    ///
-    /// # Returns
-    ///
-    /// An `Arc` pointing to the created `Route`.
+    /// When TSR is enabled, requests to paths with or without trailing slashes
+    /// are automatically redirected to the canonical version. This helps maintain
+    /// consistent URLs and prevents duplicate content issues.
     ///
     /// # Panics
     ///
-    /// This method will panic if called with the root path ("/").
+    /// Panics if called with the root path ("/") since TSR is not applicable.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::{router::Router, Method, responder::Responder, types::Request};
+    ///
+    /// async fn api_handler(_req: Request) -> impl Responder {
+    ///     "API endpoint"
+    /// }
+    ///
+    /// let mut router = Router::new();
+    /// // Both "/api" and "/api/" will redirect to the canonical form
+    /// router.route_with_tsr(Method::GET, "/api", api_handler);
+    /// ```
     pub fn route_with_tsr<H>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
     where
         H: Handler + Clone + 'static,
@@ -141,22 +185,6 @@ impl Router {
     }
 
     /// Dispatches an incoming request to the appropriate route handler.
-    ///
-    /// This method matches the request's method and path against the defined routes.
-    /// If a matching route is found, its handler is invoked. Middleware is applied
-    /// in the order it was added.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - The incoming HTTP request.
-    ///
-    /// # Returns
-    ///
-    /// A `Response` generated by the matched route handler or middleware.
-    ///
-    /// If no matching route is found, a 404 response is returned. If TSR is enabled
-    /// for a route, a 307 redirect response is returned for paths with or without
-    /// a trailing slash.
     pub async fn dispatch(&self, mut req: Request) -> Response {
         let method = req.method();
         let path = req.uri().path();
@@ -207,48 +235,62 @@ impl Router {
             .unwrap()
     }
 
-    /// Adds a global state value to the router.
+    /// Adds a value to the global state accessible by all handlers.
     ///
-    /// This method allows you to store shared state that can be accessed by handlers
-    /// and middleware.
+    /// Global state allows sharing data across different routes and middleware.
+    /// Values are stored by string keys and can be retrieved in handlers using
+    /// the state extraction functionality.
     ///
-    /// # Arguments
-    ///
-    /// * `key` - A unique key to identify the state value.
-    /// * `value` - The state value to store.
-    ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use tako::router::Router;
     ///
+    /// #[derive(Clone)]
+    /// struct AppConfig {
+    ///     database_url: String,
+    ///     api_key: String,
+    /// }
+    ///
     /// let mut router = Router::new();
-    /// router.state("config", "example_value".to_string());
+    /// router.state("config", AppConfig {
+    ///     database_url: "postgresql://localhost/mydb".to_string(),
+    ///     api_key: "secret-key".to_string(),
+    /// });
+    /// router.state("version", "1.0.0".to_string());
     /// ```
     pub fn state<T: Clone + Send + Sync + 'static>(&mut self, key: &str, value: T) {
         set_state(key, value);
     }
 
-    /// Adds a middleware function to the router.
+    /// Adds global middleware to the router.
     ///
-    /// Middleware functions are executed in the order they are added, and they can
-    /// modify or reject requests before they reach the route handler.
+    /// Global middleware is executed for all routes in the order it was added,
+    /// before any route-specific middleware. Middleware can modify requests,
+    /// generate responses, or perform side effects like logging or authentication.
     ///
-    /// # Arguments
-    ///
-    /// * `f` - A middleware function that takes a `Request` and returns a `Future`
-    ///         resolving to either a modified `Request` or a `Response`.
-    ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
-    /// use tako::router::Router;
-    /// use anyhow::Result;
+    /// use tako::{router::Router, middleware::Next, types::Request};
     ///
     /// let mut router = Router::new();
-    /// router.middleware(|req| async move {
-    ///     println!("Incoming request: {:?}", req);
-    ///     Ok(req)
+    ///
+    /// // Logging middleware
+    /// router.middleware(|req, next| async move {
+    ///     println!("Request: {} {}", req.method(), req.uri());
+    ///     let response = next.run(req).await;
+    ///     println!("Response: {}", response.status());
+    ///     response
+    /// });
+    ///
+    /// // Authentication middleware
+    /// router.middleware(|req, next| async move {
+    ///     if req.headers().contains_key("authorization") {
+    ///         next.run(req).await
+    ///     } else {
+    ///         "Unauthorized".into_response()
+    ///     }
     /// });
     /// ```
     pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
@@ -266,18 +308,41 @@ impl Router {
         self
     }
 
-    /// Adds a plugin to the router.
+    /// Registers a plugin with the router.
     ///
-    /// Plugins extend the functionality of the router by providing additional features
-    /// such as logging, metrics, or custom behavior.
+    /// Plugins extend the router's functionality by providing additional features
+    /// like compression, CORS handling, rate limiting, or custom behavior. Plugins
+    /// are initialized once when the server starts.
     ///
-    /// # Arguments
+    /// # Examples
     ///
-    /// * `plugin` - The plugin to add, which must implement the `TakoPlugin` trait.
+    /// ```rust
+    /// # #[cfg(feature = "plugins")]
+    /// use tako::{router::Router, plugins::TakoPlugin};
+    /// # #[cfg(feature = "plugins")]
+    /// use anyhow::Result;
     ///
-    /// # Returns
+    /// # #[cfg(feature = "plugins")]
+    /// struct LoggingPlugin;
     ///
-    /// A mutable reference to the `Router` for method chaining.
+    /// # #[cfg(feature = "plugins")]
+    /// impl TakoPlugin for LoggingPlugin {
+    ///     fn name(&self) -> &'static str {
+    ///         "logging"
+    ///     }
+    ///
+    ///     fn setup(&self, _router: &Router) -> Result<()> {
+    ///         println!("Logging plugin initialized");
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// # #[cfg(feature = "plugins")]
+    /// # fn example() {
+    /// let mut router = Router::new();
+    /// router.plugin(LoggingPlugin);
+    /// # }
+    /// ```
     #[cfg(feature = "plugins")]
     pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
     where
@@ -287,25 +352,13 @@ impl Router {
         self
     }
 
-    /// Retrieves all plugins added to the router.
-    ///
-    /// This method returns a vector of references to the plugins currently added to the router.
-    ///
-    /// # Returns
-    ///
-    /// A vector of references to the plugins.
-    /// Retrieves all plugins added to the router.
-    ///
-    /// This method returns a vector of references to the plugins currently added to the router.
-    ///
-    /// # Returns
-    ///
-    /// A vector of references to the plugins.
+    /// Returns references to all registered plugins.
     #[cfg(feature = "plugins")]
     pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
         self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
     }
 
+    /// Initializes all registered plugins exactly once.
     #[cfg(feature = "plugins")]
     pub(crate) fn setup_plugins_once(&self) {
         use std::sync::atomic::Ordering;
@@ -317,40 +370,37 @@ impl Router {
         }
     }
 
-    /// Merges another `Router` into the current `Router`.
+    /// Merges another router into this router.
     ///
-    /// This method combines the routes and middlewares of the provided `Router`
-    /// into the current `Router`. Routes from the other `Router` are added to
-    /// the current one, and its middlewares are prepended to the route-level
-    /// middlewares of the merged routes.
+    /// This method combines routes and middleware from another router into the
+    /// current one. Routes are copied over, and the other router's global middleware
+    /// is prepended to each merged route's middleware chain.
     ///
-    /// # Arguments
-    ///
-    /// * `other` - The `Router` instance to merge into the current `Router`.
-    ///
-    /// # Behavior
-    ///
-    /// - Routes from the `other` router are added to the current router.
-    /// - Middlewares defined at the router level in the `other` router are
-    ///   prepended to the route-level middlewares of the merged routes.
-    ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
-    /// use tako::router::Router;
-    /// use http::Method;
+    /// use tako::{router::Router, Method, responder::Responder, types::Request};
     ///
-    /// let mut router1 = Router::new();
-    /// router1.route(Method::GET, "/example1", |req| async move {
-    ///     Ok(req)
+    /// async fn api_handler(_req: Request) -> impl Responder {
+    ///     "API response"
+    /// }
+    ///
+    /// async fn web_handler(_req: Request) -> impl Responder {
+    ///     "Web response"
+    /// }
+    ///
+    /// // Create API router
+    /// let mut api_router = Router::new();
+    /// api_router.route(Method::GET, "/users", api_handler);
+    /// api_router.middleware(|req, next| async move {
+    ///     println!("API middleware");
+    ///     next.run(req).await
     /// });
     ///
-    /// let mut router2 = Router::new();
-    /// router2.route(Method::POST, "/example2", |req| async move {
-    ///     Ok(req)
-    /// });
-    ///
-    /// router1.merge(router2);
+    /// // Create main router and merge API router
+    /// let mut main_router = Router::new();
+    /// main_router.route(Method::GET, "/", web_handler);
+    /// main_router.merge(api_router);
     /// ```
     pub fn merge(&mut self, other: Router) {
         other.routes.iter_mut().for_each(|mut entry| {

@@ -1,5 +1,35 @@
 #![cfg(feature = "zstd")]
 
+//! Zstandard compression streaming utilities for high-performance HTTP response compression.
+//!
+//! This module provides streaming Zstandard (zstd) compression for HTTP response bodies,
+//! offering excellent compression ratios with fast decompression speeds. Zstandard is
+//! particularly well-suited for modern web applications that require both high compression
+//! efficiency and low latency. The streaming implementation enables memory-efficient
+//! compression of large responses without buffering entire content in memory.
+//!
+//! # Examples
+//!
+//! ```rust
+//! # #[cfg(feature = "zstd")]
+//! use tako::plugins::compression::zstd_stream::stream_zstd;
+//! # #[cfg(feature = "zstd")]
+//! use http_body_util::Full;
+//! # #[cfg(feature = "zstd")]
+//! use bytes::Bytes;
+//!
+//! # #[cfg(feature = "zstd")]
+//! # fn example() {
+//! // Compress a response body with Zstandard level 3
+//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let compressed = stream_zstd(body, 3);
+//!
+//! // High compression for static assets
+//! let static_content = Full::from(Bytes::from("Large static file content..."));
+//! let high_compressed = stream_zstd(static_content, 19);
+//! # }
+//! ```
+
 use std::{
     io::Write,
     pin::Pin,
@@ -15,16 +45,7 @@ use zstd::stream::Encoder;
 
 use crate::{body::TakoBody, types::BoxError};
 
-/// Compresses an HTTP body stream using Zstandard compression.
-///
-/// # Arguments
-///
-/// * `body` - The HTTP body stream to compress.
-/// * `level` - The compression level to use (higher values mean better compression but slower performance).
-///
-/// # Returns
-///
-/// A `TakoBody` containing the compressed stream.
+/// Compresses an HTTP body stream using Zstandard compression algorithm.
 pub fn stream_zstd<B>(body: B, level: i32) -> TakoBody
 where
     B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -35,15 +56,7 @@ where
 }
 
 pin_project! {
-    /// A stream that compresses data using Zstandard compression.
-    ///
-    /// This struct wraps an inner stream and compresses its output using the Zstandard algorithm.
-    /// It maintains an internal buffer to store compressed data and handles streaming compression
-    /// efficiently.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `S` - The type of the inner stream, which must implement `Stream` with `Item = Result<Bytes, BoxError>`.
+    /// Streaming Zstandard compressor that wraps an inner data stream.
     pub struct ZstdStream<S> {
         #[pin] inner: S,
         encoder: Option<Encoder<'static, Vec<u8>>>,
@@ -54,16 +67,7 @@ pin_project! {
 }
 
 impl<S> ZstdStream<S> {
-    /// Creates a new `ZstdStream` with the specified compression level.
-    ///
-    /// # Arguments
-    ///
-    /// * `stream` - The inner stream to compress.
-    /// * `level` - The compression level to use (higher values mean better compression but slower performance).
-    ///
-    /// # Returns
-    ///
-    /// A new `ZstdStream` instance.
+    /// Creates a new Zstandard compression stream with the specified compression level.
     fn new(stream: S, level: i32) -> Self {
         Self {
             inner: stream,
@@ -81,6 +85,7 @@ where
 {
     type Item = Result<Bytes, BoxError>;
 
+    /// Polls the stream for the next compressed data chunk.
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 

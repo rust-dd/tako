@@ -1,4 +1,28 @@
-/// This module provides the `HeaderMap` extractor, which is used to extract the headers of a request.
+//! Header extraction from HTTP requests.
+//!
+//! This module provides the [`HeaderMap`] extractor for accessing HTTP headers from
+//! incoming requests. It wraps a reference to the headers, allowing efficient access
+//! to header values without copying the underlying data.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::header_map::HeaderMap;
+//! use tako::types::Request;
+//!
+//! async fn handle_headers(HeaderMap(headers): HeaderMap<'_>) {
+//!     // Check for specific headers
+//!     if let Some(user_agent) = headers.get("user-agent") {
+//!         println!("User-Agent: {:?}", user_agent);
+//!     }
+//!
+//!     // Iterate over all headers
+//!     for (name, value) in headers.iter() {
+//!         println!("{}: {:?}", name, value);
+//!     }
+//! }
+//! ```
+
 use http::request::Parts;
 use std::{convert::Infallible, future::ready};
 
@@ -7,18 +31,30 @@ use crate::{
     types::Request,
 };
 
-/// The `HeaderMap` struct is an extractor that wraps a reference to the headers of a request.
+/// Header map extractor that provides access to HTTP request headers.
 ///
-/// # Example
+/// This extractor wraps a reference to the headers of a request, providing
+/// efficient access to header values without copying the underlying data.
+/// It can be used to inspect, validate, or extract information from HTTP headers.
+///
+/// # Examples
 ///
 /// ```rust
 /// use tako::extractors::header_map::HeaderMap;
 /// use tako::types::Request;
 ///
-/// async fn handle_request(mut req: Request) -> anyhow::Result<()> {
-///     let headers = HeaderMap::from_request(&mut req).await?;
-///     // Use the extracted headers here
-///     Ok(())
+/// async fn handler(HeaderMap(headers): HeaderMap<'_>) {
+///     // Get authorization header
+///     if let Some(auth) = headers.get("authorization") {
+///         if let Ok(auth_str) = auth.to_str() {
+///             println!("Authorization: {}", auth_str);
+///         }
+///     }
+///
+///     // Check content type
+///     if let Some(content_type) = headers.get("content-type") {
+///         println!("Content-Type: {:?}", content_type);
+///     }
 /// }
 /// ```
 pub struct HeaderMap<'a>(pub &'a hyper::HeaderMap);

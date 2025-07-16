@@ -1,3 +1,32 @@
+//! Static file serving utilities for web applications.
+//!
+//! This module provides functionality for serving static files and directories over HTTP.
+//! It includes `ServeDir` for serving entire directories with optional fallback files,
+//! and `ServeFile` for serving individual files. Both support automatic MIME type
+//! detection, security path validation, and builder patterns for configuration.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::r#static::{ServeDir, ServeFile};
+//! use tako::types::Request;
+//! use tako::body::TakoBody;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Serve a directory with fallback
+//! let serve_dir = ServeDir::builder("./public")
+//!     .fallback("./public/index.html")
+//!     .build();
+//!
+//! // Serve a single file
+//! let serve_file = ServeFile::builder("./assets/logo.png").build();
+//!
+//! let request = Request::builder().body(TakoBody::empty())?;
+//! let _response = serve_dir.handle(request).await;
+//! # Ok(())
+//! # }
+//! ```
+
 use std::path::{Path, PathBuf};
 
 use http::StatusCode;
@@ -9,30 +38,20 @@ use crate::{
     types::{Request, Response},
 };
 
-/// A struct representing a directory to serve static files from.
-///
-/// `ServeDir` allows serving files from a base directory and optionally
-/// falling back to a specific file if the requested file is not found.
+/// Static directory server with configurable fallback handling.
 pub struct ServeDir {
     base_dir: PathBuf,
     fallback: Option<PathBuf>,
 }
 
-/// A builder for creating a `ServeDir` instance.
-///
-/// This struct provides a fluent API to configure the base directory
-/// and an optional fallback file for the `ServeDir`.
+/// Builder for configuring a `ServeDir` instance.
 pub struct ServeDirBuilder {
     base_dir: PathBuf,
     fallback: Option<PathBuf>,
 }
 
 impl ServeDirBuilder {
-    /// Creates a new `ServeDirBuilder` with the specified base directory.
-    ///
-    /// # Arguments
-    ///
-    /// * `base_dir` - The base directory to serve files from.
+    /// Creates a new builder with the specified base directory.
     pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
         Self {
             base_dir: base_dir.into(),
@@ -40,17 +59,13 @@ impl ServeDirBuilder {
         }
     }
 
-    /// Sets a fallback file to serve when a requested file is not found.
-    ///
-    /// # Arguments
-    ///
-    /// * `fallback` - The path to the fallback file.
+    /// Sets a fallback file to serve when requested files are not found.
     pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
         self.fallback = Some(fallback.into());
         self
     }
 
-    /// Builds and returns a `ServeDir` instance with the configured options.
+    /// Builds and returns the configured `ServeDir` instance.
     pub fn build(self) -> ServeDir {
         ServeDir {
             base_dir: self.base_dir,
@@ -60,27 +75,12 @@ impl ServeDirBuilder {
 }
 
 impl ServeDir {
-    /// Creates a new `ServeDirBuilder` for configuring a `ServeDir`.
-    ///
-    /// # Arguments
-    ///
-    /// * `base_dir` - The base directory to serve files from.
+    /// Creates a new builder for configuring a `ServeDir`.
     pub fn builder<P: Into<PathBuf>>(base_dir: P) -> ServeDirBuilder {
         ServeDirBuilder::new(base_dir)
     }
 
-    /// Sanitizes the requested path to ensure it is within the base directory.
-    ///
-    /// This function resolves the requested path relative to the base directory
-    /// and ensures it does not escape the base directory.
-    ///
-    /// # Arguments
-    ///
-    /// * `req_path` - The requested file path from the HTTP request.
-    ///
-    /// # Returns
-    ///
-    /// An optional `PathBuf` representing the sanitized path.
+    /// Sanitizes the requested path to prevent directory traversal attacks.
     fn sanitize_path(&self, req_path: &str) -> Option<PathBuf> {
         let rel_path = req_path.trim_start_matches('/');
         let joined = self.base_dir.join(rel_path);
@@ -92,18 +92,7 @@ impl ServeDir {
         }
     }
 
-    /// Serves a file from the given path.
-    ///
-    /// This function reads the file contents and constructs an HTTP response
-    /// with the appropriate MIME type.
-    ///
-    /// # Arguments
-    ///
-    /// * `file_path` - The path to the file to be served.
-    ///
-    /// # Returns
-    ///
-    /// An optional `Response` containing the file contents.
+    /// Serves a file from the given path with appropriate MIME type.
     async fn serve_file(&self, file_path: &Path) -> Option<Response> {
         match fs::read(file_path).await {
             Ok(contents) => {
@@ -120,18 +109,7 @@ impl ServeDir {
         }
     }
 
-    /// Handles an HTTP request to serve a static file.
-    ///
-    /// This function attempts to serve the requested file. If the file is not found,
-    /// it optionally serves a fallback file or returns a 404 response.
-    ///
-    /// # Arguments
-    ///
-    /// * `req` - The HTTP request object.
-    ///
-    /// # Returns
-    ///
-    /// A response object implementing the `Responder` trait.
+    /// Handles an HTTP request to serve a static file from the directory.
     pub async fn handle(&self, req: Request) -> impl Responder {
         let path = req.uri().path();
 
@@ -154,54 +132,35 @@ impl ServeDir {
     }
 }
 
-/// A struct representing a single static file to be served.
-///
-/// `ServeFile` is used to serve a specific file in response to HTTP requests.
+/// Static file server for serving individual files.
 pub struct ServeFile {
     path: PathBuf,
 }
 
-/// A builder for creating a `ServeFile` instance.
-///
-/// This struct provides a fluent API to configure the file to be served.
+/// Builder for configuring a `ServeFile` instance.
 pub struct ServeFileBuilder {
     path: PathBuf,
 }
 
 impl ServeFileBuilder {
-    /// Creates a new `ServeFileBuilder` with the specified file path.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to the file to be served.
+    /// Creates a new builder with the specified file path.
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         Self { path: path.into() }
     }
 
-    /// Builds and returns a `ServeFile` instance with the configured file path.
+    /// Builds and returns the configured `ServeFile` instance.
     pub fn build(self) -> ServeFile {
         ServeFile { path: self.path }
     }
 }
 
 impl ServeFile {
-    /// Creates a new `ServeFileBuilder` for configuring a `ServeFile`.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to the file to be served.
+    /// Creates a new builder for configuring a `ServeFile`.
     pub fn builder<P: Into<PathBuf>>(path: P) -> ServeFileBuilder {
         ServeFileBuilder::new(path)
     }
 
-    /// Serves the configured file.
-    ///
-    /// This function reads the file contents and constructs an HTTP response
-    /// with the appropriate MIME type.
-    ///
-    /// # Returns
-    ///
-    /// An optional `Response` containing the file contents.
+    /// Serves the configured file with appropriate MIME type.
     async fn serve_file(&self) -> Option<Response> {
         match fs::read(&self.path).await {
             Ok(contents) => {
@@ -219,17 +178,6 @@ impl ServeFile {
     }
 
     /// Handles an HTTP request to serve the configured static file.
-    ///
-    /// This function serves the file if it exists, or returns a 404 response
-    /// if the file is not found.
-    ///
-    /// # Arguments
-    ///
-    /// * `_req` - The HTTP request object (unused in this implementation).
-    ///
-    /// # Returns
-    ///
-    /// A response object implementing the `Responder` trait.
     pub async fn handle(&self, _req: Request) -> impl Responder {
         if let Some(resp) = self.serve_file().await {
             resp

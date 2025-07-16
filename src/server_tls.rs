@@ -1,7 +1,35 @@
 #![cfg(feature = "tls")]
 
-/// This module provides functionality for serving Tako applications over TLS.
-/// It includes methods for setting up a TLS server and handling secure connections.
+//! TLS-enabled HTTP server implementation for secure connections.
+//!
+//! This module provides TLS/SSL support for Tako web servers using rustls for encryption.
+//! It handles secure connection establishment, certificate loading, and supports both
+//! HTTP/1.1 and HTTP/2 protocols (when the http2 feature is enabled). The main entry
+//! point is `serve_tls` which starts a secure server with the provided certificates.
+//!
+//! # Examples
+//!
+//! ```rust,no_run
+//! # #[cfg(feature = "tls")]
+//! use tako::{serve_tls, router::Router, Method, responder::Responder, types::Request};
+//! # #[cfg(feature = "tls")]
+//! use tokio::net::TcpListener;
+//!
+//! # #[cfg(feature = "tls")]
+//! async fn hello(_: Request) -> impl Responder {
+//!     "Hello, Secure World!".into_response()
+//! }
+//!
+//! # #[cfg(feature = "tls")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let listener = TcpListener::bind("127.0.0.1:8443").await?;
+//! let mut router = Router::new();
+//! router.route(Method::GET, "/", hello);
+//! serve_tls(listener, router, Some("cert.pem"), Some("key.pem")).await;
+//! # Ok(())
+//! # }
+//! ```
+
 use hyper::{
     Request,
     server::conn::{http1, http2},
@@ -16,16 +44,7 @@ use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
 use crate::{router::Router, types::BoxError};
 
-/// Starts a TLS server using the provided `TcpListener` and `Router`.
-///
-/// # Arguments
-///
-/// * `listener` - A `TcpListener` that listens for incoming connections.
-/// * `router` - The `Router` instance that handles routing and request dispatch.
-///
-/// # Panics
-///
-/// This function will panic if the server encounters an unrecoverable error.
+/// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
     listener: TcpListener,
     router: Router,
@@ -35,20 +54,7 @@ pub async fn serve_tls(
     run(listener, router, certs, key).await.unwrap();
 }
 
-/// Runs the TLS server, accepting connections and dispatching requests.
-///
-/// # Arguments
-///
-/// * `listener` - A `TcpListener` that listens for incoming connections.
-/// * `router` - The `Router` instance that handles routing and request dispatch.
-///
-/// # Returns
-///
-/// A `Result` indicating success or failure.
-///
-/// # Errors
-///
-/// Returns an error if the server fails to accept connections or handle requests.
+/// Runs the TLS server loop, handling secure connections and request dispatch.
 pub async fn run(
     listener: TcpListener,
     router: Router,
@@ -131,37 +137,63 @@ pub async fn run(
     }
 }
 
-/// Loads TLS certificates from the specified file path.
+/// Loads TLS certificates from a PEM-encoded file.
+///
+/// Reads and parses X.509 certificates from the specified file path. The file
+/// should contain one or more PEM-encoded certificates.
 ///
 /// # Arguments
 ///
-/// * `path` - The file path to the certificate file.
-///
-/// # Returns
-///
-/// A vector of `CertificateDer` objects representing the loaded certificates.
+/// * `path` - File system path to the certificate file
 ///
 /// # Panics
 ///
-/// This function will panic if the file cannot be opened or the certificates are invalid.
+/// Panics if the file cannot be opened, read, or if the certificates are
+/// malformed or invalid.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "tls")]
+/// use tako::server_tls::load_certs;
+///
+/// # #[cfg(feature = "tls")]
+/// # fn example() {
+/// let certs = load_certs("server.crt");
+/// println!("Loaded {} certificates", certs.len());
+/// # }
+/// ```
 fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
     let mut rd = BufReader::new(File::open(path).unwrap());
     certs(&mut rd).map(|r| r.expect("bad cert")).collect()
 }
 
-/// Loads a private key from the specified file path.
+/// Loads a private key from a PEM-encoded file.
+///
+/// Reads and parses a PKCS#8 private key from the specified file path. The file
+/// should contain a single PEM-encoded private key.
 ///
 /// # Arguments
 ///
-/// * `path` - The file path to the private key file.
-///
-/// # Returns
-///
-/// A `PrivateKeyDer` object representing the loaded private key.
+/// * `path` - File system path to the private key file
 ///
 /// # Panics
 ///
-/// This function will panic if the file cannot be opened or the private key is invalid.
+/// Panics if the file cannot be opened, read, if no private key is found,
+/// or if the private key is malformed or invalid.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "tls")]
+/// use tako::server_tls::load_key;
+///
+/// # #[cfg(feature = "tls")]
+/// # fn example() {
+/// let key = load_key("server.key");
+/// println!("Loaded private key successfully");
+/// # }
+/// ```
 fn load_key(path: &str) -> PrivateKeyDer<'static> {
     let mut rd = BufReader::new(File::open(path).unwrap());
     pkcs8_private_keys(&mut rd)

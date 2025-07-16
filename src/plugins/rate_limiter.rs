@@ -1,25 +1,38 @@
-/// The `RateLimiterPlugin` provides rate-limiting functionality for the Tako framework.
-/// It uses a token bucket algorithm to control the rate of requests from individual IP addresses.
-///
-/// # Configuration
-/// The plugin can be configured using the `RateLimiterBuilder`:
-/// - `burst_size`: Maximum number of tokens (requests) that can be accumulated in the bucket.
-/// - `per_second`: Rate at which tokens are added to the bucket per second.
-/// - `tick_secs`: Interval (in seconds) at which tokens are replenished.
-/// - `status_on_limit`: HTTP status code returned when the rate limit is exceeded.
-///
-/// # Example
-/// ```rust
-/// use tako::plugins::rate_limiter::RateLimiterBuilder;
-///
-/// let rate_limiter = RateLimiterBuilder::new()
-///     .burst_size(100)
-///     .per_second(50)
-///     .status(http::StatusCode::TOO_MANY_REQUESTS)
-///     .build();
-///
-/// router.plugin(rate_limiter);
-/// ```
+//! Rate limiting plugin using token bucket algorithm for controlling request frequency.
+//!
+//! This module provides rate limiting functionality to protect Tako applications from abuse
+//! and ensure fair resource usage. It implements a token bucket algorithm with per-IP tracking,
+//! configurable burst sizes, and automatic token replenishment. The plugin maintains state
+//! using a concurrent hash map and spawns a background task for token replenishment and
+//! cleanup of inactive buckets.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::plugins::rate_limiter::{RateLimiterPlugin, RateLimiterBuilder};
+//! use tako::plugins::TakoPlugin;
+//! use tako::router::Router;
+//! use http::StatusCode;
+//!
+//! // Basic rate limiting setup
+//! let rate_limiter = RateLimiterBuilder::new()
+//!     .burst_size(100)
+//!     .per_second(50)
+//!     .build();
+//!
+//! let mut router = Router::new();
+//! router.plugin(rate_limiter);
+//!
+//! // Custom rate limiting for API endpoints
+//! let api_limiter = RateLimiterBuilder::new()
+//!     .burst_size(1000)
+//!     .per_second(100)
+//!     .tick_secs(1)
+//!     .status(StatusCode::TOO_MANY_REQUESTS)
+//!     .build();
+//! router.plugin(api_limiter);
+//! ```
+
 use std::{
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -36,20 +49,40 @@ use crate::{
     types::Request,
 };
 
-/// Configuration for the `RateLimiterPlugin`.
+/// Rate limiter configuration using token bucket algorithm parameters.
 ///
-/// - `burst_size`: Maximum number of tokens (requests) that can be accumulated in the bucket.
-/// - `per_second`: Rate at which tokens are added to the bucket per second.
-/// - `tick_secs`: Interval (in seconds) at which tokens are replenished.
-/// - `status_on_limit`: HTTP status code returned when the rate limit is exceeded.
+/// `Config` defines the behavior of the token bucket rate limiter including the maximum
+/// burst capacity, token replenishment rate, update frequency, and HTTP status code for
+/// rate limit violations. The token bucket allows for burst traffic up to the bucket
+/// capacity while maintaining an average rate over time.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::plugins::rate_limiter::Config;
+/// use http::StatusCode;
+///
+/// let config = Config {
+///     burst_size: 200,
+///     per_second: 100,
+///     tick_secs: 1,
+///     status_on_limit: StatusCode::TOO_MANY_REQUESTS,
+/// };
+/// ```
 #[derive(Clone)]
 pub struct Config {
+    /// Maximum number of tokens (requests) that can be accumulated in the bucket.
     pub burst_size: u32,
+    /// Rate at which tokens are added to the bucket per second.
     pub per_second: u32,
+    /// Interval in seconds at which tokens are replenished.
     pub tick_secs: u64,
+    /// HTTP status code returned when the rate limit is exceeded.
     pub status_on_limit: StatusCode,
 }
+
 impl Default for Config {
+    /// Provides sensible default rate limiting configuration.
     fn default() -> Self {
         Self {
             burst_size: 60,
@@ -60,36 +93,66 @@ impl Default for Config {
     }
 }
 
-/// Builder for the `RateLimiterPlugin`.
+/// Builder for configuring rate limiter settings with a fluent API.
 ///
-/// Provides a fluent API to configure and create an instance of the rate limiter.
+/// `RateLimiterBuilder` provides a convenient way to construct rate limiter configurations
+/// using method chaining. It starts with sensible defaults and allows customization of
+/// burst capacity, rate limits, timing intervals, and response status codes for rate
+/// limit violations.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::plugins::rate_limiter::RateLimiterBuilder;
+/// use http::StatusCode;
+///
+/// // High-traffic API configuration
+/// let api_limiter = RateLimiterBuilder::new()
+///     .burst_size(1000)
+///     .per_second(500)
+///     .tick_secs(1)
+///     .status(StatusCode::TOO_MANY_REQUESTS)
+///     .build();
+///
+/// // Conservative rate limiting
+/// let conservative = RateLimiterBuilder::new()
+///     .burst_size(10)
+///     .per_second(5)
+///     .build();
+/// ```
 pub struct RateLimiterBuilder(Config);
 
 impl RateLimiterBuilder {
+    /// Creates a new rate limiter configuration builder with default settings.
     pub fn new() -> Self {
         Self(Config::default())
     }
 
+    /// Sets the maximum burst size for the token bucket.
     pub fn burst_size(mut self, n: u32) -> Self {
         self.0.burst_size = n;
         self
     }
 
+    /// Sets the token replenishment rate per second.
     pub fn per_second(mut self, n: u32) -> Self {
         self.0.per_second = n;
         self
     }
 
+    /// Sets the token replenishment interval in seconds.
     pub fn tick_secs(mut self, s: u64) -> Self {
         self.0.tick_secs = s.max(1);
         self
     }
 
+    /// Sets the HTTP status code returned when rate limits are exceeded.
     pub fn status(mut self, st: StatusCode) -> Self {
         self.0.status_on_limit = st;
         self
     }
 
+    /// Builds the rate limiter plugin with the configured settings.
     pub fn build(self) -> RateLimiterPlugin {
         RateLimiterPlugin {
             cfg: self.0,
@@ -98,34 +161,73 @@ impl RateLimiterBuilder {
     }
 }
 
-/// Represents a token bucket for rate limiting.
+/// Token bucket for tracking request allowance per IP address.
 ///
-/// - `tokens`: The current number of tokens available.
-/// - `last_seen`: The last time the bucket was accessed.
-/// The `RateLimiterPlugin` implements the `TakoPlugin` trait and provides rate-limiting functionality.
+/// `Bucket` represents the state of a single token bucket including the current
+/// token count and last access time. The bucket is used to implement the token
+/// bucket algorithm for rate limiting individual IP addresses.
 ///
-/// It maintains a `DashMap` to store token buckets for each IP address and enforces rate limits
-/// based on the configured parameters.
+/// # Examples
+///
+/// ```rust
+/// use std::time::Instant;
+///
+/// # struct Bucket {
+/// #     tokens: f64,
+/// #     last_seen: Instant,
+/// # }
+/// let bucket = Bucket {
+///     tokens: 60.0,
+///     last_seen: Instant::now(),
+/// };
+/// ```
 #[derive(Clone)]
 struct Bucket {
+    /// Current number of tokens available for requests.
     tokens: f64,
+    /// Last time this bucket was accessed for cleanup purposes.
     last_seen: Instant,
 }
 
+/// Rate limiting plugin implementing token bucket algorithm with per-IP tracking.
+///
+/// `RateLimiterPlugin` provides comprehensive rate limiting functionality using a token
+/// bucket algorithm. It maintains per-IP state in a concurrent hash map, spawns a
+/// background task for token replenishment and cleanup, and integrates with Tako's
+/// middleware system to enforce rate limits on incoming requests.
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::plugins::rate_limiter::{RateLimiterPlugin, RateLimiterBuilder};
+/// use tako::plugins::TakoPlugin;
+/// use tako::router::Router;
+///
+/// // Create and configure rate limiter
+/// let limiter = RateLimiterBuilder::new()
+///     .burst_size(100)
+///     .per_second(50)
+///     .build();
+///
+/// // Apply to router
+/// let mut router = Router::new();
+/// router.plugin(limiter);
+/// ```
 #[derive(Clone)]
 pub struct RateLimiterPlugin {
+    /// Rate limiting configuration parameters.
     cfg: Config,
+    /// Concurrent map storing token buckets for each IP address.
     store: Arc<DashMap<IpAddr, Bucket>>,
 }
 
 impl TakoPlugin for RateLimiterPlugin {
-    /// Returns the name of the plugin: `"RateLimiterPlugin"`.
+    /// Returns the plugin name for identification and debugging.
     fn name(&self) -> &'static str {
         "RateLimiterPlugin"
     }
 
-    /// Sets up the rate limiter by attaching middleware to the router and spawning a background task
-    /// to replenish tokens and purge inactive buckets.
+    /// Sets up the rate limiter by registering middleware and starting background tasks.
     fn setup(&self, router: &Router) -> Result<()> {
         let cfg = self.cfg.clone();
         let store = self.store.clone();
@@ -157,10 +259,30 @@ impl TakoPlugin for RateLimiterPlugin {
     }
 }
 
-/// Middleware function to enforce rate limiting.
+/// Middleware function that enforces rate limiting using token bucket algorithm.
 ///
-/// Checks if the IP address has sufficient tokens to process the request.
-/// If tokens are available, the request is allowed; otherwise, it is rejected with the configured status code.
+/// This function extracts the client IP address from the request, checks if sufficient
+/// tokens are available in their bucket, and either allows the request to proceed or
+/// returns a rate limit error response. It updates bucket state atomically and handles
+/// new clients by creating buckets with full token capacity.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::plugins::rate_limiter::{retain, Config};
+/// use tako::middleware::Next;
+/// use tako::types::Request;
+/// use std::sync::Arc;
+/// use dashmap::DashMap;
+///
+/// # async fn example() {
+/// # let req = Request::builder().body(tako::body::TakoBody::empty()).unwrap();
+/// # let next = Next { middlewares: Arc::new(vec![]), endpoint: Arc::new(|_| Box::pin(async { tako::types::Response::new(tako::body::TakoBody::empty()) })) };
+/// let config = Config::default();
+/// let store = Arc::new(DashMap::new());
+/// let response = retain(req, next, config, store).await;
+/// # }
+/// ```
 async fn retain(
     req: Request,
     next: Next,

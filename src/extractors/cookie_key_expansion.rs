@@ -1,3 +1,26 @@
+//! Key derivation and expansion for secure cookie operations.
+//!
+//! This module provides functionality for deriving purpose-specific cryptographic keys
+//! from a master key using HKDF-like key derivation. It supports multiple key contexts
+//! such as signing, encryption, CSRF protection, and session management, enabling
+//! secure separation of cryptographic concerns in cookie-based applications.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::cookie_key_expansion::{CookieKeyExpansion, KeyExpansionConfig, KeyContext};
+//! use cookie::Key;
+//!
+//! // Create a master key and configuration
+//! let master_key = Key::generate();
+//! let config = KeyExpansionConfig::new(master_key, b"my-app");
+//! let expansion = CookieKeyExpansion::new(config);
+//!
+//! // Derive keys for different purposes
+//! let signing_key = expansion.signing_key().unwrap();
+//! let encryption_key = expansion.encryption_key().unwrap();
+//! ```
+
 use cookie::Key;
 use http::{StatusCode, request::Parts};
 use std::future::ready;
@@ -8,23 +31,23 @@ use crate::{
     types::Request,
 };
 
-/// Key derivation contexts for different purposes
+/// Key derivation contexts for different cryptographic purposes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum KeyContext {
-    /// Key for signing cookies
+    /// Key for signing cookies with HMAC.
     Signing,
-    /// Key for encrypting cookies
+    /// Key for encrypting cookies.
     Encryption,
-    /// Key for CSRF protection
+    /// Key for CSRF protection tokens.
     Csrf,
-    /// Key for session management
+    /// Key for session management.
     Session,
-    /// Custom context with a specific purpose
+    /// Custom context with a application-specific purpose.
     Custom(String),
 }
 
 impl KeyContext {
-    /// Converts the context to a byte slice for key derivation
+    /// Converts the context to a byte slice for key derivation.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             KeyContext::Signing => b"cookie-signing",
@@ -36,19 +59,19 @@ impl KeyContext {
     }
 }
 
-/// Configuration for key expansion
+/// Configuration for key expansion operations.
 #[derive(Debug, Clone)]
 pub struct KeyExpansionConfig {
-    /// The master key used for derivation
+    /// The master key used for derivation.
     pub master_key: Key,
-    /// Application-specific info/salt for key derivation
+    /// Application-specific info/salt for key derivation.
     pub app_info: Vec<u8>,
-    /// Key length for derived keys (default: 32 bytes)
+    /// Key length for derived keys in bytes.
     pub key_length: usize,
 }
 
 impl KeyExpansionConfig {
-    /// Creates a new key expansion configuration
+    /// Creates a new key expansion configuration.
     pub fn new(master_key: Key, app_info: impl Into<Vec<u8>>) -> Self {
         Self {
             master_key,
@@ -57,29 +80,35 @@ impl KeyExpansionConfig {
         }
     }
 
-    /// Sets the key length for derived keys
+    /// Sets the key length for derived keys.
     pub fn with_key_length(mut self, length: usize) -> Self {
         self.key_length = length;
         self
     }
 }
 
-/// Cookie key expansion extractor for deriving purpose-specific keys
+/// Cookie key expansion extractor for deriving purpose-specific keys.
 pub struct CookieKeyExpansion {
     config: KeyExpansionConfig,
 }
 
-/// Error type for cookie key expansion.
+/// Error type for cookie key expansion operations.
 #[derive(Debug)]
 pub enum CookieKeyExpansionError {
+    /// Key expansion configuration not found in request extensions.
     MissingConfig,
+    /// The master key is invalid or corrupted.
     InvalidMasterKey,
+    /// Key derivation failed with the specified error message.
     DerivationFailed(String),
+    /// The specified key length is invalid (must be 16-64 bytes).
     InvalidKeyLength,
+    /// The key derivation algorithm is not supported.
     UnsupportedAlgorithm,
 }
 
 impl Responder for CookieKeyExpansionError {
+    /// Converts the error into an HTTP response.
     fn into_response(self) -> crate::types::Response {
         match self {
             CookieKeyExpansionError::MissingConfig => (
@@ -112,17 +141,17 @@ impl Responder for CookieKeyExpansionError {
 }
 
 impl CookieKeyExpansion {
-    /// Creates a new key expansion instance with the given configuration
+    /// Creates a new key expansion instance with the given configuration.
     pub fn new(config: KeyExpansionConfig) -> Self {
         Self { config }
     }
 
-    /// Derives a key for a specific context using HKDF-SHA256
+    /// Derives a key for a specific context using simplified key derivation.
     pub fn derive_key(&self, context: KeyContext) -> Result<Key, CookieKeyExpansionError> {
         self.derive_key_with_info(context, &[])
     }
 
-    /// Derives a key for a specific context with additional info
+    /// Derives a key for a specific context with additional info.
     pub fn derive_key_with_info(
         &self,
         context: KeyContext,
@@ -150,7 +179,7 @@ impl CookieKeyExpansion {
             .map_err(|e| CookieKeyExpansionError::DerivationFailed(e.to_string()))
     }
 
-    /// Derives multiple keys for different contexts at once
+    /// Derives multiple keys for different contexts at once.
     pub fn derive_keys(
         &self,
         contexts: &[KeyContext],
@@ -164,27 +193,27 @@ impl CookieKeyExpansion {
             .collect()
     }
 
-    /// Gets a signing key for cookie operations
+    /// Gets a signing key for cookie operations.
     pub fn signing_key(&self) -> Result<Key, CookieKeyExpansionError> {
         self.derive_key(KeyContext::Signing)
     }
 
-    /// Gets an encryption key for cookie operations
+    /// Gets an encryption key for cookie operations.
     pub fn encryption_key(&self) -> Result<Key, CookieKeyExpansionError> {
         self.derive_key(KeyContext::Encryption)
     }
 
-    /// Gets a CSRF protection key
+    /// Gets a CSRF protection key.
     pub fn csrf_key(&self) -> Result<Key, CookieKeyExpansionError> {
         self.derive_key(KeyContext::Csrf)
     }
 
-    /// Gets a session management key
+    /// Gets a session management key.
     pub fn session_key(&self) -> Result<Key, CookieKeyExpansionError> {
         self.derive_key(KeyContext::Session)
     }
 
-    /// Performs HKDF key expansion (simplified implementation)
+    /// Performs simplified key expansion.
     fn hkdf_expand(&self, info: &[u8]) -> Result<Vec<u8>, CookieKeyExpansionError> {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -218,12 +247,12 @@ impl CookieKeyExpansion {
         Ok(derived_key)
     }
 
-    /// Gets the configuration used for key expansion
+    /// Gets the configuration used for key expansion.
     pub fn config(&self) -> &KeyExpansionConfig {
         &self.config
     }
 
-    /// Extracts key expansion from a request using config from extensions
+    /// Extracts key expansion from a request using config from extensions.
     fn extract_from_request(req: &Request) -> Result<Self, CookieKeyExpansionError> {
         let config = req
             .extensions()
@@ -233,7 +262,7 @@ impl CookieKeyExpansion {
         Ok(Self::new(config.clone()))
     }
 
-    /// Extracts key expansion from request parts using config from extensions
+    /// Extracts key expansion from request parts using config from extensions.
     fn extract_from_parts(parts: &Parts) -> Result<Self, CookieKeyExpansionError> {
         let config = parts
             .extensions

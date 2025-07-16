@@ -1,3 +1,41 @@
+//! Bearer token authentication extraction from Authorization headers.
+//!
+//! This module provides extractors for parsing HTTP Bearer token authentication
+//! as defined in RFC 6750. It extracts and validates the Authorization header with
+//! Bearer scheme, providing structured access to the token value. This is commonly
+//! used for API authentication with JWT tokens, OAuth access tokens, or custom
+//! authentication schemes that use bearer tokens.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use tako::extractors::bearer::Bearer;
+//! use tako::extractors::FromRequest;
+//! use tako::types::Request;
+//!
+//! async fn api_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//!     let bearer = Bearer::from_request(&mut req).await?;
+//!
+//!     // Validate token (in production, verify JWT or check against database)
+//!     if is_valid_token(&bearer.token) {
+//!         Ok(format!("Access granted with token: {}...", &bearer.token[..8]))
+//!     } else {
+//!         Ok("Invalid token".to_string())
+//!     }
+//! }
+//!
+//! fn is_valid_token(token: &str) -> bool {
+//!     // In production, verify JWT signature, check expiration, etc.
+//!     token.len() > 10 && token.starts_with("eyJ") // Simple JWT check
+//! }
+//!
+//! // Usage in middleware
+//! async fn auth_middleware(bearer: Bearer) -> String {
+//!     format!("Authenticated with token ending in: ...{}",
+//!             &bearer.token[bearer.token.len().saturating_sub(4)..])
+//! }
+//! ```
+
 use http::{StatusCode, request::Parts};
 use std::future::ready;
 
@@ -7,24 +45,34 @@ use crate::{
     types::Request,
 };
 
-/// Represents the Bearer authentication token extracted from a request.
+/// Bearer token authentication credentials extracted from Authorization header.
+///
+/// Represents the Bearer token extracted from an HTTP Authorization header. The token
+/// is extracted without the "Bearer " prefix for easy use in authentication logic.
+/// The original header value is preserved for logging or advanced use cases where
+/// the complete Authorization header is needed.
 pub struct Bearer {
-    /// The token extracted from the Bearer auth header, without the "Bearer " prefix.
+    /// Token value extracted from Bearer auth header (without "Bearer " prefix).
     pub token: String,
-    /// The full Bearer token as received in the request, including the "Bearer " prefix.
+    /// Complete Bearer token string as received ("Bearer " + token).
     pub with_bearer: String,
 }
 
-/// Error type for Bearer authentication extraction.
+/// Error types for Bearer token authentication extraction and validation.
 #[derive(Debug)]
 pub enum BearerAuthError {
+    /// Authorization header is missing from the request.
     MissingAuthHeader,
+    /// Authorization header contains invalid UTF-8 or cannot be parsed.
     InvalidAuthHeader,
+    /// Authorization header does not use Bearer authentication scheme.
     InvalidBearerFormat,
+    /// Bearer token is present but empty.
     EmptyToken,
 }
 
 impl Responder for BearerAuthError {
+    /// Converts Bearer authentication errors into appropriate HTTP responses.
     fn into_response(self) -> crate::types::Response {
         let (status, message) = match self {
             BearerAuthError::MissingAuthHeader => {
@@ -44,6 +92,7 @@ impl Responder for BearerAuthError {
 }
 
 impl Bearer {
+    /// Parses Bearer token from HTTP headers.
     fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BearerAuthError> {
         let auth_header = headers
             .get("Authorization")
