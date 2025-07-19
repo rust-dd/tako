@@ -31,7 +31,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, Weak},
 };
 
 use dashmap::DashMap;
@@ -84,7 +84,7 @@ pub struct Router {
     /// Map of registered routes keyed by method.
     inner: DashMap<Method, matchit::Router<Arc<Route>>>,
     /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
-    routes: DashMap<Method, Vec<Arc<Route>>>,
+    routes: DashMap<Method, Vec<Weak<Route>>>,
     /// Global middleware chain applied to all routes.
     middlewares: RwLock<Vec<BoxMiddleware>>,
     /// Registered plugins for extending functionality.
@@ -156,7 +156,7 @@ impl Router {
         self.routes
             .entry(method)
             .or_insert_with(Vec::new)
-            .push(route.clone());
+            .push(Arc::downgrade(&route));
 
         route
     }
@@ -211,7 +211,7 @@ impl Router {
         self.routes
             .entry(method)
             .or_insert_with(Vec::new)
-            .push(route.clone());
+            .push(Arc::downgrade(&route));
 
         route
     }
@@ -440,26 +440,26 @@ impl Router {
     pub fn merge(&mut self, other: Router) {
         let upstream_globals = other.middlewares.read().unwrap().clone();
 
-        for (method, routes_vec) in other.routes.into_iter() {
+        for (method, weak_vec) in other.routes.into_iter() {
             let mut target_router = self
                 .inner
                 .entry(method.clone())
                 .or_insert_with(matchit::Router::new);
 
-            for route in routes_vec {
-                {
+            for weak in weak_vec {
+                if let Some(route) = weak.upgrade() {
                     let mut rmw = route.middlewares.write().unwrap();
                     for mw in upstream_globals.iter().rev() {
                         rmw.push_front(mw.clone());
                     }
+
+                    let _ = target_router.insert(route.path.clone(), route.clone());
+
+                    self.routes
+                        .entry(method.clone())
+                        .or_insert_with(Vec::new)
+                        .push(Arc::downgrade(&route));
                 }
-
-                let _ = target_router.insert(route.path.clone(), route.clone());
-
-                self.routes
-                    .entry(method.clone())
-                    .or_insert_with(Vec::new)
-                    .push(route);
             }
         }
     }
