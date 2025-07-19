@@ -29,7 +29,10 @@
 //! });
 //! ```
 
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use dashmap::DashMap;
 use http::StatusCode;
@@ -78,8 +81,10 @@ use std::sync::atomic::AtomicBool;
 /// router.state("app_name", "MyApp".to_string());
 /// ```
 pub struct Router {
-    /// Map of registered routes keyed by (method, path) pairs.
-    routes: DashMap<(Method, String), Arc<Route>>,
+    /// Map of registered routes keyed by method.
+    inner: DashMap<Method, matchit::Router<Arc<Route>>>,
+    /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
+    routes: DashMap<Method, Vec<Arc<Route>>>,
     /// Global middleware chain applied to all routes.
     middlewares: RwLock<Vec<BoxMiddleware>>,
     /// Registered plugins for extending functionality.
@@ -94,6 +99,7 @@ impl Router {
     /// Creates a new, empty router.
     pub fn new() -> Self {
         Self {
+            inner: DashMap::default(),
             routes: DashMap::default(),
             middlewares: RwLock::new(Vec::new()),
             #[cfg(feature = "plugins")]
@@ -137,8 +143,21 @@ impl Router {
             BoxHandler::new(handler),
             None,
         ));
+
+        let mut method_router = self
+            .inner
+            .entry(method.clone())
+            .or_insert_with(matchit::Router::new);
+
+        if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+            panic!("Failed to register route: {}", err);
+        }
+
         self.routes
-            .insert((method.clone(), path.to_owned()), route.clone());
+            .entry(method)
+            .or_insert_with(Vec::new)
+            .push(route.clone());
+
         route
     }
 
@@ -179,8 +198,21 @@ impl Router {
             BoxHandler::new(handler),
             Some(true),
         ));
+
+        let mut method_router = self
+            .inner
+            .entry(method.clone())
+            .or_insert_with(matchit::Router::new);
+
+        if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+            panic!("Failed to register route: {}", err);
+        }
+
         self.routes
-            .insert((method.clone(), path.to_owned()), route.clone());
+            .entry(method)
+            .or_insert_with(Vec::new)
+            .push(route.clone());
+
         route
     }
 
@@ -189,16 +221,17 @@ impl Router {
         let method = req.method();
         let path = req.uri().path();
 
-        for route in self.routes.iter() {
-            if &route.method != method {
-                continue;
-            }
+        if let Some(method_router) = self.inner.get(method) {
+            if let Ok(matched) = method_router.at(path) {
+                let route = matched.value;
 
-            if let Some(params) = route.match_path(path) {
-                if !params.is_empty() {
+                if !matched.params.iter().collect::<Vec<_>>().is_empty() {
+                    let mut params = HashMap::new();
+                    for (k, v) in matched.params.iter() {
+                        params.insert(k.to_string(), v.to_string());
+                    }
                     req.extensions_mut().insert(PathParams(params));
                 }
-
                 let g_mws = self.middlewares.read().unwrap().clone();
                 let r_mws = route.middlewares.read().unwrap().clone();
                 let mut chain = Vec::new();
@@ -219,13 +252,15 @@ impl Router {
             format!("{}/", path)
         };
 
-        for route in self.routes.iter() {
-            if &route.method == method && route.tsr && route.match_path(&tsr_path).is_some() {
-                return hyper::Response::builder()
-                    .status(StatusCode::TEMPORARY_REDIRECT)
-                    .header("Location", tsr_path)
-                    .body(TakoBody::empty())
-                    .unwrap();
+        if let Some(method_router) = self.inner.get(method) {
+            if let Ok(matched) = method_router.at(&tsr_path) {
+                if matched.value.tsr {
+                    return hyper::Response::builder()
+                        .status(StatusCode::TEMPORARY_REDIRECT)
+                        .header("Location", tsr_path)
+                        .body(TakoBody::empty())
+                        .unwrap();
+                }
             }
         }
 
@@ -403,14 +438,29 @@ impl Router {
     /// main_router.merge(api_router);
     /// ```
     pub fn merge(&mut self, other: Router) {
-        other.routes.iter_mut().for_each(|mut entry| {
-            let (key, route) = entry.pair_mut();
-            // add router level middlewares at the beginning of the middlewares on route level
-            for mw in other.middlewares.read().unwrap().iter().rev() {
-                route.middlewares.write().unwrap().push_front(mw.clone());
-            }
+        let upstream_globals = other.middlewares.read().unwrap().clone();
 
-            self.routes.insert(key.to_owned(), route.to_owned());
-        });
+        for (method, routes_vec) in other.routes.into_iter() {
+            let mut target_router = self
+                .inner
+                .entry(method.clone())
+                .or_insert_with(matchit::Router::new);
+
+            for route in routes_vec {
+                {
+                    let mut rmw = route.middlewares.write().unwrap();
+                    for mw in upstream_globals.iter().rev() {
+                        rmw.push_front(mw.clone());
+                    }
+                }
+
+                let _ = target_router.insert(route.path.clone(), route.clone());
+
+                self.routes
+                    .entry(method.clone())
+                    .or_insert_with(Vec::new)
+                    .push(route);
+            }
+        }
     }
 }

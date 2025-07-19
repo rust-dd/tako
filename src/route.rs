@@ -29,12 +29,11 @@
 //! ```
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{Arc, RwLock},
 };
 
 use http::Method;
-use regex::Regex;
 
 use crate::{
     handler::BoxHandler,
@@ -47,12 +46,6 @@ use crate::{
 pub struct Route {
     /// Original path string used to create this route.
     pub path: String,
-    /// Pattern string used for matching (currently same as path).
-    pub pattern: String,
-    /// Compiled regular expression for efficient path matching.
-    pub regex: Regex,
-    /// Names of parameters extracted from dynamic path segments.
-    pub param_names: Vec<String>,
     /// HTTP method this route responds to.
     pub method: Method,
     /// Handler function to execute when route is matched.
@@ -66,14 +59,8 @@ pub struct Route {
 impl Route {
     /// Creates a new route with the specified path, method, and handler.
     pub fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
-        let pattern = path.clone();
-        let (regex, param_names) = Self::parse_pattern(&pattern);
-
         Self {
             path,
-            pattern,
-            regex,
-            param_names,
             method,
             handler,
             middlewares: RwLock::new(VecDeque::new()),
@@ -96,41 +83,5 @@ impl Route {
 
         self.middlewares.write().unwrap().push_back(mw);
         self
-    }
-
-    /// Matches the given path against this route's pattern and extracts parameters.
-    pub fn match_path(&self, path: &str) -> Option<HashMap<String, String>> {
-        self.regex.captures(path).map(|caps| {
-            self.param_names
-                .iter()
-                .enumerate()
-                .filter_map(|(i, name)| {
-                    caps.get(i + 1)
-                        .map(|m| (name.clone(), m.as_str().to_string()))
-                })
-                .collect::<_>()
-        })
-    }
-
-    /// Parses a route pattern into a regex and extracts parameter names.
-    fn parse_pattern(pattern: &str) -> (Regex, Vec<String>) {
-        let mut regex_str = String::from("^");
-        let mut param_names = Vec::new();
-
-        for s in pattern.trim_matches('/').split('/') {
-            regex_str.push('/');
-
-            if s.starts_with('{') && s.ends_with('}') {
-                let param = &s[1..s.len() - 1];
-                regex_str.push_str("([^/]+)");
-                param_names.push(param.to_string());
-            } else {
-                regex_str.push_str(&regex::escape(s));
-            }
-        }
-
-        regex_str.push('$');
-        let regex = Regex::new(&regex_str).expect("Invalid route pattern");
-        (regex, param_names)
     }
 }
