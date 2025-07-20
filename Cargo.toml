@@ -72,6 +72,10 @@ path = "src/lib.rs"
 doctest = false
 
 [[example]]
+name = "auth"
+path = "examples/auth/src/main.rs"
+
+[[example]]
 name = "hello-world"
 path = "examples/hello-world/src/main.rs"
 

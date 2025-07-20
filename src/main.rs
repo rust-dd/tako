@@ -5,7 +5,7 @@ use hyper::Method;
 use serde::Deserialize;
 use tako::{
     extractors::{FromRequest, params::Params},
-    middleware::{IntoMiddleware, Next, basic_auth, bearer_auth},
+    middleware::Next,
     responder::Responder,
     sse::Sse,
     state::get_state,
@@ -72,7 +72,7 @@ pub struct Par {
     pub id: u32,
 }
 
-pub async fn user_created(mut req: Request) -> impl Responder {
+pub async fn user_created(_: Request) -> impl Responder {
     let _state = get_state::<AppState>("app_state").unwrap();
     // let Params(params) = Params::<Par>::from_request(&mut req).await.unwrap();
     // println!("User ID: {:?}", params);
@@ -141,24 +141,12 @@ async fn main() {
     let mut r = tako::router::Router::new();
     r.state("app_state", AppState::default());
 
-    let basic = basic_auth::BasicAuth::<(), fn(&str, &str) -> Option<()>>::single("admin", "pw")
-        .realm("Admin Area")
-        .into_middleware();
-
     let mut r2 = tako::router::Router::new();
     r2.route(Method::GET, "/compression", compression);
     r.merge(r2);
 
-    r.route(Method::GET, "/compression", compression)
-        .middleware(basic);
-
-    let bearer =
-        bearer_auth::BearerAuth::<(), fn(&str) -> Option<()>>::static_token("my-secret-token")
-            .into_middleware();
     r.route_with_tsr(Method::POST, "/user", user_created);
 
-    r.route_with_tsr(Method::POST, "/user/{id}", compression)
-        .middleware(bearer);
     r.route_with_tsr(
         Method::POST,
         "/user/{user_id}/company/{company_id}",

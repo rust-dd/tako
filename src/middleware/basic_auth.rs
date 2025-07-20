@@ -45,7 +45,7 @@ use base64::Engine;
 use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header};
 use http_body_util::Full;
-use std::{collections::HashMap, future::Future, marker::PhantomData, pin::Pin, sync::Arc};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 /// Basic HTTP authentication middleware configuration.
 ///
@@ -87,26 +87,16 @@ use std::{collections::HashMap, future::Future, marker::PhantomData, pin::Pin, s
 ///     }
 /// });
 /// ```
-pub struct BasicAuth<U, F>
-where
-    F: Fn(&str, &str) -> Option<U> + Send + Sync + 'static,
-    U: Send + Sync + 'static,
-{
+pub struct BasicAuth {
     /// Static user credentials map (username -> password).
     users: Option<Arc<HashMap<String, String>>>,
     /// Custom verification function for dynamic authentication.
-    verify: Option<Arc<F>>,
+    verify: Option<Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>>,
     /// Authentication realm for WWW-Authenticate header.
     realm: &'static str,
-    /// Phantom data for generic type association.
-    _phantom: PhantomData<U>,
 }
 
-impl<U, F> BasicAuth<U, F>
-where
-    F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
-    U: Clone + Send + Sync + 'static,
-{
+impl BasicAuth {
     /// Creates authentication middleware with a single static user credential.
     pub fn single(user: impl Into<String>, pass: impl Into<String>) -> Self {
         Self::multiple(std::iter::once((user, pass)))
@@ -128,25 +118,27 @@ where
             )),
             verify: None,
             realm: "Restricted",
-            _phantom: PhantomData,
         }
     }
 
     /// Creates authentication middleware with a custom verification function.
-    pub fn with_verify(cb: F) -> Self {
+    pub fn with_verify<F>(cb: F) -> Self
+    where
+        F: Fn(&str, &str) -> bool + Send + Sync + 'static,
+    {
         Self {
             users: None,
             verify: Some(Arc::new(cb)),
             realm: "Restricted",
-            _phantom: PhantomData,
         }
     }
 
     /// Creates authentication middleware with both static credentials and custom verification.
-    pub fn users_with_verify<I, S>(pairs: I, cb: F) -> Self
+    pub fn users_with_verify<I, S, F>(pairs: I, cb: F) -> Self
     where
         I: IntoIterator<Item = (S, S)>,
         S: Into<String>,
+        F: Fn(&str, &str) -> bool + Send + Sync + 'static,
     {
         Self {
             users: Some(Arc::new(
@@ -157,7 +149,6 @@ where
             )),
             verify: Some(Arc::new(cb)),
             realm: "Restricted",
-            _phantom: PhantomData,
         }
     }
 
@@ -168,11 +159,7 @@ where
     }
 }
 
-impl<U, F> IntoMiddleware for BasicAuth<U, F>
-where
-    F: Fn(&str, &str) -> Option<U> + Clone + Send + Sync + 'static,
-    U: Clone + Send + Sync + 'static,
-{
+impl IntoMiddleware for BasicAuth {
     /// Converts the authentication configuration into middleware.
     fn into_middleware(
         self,
@@ -185,7 +172,7 @@ where
         let verify = self.verify;
         let realm = self.realm;
 
-        move |mut req: Request, next: Next| {
+        move |req: Request, next: Next| {
             let users = users.clone();
             let verify = verify.clone();
 
@@ -214,8 +201,7 @@ where
 
                         // Use custom verification function if available
                         if let Some(cb) = &verify {
-                            if let Some(obj) = cb(&u, &p) {
-                                req.extensions_mut().insert(obj);
+                            if cb(&u, &p) {
                                 return next.run(req).await.into_response();
                             }
                         }

@@ -92,32 +92,21 @@ use crate::{
 ///     }
 /// });
 /// ```
-pub struct BearerAuth<C, F>
-where
-    F: Fn(&str) -> Option<C> + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
-{
+pub struct BearerAuth {
     /// Static token set for quick validation.
     tokens: Option<HashSet<String>>,
     /// Custom verification function for dynamic token validation.
-    verify: Option<F>,
-    /// Phantom data for generic type association.
-    _phantom: std::marker::PhantomData<C>,
+    verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
 }
 
 /// Implementation of the `BearerAuth` struct, providing methods to configure
 /// static tokens, custom verification functions, or a combination of both.
-impl<C, F> BearerAuth<C, F>
-where
-    F: Fn(&str) -> Option<C> + Clone + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
-{
+impl BearerAuth {
     /// Creates authentication middleware with a single static token.
     pub fn static_token(token: impl Into<String>) -> Self {
         Self {
             tokens: Some([token.into()].into()),
             verify: None,
-            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -130,38 +119,35 @@ where
         Self {
             tokens: Some(tokens.into_iter().map(Into::into).collect()),
             verify: None,
-            _phantom: std::marker::PhantomData,
         }
     }
 
     /// Creates authentication middleware with a custom verification function.
-    pub fn with_verify(f: F) -> Self {
+    pub fn with_verify<F>(f: F) -> Self
+    where
+        F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
+    {
         Self {
             tokens: None,
-            verify: Some(f),
-            _phantom: std::marker::PhantomData,
+            verify: Some(Box::new(f)),
         }
     }
 
     /// Creates authentication middleware with both static tokens and custom verification.
-    pub fn static_tokens_with_verify<I>(tokens: I, f: F) -> Self
+    pub fn static_tokens_with_verify<I, F>(tokens: I, f: F) -> Self
     where
         I: IntoIterator,
         I::Item: Into<String>,
+        F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
     {
         Self {
             tokens: Some(tokens.into_iter().map(Into::into).collect()),
-            verify: Some(f),
-            _phantom: std::marker::PhantomData,
+            verify: Some(Box::new(f)),
         }
     }
 }
 
-impl<C, F> IntoMiddleware for BearerAuth<C, F>
-where
-    F: Fn(&str) -> Option<C> + Send + Sync + 'static,
-    C: Clone + Send + Sync + 'static,
-{
+impl IntoMiddleware for BearerAuth {
     /// Converts the authentication configuration into middleware.
     fn into_middleware(
         self,
@@ -173,7 +159,7 @@ where
         let tokens = self.tokens.map(Arc::new);
         let verify = self.verify.map(Arc::new);
 
-        move |mut req: Request, next: Next| {
+        move |req: Request, next: Next| {
             let tokens = tokens.clone();
             let verify = verify.clone();
 
@@ -205,8 +191,7 @@ where
                         }
                         // Use custom verification function if available
                         if let Some(v) = verify.as_ref() {
-                            if let Some(claims) = v(t) {
-                                req.extensions_mut().insert(claims);
+                            if v(t) {
                                 return next.run(req).await.into_response();
                             }
                         }
