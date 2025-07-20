@@ -82,6 +82,10 @@ pub mod query;
 #[cfg(feature = "multipart")]
 pub mod multipart;
 
+/// Protobuf request body parsing and deserialization.
+#[cfg(feature = "protobuf")]
+pub mod protobuf;
+
 /// High-performance JSON parsing using SIMD acceleration.
 #[cfg(feature = "simd")]
 pub mod simdjson;
