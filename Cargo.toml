@@ -96,8 +96,13 @@ name = "streams"
 path = "examples/streams/src/main.rs"
 
 [[example]]
-name = "websockets"
-path = "examples/websockets/src/main.rs"
+name = "websocket"
+path = "examples/websocket/src/main.rs"
+
+[[example]]
+name = "websocket-http2"
+path = "examples/websocket-http2/src/main.rs"
+required-features = ["http2", "tls"]
 
 [[example]]
 name = "with-state"
