@@ -31,6 +31,10 @@ pub mod client;
 /// Request data extraction utilities for parsing query params, JSON, and more.
 pub mod extractors;
 
+/// File streaming utilities for serving files.
+#[cfg(feature = "file-stream")]
+pub mod file_stream;
+
 /// Request handler traits and implementations.
 mod handler;
 
