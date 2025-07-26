@@ -1,0 +1,11 @@
+Hello, Tako FileStream!
+
+This is a simple test file for demonstrating file streaming with Tako.
+The file contains enough text to test range requests and partial content delivery.
+
+Line 5: Testing line breaks and content structure.
+Line 6: More content for range testing.
+Line 7: Additional text to reach a reasonable file size.
+Line 8: Perfect for testing HTTP range requests!
+
+End of test file.
