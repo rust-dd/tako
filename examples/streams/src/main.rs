@@ -3,8 +3,8 @@ use std::convert::Infallible;
 use anyhow::Result;
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
-use http::{StatusCode, header};
 use hyper::body::Frame;
+use hyper::{StatusCode, header};
 use tako::{
     Method, body::TakoBody, bytes::TakoBytes, responder::Responder, router::Router, sse::Sse,
     types::Request,

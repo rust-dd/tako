@@ -1787,6 +1787,7 @@ dependencies = [
  "hyper-util",
  "jwt-simple",
  "matchit",
+ "mime",
  "mime_guess",
  "once_cell",
  "pin-project-lite",
