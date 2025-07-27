@@ -39,11 +39,16 @@
 //! }
 //! ```
 
-use http::StatusCode;
 use http_body_util::BodyExt;
-use serde::de::DeserializeOwned;
+use hyper::{StatusCode, header::HeaderValue};
+use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{extractors::FromRequest, responder::Responder, types::Request};
+use crate::{
+    body::TakoBody,
+    extractors::FromRequest,
+    responder::Responder,
+    types::{Request, Response},
+};
 
 /// JSON request body extractor with automatic deserialization.
 pub struct Json<T>(pub T);
@@ -130,6 +135,33 @@ where
                 .map_err(|e| JsonError::DeserializationError(e.to_string()))?;
 
             Ok(Json(data))
+        }
+    }
+}
+
+impl<T> Responder for Json<T>
+where
+    T: Serialize,
+{
+    fn into_response(self) -> Response {
+        match serde_json::to_vec(&self.0) {
+            Ok(buf) => {
+                let mut res = Response::new(TakoBody::from(buf));
+                res.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
+                );
+                res
+            }
+            Err(err) => {
+                let mut res = Response::new(crate::body::TakoBody::from(err.to_string()));
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                res.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+                );
+                res
+            }
         }
     }
 }

@@ -25,10 +25,9 @@
 //! }
 //! ```
 
-use http::StatusCode;
 use http_body_util::BodyExt;
 use hyper::{
-    HeaderMap,
+    HeaderMap, StatusCode,
     header::{self, HeaderValue},
 };
 use serde::{Serialize, de::DeserializeOwned};
