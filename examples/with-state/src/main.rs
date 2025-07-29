@@ -9,9 +9,9 @@ use tako::{
 use tokio::net::TcpListener;
 
 async fn hello_world(_: Request) -> impl Responder {
-    let names = get_state::<Vec<&str>>("names").unwrap();
-    let age = get_state::<u32>("age").unwrap();
-    let city = get_state::<&str>("city").unwrap();
+    let names = get_state::<Vec<&str>>().unwrap();
+    let age = get_state::<u32>().unwrap();
+    let city = get_state::<&str>().unwrap();
 
     format!(
         "Hello , World! Names: {:?}, Age: {}, City: {}",
@@ -24,9 +24,9 @@ async fn hello_world(_: Request) -> impl Responder {
 async fn main() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
-    set_state("names", vec!["Alice", "Bob", "Charlie"]);
-    set_state("age", 25 as u32);
-    set_state("city", "New York");
+    set_state(vec!["Alice", "Bob", "Charlie"]);
+    set_state(25 as u32);
+    set_state("New York");
 
     let mut router = Router::new();
     router.route(Method::GET, "/", hello_world);

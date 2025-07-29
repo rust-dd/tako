@@ -294,8 +294,8 @@ impl Router {
     /// });
     /// router.state("version", "1.0.0".to_string());
     /// ```
-    pub fn state<T: Clone + Send + Sync + 'static>(&mut self, key: &str, value: T) {
-        set_state(key, value);
+    pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+        set_state(value);
     }
 
     /// Adds global middleware to the router.
