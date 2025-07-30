@@ -24,10 +24,13 @@
 use std::{convert::Infallible, fmt::Display};
 
 use bytes::Bytes;
-use http::{HeaderName, HeaderValue, Response, StatusCode};
 use http_body_util::Full;
+use hyper::{
+    StatusCode,
+    header::{HeaderName, HeaderValue},
+};
 
-use crate::body::TakoBody;
+use crate::{body::TakoBody, types::Response};
 
 /// Trait for converting types into HTTP responses.
 ///
@@ -61,17 +64,23 @@ use crate::body::TakoBody;
 /// ```
 pub trait Responder {
     /// Converts the implementing type into an HTTP response.
-    fn into_response(self) -> Response<TakoBody>;
+    fn into_response(self) -> Response;
 }
 
-impl Responder for Response<TakoBody> {
-    fn into_response(self) -> Response<TakoBody> {
+impl Responder for Response {
+    fn into_response(self) -> Response {
         self
     }
 }
 
+impl Responder for TakoBody {
+    fn into_response(self) -> Response {
+        Response::new(self)
+    }
+}
+
 impl Responder for &'static str {
-    fn into_response(self) -> Response<TakoBody> {
+    fn into_response(self) -> Response {
         Response::new(TakoBody::new(Full::from(Bytes::from_static(
             self.as_bytes(),
         ))))
@@ -79,27 +88,39 @@ impl Responder for &'static str {
 }
 
 impl Responder for String {
-    fn into_response(self) -> Response<TakoBody> {
+    fn into_response(self) -> Response {
         Response::new(TakoBody::new(Full::from(Bytes::from(self))))
     }
 }
 
 impl Responder for () {
-    fn into_response(self) -> Response<TakoBody> {
+    fn into_response(self) -> Response {
         Response::new(TakoBody::empty())
     }
 }
 
 impl Responder for Infallible {
-    fn into_response(self) -> Response<TakoBody> {
+    fn into_response(self) -> Response {
         match self {}
+    }
+}
+
+impl<R> Responder for (StatusCode, R)
+where
+    R: Display,
+{
+    fn into_response(self) -> Response {
+        let (status, body) = self;
+        let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
+        *res.status_mut() = status;
+        res
     }
 }
 
 pub struct StaticHeaders<const N: usize>(pub [(HeaderName, &'static str); N]);
 
 impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
-    fn into_response(self) -> Response<TakoBody> {
+    fn into_response(self) -> Response {
         let (status, StaticHeaders(headers)) = self;
         let mut res = Response::new(TakoBody::empty());
         *res.status_mut() = status;
@@ -109,51 +130,5 @@ impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
                 .append(name, HeaderValue::from_static(value));
         }
         res
-    }
-}
-
-impl<R> Responder for (StatusCode, R)
-where
-    R: Display,
-{
-    fn into_response(self) -> Response<TakoBody> {
-        let (status, body) = self;
-        let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
-        *res.status_mut() = status;
-        res
-    }
-}
-
-impl Responder for TakoBody {
-    fn into_response(self) -> Response<TakoBody> {
-        Response::new(self)
-    }
-}
-
-impl Responder for anyhow::Error {
-    fn into_response(self) -> Response<TakoBody> {
-        (StatusCode::BAD_REQUEST, self.to_string()).into_response()
-    }
-}
-
-pub enum CompressionResponse<R>
-where
-    R: Responder,
-{
-    /// Plain, uncompressed response.
-    Plain(R),
-    /// Compressed or streaming response.
-    Stream(R),
-}
-
-impl<R> Responder for CompressionResponse<R>
-where
-    R: Responder,
-{
-    fn into_response(self) -> Response<TakoBody> {
-        match self {
-            CompressionResponse::Plain(r) => r.into_response(),
-            CompressionResponse::Stream(r) => r.into_response(),
-        }
     }
 }

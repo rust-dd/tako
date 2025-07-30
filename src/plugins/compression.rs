@@ -67,9 +67,9 @@ use crate::{
             brotli_stream::stream_brotli, deflate_stream::stream_deflate, gzip_stream::stream_gzip,
         },
     },
-    responder::{CompressionResponse, Responder},
+    responder::Responder,
     router::Router,
-    types::Request,
+    types::{Request, Response},
 };
 
 /// Supported HTTP compression encoding algorithms.
@@ -254,6 +254,28 @@ impl CompressionBuilder {
     /// Builds the compression plugin with the configured settings.
     pub fn build(self) -> CompressionPlugin {
         CompressionPlugin { cfg: self.0 }
+    }
+}
+
+pub enum CompressionResponse<R>
+where
+    R: Responder,
+{
+    /// Plain, uncompressed response.
+    Plain(R),
+    /// Compressed or streaming response.
+    Stream(R),
+}
+
+impl<R> Responder for CompressionResponse<R>
+where
+    R: Responder,
+{
+    fn into_response(self) -> Response {
+        match self {
+            CompressionResponse::Plain(r) => r.into_response(),
+            CompressionResponse::Stream(r) => r.into_response(),
+        }
     }
 }
 
