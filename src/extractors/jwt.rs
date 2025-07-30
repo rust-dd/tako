@@ -48,11 +48,6 @@ use crate::{
 };
 
 /// JWT token extractor that provides access to the raw token string.
-///
-/// This extractor extracts JWT tokens from Authorization headers with Bearer scheme
-/// and provides access to the raw token string without validation or claims parsing.
-/// It's useful when you need to perform custom JWT validation or pass tokens to
-/// external services.
 pub struct Jwt {
     /// Raw JWT token string extracted from Authorization header.
     pub token: String,
@@ -61,16 +56,9 @@ pub struct Jwt {
 }
 
 /// JWT claims extractor with automatic deserialization to typed structures.
-///
-/// This extractor extracts JWT tokens from Authorization headers, performs basic
-/// validation, and deserializes the claims payload into strongly-typed Rust structures
-/// using serde. It handles Base64 decoding and JSON parsing automatically.
 pub struct JwtClaims<T>(pub T);
 
 /// Error types for JWT extraction and claims parsing.
-///
-/// These errors cover various failure modes when extracting and parsing JWT tokens,
-/// from missing headers to malformed token structures and claims deserialization failures.
 #[derive(Debug)]
 pub enum JwtError {
     /// Authorization header is missing from the request.
@@ -118,9 +106,9 @@ impl Responder for JwtError {
             JwtError::InvalidJwtSignature => {
                 (StatusCode::UNAUTHORIZED, "Invalid JWT signature section")
             }
-            JwtError::ClaimsDeserializationError(err) => (
+            JwtError::ClaimsDeserializationError(_) => (
                 StatusCode::UNAUTHORIZED,
-                format!("JWT claims deserialization failed: {}", err).as_str(),
+                "JWT claims deserialization failed",
             ),
             JwtError::TokenExpired => (StatusCode::UNAUTHORIZED, "JWT token has expired"),
             JwtError::TokenNotYetValid => (StatusCode::UNAUTHORIZED, "JWT token is not yet valid"),
@@ -157,7 +145,7 @@ impl Jwt {
 
     /// Validates basic JWT token format.
     pub fn validate_format(&self) -> Result<(), JwtError> {
-        let parts: Vec<&str> = self.token.split('.').collect();
+        let parts = self.token.split('.').collect::<Vec<&str>>();
         if parts.len() != 3 {
             return Err(JwtError::InvalidJwtFormat);
         }
@@ -265,16 +253,10 @@ where
     fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {
         let jwt = Jwt::extract_from_headers(headers)?;
 
-        // Validate basic format
         jwt.validate_format()?;
-
-        // Validate expiration
         jwt.validate_expiration()?;
-
-        // Validate not-before
         jwt.validate_not_before()?;
 
-        // Extract and deserialize claims
         let claims_json = jwt.claims()?;
         let claims: T = serde_json::from_value(claims_json)
             .map_err(|e| JwtError::ClaimsDeserializationError(e.to_string()))?;
@@ -286,11 +268,9 @@ where
 impl<'a> FromRequest<'a> for Jwt {
     type Error = JwtError;
 
-    /// Extracts JWT token from the complete HTTP request.
     fn from_request(
         req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
         ready(Self::extract_from_headers(req.headers()))
     }
 }
@@ -298,11 +278,9 @@ impl<'a> FromRequest<'a> for Jwt {
 impl<'a> FromRequestParts<'a> for Jwt {
     type Error = JwtError;
 
-    /// Extracts JWT token from HTTP request parts.
     fn from_request_parts(
         parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
         ready(Self::extract_from_headers(&parts.headers))
     }
 }
@@ -313,11 +291,9 @@ where
 {
     type Error = JwtError;
 
-    /// Extracts and deserializes JWT claims from the complete HTTP request.
     fn from_request(
         req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
         ready(Self::extract_from_headers(req.headers()))
     }
 }
@@ -328,11 +304,9 @@ where
 {
     type Error = JwtError;
 
-    /// Extracts and deserializes JWT claims from HTTP request parts.
     fn from_request_parts(
         parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
         ready(Self::extract_from_headers(&parts.headers))
     }
 }

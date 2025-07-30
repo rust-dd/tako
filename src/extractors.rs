@@ -69,6 +69,9 @@ pub mod ipaddr;
 /// JSON request body parsing and deserialization.
 pub mod json;
 
+/// JSON Web Token (JWT) handling with HMAC verification.
+pub mod jwt;
+
 /// Path parameter extraction from dynamic route segments.
 pub mod params;
 
