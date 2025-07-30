@@ -81,6 +81,9 @@ pub mod path;
 /// Query parameter parsing from URL query strings.
 pub mod query;
 
+/// Range header parsing for partial content requests.
+pub mod range;
+
 /// Multipart form data parsing for file uploads and complex forms.
 #[cfg(feature = "multipart")]
 pub mod multipart;
