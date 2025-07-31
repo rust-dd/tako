@@ -21,9 +21,6 @@
 /// HTTP request and response body handling utilities.
 pub mod body;
 
-/// Byte stream and buffer manipulation utilities.
-pub mod bytes;
-
 /// HTTP client implementation for making outbound requests.
 #[cfg(feature = "client")]
 pub mod client;
@@ -76,8 +73,8 @@ pub mod types;
 /// WebSocket connection handling and message processing.
 pub mod ws;
 
-/// HTTP method enumeration re-exported from hyper.
-pub use hyper::Method;
+pub use bytes::Bytes;
+pub use hyper::{Method, StatusCode};
 
 /// Starts the HTTP server with the given listener and router.
 ///

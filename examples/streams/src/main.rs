@@ -6,8 +6,7 @@ use futures_util::{StreamExt, stream};
 use hyper::body::Frame;
 use hyper::{StatusCode, header};
 use tako::{
-    Method, body::TakoBody, bytes::TakoBytes, responder::Responder, router::Router, sse::Sse,
-    types::Request,
+    Method, body::TakoBody, responder::Responder, router::Router, sse::Sse, types::Request,
 };
 use tokio::net::TcpListener;
 
@@ -57,7 +56,7 @@ async fn ticker(_: Request) -> impl Responder {
     let s = stream::unfold(0u64, |i| async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let msg = format!("tick: {i}");
-        Some((TakoBytes(msg.into()), i + 1))
+        Some((msg.into(), i + 1))
     });
 
     Sse::new(s)
