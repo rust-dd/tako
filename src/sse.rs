@@ -33,19 +33,9 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::{body::TakoBody, bytes::TakoBytes, responder::Responder, types::Response};
 
-/// SSE data line prefix according to the EventSource specification.
-///
-/// Every SSE data line must start with "data: " followed by the actual content.
-/// This constant ensures consistent formatting across all SSE messages.
 const PREFIX: &[u8] = b"data: ";
-
-/// SSE event terminator sequence.
 const SUFFIX: &[u8] = b"\n\n";
-
-/// Calculates the total length of SSE prefix and suffix bytes.
-const fn ps_len() -> usize {
-    PREFIX.len() + SUFFIX.len()
-}
+const PS_LEN: usize = PREFIX.len() + SUFFIX.len();
 
 /// Server-Sent Events stream wrapper for real-time data broadcasting.
 ///
@@ -100,7 +90,7 @@ where
     /// Converts the SSE stream into an HTTP response with proper headers.
     fn into_response(self) -> Response {
         let stream = self.stream.map(|TakoBytes(msg)| {
-            let mut buf = BytesMut::with_capacity(ps_len() + msg.len());
+            let mut buf = BytesMut::with_capacity(PS_LEN + msg.len());
             buf.extend_from_slice(PREFIX);
             buf.extend_from_slice(&msg);
             buf.extend_from_slice(SUFFIX);
