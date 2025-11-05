@@ -42,6 +42,12 @@ use crate::{
     types::{BoxMiddleware, Request},
 };
 
+#[cfg(feature = "plugins")]
+use crate::plugins::TakoPlugin;
+
+#[cfg(feature = "plugins")]
+use std::sync::atomic::{AtomicBool, Ordering};
+
 /// HTTP route with path pattern matching and middleware support.
 pub struct Route {
     /// Original path string used to create this route.
@@ -54,6 +60,12 @@ pub struct Route {
     pub middlewares: RwLock<VecDeque<BoxMiddleware>>,
     /// Whether trailing slash redirection is enabled.
     pub tsr: bool,
+    /// Route-specific plugins.
+    #[cfg(feature = "plugins")]
+    pub(crate) plugins: RwLock<Vec<Box<dyn TakoPlugin>>>,
+    /// Flag to ensure route plugins are initialized only once.
+    #[cfg(feature = "plugins")]
+    plugins_initialized: AtomicBool,
 }
 
 impl Route {
@@ -65,6 +77,10 @@ impl Route {
             handler,
             middlewares: RwLock::new(VecDeque::new()),
             tsr: tsr.unwrap_or(false),
+            #[cfg(feature = "plugins")]
+            plugins: RwLock::new(Vec::new()),
+            #[cfg(feature = "plugins")]
+            plugins_initialized: AtomicBool::new(false),
         }
     }
 
@@ -83,5 +99,73 @@ impl Route {
 
         self.middlewares.write().unwrap().push_back(mw);
         self
+    }
+
+    /// Adds a plugin to this route.
+    ///
+    /// Route-level plugins allow applying functionality like compression, CORS,
+    /// or rate limiting to specific routes instead of globally. Plugins added
+    /// to a route are initialized when the route is first accessed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "plugins")]
+    /// use tako::{router::Router, Method, responder::Responder, types::Request};
+    /// # #[cfg(feature = "plugins")]
+    /// use tako::plugins::cors::CorsBuilder;
+    ///
+    /// # #[cfg(feature = "plugins")]
+    /// # async fn handler(_req: Request) -> impl Responder {
+    /// #     "Hello, World!"
+    /// # }
+    ///
+    /// # #[cfg(feature = "plugins")]
+    /// # fn example() {
+    /// let mut router = Router::new();
+    /// let route = router.route(Method::GET, "/api/data", handler);
+    ///
+    /// // Apply CORS only to this route
+    /// let cors = CorsBuilder::new()
+    ///     .allow_origin("https://example.com")
+    ///     .build();
+    /// route.plugin(cors);
+    /// # }
+    /// ```
+    #[cfg(feature = "plugins")]
+    pub fn plugin<P>(&self, plugin: P) -> &Self
+    where
+        P: TakoPlugin + Clone + Send + Sync + 'static,
+    {
+        self.plugins.write().unwrap().push(Box::new(plugin));
+        self
+    }
+
+    /// Initializes route-level plugins exactly once.
+    ///
+    /// This method sets up all plugins registered with this route by calling
+    /// their setup method. It uses a mini-router to collect the middleware
+    /// that plugins register, then adds that middleware to the route's
+    /// middleware chain. This ensures plugins are only initialized once.
+    #[cfg(feature = "plugins")]
+    pub(crate) fn setup_plugins_once(&self) {
+        if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
+            // Create a temporary mini-router to capture plugin middleware
+            let mini_router = crate::router::Router::new();
+
+            let plugins = self.plugins.read().unwrap();
+            for plugin in plugins.iter() {
+                let _ = plugin.setup(&mini_router);
+            }
+
+            // Transfer middleware from mini-router to this route
+            let plugin_middlewares = mini_router.middlewares.read().unwrap();
+            let mut route_middlewares = self.middlewares.write().unwrap();
+
+            // Prepend plugin middlewares to route middlewares
+            for mw in plugin_middlewares.iter().rev() {
+                route_middlewares.push_front(mw.clone());
+            }
+        }
     }
 }

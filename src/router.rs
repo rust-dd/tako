@@ -86,7 +86,7 @@ pub struct Router {
     /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
     routes: DashMap<Method, Vec<Weak<Route>>>,
     /// Global middleware chain applied to all routes.
-    middlewares: RwLock<Vec<BoxMiddleware>>,
+    pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
     /// Registered plugins for extending functionality.
     #[cfg(feature = "plugins")]
     plugins: Vec<Box<dyn TakoPlugin>>,
@@ -224,6 +224,10 @@ impl Router {
         if let Some(method_router) = self.inner.get(method) {
             if let Ok(matched) = method_router.at(path) {
                 let route = matched.value;
+
+                // Initialize route-level plugins on first request
+                #[cfg(feature = "plugins")]
+                route.setup_plugins_once();
 
                 if !matched.params.iter().collect::<Vec<_>>().is_empty() {
                     let mut params = HashMap::new();

@@ -6,32 +6,46 @@
 //! The plugin automatically negotiates compression based on client Accept-Encoding headers
 //! and applies compression selectively based on content type, response size, and status code.
 //!
+//! The compression plugin can be applied at both router-level (all routes) and route-level
+//! (specific routes), allowing different compression settings for different endpoints.
+//!
 //! # Examples
 //!
 //! ```rust
 //! use tako::plugins::compression::CompressionBuilder;
 //! use tako::plugins::TakoPlugin;
 //! use tako::router::Router;
+//! use tako::Method;
 //!
-//! // Basic compression setup
+//! async fn handler(_req: tako::types::Request) -> &'static str {
+//!     "Response data"
+//! }
+//!
+//! async fn api_handler(_req: tako::types::Request) -> &'static str {
+//!     "Large API response"
+//! }
+//!
+//! let mut router = Router::new();
+//!
+//! // Router-level: Basic compression setup (applied to all routes)
 //! let compression = CompressionBuilder::new()
 //!     .enable_gzip(true)
 //!     .enable_brotli(true)
 //!     .min_size(1024)
 //!     .build();
-//!
-//! let mut router = Router::new();
 //! router.plugin(compression);
 //!
-//! // Advanced compression configuration
+//! // Route-level: Advanced compression for specific API endpoint
+//! let api_route = router.route(Method::GET, "/api/large-data", api_handler);
 //! let advanced = CompressionBuilder::new()
 //!     .enable_gzip(true)
-//!     .gzip_level(6)
+//!     .gzip_level(9)
 //!     .enable_brotli(true)
-//!     .brotli_level(4)
+//!     .brotli_level(11)
 //!     .enable_stream(true)
 //!     .min_size(512)
 //!     .build();
+//! api_route.plugin(advanced);
 //! ```
 
 use anyhow::Result;

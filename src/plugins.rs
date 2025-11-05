@@ -5,11 +5,16 @@
 //! modify routing behavior, or integrate external services. The `TakoPlugin` trait
 //! defines the interface all plugins must implement for registration and setup.
 //!
+//! Plugins can be applied at two levels:
+//! - **Router-level**: Applied globally to all routes using `router.plugin()`
+//! - **Route-level**: Applied to specific routes using `route.plugin()`
+//!
 //! # Examples
 //!
 //! ```rust
 //! use tako::plugins::TakoPlugin;
 //! use tako::router::Router;
+//! use tako::Method;
 //! use anyhow::Result;
 //!
 //! struct LoggingPlugin {
@@ -27,8 +32,17 @@
 //!     }
 //! }
 //!
-//! let plugin = LoggingPlugin { level: "info".to_string() };
-//! assert_eq!(plugin.name(), "logging");
+//! async fn handler(_req: tako::types::Request) -> &'static str {
+//!     "Hello"
+//! }
+//!
+//! // Router-level plugin (applied to all routes)
+//! let mut router = Router::new();
+//! router.plugin(LoggingPlugin { level: "info".to_string() });
+//!
+//! // Route-level plugin (applied to specific route only)
+//! let route = router.route(Method::GET, "/api/data", handler);
+//! route.plugin(LoggingPlugin { level: "debug".to_string() });
 //! ```
 
 use anyhow::Result;
@@ -50,11 +64,16 @@ pub mod rate_limiter;
 /// add middleware, modify routing behavior, register handlers, or integrate external
 /// services. All plugins must be thread-safe and have a static lifetime.
 ///
+/// Plugins can be applied at both router and route levels:
+/// - **Router-level**: Use `router.plugin()` to apply globally
+/// - **Route-level**: Use `route.plugin()` to apply to specific routes
+///
 /// # Examples
 ///
 /// ```rust
 /// use tako::plugins::TakoPlugin;
 /// use tako::router::Router;
+/// use tako::Method;
 /// use anyhow::Result;
 ///
 /// struct CachePlugin {
@@ -66,15 +85,27 @@ pub mod rate_limiter;
 ///         "cache"
 ///     }
 ///
-///     fn setup(&self, _router: &Router) -> Result<()> {
-///         println!("Configuring cache with TTL: {} seconds", self.ttl_seconds);
+///     fn setup(&self, router: &Router) -> Result<()> {
+///         // Add middleware to the router
+///         router.middleware(|req, next| async move {
+///             // Cache logic here
+///             next.run(req).await
+///         });
 ///         Ok(())
 ///     }
 /// }
 ///
-/// let plugin = CachePlugin { ttl_seconds: 300 };
-/// let router = Router::new();
-/// plugin.setup(&router).unwrap();
+/// async fn handler(_req: tako::types::Request) -> &'static str {
+///     "Hello"
+/// }
+///
+/// // Router-level usage
+/// let mut router = Router::new();
+/// router.plugin(CachePlugin { ttl_seconds: 300 });
+///
+/// // Route-level usage
+/// let route = router.route(Method::GET, "/api/data", handler);
+/// route.plugin(CachePlugin { ttl_seconds: 600 });
 /// ```
 pub trait TakoPlugin: Send + Sync + 'static {
     /// Returns the unique name identifier for this plugin.

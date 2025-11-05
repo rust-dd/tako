@@ -6,6 +6,9 @@
 //! appropriate CORS headers to responses. It supports configurable origins, methods,
 //! headers, credentials, and cache control for flexible cross-origin access policies.
 //!
+//! The CORS plugin can be applied at both router-level (all routes) and route-level
+//! (specific routes), allowing fine-grained control over CORS policies.
+//!
 //! # Examples
 //!
 //! ```rust
@@ -14,20 +17,33 @@
 //! use tako::router::Router;
 //! use http::Method;
 //!
-//! // Basic CORS setup allowing all origins
-//! let cors = CorsBuilder::new().build();
-//! let mut router = Router::new();
-//! router.plugin(cors);
+//! async fn api_handler(_req: tako::types::Request) -> &'static str {
+//!     "API response"
+//! }
 //!
-//! // Restrictive CORS for production
-//! let production_cors = CorsBuilder::new()
+//! async fn public_handler(_req: tako::types::Request) -> &'static str {
+//!     "Public response"
+//! }
+//!
+//! let mut router = Router::new();
+//!
+//! // Router-level: Basic CORS setup allowing all origins (applied to all routes)
+//! let global_cors = CorsBuilder::new().build();
+//! router.plugin(global_cors);
+//!
+//! // Route-level: Restrictive CORS for specific API endpoint
+//! let api_route = router.route(Method::GET, "/api/data", api_handler);
+//! let api_cors = CorsBuilder::new()
 //!     .allow_origin("https://app.example.com")
 //!     .allow_origin("https://admin.example.com")
 //!     .allow_methods(&[Method::GET, Method::POST, Method::PUT])
 //!     .allow_credentials(true)
 //!     .max_age_secs(86400)
 //!     .build();
-//! router.plugin(production_cors);
+//! api_route.plugin(api_cors);
+//!
+//! // Another route without CORS restrictions (uses global if set)
+//! router.route(Method::GET, "/public", public_handler);
 //! ```
 
 use anyhow::Result;

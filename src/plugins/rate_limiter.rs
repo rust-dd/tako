@@ -6,36 +6,49 @@
 //! using a concurrent hash map and spawns a background task for token replenishment and
 //! cleanup of inactive buckets.
 //!
+//! The rate limiter plugin can be applied at both router-level (all routes) and route-level
+//! (specific routes), allowing different rate limits for different endpoints.
+//!
 //! # Examples
 //!
 //! ```rust
 //! use tako::plugins::rate_limiter::{RateLimiterPlugin, RateLimiterBuilder};
 //! use tako::plugins::TakoPlugin;
 //! use tako::router::Router;
+//! use tako::Method;
 //! use http::StatusCode;
 //!
-//! // Basic rate limiting setup
-//! let rate_limiter = RateLimiterBuilder::new()
+//! async fn handler(_req: tako::types::Request) -> &'static str {
+//!     "Response"
+//! }
+//!
+//! async fn api_handler(_req: tako::types::Request) -> &'static str {
+//!     "API response"
+//! }
+//!
+//! let mut router = Router::new();
+//!
+//! // Router-level: Basic rate limiting (applied to all routes)
+//! let global_limiter = RateLimiterBuilder::new()
 //!     .burst_size(100)
 //!     .per_second(50)
 //!     .build();
+//! router.plugin(global_limiter);
 //!
-//! let mut router = Router::new();
-//! router.plugin(rate_limiter);
-//!
-//! // Custom rate limiting for API endpoints
+//! // Route-level: Stricter rate limiting for API endpoint
+//! let api_route = router.route(Method::POST, "/api/sensitive", api_handler);
 //! let api_limiter = RateLimiterBuilder::new()
-//!     .burst_size(1000)
-//!     .per_second(100)
+//!     .burst_size(10)
+//!     .per_second(5)
 //!     .tick_secs(1)
 //!     .status(StatusCode::TOO_MANY_REQUESTS)
 //!     .build();
-//! router.plugin(api_limiter);
+//! api_route.plugin(api_limiter);
 //! ```
 
 use std::{
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant},
 };
 
@@ -157,6 +170,7 @@ impl RateLimiterBuilder {
         RateLimiterPlugin {
             cfg: self.0,
             store: Arc::new(DashMap::new()),
+            task_started: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -219,6 +233,8 @@ pub struct RateLimiterPlugin {
     cfg: Config,
     /// Concurrent map storing token buckets for each IP address.
     store: Arc<DashMap<IpAddr, Bucket>>,
+    /// Flag to ensure background task is spawned only once.
+    task_started: Arc<AtomicBool>,
 }
 
 impl TakoPlugin for RateLimiterPlugin {
@@ -238,22 +254,25 @@ impl TakoPlugin for RateLimiterPlugin {
             async move { retain(req, next, cfg, store).await }
         });
 
-        let cfg = self.cfg.clone();
-        let store = self.store.clone();
+        // Only spawn the background task once per plugin instance
+        if !self.task_started.swap(true, Ordering::SeqCst) {
+            let cfg = self.cfg.clone();
+            let store = self.store.clone();
 
-        tokio::spawn(async move {
-            let mut tick = time::interval(Duration::from_secs(cfg.tick_secs));
-            let add_per_tick = cfg.per_second as f64 * cfg.tick_secs as f64;
-            let purge_after = Duration::from_secs(300);
-            loop {
-                tick.tick().await;
-                let now = Instant::now();
-                store.retain(|_, b| {
-                    b.tokens = (b.tokens + add_per_tick).min(cfg.burst_size as f64);
-                    now.duration_since(b.last_seen) < purge_after
-                });
-            }
-        });
+            tokio::spawn(async move {
+                let mut tick = time::interval(Duration::from_secs(cfg.tick_secs));
+                let add_per_tick = cfg.per_second as f64 * cfg.tick_secs as f64;
+                let purge_after = Duration::from_secs(300);
+                loop {
+                    tick.tick().await;
+                    let now = Instant::now();
+                    store.retain(|_, b| {
+                        b.tokens = (b.tokens + add_per_tick).min(cfg.burst_size as f64);
+                        now.duration_since(b.last_seen) < purge_after
+                    });
+                }
+            });
+        }
 
         Ok(())
     }
