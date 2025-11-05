@@ -28,19 +28,20 @@
 //!
 //! let mut router = Router::new();
 //!
-//! // Router-level: Basic rate limiting (applied to all routes)
+//! // Router-level: Basic rate limiting (50 req/sec, burst 100)
 //! let global_limiter = RateLimiterBuilder::new()
-//!     .burst_size(100)
-//!     .per_second(50)
+//!     .max_requests(100)
+//!     .refill_rate(50)
+//!     .refill_interval_ms(1000)
 //!     .build();
 //! router.plugin(global_limiter);
 //!
-//! // Route-level: Stricter rate limiting for API endpoint
+//! // Route-level: Stricter rate limiting for API (5 req/sec, burst 10)
 //! let api_route = router.route(Method::POST, "/api/sensitive", api_handler);
 //! let api_limiter = RateLimiterBuilder::new()
-//!     .burst_size(10)
-//!     .per_second(5)
-//!     .tick_secs(1)
+//!     .max_requests(10)
+//!     .refill_rate(5)
+//!     .refill_interval_ms(1000)
 //!     .status(StatusCode::TOO_MANY_REQUESTS)
 //!     .build();
 //! api_route.plugin(api_limiter);
@@ -62,12 +63,12 @@ use crate::{
     types::Request,
 };
 
-/// Rate limiter configuration using token bucket algorithm parameters.
+/// Rate limiter configuration parameters.
 ///
-/// `Config` defines the behavior of the token bucket rate limiter including the maximum
-/// burst capacity, token replenishment rate, update frequency, and HTTP status code for
-/// rate limit violations. The token bucket allows for burst traffic up to the bucket
-/// capacity while maintaining an average rate over time.
+/// `Config` defines the behavior of the rate limiter including the maximum
+/// number of requests allowed (capacity), request quota replenishment rate, 
+/// update frequency, and HTTP status code for rate limit violations. The rate limiter 
+/// allows for burst traffic up to the max capacity while maintaining an average rate over time.
 ///
 /// # Examples
 ///
@@ -75,32 +76,33 @@ use crate::{
 /// use tako::plugins::rate_limiter::Config;
 /// use http::StatusCode;
 ///
+/// // Allow 100 requests per second with burst up to 200
 /// let config = Config {
-///     burst_size: 200,
-///     per_second: 100,
-///     tick_secs: 1,
+///     max_requests: 200,
+///     refill_rate: 100,
+///     refill_interval_ms: 1000,
 ///     status_on_limit: StatusCode::TOO_MANY_REQUESTS,
 /// };
 /// ```
 #[derive(Clone)]
 pub struct Config {
-    /// Maximum number of tokens (requests) that can be accumulated in the bucket.
-    pub burst_size: u32,
-    /// Rate at which tokens are added to the bucket per second.
-    pub per_second: u32,
-    /// Interval in seconds at which tokens are replenished.
-    pub tick_secs: u64,
+    /// Maximum number of requests that can be made (capacity/burst limit).
+    pub max_requests: u32,
+    /// Number of requests to allow per refill interval.
+    pub refill_rate: u32,
+    /// Interval in milliseconds at which request quota is refilled.
+    pub refill_interval_ms: u64,
     /// HTTP status code returned when the rate limit is exceeded.
     pub status_on_limit: StatusCode,
 }
 
 impl Default for Config {
-    /// Provides sensible default rate limiting configuration.
+    /// Provides sensible default rate limiting configuration: 60 requests per second.
     fn default() -> Self {
         Self {
-            burst_size: 60,
-            per_second: 60,
-            tick_secs: 1,
+            max_requests: 60,
+            refill_rate: 60,
+            refill_interval_ms: 1000,
             status_on_limit: StatusCode::TOO_MANY_REQUESTS,
         }
     }
@@ -109,9 +111,10 @@ impl Default for Config {
 /// Builder for configuring rate limiter settings with a fluent API.
 ///
 /// `RateLimiterBuilder` provides a convenient way to construct rate limiter configurations
-/// using method chaining. It starts with sensible defaults and allows customization of
-/// burst capacity, rate limits, timing intervals, and response status codes for rate
-/// limit violations.
+/// using method chaining. The rate limiter works by maintaining a quota of available requests where:
+/// - `max_requests`: Maximum burst capacity (how many requests can be made at once)
+/// - `refill_rate`: Number of requests allowed per refill interval
+/// - `refill_interval_ms`: How often to refill the request quota (in milliseconds)
 ///
 /// # Examples
 ///
@@ -119,18 +122,25 @@ impl Default for Config {
 /// use tako::plugins::rate_limiter::RateLimiterBuilder;
 /// use http::StatusCode;
 ///
-/// // High-traffic API configuration
-/// let api_limiter = RateLimiterBuilder::new()
-///     .burst_size(1000)
-///     .per_second(500)
-///     .tick_secs(1)
-///     .status(StatusCode::TOO_MANY_REQUESTS)
+/// // Allow 100 requests per second with burst up to 1000
+/// let high_traffic = RateLimiterBuilder::new()
+///     .max_requests(1000)
+///     .refill_rate(100)
+///     .refill_interval_ms(1000)
 ///     .build();
 ///
-/// // Conservative rate limiting
+/// // Allow 5 requests per second, max 10 burst
 /// let conservative = RateLimiterBuilder::new()
-///     .burst_size(10)
-///     .per_second(5)
+///     .max_requests(10)
+///     .refill_rate(5)
+///     .refill_interval_ms(1000)
+///     .build();
+///
+/// // Allow 1 request per 500ms (2 per second)
+/// let strict = RateLimiterBuilder::new()
+///     .max_requests(1)
+///     .refill_rate(1)
+///     .refill_interval_ms(500)
 ///     .build();
 /// ```
 pub struct RateLimiterBuilder(Config);
@@ -141,21 +151,30 @@ impl RateLimiterBuilder {
         Self(Config::default())
     }
 
-    /// Sets the maximum burst size for the token bucket.
-    pub fn burst_size(mut self, n: u32) -> Self {
-        self.0.burst_size = n;
+    /// Sets the maximum number of requests allowed (capacity/burst limit).
+    /// 
+    /// This is the maximum burst size - how many requests can be made at once.
+    pub fn max_requests(mut self, n: u32) -> Self {
+        self.0.max_requests = n;
         self
     }
 
-    /// Sets the token replenishment rate per second.
-    pub fn per_second(mut self, n: u32) -> Self {
-        self.0.per_second = n;
+    /// Sets how many requests to allow per refill interval.
+    /// 
+    /// For example, `refill_rate(100)` with `refill_interval_ms(1000)` = 100 requests/second.
+    pub fn refill_rate(mut self, n: u32) -> Self {
+        self.0.refill_rate = n;
         self
     }
 
-    /// Sets the token replenishment interval in seconds.
-    pub fn tick_secs(mut self, s: u64) -> Self {
-        self.0.tick_secs = s.max(1);
+    /// Sets the refill interval in milliseconds.
+    /// 
+    /// Request quota is replenished at this interval. For example:
+    /// - `1000` = refill every second
+    /// - `500` = refill every 500ms (twice per second)
+    /// - `100` = refill every 100ms (10 times per second)
+    pub fn refill_interval_ms(mut self, ms: u64) -> Self {
+        self.0.refill_interval_ms = ms.max(1);
         self
     }
 
@@ -173,13 +192,54 @@ impl RateLimiterBuilder {
             task_started: Arc::new(AtomicBool::new(false)),
         }
     }
+
+    /// Convenience method: Allow N requests per second with the same burst limit.
+    /// 
+    /// This is a shorthand for setting max_requests, refill_rate, and refill_interval_ms
+    /// to create a simple "N requests per second" limit.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
+    /// 
+    /// // Allow 100 requests per second
+    /// let limiter = RateLimiterBuilder::new()
+    ///     .requests_per_second(100)
+    ///     .build();
+    /// ```
+    pub fn requests_per_second(mut self, n: u32) -> Self {
+        self.0.max_requests = n;
+        self.0.refill_rate = n;
+        self.0.refill_interval_ms = 1000;
+        self
+    }
+
+    /// Convenience method: Allow N requests per minute with the same burst limit.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use tako::plugins::rate_limiter::RateLimiterBuilder;
+    /// 
+    /// // Allow 600 requests per minute (10 per second)
+    /// let limiter = RateLimiterBuilder::new()
+    ///     .requests_per_minute(600)
+    ///     .build();
+    /// ```
+    pub fn requests_per_minute(mut self, n: u32) -> Self {
+        self.0.max_requests = n;
+        self.0.refill_rate = n;
+        self.0.refill_interval_ms = 60000;
+        self
+    }
 }
 
-/// Token bucket for tracking request allowance per IP address.
+/// Request quota tracker for rate limiting per IP address.
 ///
-/// `Bucket` represents the state of a single token bucket including the current
-/// token count and last access time. The bucket is used to implement the token
-/// bucket algorithm for rate limiting individual IP addresses.
+/// `Bucket` represents the state of request quota for a single IP address including 
+/// the current number of available requests and last access time. Each IP address 
+/// gets its own bucket for tracking rate limits independently.
 ///
 /// # Examples
 ///
@@ -187,28 +247,28 @@ impl RateLimiterBuilder {
 /// use std::time::Instant;
 ///
 /// # struct Bucket {
-/// #     tokens: f64,
+/// #     available: f64,
 /// #     last_seen: Instant,
 /// # }
 /// let bucket = Bucket {
-///     tokens: 60.0,
+///     available: 60.0,
 ///     last_seen: Instant::now(),
 /// };
 /// ```
 #[derive(Clone)]
 struct Bucket {
-    /// Current number of tokens available for requests.
-    tokens: f64,
+    /// Current number of available requests remaining.
+    available: f64,
     /// Last time this bucket was accessed for cleanup purposes.
     last_seen: Instant,
 }
 
-/// Rate limiting plugin implementing token bucket algorithm with per-IP tracking.
+/// Rate limiting plugin with per-IP request quota tracking.
 ///
-/// `RateLimiterPlugin` provides comprehensive rate limiting functionality using a token
-/// bucket algorithm. It maintains per-IP state in a concurrent hash map, spawns a
-/// background task for token replenishment and cleanup, and integrates with Tako's
-/// middleware system to enforce rate limits on incoming requests.
+/// `RateLimiterPlugin` provides comprehensive rate limiting functionality by tracking
+/// request quotas per IP address. It maintains per-IP state in a concurrent hash map, 
+/// spawns a background task for quota replenishment and cleanup, and integrates with 
+/// Tako's middleware system to enforce rate limits on incoming requests.
 ///
 /// # Examples
 ///
@@ -217,10 +277,11 @@ struct Bucket {
 /// use tako::plugins::TakoPlugin;
 /// use tako::router::Router;
 ///
-/// // Create and configure rate limiter
+/// // Create and configure rate limiter: 50 requests/sec, max 100 burst
 /// let limiter = RateLimiterBuilder::new()
-///     .burst_size(100)
-///     .per_second(50)
+///     .max_requests(100)
+///     .refill_rate(50)
+///     .refill_interval_ms(1000)
 ///     .build();
 ///
 /// // Apply to router
@@ -259,30 +320,17 @@ impl TakoPlugin for RateLimiterPlugin {
             let cfg = self.cfg.clone();
             let store = self.store.clone();
 
-            eprintln!("[RateLimiter] Starting background task: burst={}, per_second={}, tick_secs={}", 
-                cfg.burst_size, cfg.per_second, cfg.tick_secs);
-
             tokio::spawn(async move {
-                let mut tick = time::interval(Duration::from_secs(cfg.tick_secs));
-                let add_per_tick = cfg.per_second as f64 * cfg.tick_secs as f64;
+                let mut tick = time::interval(Duration::from_millis(cfg.refill_interval_ms));
+                let requests_to_add = cfg.refill_rate as f64;
                 let purge_after = Duration::from_secs(300);
-                eprintln!("[RateLimiter] Background task: adding {:.2} tokens every {} seconds", 
-                    add_per_tick, cfg.tick_secs);
                 loop {
                     tick.tick().await;
                     let now = Instant::now();
-                    let count_before = store.len();
-                    store.retain(|ip, b| {
-                        let old_tokens = b.tokens;
-                        b.tokens = (b.tokens + add_per_tick).min(cfg.burst_size as f64);
-                        eprintln!("[RateLimiter] Replenishing IP {}: {:.2} -> {:.2} tokens", 
-                            ip, old_tokens, b.tokens);
+                    store.retain(|_, b| {
+                        b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
                         now.duration_since(b.last_seen) < purge_after
                     });
-                    let count_after = store.len();
-                    if count_before != count_after {
-                        eprintln!("[RateLimiter] Purged {} inactive buckets", count_before - count_after);
-                    }
                 }
             });
         }
@@ -291,12 +339,12 @@ impl TakoPlugin for RateLimiterPlugin {
     }
 }
 
-/// Middleware function that enforces rate limiting using token bucket algorithm.
+/// Middleware function that enforces rate limiting per IP address.
 ///
-/// This function extracts the client IP address from the request, checks if sufficient
-/// tokens are available in their bucket, and either allows the request to proceed or
-/// returns a rate limit error response. It updates bucket state atomically and handles
-/// new clients by creating buckets with full token capacity.
+/// This function extracts the client IP address from the request, checks if they have
+/// available request quota remaining, and either allows the request to proceed or
+/// returns a rate limit error response. It updates quota state atomically and handles
+/// new clients by creating buckets with full quota.
 ///
 /// # Examples
 ///
@@ -328,20 +376,17 @@ async fn retain(
         .unwrap_or(IpAddr::from([0, 0, 0, 0]));
 
     let mut entry = store.entry(ip).or_insert_with(|| Bucket {
-        tokens: cfg.burst_size as f64,
+        available: cfg.max_requests as f64,
         last_seen: Instant::now(),
     });
 
-    eprintln!("[RateLimiter] IP: {}, Tokens: {:.2}/{}", ip, entry.tokens, cfg.burst_size);
-
-    if entry.tokens < 1.0 {
-        eprintln!("[RateLimiter] RATE LIMIT EXCEEDED for {}", ip);
+    if entry.available < 1.0 {
         return hyper::Response::builder()
             .status(cfg.status_on_limit)
             .body(TakoBody::empty())
             .unwrap();
     }
-    entry.tokens -= 1.0;
+    entry.available -= 1.0;
     entry.last_seen = Instant::now();
     drop(entry);
 
