@@ -259,17 +259,30 @@ impl TakoPlugin for RateLimiterPlugin {
             let cfg = self.cfg.clone();
             let store = self.store.clone();
 
+            eprintln!("[RateLimiter] Starting background task: burst={}, per_second={}, tick_secs={}", 
+                cfg.burst_size, cfg.per_second, cfg.tick_secs);
+
             tokio::spawn(async move {
                 let mut tick = time::interval(Duration::from_secs(cfg.tick_secs));
                 let add_per_tick = cfg.per_second as f64 * cfg.tick_secs as f64;
                 let purge_after = Duration::from_secs(300);
+                eprintln!("[RateLimiter] Background task: adding {:.2} tokens every {} seconds", 
+                    add_per_tick, cfg.tick_secs);
                 loop {
                     tick.tick().await;
                     let now = Instant::now();
-                    store.retain(|_, b| {
+                    let count_before = store.len();
+                    store.retain(|ip, b| {
+                        let old_tokens = b.tokens;
                         b.tokens = (b.tokens + add_per_tick).min(cfg.burst_size as f64);
+                        eprintln!("[RateLimiter] Replenishing IP {}: {:.2} -> {:.2} tokens", 
+                            ip, old_tokens, b.tokens);
                         now.duration_since(b.last_seen) < purge_after
                     });
+                    let count_after = store.len();
+                    if count_before != count_after {
+                        eprintln!("[RateLimiter] Purged {} inactive buckets", count_before - count_after);
+                    }
                 }
             });
         }
@@ -319,7 +332,10 @@ async fn retain(
         last_seen: Instant::now(),
     });
 
+    eprintln!("[RateLimiter] IP: {}, Tokens: {:.2}/{}", ip, entry.tokens, cfg.burst_size);
+
     if entry.tokens < 1.0 {
+        eprintln!("[RateLimiter] RATE LIMIT EXCEEDED for {}", ip);
         return hyper::Response::builder()
             .status(cfg.status_on_limit)
             .body(TakoBody::empty())
