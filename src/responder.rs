@@ -132,3 +132,23 @@ impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
         res
     }
 }
+
+impl<T> Responder for anyhow::Result<T>
+where
+    T: Responder,
+{
+    fn into_response(self) -> Response {
+        match self {
+            Ok(ok) => ok.into_response(),
+            Err(err) => {
+                let mut res = Response::new(TakoBody::from(err.to_string()));
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                res.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+                );
+                res
+            }
+        }
+    }
+}
