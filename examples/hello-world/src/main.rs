@@ -1,8 +1,8 @@
 use anyhow::Result;
-use tako::{Method, responder::Responder, router::Router, types::Request};
+use tako::{Method, responder::Responder, router::Router};
 use tokio::net::TcpListener;
 
-async fn hello_world(_: Request) -> impl Responder {
+async fn hello_world() -> impl Responder {
     "Hello, World!".into_response()
 }
 

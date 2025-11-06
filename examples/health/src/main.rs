@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
-use tako::{Method, extractors::json::Json, router::Router, types::Request};
+use tako::{Method, extractors::json::Json, router::Router};
 use tokio::net::TcpListener;
 
 #[derive(Serialize)]
@@ -8,7 +8,7 @@ pub struct HealthCheck {
     status: String,
 }
 
-async fn health(_: Request) -> Json<HealthCheck> {
+async fn health() -> Json<HealthCheck> {
     Json(HealthCheck {
         status: "OK".to_string(),
     })

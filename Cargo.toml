@@ -117,3 +117,7 @@ required-features = ["http2", "tls"]
 [[example]]
 name = "with-state"
 path = "examples/with-state/src/main.rs"
+
+[[example]]
+name = "extractors-multi"
+path = "examples/extractors-multi/src/main.rs"

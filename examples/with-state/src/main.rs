@@ -4,11 +4,11 @@ use tako::{
     responder::Responder,
     router::Router,
     state::{get_state, set_state},
-    types::Request,
+    
 };
 use tokio::net::TcpListener;
 
-async fn hello_world(_: Request) -> impl Responder {
+async fn hello_world() -> impl Responder {
     let names = get_state::<Vec<&str>>().unwrap();
     let age = get_state::<u32>().unwrap();
     let city = get_state::<&str>().unwrap();

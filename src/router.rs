@@ -133,14 +133,14 @@ impl Router {
     /// router.route(Method::POST, "/users", create_user);
     /// router.route(Method::GET, "/health", |_req| async { "OK" });
     /// ```
-    pub fn route<H>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
+    pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
     where
-        H: Handler + Clone + 'static,
+        H: Handler<T> + Clone + 'static,
     {
         let route = Arc::new(Route::new(
             path.to_string(),
             method.clone(),
-            BoxHandler::new(handler),
+            BoxHandler::new::<H, T>(handler),
             None,
         ));
 
@@ -184,9 +184,9 @@ impl Router {
     /// // Both "/api" and "/api/" will redirect to the canonical form
     /// router.route_with_tsr(Method::GET, "/api", api_handler);
     /// ```
-    pub fn route_with_tsr<H>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
+    pub fn route_with_tsr<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
     where
-        H: Handler + Clone + 'static,
+        H: Handler<T> + Clone + 'static,
     {
         if path == "/" {
             panic!("Cannot route with TSR for root path");
@@ -195,7 +195,7 @@ impl Router {
         let route = Arc::new(Route::new(
             path.to_string(),
             method.clone(),
-            BoxHandler::new(handler),
+            BoxHandler::new::<H, T>(handler),
             Some(true),
         ));
 

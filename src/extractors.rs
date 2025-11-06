@@ -177,3 +177,17 @@ pub trait FromRequestParts<'a>: Sized {
         parts: &'a mut Parts,
     ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }
+
+// -----------------------------------------------------------------------------
+// Built-in extractor for borrowing the request itself in handlers: `&mut Request`.
+// This enables signatures like `async fn handler(req: &mut Request, Path(..), ...)`.
+// -----------------------------------------------------------------------------
+impl<'a> FromRequest<'a> for &'a mut crate::types::Request {
+    type Error = core::convert::Infallible;
+
+    fn from_request(
+        req: &'a mut crate::types::Request,
+    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+        std::future::ready(Ok(req))
+    }
+}
