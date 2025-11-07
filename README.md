@@ -3,7 +3,8 @@
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible async web framework for Rust.
 > It aims to keep the mental model small while giving you first‑class performance and modern conveniences out‑of‑the‑box.
 
-> **⚠️ Early‑stage software:** Tako is still under active development; use with caution and expect breaking changes.
+> **⚠️ ~~Early-stage software~~**
+> **⚠️ Beta software:** Tako is still under active development; use with caution and expect breaking changes.
 
 > [**Blog**: Tako in detail](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
 
