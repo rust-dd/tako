@@ -89,7 +89,7 @@ pub async fn run(
     #[cfg(feature = "plugins")]
     router.setup_plugins_once();
 
-    println!("Tako TLS listening on {}", listener.local_addr()?);
+    tracing::info!("Tako TLS listening on {}", listener.local_addr()?);
 
     loop {
         let (stream, addr) = listener.accept().await?;
@@ -100,7 +100,7 @@ pub async fn run(
             let tls_stream = match acceptor.accept(stream).await {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("TLS error: {e}");
+                    tracing::error!("TLS error: {e}");
                     return;
                 }
             };
@@ -122,7 +122,7 @@ pub async fn run(
                 let h2 = http2::Builder::new(TokioExecutor::new());
 
                 if let Err(e) = h2.serve_connection(io, svc).await {
-                    eprintln!("HTTP/2 error: {e}");
+                    tracing::error!("HTTP/2 error: {e}");
                 }
                 return;
             }
@@ -131,7 +131,7 @@ pub async fn run(
             h1.keep_alive(true);
 
             if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
-                eprintln!("HTTP/1.1 error: {e}");
+                tracing::error!("HTTP/1.1 error: {e}");
             }
         });
     }

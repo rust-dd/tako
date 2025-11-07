@@ -55,7 +55,6 @@ async fn main() -> Result<()> {
         .route_with_tsr(Method::POST, "/bearer_with_verify", bearer_auth_with_verify)
         .middleware(bearer_with_verify);
 
-    println!("Server running at http://127.0.0.1:8080");
     tako::serve(listener, router).await;
 
     Ok(())

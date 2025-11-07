@@ -4,7 +4,6 @@ use tako::{
     responder::Responder,
     router::Router,
     state::{get_state, set_state},
-    
 };
 use tokio::net::TcpListener;
 
@@ -31,7 +30,6 @@ async fn main() -> Result<()> {
     let mut router = Router::new();
     router.route(Method::GET, "/", hello_world);
 
-    println!("Server running at http://127.0.0.1:8080");
     tako::serve(listener, router).await;
 
     Ok(())

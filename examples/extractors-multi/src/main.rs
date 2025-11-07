@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use tako::extractors::{json::Json, params::Params, query::Query};
 use tako::{Method, router::Router};
-use tako::extractors::{params::Params, query::Query, json::Json};
 use tokio::net::TcpListener;
 
 #[derive(Deserialize)]
@@ -41,7 +41,11 @@ async fn list_user_posts(Params(user): Params<UserPath>, Query(p): Query<Paginat
 // Demonstrates a body extractor
 async fn create(Json(user): Json<CreateUser>) -> Json<Created> {
     // Normally you'd persist the user; here we just echo back with an id
-    Json(Created { id: 1, name: user.name, email: user.email })
+    Json(Created {
+        id: 1,
+        name: user.name,
+        email: user.email,
+    })
 }
 
 #[tokio::main]
@@ -52,7 +56,6 @@ async fn main() -> Result<()> {
     router.route(Method::GET, "/users/{id}/posts", list_user_posts);
     router.route(Method::POST, "/users", create);
 
-    println!("Server running at http://127.0.0.1:8080");
     tako::serve(listener, router).await;
 
     Ok(())

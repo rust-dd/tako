@@ -20,10 +20,6 @@ async fn upload_file(mut req: Request) -> impl Responder {
 
     let TakoTypedMultipart::<Form, UploadedFile> { data, .. } =
         TakoTypedMultipart::from_request(&mut req).await.unwrap();
-    println!(
-        "Received file: {}",
-        data.file.file_name.unwrap_or("file".into())
-    );
 
     (StatusCode::OK, "File uploaded successfully")
 }
@@ -37,10 +33,6 @@ async fn upload_mem(mut req: Request) -> impl Responder {
 
     let TakoTypedMultipart::<ImgForm, InMemoryFile> { data, .. } =
         TakoTypedMultipart::from_request(&mut req).await.unwrap();
-    println!(
-        "Received image: {}",
-        data.image.file_name.unwrap_or("image".into())
-    );
 
     (StatusCode::OK, "Image uploaded successfully")
 }
@@ -61,7 +53,6 @@ async fn raw_with_file(mut req: Request) -> impl Responder {
             while let Some(chunk) = field.chunk().await.unwrap() {
                 size += chunk.len();
             }
-            println!("file {} – {} bytes", fname, size);
         }
     }
 
@@ -82,7 +73,6 @@ async fn raw_text(mut req: Request) -> impl Responder {
         let text = field.text().await.unwrap();
         map.insert(name, text);
     }
-    println!("text fields: {:?}", map);
     (StatusCode::OK, "text form processed")
 }
 
@@ -96,7 +86,6 @@ async fn typed_text(mut req: Request) -> impl Responder {
     let TakoTypedMultipart::<LoginForm, UploadedFile> { data, .. } =
         TakoTypedMultipart::from_request(&mut req).await.unwrap();
 
-    println!("login: {} / {} chars", data.username, data.password.len());
     (StatusCode::OK, "typed text processed")
 }
 
@@ -111,7 +100,6 @@ async fn main() -> Result<()> {
     router.route(Method::POST, "/raw_text", raw_text);
     router.route(Method::POST, "/typed_text", typed_text);
 
-    println!("Server running at http://127.0.0.1:8080");
     tako::serve(listener, router).await;
 
     Ok(())

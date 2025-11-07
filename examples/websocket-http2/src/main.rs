@@ -33,7 +33,6 @@ pub async fn ws_echo(req: Request) -> impl Responder {
 }
 
 pub async fn ws_tick(req: Request) -> impl Responder {
-    println!("TICK: {:?}", req);
     TakoWs::new(req, |mut ws| async move {
         let mut ticker =
             IntervalStream::new(tokio::time::interval(Duration::from_secs(1))).enumerate();
@@ -48,7 +47,6 @@ pub async fn ws_tick(req: Request) -> impl Responder {
                 }
 
                 Some((i, _)) = ticker.next() => {
-                    println!("TICK: {:?}", i);
                     let _ = ws.send(Message::Text(Utf8Bytes::from(format!("tick #{i}")))).await;
                 }
             }

@@ -31,7 +31,6 @@ async fn main() -> Result<()> {
             .build(),
     );
 
-    println!("Server running at http://127.0.0.1:8080");
     tako::serve(listener, router).await;
 
     Ok(())

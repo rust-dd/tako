@@ -47,7 +47,7 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
     #[cfg(feature = "plugins")]
     router.setup_plugins_once();
 
-    println!("Tako listening on {}", listener.local_addr()?);
+    tracing::debug!("Tako listening on {}", listener.local_addr()?);
 
     loop {
         let (stream, addr) = listener.accept().await?;
@@ -70,7 +70,7 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
             let conn = http.serve_connection(io, svc).with_upgrades();
 
             if let Err(err) = conn.await {
-                eprintln!("Error serving connection: {err}");
+                tracing::error!("Error serving connection: {err}");
             }
         });
     }
