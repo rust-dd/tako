@@ -41,7 +41,7 @@ use hyper::Method;
 use crate::{
     body::TakoBody,
     extractors::params::PathParams,
-    handler::{BoxHandler, Handler, IntoBoxHandler},
+    handler::{BoxHandler, Handler},
     middleware::Next,
     responder::Responder,
     route::Route,
@@ -376,11 +376,42 @@ impl Router {
     /// router.route(Method::GET, "/", |_req| async { "Hello" });
     /// router.fallback(not_found);
     /// ```
-    pub fn fallback<H>(&mut self, handler: H) -> &mut Self
+    pub fn fallback<F, Fut, R>(&mut self, handler: F) -> &mut Self
     where
-        H: IntoBoxHandler + 'static,
+        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
+        Fut: std::future::Future<Output = R> + Send + 'static,
+        R: Responder + Send + 'static,
     {
-        self.fallback = Some(handler.into_box_handler());
+        // Use the Request-arg handler impl to box the fallback
+        self.fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
+        self
+    }
+
+    /// Sets a fallback handler that supports extractors (like `Path`, `Query`, etc.).
+    ///
+    /// Use this when your fallback needs to parse request data via extractors. If you
+    /// only need access to the raw `Request`, prefer `fallback` for simpler type inference.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::{router::Router, responder::Responder, extractors::{path::Path, query::Query}};
+    ///
+    /// #[derive(serde::Deserialize)]
+    /// struct Q { q: Option<String> }
+    ///
+    /// async fn fallback_with_q(Path(_p): Path<String>, Query(_q): Query<Q>) -> impl Responder {
+    ///     "Not Found"
+    /// }
+    ///
+    /// let mut router = Router::new();
+    /// router.fallback_with_extractors(fallback_with_q);
+    /// ```
+    pub fn fallback_with_extractors<H, T>(&mut self, handler: H) -> &mut Self
+    where
+        H: Handler<T> + Clone + 'static,
+    {
+        self.fallback = Some(BoxHandler::new::<H, T>(handler));
         self
     }
 
