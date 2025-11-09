@@ -1,4 +1,4 @@
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! A lightweight and modular web framework for building async applications in Rust.
 //!

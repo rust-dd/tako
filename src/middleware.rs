@@ -11,11 +11,9 @@
 //! use tako::{middleware::Next, types::{Request, Response}};
 //! use std::{pin::Pin, future::Future};
 //!
-//! async fn logging_middleware(req: Request, next: Next) -> Response {
-//!     println!("Processing request to: {}", req.uri());
-//!     let response = next.run(req).await;
-//!     println!("Response status: {}", response.status());
-//!     response
+//! async fn middleware(req: Request, next: Next) -> Response {
+//!     // Your logic here
+//!     next.run(req).await
 //! }
 //! ```
 
