@@ -1,3 +1,7 @@
+![Build Workflow](https://github.com/rust-dd/tako/actions/workflows/ci.yml/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/tako-rs?style=flat-square)](https://crates.io/crates/tako-rs)
+![License](https://img.shields.io/crates/l/tako-rs?style=flat-square)
+
 # 🐙 Tako — Lightweight Async Web Framework in Rust
 
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible async web framework for Rust.
