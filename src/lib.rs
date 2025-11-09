@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+
 //! A lightweight and modular web framework for building async applications in Rust.
 //!
 //! Tako provides core components for routing, middleware, request handling, and response
