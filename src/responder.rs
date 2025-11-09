@@ -32,6 +32,12 @@ use hyper::{
 
 use crate::{body::TakoBody, types::Response};
 
+/// A default 404 Not Found response.
+///
+/// Useful as a simple fallback:
+/// `router.fallback(|_| async { NOT_FOUND });`
+pub const NOT_FOUND: (StatusCode, &str) = (StatusCode::NOT_FOUND, "Not Found");
+
 /// Trait for converting types into HTTP responses.
 ///
 /// This trait provides a unified interface for converting various types into

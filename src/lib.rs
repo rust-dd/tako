@@ -76,6 +76,7 @@ pub mod ws;
 pub use bytes::Bytes;
 pub use http_body_util::Full;
 pub use hyper::{Method, StatusCode, header};
+pub use responder::NOT_FOUND;
 
 /// Starts the HTTP server with the given listener and router.
 ///

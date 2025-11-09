@@ -87,6 +87,8 @@ pub struct Router {
     routes: DashMap<Method, Vec<Weak<Route>>>,
     /// Global middleware chain applied to all routes.
     pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
+    /// Optional fallback handler executed when no route matches.
+    fallback: Option<BoxHandler>,
     /// Registered plugins for extending functionality.
     #[cfg(feature = "plugins")]
     plugins: Vec<Box<dyn TakoPlugin>>,
@@ -102,6 +104,7 @@ impl Router {
             inner: DashMap::default(),
             routes: DashMap::default(),
             middlewares: RwLock::new(Vec::new()),
+            fallback: None,
             #[cfg(feature = "plugins")]
             plugins: Vec::new(),
             #[cfg(feature = "plugins")]
@@ -268,6 +271,16 @@ impl Router {
             }
         }
 
+        // No match: use fallback handler if configured
+        if let Some(handler) = &self.fallback {
+            let g_mws = self.middlewares.read().unwrap().clone();
+            let next = Next {
+                middlewares: Arc::new(g_mws),
+                endpoint: Arc::new(handler.clone()),
+            };
+            return next.run(req).await;
+        }
+
         hyper::Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(TakoBody::empty())
@@ -344,6 +357,30 @@ impl Router {
         });
 
         self.middlewares.write().unwrap().push(mw);
+        self
+    }
+
+    /// Sets a fallback handler that will be executed when no route matches.
+    ///
+    /// The fallback runs after global middlewares and can be used to implement
+    /// custom 404 pages, catch-all logic, or method-independent handlers.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use tako::{router::Router, Method, responder::Responder, types::Request};
+    ///
+    /// async fn not_found(_req: Request) -> impl Responder { "Not Found" }
+    ///
+    /// let mut router = Router::new();
+    /// router.route(Method::GET, "/", |_req| async { "Hello" });
+    /// router.fallback(not_found);
+    /// ```
+    pub fn fallback<H, T>(&mut self, handler: H) -> &mut Self
+    where
+        H: Handler<T> + Clone + 'static,
+    {
+        self.fallback = Some(BoxHandler::new::<H, T>(handler));
         self
     }
 
