@@ -88,7 +88,6 @@ pub struct BoxHandler {
     inner: Arc<dyn Fn(Request) -> BoxFuture<'static, Response> + Send + Sync>,
 }
 
-
 impl BoxHandler {
     /// Creates a new boxed handler from any handler implementation.
     pub(crate) fn new<H, T>(h: H) -> Self
@@ -189,7 +188,6 @@ macro_rules! impl_handler {
     };
 }
 
-// Implement handlers for functions taking up to 8 extractor arguments.
 impl_handler!(T1);
 impl_handler!(T1, T2);
 impl_handler!(T1, T2, T3);
@@ -198,3 +196,7 @@ impl_handler!(T1, T2, T3, T4, T5);
 impl_handler!(T1, T2, T3, T4, T5, T6);
 impl_handler!(T1, T2, T3, T4, T5, T6, T7);
 impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);

@@ -75,6 +75,9 @@ pub mod types;
 /// WebSocket connection handling and message processing.
 pub mod ws;
 
+/// Redirect helpers for building redirect responses.
+pub mod redirect;
+
 pub use bytes::Bytes;
 pub use http_body_util::Full;
 pub use hyper::{Method, StatusCode, header};
