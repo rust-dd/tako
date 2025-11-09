@@ -41,7 +41,7 @@ use hyper::Method;
 use crate::{
     body::TakoBody,
     extractors::params::PathParams,
-    handler::{BoxHandler, Handler},
+    handler::{BoxHandler, Handler, IntoBoxHandler},
     middleware::Next,
     responder::Responder,
     route::Route,
@@ -376,11 +376,11 @@ impl Router {
     /// router.route(Method::GET, "/", |_req| async { "Hello" });
     /// router.fallback(not_found);
     /// ```
-    pub fn fallback<H, T>(&mut self, handler: H) -> &mut Self
+    pub fn fallback<H>(&mut self, handler: H) -> &mut Self
     where
-        H: Handler<T> + Clone + 'static,
+        H: IntoBoxHandler + 'static,
     {
-        self.fallback = Some(BoxHandler::new::<H, T>(handler));
+        self.fallback = Some(handler.into_box_handler());
         self
     }
 

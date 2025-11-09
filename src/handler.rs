@@ -88,6 +88,23 @@ pub struct BoxHandler {
     inner: Arc<dyn Fn(Request) -> BoxFuture<'static, Response> + Send + Sync>,
 }
 
+/// Helper trait to convert any `Handler<T>` into a `BoxHandler` without having to
+/// expose or specify the extractor tuple type `T` at call sites.
+pub trait IntoBoxHandler {
+    fn into_box_handler(self) -> BoxHandler
+    where
+        Self: Sized;
+}
+
+impl<F, T> IntoBoxHandler for F
+where
+    F: Handler<T> + Clone,
+{
+    fn into_box_handler(self) -> BoxHandler {
+        BoxHandler::new::<F, T>(self)
+    }
+}
+
 impl BoxHandler {
     /// Creates a new boxed handler from any handler implementation.
     pub(crate) fn new<H, T>(h: H) -> Self
