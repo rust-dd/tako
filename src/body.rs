@@ -31,9 +31,9 @@
 //! ```
 
 use std::{
-    fmt::Debug,
-    pin::Pin,
-    task::{Context, Poll},
+  fmt::Debug,
+  pin::Pin,
+  task::{Context, Poll},
 };
 
 use bytes::Bytes;
@@ -77,71 +77,71 @@ use crate::types::{BoxBody, BoxError};
 pub struct TakoBody(BoxBody);
 
 impl TakoBody {
-    /// Creates a new body from any type implementing the `Body` trait.
-    pub fn new<B>(body: B) -> Self
-    where
-        B: Body<Data = Bytes> + Send + 'static,
-        B::Error: Into<BoxError>,
-    {
-        Self(body.map_err(|e| e.into()).boxed_unsync())
-    }
+  /// Creates a new body from any type implementing the `Body` trait.
+  pub fn new<B>(body: B) -> Self
+  where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: Into<BoxError>,
+  {
+    Self(body.map_err(|e| e.into()).boxed_unsync())
+  }
 
-    /// Creates a body from a stream of byte results.
-    pub fn from_stream<S, E>(stream: S) -> Self
-    where
-        S: Stream<Item = Result<Bytes, E>> + Send + 'static,
-        E: Into<BoxError> + Debug + 'static,
-    {
-        let stream = stream.map_err(Into::into).map_ok(hyper::body::Frame::data);
-        let body = StreamBody::new(stream).boxed_unsync();
-        Self(body)
-    }
+  /// Creates a body from a stream of byte results.
+  pub fn from_stream<S, E>(stream: S) -> Self
+  where
+    S: Stream<Item = Result<Bytes, E>> + Send + 'static,
+    E: Into<BoxError> + Debug + 'static,
+  {
+    let stream = stream.map_err(Into::into).map_ok(hyper::body::Frame::data);
+    let body = StreamBody::new(stream).boxed_unsync();
+    Self(body)
+  }
 
-    /// Creates a body from a stream of HTTP frames.
-    pub fn from_try_stream<S, E>(stream: S) -> Self
-    where
-        S: TryStream<Ok = Frame<Bytes>, Error = E> + Send + 'static,
-        E: Into<BoxError> + 'static,
-    {
-        let body = StreamBody::new(stream.map_err(Into::into)).boxed_unsync();
-        Self(body)
-    }
+  /// Creates a body from a stream of HTTP frames.
+  pub fn from_try_stream<S, E>(stream: S) -> Self
+  where
+    S: TryStream<Ok = Frame<Bytes>, Error = E> + Send + 'static,
+    E: Into<BoxError> + 'static,
+  {
+    let body = StreamBody::new(stream.map_err(Into::into)).boxed_unsync();
+    Self(body)
+  }
 
-    /// Creates an empty body with no content.
-    pub fn empty() -> Self {
-        Self::new(Empty::new())
-    }
+  /// Creates an empty body with no content.
+  pub fn empty() -> Self {
+    Self::new(Empty::new())
+  }
 }
 
 /// Provides a default empty body implementation.
 impl Default for TakoBody {
-    fn default() -> Self {
-        Self::empty()
-    }
+  fn default() -> Self {
+    Self::empty()
+  }
 }
 
 impl From<()> for TakoBody {
-    fn from(_: ()) -> Self {
-        Self::empty()
-    }
+  fn from(_: ()) -> Self {
+    Self::empty()
+  }
 }
 
 impl From<&str> for TakoBody {
-    fn from(buf: &str) -> Self {
-        let owned = buf.to_owned();
-        Self::new(http_body_util::Full::from(owned))
-    }
+  fn from(buf: &str) -> Self {
+    let owned = buf.to_owned();
+    Self::new(http_body_util::Full::from(owned))
+  }
 }
 
 /// Macro for implementing `From` conversions for various types.
 macro_rules! body_from_impl {
-    ($ty:ty) => {
-        impl From<$ty> for TakoBody {
-            fn from(buf: $ty) -> Self {
-                Self::new(http_body_util::Full::from(buf))
-            }
-        }
-    };
+  ($ty:ty) => {
+    impl From<$ty> for TakoBody {
+      fn from(buf: $ty) -> Self {
+        Self::new(http_body_util::Full::from(buf))
+      }
+    }
+  };
 }
 
 body_from_impl!(String);
@@ -169,27 +169,27 @@ body_from_impl!(Bytes);
 /// }
 /// ```
 impl Body for TakoBody {
-    type Data = Bytes;
-    type Error = BoxError;
+  type Data = Bytes;
+  type Error = BoxError;
 
-    /// Polls for the next frame of body data.
-    #[inline]
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Pin::new(&mut self.0).poll_frame(cx)
-    }
+  /// Polls for the next frame of body data.
+  #[inline]
+  fn poll_frame(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    Pin::new(&mut self.0).poll_frame(cx)
+  }
 
-    /// Provides size hints for the body content.
-    #[inline]
-    fn size_hint(&self) -> SizeHint {
-        self.0.size_hint()
-    }
+  /// Provides size hints for the body content.
+  #[inline]
+  fn size_hint(&self) -> SizeHint {
+    self.0.size_hint()
+  }
 
-    /// Indicates whether the body has reached the end of the stream.
-    #[inline]
-    fn is_end_stream(&self) -> bool {
-        self.0.is_end_stream()
-    }
+  /// Indicates whether the body has reached the end of the stream.
+  #[inline]
+  fn is_end_stream(&self) -> bool {
+    self.0.is_end_stream()
+  }
 }

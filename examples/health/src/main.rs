@@ -5,23 +5,23 @@ use tokio::net::TcpListener;
 
 #[derive(Serialize)]
 pub struct HealthCheck {
-    status: String,
+  status: String,
 }
 
 async fn health() -> Json<HealthCheck> {
-    Json(HealthCheck {
-        status: "OK".to_string(),
-    })
+  Json(HealthCheck {
+    status: "OK".to_string(),
+  })
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
-    let mut router = Router::new();
-    router.route(Method::GET, "/health", health);
+  let mut router = Router::new();
+  router.route(Method::GET, "/health", health);
 
-    tako::serve(listener, router).await;
+  tako::serve(listener, router).await;
 
-    Ok(())
+  Ok(())
 }

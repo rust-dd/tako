@@ -35,9 +35,9 @@ use http::{StatusCode, request::Parts};
 use std::future::ready;
 
 use crate::{
-    extractors::{FromRequest, FromRequestParts},
-    responder::Responder,
-    types::Request,
+  extractors::{FromRequest, FromRequestParts},
+  responder::Responder,
+  types::Request,
 };
 
 /// Basic HTTP authentication credentials extracted from Authorization header.
@@ -47,115 +47,113 @@ use crate::{
 /// first colon character as per RFC 7617. The raw token is also preserved
 /// for logging or advanced use cases.
 pub struct Basic {
-    /// Username extracted from the Basic auth token.
-    pub username: String,
-    /// Password extracted from the Basic auth token.
-    pub password: String,
-    /// Raw Basic auth token as received in the Authorization header.
-    pub raw: String,
+  /// Username extracted from the Basic auth token.
+  pub username: String,
+  /// Password extracted from the Basic auth token.
+  pub password: String,
+  /// Raw Basic auth token as received in the Authorization header.
+  pub raw: String,
 }
 
 /// Error types for Basic authentication extraction and validation.
 #[derive(Debug)]
 pub enum BasicAuthError {
-    /// Authorization header is missing from the request.
-    MissingAuthHeader,
-    /// Authorization header contains invalid UTF-8 or cannot be parsed.
-    InvalidAuthHeader,
-    /// Authorization header does not use Basic authentication scheme.
-    InvalidBasicFormat,
-    /// Base64 encoding in the Basic auth token is invalid.
-    InvalidBase64,
-    /// Decoded credentials contain invalid UTF-8 characters.
-    InvalidUtf8,
-    /// Credentials format is invalid (missing colon separator).
-    InvalidCredentialsFormat,
+  /// Authorization header is missing from the request.
+  MissingAuthHeader,
+  /// Authorization header contains invalid UTF-8 or cannot be parsed.
+  InvalidAuthHeader,
+  /// Authorization header does not use Basic authentication scheme.
+  InvalidBasicFormat,
+  /// Base64 encoding in the Basic auth token is invalid.
+  InvalidBase64,
+  /// Decoded credentials contain invalid UTF-8 characters.
+  InvalidUtf8,
+  /// Credentials format is invalid (missing colon separator).
+  InvalidCredentialsFormat,
 }
 
 impl Responder for BasicAuthError {
-    /// Converts Basic authentication errors into appropriate HTTP responses.
-    fn into_response(self) -> crate::types::Response {
-        let (status, message) = match self {
-            BasicAuthError::MissingAuthHeader => {
-                (StatusCode::UNAUTHORIZED, "Missing Authorization header")
-            }
-            BasicAuthError::InvalidAuthHeader => {
-                (StatusCode::UNAUTHORIZED, "Invalid Authorization header")
-            }
-            BasicAuthError::InvalidBasicFormat => (
-                StatusCode::UNAUTHORIZED,
-                "Authorization header is not Basic auth",
-            ),
-            BasicAuthError::InvalidBase64 => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid Base64 encoding in Basic auth",
-            ),
-            BasicAuthError::InvalidUtf8 => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid UTF-8 in Basic auth credentials",
-            ),
-            BasicAuthError::InvalidCredentialsFormat => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid credentials format in Basic auth",
-            ),
-        };
-        (status, message).into_response()
-    }
+  /// Converts Basic authentication errors into appropriate HTTP responses.
+  fn into_response(self) -> crate::types::Response {
+    let (status, message) = match self {
+      BasicAuthError::MissingAuthHeader => {
+        (StatusCode::UNAUTHORIZED, "Missing Authorization header")
+      }
+      BasicAuthError::InvalidAuthHeader => {
+        (StatusCode::UNAUTHORIZED, "Invalid Authorization header")
+      }
+      BasicAuthError::InvalidBasicFormat => (
+        StatusCode::UNAUTHORIZED,
+        "Authorization header is not Basic auth",
+      ),
+      BasicAuthError::InvalidBase64 => (
+        StatusCode::UNAUTHORIZED,
+        "Invalid Base64 encoding in Basic auth",
+      ),
+      BasicAuthError::InvalidUtf8 => (
+        StatusCode::UNAUTHORIZED,
+        "Invalid UTF-8 in Basic auth credentials",
+      ),
+      BasicAuthError::InvalidCredentialsFormat => (
+        StatusCode::UNAUTHORIZED,
+        "Invalid credentials format in Basic auth",
+      ),
+    };
+    (status, message).into_response()
+  }
 }
 
 impl Basic {
-    /// Parses Basic authentication credentials from HTTP headers.
-    fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BasicAuthError> {
-        let auth_header = headers
-            .get("Authorization")
-            .ok_or(BasicAuthError::MissingAuthHeader)?;
+  /// Parses Basic authentication credentials from HTTP headers.
+  fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BasicAuthError> {
+    let auth_header = headers
+      .get("Authorization")
+      .ok_or(BasicAuthError::MissingAuthHeader)?;
 
-        let auth_str = auth_header
-            .to_str()
-            .map_err(|_| BasicAuthError::InvalidAuthHeader)?;
+    let auth_str = auth_header
+      .to_str()
+      .map_err(|_| BasicAuthError::InvalidAuthHeader)?;
 
-        if !auth_str.starts_with("Basic ") {
-            return Err(BasicAuthError::InvalidBasicFormat);
-        }
-
-        let encoded = &auth_str[6..];
-        let decoded = STANDARD
-            .decode(encoded)
-            .map_err(|_| BasicAuthError::InvalidBase64)?;
-
-        let decoded_str = std::str::from_utf8(&decoded).map_err(|_| BasicAuthError::InvalidUtf8)?;
-
-        let parts: Vec<&str> = decoded_str.splitn(2, ':').collect();
-        if parts.len() != 2 {
-            return Err(BasicAuthError::InvalidCredentialsFormat);
-        }
-
-        Ok(Basic {
-            username: parts[0].to_string(),
-            password: parts[1].to_string(),
-            raw: auth_str.to_string(),
-        })
+    if !auth_str.starts_with("Basic ") {
+      return Err(BasicAuthError::InvalidBasicFormat);
     }
+
+    let encoded = &auth_str[6..];
+    let decoded = STANDARD
+      .decode(encoded)
+      .map_err(|_| BasicAuthError::InvalidBase64)?;
+
+    let decoded_str = std::str::from_utf8(&decoded).map_err(|_| BasicAuthError::InvalidUtf8)?;
+
+    let parts: Vec<&str> = decoded_str.splitn(2, ':').collect();
+    if parts.len() != 2 {
+      return Err(BasicAuthError::InvalidCredentialsFormat);
+    }
+
+    Ok(Basic {
+      username: parts[0].to_string(),
+      password: parts[1].to_string(),
+      raw: auth_str.to_string(),
+    })
+  }
 }
 
 impl<'a> FromRequest<'a> for Basic {
-    type Error = BasicAuthError;
+  type Error = BasicAuthError;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Self::extract_from_headers(req.headers()))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Self::extract_from_headers(req.headers()))
+  }
 }
 
 impl<'a> FromRequestParts<'a> for Basic {
-    type Error = BasicAuthError;
+  type Error = BasicAuthError;
 
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Self::extract_from_headers(&parts.headers))
-    }
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Self::extract_from_headers(&parts.headers))
+  }
 }

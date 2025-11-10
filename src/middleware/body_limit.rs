@@ -41,9 +41,9 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use http::{StatusCode, header::CONTENT_LENGTH};
 
 use crate::{
-    middleware::{IntoMiddleware, Next},
-    responder::Responder,
-    types::{Request, Response},
+  middleware::{IntoMiddleware, Next},
+  responder::Responder,
+  types::{Request, Response},
 };
 
 /// Request body size limiting middleware configuration.
@@ -78,85 +78,84 @@ use crate::{
 /// ```
 pub struct BodyLimit<F>
 where
-    F: Fn(&Request) -> usize + Send + Sync + 'static,
+  F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-    /// Static size limit in bytes, if configured.
-    limit: Option<usize>,
-    /// Dynamic limit function for request-based limits.
-    dynamic_limit: Option<F>,
+  /// Static size limit in bytes, if configured.
+  limit: Option<usize>,
+  /// Dynamic limit function for request-based limits.
+  dynamic_limit: Option<F>,
 }
 
 impl<F> BodyLimit<F>
 where
-    F: Fn(&Request) -> usize + Send + Sync + 'static,
+  F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-    /// Creates a body limit middleware with a fixed size limit.
-    pub fn new(limit: usize) -> Self {
-        Self {
-            limit: Some(limit),
-            dynamic_limit: None,
-        }
+  /// Creates a body limit middleware with a fixed size limit.
+  pub fn new(limit: usize) -> Self {
+    Self {
+      limit: Some(limit),
+      dynamic_limit: None,
     }
+  }
 
-    /// Creates a body limit middleware with a dynamic limit function.
-    pub fn with_dynamic_limit(f: F) -> Self {
-        Self {
-            limit: None,
-            dynamic_limit: Some(f),
-        }
+  /// Creates a body limit middleware with a dynamic limit function.
+  pub fn with_dynamic_limit(f: F) -> Self {
+    Self {
+      limit: None,
+      dynamic_limit: Some(f),
     }
+  }
 
-    /// Creates a body limit middleware with both static and dynamic limits.
-    pub fn new_with_dynamic(limit: usize, f: F) -> Self {
-        Self {
-            limit: Some(limit),
-            dynamic_limit: Some(f),
-        }
+  /// Creates a body limit middleware with both static and dynamic limits.
+  pub fn new_with_dynamic(limit: usize, f: F) -> Self {
+    Self {
+      limit: Some(limit),
+      dynamic_limit: Some(f),
     }
+  }
 }
 
 impl<F> IntoMiddleware for BodyLimit<F>
 where
-    F: Fn(&Request) -> usize + Send + Sync + 'static,
+  F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-    /// Converts the body limit configuration into middleware.
-    fn into_middleware(
-        self,
-    ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
-    + Clone
-    + Send
-    + Sync
-    + 'static {
-        let static_limit = self.limit;
-        let dynamic_limit = self.dynamic_limit.map(Arc::new);
+  /// Converts the body limit configuration into middleware.
+  fn into_middleware(
+    self,
+  ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+  + Clone
+  + Send
+  + Sync
+  + 'static {
+    let static_limit = self.limit;
+    let dynamic_limit = self.dynamic_limit.map(Arc::new);
 
-        move |req: Request, next: Next| {
-            let dynamic_limit = dynamic_limit.clone();
+    move |req: Request, next: Next| {
+      let dynamic_limit = dynamic_limit.clone();
 
-            Box::pin(async move {
-                // Determine effective limit: dynamic → static → default 10 MiB
-                let limit = dynamic_limit
-                    .as_ref()
-                    .map(|f| f(&req))
-                    .or(static_limit)
-                    .unwrap_or(10 * 1024 * 1024);
+      Box::pin(async move {
+        // Determine effective limit: dynamic → static → default 10 MiB
+        let limit = dynamic_limit
+          .as_ref()
+          .map(|f| f(&req))
+          .or(static_limit)
+          .unwrap_or(10 * 1024 * 1024);
 
-                // Fast-path rejection via Content-Length header
-                if let Some(len) = req
-                    .headers()
-                    .get(CONTENT_LENGTH)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<usize>().ok())
-                {
-                    if len > limit {
-                        return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size")
-                            .into_response();
-                    }
-                }
-
-                // TODO: add run-time stream truncation if your Body supports it.
-                next.run(req).await.into_response()
-            })
+        // Fast-path rejection via Content-Length header
+        if let Some(len) = req
+          .headers()
+          .get(CONTENT_LENGTH)
+          .and_then(|v| v.to_str().ok())
+          .and_then(|s| s.parse::<usize>().ok())
+        {
+          if len > limit {
+            return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
+          }
         }
+
+        // TODO: add run-time stream truncation if your Body supports it.
+        next.run(req).await.into_response()
+      })
     }
+  }
 }

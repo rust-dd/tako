@@ -46,98 +46,97 @@ pub struct Protobuf<T>(pub T);
 /// Error types for Protobuf extraction and deserialization.
 #[derive(Debug)]
 pub enum ProtobufError {
-    /// Content-Type header is not application/x-protobuf or application/protobuf.
-    InvalidContentType,
-    /// Content-Type header is missing from the request.
-    MissingContentType,
-    /// Failed to read the request body (network error, timeout, etc.).
-    BodyReadError(String),
-    /// Protobuf deserialization failed (invalid format, unknown fields, etc.).
-    ProtobufDecodeError(String),
+  /// Content-Type header is not application/x-protobuf or application/protobuf.
+  InvalidContentType,
+  /// Content-Type header is missing from the request.
+  MissingContentType,
+  /// Failed to read the request body (network error, timeout, etc.).
+  BodyReadError(String),
+  /// Protobuf deserialization failed (invalid format, unknown fields, etc.).
+  ProtobufDecodeError(String),
 }
 
 impl Responder for ProtobufError {
-    /// Converts Protobuf extraction errors into appropriate HTTP error responses.
-    fn into_response(self) -> crate::types::Response {
-        match self {
-            ProtobufError::InvalidContentType => (
-                StatusCode::BAD_REQUEST,
-                "Invalid content type; expected application/x-protobuf or application/protobuf",
-            )
-                .into_response(),
-            ProtobufError::MissingContentType => {
-                (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
-            }
-            ProtobufError::BodyReadError(err) => (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to read request body: {}", err),
-            )
-                .into_response(),
-            ProtobufError::ProtobufDecodeError(err) => (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to decode protobuf: {}", err),
-            )
-                .into_response(),
-        }
+  /// Converts Protobuf extraction errors into appropriate HTTP error responses.
+  fn into_response(self) -> crate::types::Response {
+    match self {
+      ProtobufError::InvalidContentType => (
+        StatusCode::BAD_REQUEST,
+        "Invalid content type; expected application/x-protobuf or application/protobuf",
+      )
+        .into_response(),
+      ProtobufError::MissingContentType => {
+        (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
+      }
+      ProtobufError::BodyReadError(err) => (
+        StatusCode::BAD_REQUEST,
+        format!("Failed to read request body: {}", err),
+      )
+        .into_response(),
+      ProtobufError::ProtobufDecodeError(err) => (
+        StatusCode::BAD_REQUEST,
+        format!("Failed to decode protobuf: {}", err),
+      )
+        .into_response(),
     }
+  }
 }
 
 impl<T> Responder for Protobuf<T>
 where
-    T: Message,
+  T: Message,
 {
-    /// Converts the wrapped protobuf message into an HTTP response.
-    fn into_response(self) -> crate::types::Response {
-        let buf = self.0.encode_to_vec();
-        let mut res = crate::types::Response::new(crate::body::TakoBody::from(buf));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("application/x-protobuf"),
-        );
-        res
-    }
+  /// Converts the wrapped protobuf message into an HTTP response.
+  fn into_response(self) -> crate::types::Response {
+    let buf = self.0.encode_to_vec();
+    let mut res = crate::types::Response::new(crate::body::TakoBody::from(buf));
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      http::HeaderValue::from_static("application/x-protobuf"),
+    );
+    res
+  }
 }
 
 /// Checks if the Content-Type header indicates protobuf content.
 fn is_protobuf_content_type(headers: &http::HeaderMap) -> bool {
-    headers
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|ct| {
-            ct == "application/x-protobuf"
-                || ct == "application/protobuf"
-                || ct.starts_with("application/x-protobuf;")
-                || ct.starts_with("application/protobuf;")
-        })
-        .unwrap_or(false)
+  headers
+    .get(http::header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .map(|ct| {
+      ct == "application/x-protobuf"
+        || ct == "application/protobuf"
+        || ct.starts_with("application/x-protobuf;")
+        || ct.starts_with("application/protobuf;")
+    })
+    .unwrap_or(false)
 }
 
 impl<'a, T> FromRequest<'a> for Protobuf<T>
 where
-    T: Message + Default + Send + 'static,
+  T: Message + Default + Send + 'static,
 {
-    type Error = ProtobufError;
+  type Error = ProtobufError;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        async move {
-            if !is_protobuf_content_type(req.headers()) {
-                return Err(ProtobufError::InvalidContentType);
-            }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    async move {
+      if !is_protobuf_content_type(req.headers()) {
+        return Err(ProtobufError::InvalidContentType);
+      }
 
-            let body_bytes = req
-                .body_mut()
-                .collect()
-                .await
-                .map_err(|e| ProtobufError::BodyReadError(e.to_string()))?
-                .to_bytes();
+      let body_bytes = req
+        .body_mut()
+        .collect()
+        .await
+        .map_err(|e| ProtobufError::BodyReadError(e.to_string()))?
+        .to_bytes();
 
-            let data = T::decode(&body_bytes[..])
-                .map_err(|e| ProtobufError::ProtobufDecodeError(e.to_string()))?;
+      let data = T::decode(&body_bytes[..])
+        .map_err(|e| ProtobufError::ProtobufDecodeError(e.to_string()))?;
 
-            Ok(Protobuf(data))
-        }
+      Ok(Protobuf(data))
     }
+  }
 }

@@ -38,15 +38,15 @@ use bytes::Bytes;
 use futures_util::{TryStream, TryStreamExt};
 use hyper::{StatusCode, body::Frame};
 use tokio::{
-    fs::File,
-    io::{AsyncReadExt, AsyncSeekExt},
+  fs::File,
+  io::{AsyncReadExt, AsyncSeekExt},
 };
 use tokio_util::io::ReaderStream;
 
 use crate::{
-    body::TakoBody,
-    responder::Responder,
-    types::{BoxError, Response},
+  body::TakoBody,
+  responder::Responder,
+  types::{BoxError, Response},
 };
 
 /// HTTP file stream with metadata support for efficient file delivery.
@@ -76,152 +76,154 @@ use crate::{
 /// # }
 /// ```
 pub struct FileStream<S> {
-    /// The underlying byte stream
-    pub stream: S,
-    /// Optional filename for Content-Disposition header
-    pub file_name: Option<String>,
-    /// Optional content size for Content-Length header
-    pub content_size: Option<u64>,
+  /// The underlying byte stream
+  pub stream: S,
+  /// Optional filename for Content-Disposition header
+  pub file_name: Option<String>,
+  /// Optional content size for Content-Length header
+  pub content_size: Option<u64>,
 }
 
 impl<S> FileStream<S>
 where
-    S: TryStream + Send + 'static,
-    S::Ok: Into<Bytes>,
-    S::Error: Into<BoxError>,
+  S: TryStream + Send + 'static,
+  S::Ok: Into<Bytes>,
+  S::Error: Into<BoxError>,
 {
-    /// Creates a new file stream with the provided metadata.
-    pub fn new(stream: S, file_name: Option<String>, content_size: Option<u64>) -> Self {
-        Self {
-            stream,
-            file_name,
-            content_size,
-        }
+  /// Creates a new file stream with the provided metadata.
+  pub fn new(stream: S, file_name: Option<String>, content_size: Option<u64>) -> Self {
+    Self {
+      stream,
+      file_name,
+      content_size,
+    }
+  }
+
+  /// Creates a file stream from a file system path with automatic metadata detection.
+  pub async fn from_path<P>(path: P) -> Result<FileStream<ReaderStream<File>>>
+  where
+    P: AsRef<Path>,
+  {
+    let file = File::open(&path).await?;
+    let mut content_size = None;
+    let mut file_name = None;
+
+    if let Ok(metadata) = file.metadata().await {
+      content_size = Some(metadata.len());
     }
 
-    /// Creates a file stream from a file system path with automatic metadata detection.
-    pub async fn from_path<P>(path: P) -> Result<FileStream<ReaderStream<File>>>
-    where
-        P: AsRef<Path>,
+    if let Some(os_name) = path.as_ref().file_name()
+      && let Some(name) = os_name.to_str()
     {
-        let file = File::open(&path).await?;
-        let mut content_size = None;
-        let mut file_name = None;
-
-        if let Ok(metadata) = file.metadata().await {
-            content_size = Some(metadata.len());
-        }
-
-        if let Some(os_name) = path.as_ref().file_name()
-            && let Some(name) = os_name.to_str()
-        {
-            file_name = Some(name.to_owned());
-        }
-
-        Ok(FileStream {
-            stream: ReaderStream::new(file),
-            file_name,
-            content_size,
-        })
+      file_name = Some(name.to_owned());
     }
 
-    /// Creates an HTTP 206 Partial Content response for range requests.
-    pub fn into_range_response(self, start: u64, end: u64, total_size: u64) -> Response {
-        let mut response = hyper::Response::builder()
-            .status(hyper::StatusCode::PARTIAL_CONTENT)
-            .header(
-                hyper::header::CONTENT_TYPE,
-                mime::APPLICATION_OCTET_STREAM.as_ref(),
-            )
-            .header(
-                hyper::header::CONTENT_RANGE,
-                format!("bytes {}-{}/{}", start, end, total_size),
-            )
-            .header(hyper::header::CONTENT_LENGTH, (end - start + 1).to_string());
+    Ok(FileStream {
+      stream: ReaderStream::new(file),
+      file_name,
+      content_size,
+    })
+  }
 
-        if let Some(ref name) = self.file_name {
-            response = response.header(
-                hyper::header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", name),
-            );
-        }
+  /// Creates an HTTP 206 Partial Content response for range requests.
+  pub fn into_range_response(self, start: u64, end: u64, total_size: u64) -> Response {
+    let mut response = hyper::Response::builder()
+      .status(hyper::StatusCode::PARTIAL_CONTENT)
+      .header(
+        hyper::header::CONTENT_TYPE,
+        mime::APPLICATION_OCTET_STREAM.as_ref(),
+      )
+      .header(
+        hyper::header::CONTENT_RANGE,
+        format!("bytes {}-{}/{}", start, end, total_size),
+      )
+      .header(hyper::header::CONTENT_LENGTH, (end - start + 1).to_string());
 
-        let body = TakoBody::from_try_stream(
-            self.stream
-                .map_ok(|chunk| Frame::data(Into::<Bytes>::into(chunk)))
-                .map_err(Into::into),
-        );
-
-        response.body(body).unwrap_or_else(|e| {
-            (
-                hyper::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("FileStream range error: {}", e),
-            )
-                .into_response()
-        })
+    if let Some(ref name) = self.file_name {
+      response = response.header(
+        hyper::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", name),
+      );
     }
 
-    /// Try to create a range response for a file stream.
-    pub async fn try_range_response<P>(path: P, start: u64, mut end: u64) -> Result<Response>
-    where
-        P: AsRef<Path>,
-    {
-        let mut file = File::open(path).await?;
-        let meta = file.metadata().await?;
-        let total_size = meta.len();
+    let body = TakoBody::from_try_stream(
+      self
+        .stream
+        .map_ok(|chunk| Frame::data(Into::<Bytes>::into(chunk)))
+        .map_err(Into::into),
+    );
 
-        if end == 0 {
-            end = total_size - 1;
-        }
+    response.body(body).unwrap_or_else(|e| {
+      (
+        hyper::StatusCode::INTERNAL_SERVER_ERROR,
+        format!("FileStream range error: {}", e),
+      )
+        .into_response()
+    })
+  }
 
-        if start > total_size || start > end || end >= total_size {
-            return Ok((StatusCode::RANGE_NOT_SATISFIABLE, "Range not satisfiable").into_response());
-        }
+  /// Try to create a range response for a file stream.
+  pub async fn try_range_response<P>(path: P, start: u64, mut end: u64) -> Result<Response>
+  where
+    P: AsRef<Path>,
+  {
+    let mut file = File::open(path).await?;
+    let meta = file.metadata().await?;
+    let total_size = meta.len();
 
-        file.seek(SeekFrom::Start(start)).await?;
-        let stream = ReaderStream::new(file.take(end - start + 1));
-        Ok(FileStream::new(stream, None, None).into_range_response(start, end, total_size))
+    if end == 0 {
+      end = total_size - 1;
     }
+
+    if start > total_size || start > end || end >= total_size {
+      return Ok((StatusCode::RANGE_NOT_SATISFIABLE, "Range not satisfiable").into_response());
+    }
+
+    file.seek(SeekFrom::Start(start)).await?;
+    let stream = ReaderStream::new(file.take(end - start + 1));
+    Ok(FileStream::new(stream, None, None).into_range_response(start, end, total_size))
+  }
 }
 
 impl<S> Responder for FileStream<S>
 where
-    S: TryStream + Send + 'static,
-    S::Ok: Into<Bytes>,
-    S::Error: Into<BoxError>,
+  S: TryStream + Send + 'static,
+  S::Ok: Into<Bytes>,
+  S::Error: Into<BoxError>,
 {
-    /// Converts the file stream into an HTTP response with appropriate headers.
-    fn into_response(self) -> Response {
-        let mut response = hyper::Response::builder()
-            .status(hyper::StatusCode::OK)
-            .header(
-                hyper::header::CONTENT_TYPE,
-                mime::APPLICATION_OCTET_STREAM.as_ref(),
-            );
+  /// Converts the file stream into an HTTP response with appropriate headers.
+  fn into_response(self) -> Response {
+    let mut response = hyper::Response::builder()
+      .status(hyper::StatusCode::OK)
+      .header(
+        hyper::header::CONTENT_TYPE,
+        mime::APPLICATION_OCTET_STREAM.as_ref(),
+      );
 
-        if let Some(size) = self.content_size {
-            response = response.header(hyper::header::CONTENT_LENGTH, size.to_string());
-        }
-
-        if let Some(ref name) = self.file_name {
-            response = response.header(
-                hyper::header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", name),
-            );
-        }
-
-        let body = TakoBody::from_try_stream(
-            self.stream
-                .map_ok(|chunk| Frame::data(Into::<Bytes>::into(chunk)))
-                .map_err(Into::into),
-        );
-
-        response.body(body).unwrap_or_else(|e| {
-            (
-                hyper::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("FileStream error: {}", e),
-            )
-                .into_response()
-        })
+    if let Some(size) = self.content_size {
+      response = response.header(hyper::header::CONTENT_LENGTH, size.to_string());
     }
+
+    if let Some(ref name) = self.file_name {
+      response = response.header(
+        hyper::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", name),
+      );
+    }
+
+    let body = TakoBody::from_try_stream(
+      self
+        .stream
+        .map_ok(|chunk| Frame::data(Into::<Bytes>::into(chunk)))
+        .map_err(Into::into),
+    );
+
+    response.body(body).unwrap_or_else(|e| {
+      (
+        hyper::StatusCode::INTERNAL_SERVER_ERROR,
+        format!("FileStream error: {}", e),
+      )
+        .into_response()
+    })
+  }
 }

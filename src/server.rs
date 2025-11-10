@@ -34,44 +34,44 @@ use crate::types::BoxError;
 
 /// Starts the Tako HTTP server with the given listener and router.
 pub async fn serve(listener: TcpListener, router: Router) {
-    run(listener, router).await.unwrap();
+  run(listener, router).await.unwrap();
 }
 
 /// Runs the main server loop, accepting connections and dispatching requests.
 async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
-    #[cfg(feature = "tako-tracing")]
-    crate::tracing::init_tracing();
+  #[cfg(feature = "tako-tracing")]
+  crate::tracing::init_tracing();
 
-    let router = Arc::new(router);
-    // Setup plugins
-    #[cfg(feature = "plugins")]
-    router.setup_plugins_once();
+  let router = Arc::new(router);
+  // Setup plugins
+  #[cfg(feature = "plugins")]
+  router.setup_plugins_once();
 
-    tracing::debug!("Tako listening on {}", listener.local_addr()?);
+  tracing::debug!("Tako listening on {}", listener.local_addr()?);
 
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let io = hyper_util::rt::TokioIo::new(stream);
+  loop {
+    let (stream, addr) = listener.accept().await?;
+    let io = hyper_util::rt::TokioIo::new(stream);
+    let router = router.clone();
+
+    // Spawn a new task to handle each incoming connection.
+    tokio::spawn(async move {
+      let svc = Arc::new(service_fn(move |mut req: Request<_>| {
         let router = router.clone();
+        async move {
+          req.extensions_mut().insert(addr);
+          Ok::<_, Infallible>(router.dispatch(req).await)
+        }
+      }));
 
-        // Spawn a new task to handle each incoming connection.
-        tokio::spawn(async move {
-            let svc = Arc::new(service_fn(move |mut req: Request<_>| {
-                let router = router.clone();
-                async move {
-                    req.extensions_mut().insert(addr);
-                    Ok::<_, Infallible>(router.dispatch(req).await)
-                }
-            }));
+      let mut http = http1::Builder::new();
+      http.keep_alive(true);
+      // Serve the connection using HTTP/1.1 with support for upgrades.
+      let conn = http.serve_connection(io, svc).with_upgrades();
 
-            let mut http = http1::Builder::new();
-            http.keep_alive(true);
-            // Serve the connection using HTTP/1.1 with support for upgrades.
-            let conn = http.serve_connection(io, svc).with_upgrades();
-
-            if let Err(err) = conn.await {
-                tracing::error!("Error serving connection: {err}");
-            }
-        });
-    }
+      if let Err(err) = conn.await {
+        tracing::error!("Error serving connection: {err}");
+      }
+    });
+  }
 }

@@ -33,159 +33,159 @@ use http::StatusCode;
 use tokio::fs;
 
 use crate::{
-    body::TakoBody,
-    responder::Responder,
-    types::{Request, Response},
+  body::TakoBody,
+  responder::Responder,
+  types::{Request, Response},
 };
 
 /// Static directory server with configurable fallback handling.
 pub struct ServeDir {
-    base_dir: PathBuf,
-    fallback: Option<PathBuf>,
+  base_dir: PathBuf,
+  fallback: Option<PathBuf>,
 }
 
 /// Builder for configuring a `ServeDir` instance.
 pub struct ServeDirBuilder {
-    base_dir: PathBuf,
-    fallback: Option<PathBuf>,
+  base_dir: PathBuf,
+  fallback: Option<PathBuf>,
 }
 
 impl ServeDirBuilder {
-    /// Creates a new builder with the specified base directory.
-    pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
-        Self {
-            base_dir: base_dir.into(),
-            fallback: None,
-        }
+  /// Creates a new builder with the specified base directory.
+  pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
+    Self {
+      base_dir: base_dir.into(),
+      fallback: None,
     }
+  }
 
-    /// Sets a fallback file to serve when requested files are not found.
-    pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
-        self.fallback = Some(fallback.into());
-        self
-    }
+  /// Sets a fallback file to serve when requested files are not found.
+  pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
+    self.fallback = Some(fallback.into());
+    self
+  }
 
-    /// Builds and returns the configured `ServeDir` instance.
-    pub fn build(self) -> ServeDir {
-        ServeDir {
-            base_dir: self.base_dir,
-            fallback: self.fallback,
-        }
+  /// Builds and returns the configured `ServeDir` instance.
+  pub fn build(self) -> ServeDir {
+    ServeDir {
+      base_dir: self.base_dir,
+      fallback: self.fallback,
     }
+  }
 }
 
 impl ServeDir {
-    /// Creates a new builder for configuring a `ServeDir`.
-    pub fn builder<P: Into<PathBuf>>(base_dir: P) -> ServeDirBuilder {
-        ServeDirBuilder::new(base_dir)
+  /// Creates a new builder for configuring a `ServeDir`.
+  pub fn builder<P: Into<PathBuf>>(base_dir: P) -> ServeDirBuilder {
+    ServeDirBuilder::new(base_dir)
+  }
+
+  /// Sanitizes the requested path to prevent directory traversal attacks.
+  fn sanitize_path(&self, req_path: &str) -> Option<PathBuf> {
+    let rel_path = req_path.trim_start_matches('/');
+    let joined = self.base_dir.join(rel_path);
+    let canonical = joined.canonicalize().ok()?;
+    if canonical.starts_with(self.base_dir.canonicalize().ok()?) {
+      Some(canonical)
+    } else {
+      None
+    }
+  }
+
+  /// Serves a file from the given path with appropriate MIME type.
+  async fn serve_file(&self, file_path: &Path) -> Option<Response> {
+    match fs::read(file_path).await {
+      Ok(contents) => {
+        let mime = mime_guess::from_path(file_path).first_or_octet_stream();
+        Some(
+          hyper::Response::builder()
+            .status(StatusCode::OK)
+            .header(hyper::header::CONTENT_TYPE, mime.to_string())
+            .body(TakoBody::from(contents))
+            .unwrap(),
+        )
+      }
+      Err(_) => None,
+    }
+  }
+
+  /// Handles an HTTP request to serve a static file from the directory.
+  pub async fn handle(&self, req: Request) -> impl Responder {
+    let path = req.uri().path();
+
+    if let Some(file_path) = self.sanitize_path(path)
+      && let Some(resp) = self.serve_file(&file_path).await
+    {
+      return resp;
     }
 
-    /// Sanitizes the requested path to prevent directory traversal attacks.
-    fn sanitize_path(&self, req_path: &str) -> Option<PathBuf> {
-        let rel_path = req_path.trim_start_matches('/');
-        let joined = self.base_dir.join(rel_path);
-        let canonical = joined.canonicalize().ok()?;
-        if canonical.starts_with(self.base_dir.canonicalize().ok()?) {
-            Some(canonical)
-        } else {
-            None
-        }
+    if let Some(fallback) = &self.fallback
+      && let Some(resp) = self.serve_file(fallback).await
+    {
+      return resp;
     }
 
-    /// Serves a file from the given path with appropriate MIME type.
-    async fn serve_file(&self, file_path: &Path) -> Option<Response> {
-        match fs::read(file_path).await {
-            Ok(contents) => {
-                let mime = mime_guess::from_path(file_path).first_or_octet_stream();
-                Some(
-                    hyper::Response::builder()
-                        .status(StatusCode::OK)
-                        .header(hyper::header::CONTENT_TYPE, mime.to_string())
-                        .body(TakoBody::from(contents))
-                        .unwrap(),
-                )
-            }
-            Err(_) => None,
-        }
-    }
-
-    /// Handles an HTTP request to serve a static file from the directory.
-    pub async fn handle(&self, req: Request) -> impl Responder {
-        let path = req.uri().path();
-
-        if let Some(file_path) = self.sanitize_path(path) {
-            if let Some(resp) = self.serve_file(&file_path).await {
-                return resp;
-            }
-        }
-
-        if let Some(fallback) = &self.fallback {
-            if let Some(resp) = self.serve_file(fallback).await {
-                return resp;
-            }
-        }
-
-        hyper::Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(TakoBody::from("File not found"))
-            .unwrap()
-    }
+    hyper::Response::builder()
+      .status(StatusCode::NOT_FOUND)
+      .body(TakoBody::from("File not found"))
+      .unwrap()
+  }
 }
 
 /// Static file server for serving individual files.
 pub struct ServeFile {
-    path: PathBuf,
+  path: PathBuf,
 }
 
 /// Builder for configuring a `ServeFile` instance.
 pub struct ServeFileBuilder {
-    path: PathBuf,
+  path: PathBuf,
 }
 
 impl ServeFileBuilder {
-    /// Creates a new builder with the specified file path.
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
-        Self { path: path.into() }
-    }
+  /// Creates a new builder with the specified file path.
+  pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+    Self { path: path.into() }
+  }
 
-    /// Builds and returns the configured `ServeFile` instance.
-    pub fn build(self) -> ServeFile {
-        ServeFile { path: self.path }
-    }
+  /// Builds and returns the configured `ServeFile` instance.
+  pub fn build(self) -> ServeFile {
+    ServeFile { path: self.path }
+  }
 }
 
 impl ServeFile {
-    /// Creates a new builder for configuring a `ServeFile`.
-    pub fn builder<P: Into<PathBuf>>(path: P) -> ServeFileBuilder {
-        ServeFileBuilder::new(path)
-    }
+  /// Creates a new builder for configuring a `ServeFile`.
+  pub fn builder<P: Into<PathBuf>>(path: P) -> ServeFileBuilder {
+    ServeFileBuilder::new(path)
+  }
 
-    /// Serves the configured file with appropriate MIME type.
-    async fn serve_file(&self) -> Option<Response> {
-        match fs::read(&self.path).await {
-            Ok(contents) => {
-                let mime = mime_guess::from_path(&self.path).first_or_octet_stream();
-                Some(
-                    hyper::Response::builder()
-                        .status(StatusCode::OK)
-                        .header(http::header::CONTENT_TYPE, mime.to_string())
-                        .body(TakoBody::from(contents))
-                        .unwrap(),
-                )
-            }
-            Err(_) => None,
-        }
+  /// Serves the configured file with appropriate MIME type.
+  async fn serve_file(&self) -> Option<Response> {
+    match fs::read(&self.path).await {
+      Ok(contents) => {
+        let mime = mime_guess::from_path(&self.path).first_or_octet_stream();
+        Some(
+          hyper::Response::builder()
+            .status(StatusCode::OK)
+            .header(http::header::CONTENT_TYPE, mime.to_string())
+            .body(TakoBody::from(contents))
+            .unwrap(),
+        )
+      }
+      Err(_) => None,
     }
+  }
 
-    /// Handles an HTTP request to serve the configured static file.
-    pub async fn handle(&self, _req: Request) -> impl Responder {
-        if let Some(resp) = self.serve_file().await {
-            resp
-        } else {
-            hyper::Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(TakoBody::from("File not found"))
-                .unwrap()
-        }
+  /// Handles an HTTP request to serve the configured static file.
+  pub async fn handle(&self, _req: Request) -> impl Responder {
+    if let Some(resp) = self.serve_file().await {
+      resp
+    } else {
+      hyper::Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(TakoBody::from("File not found"))
+        .unwrap()
     }
+  }
 }

@@ -30,8 +30,8 @@
 //! ```
 
 use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock, Weak},
+  collections::HashMap,
+  sync::{Arc, RwLock, Weak},
 };
 
 use dashmap::DashMap;
@@ -39,14 +39,14 @@ use http::StatusCode;
 use hyper::Method;
 
 use crate::{
-    body::TakoBody,
-    extractors::params::PathParams,
-    handler::{BoxHandler, Handler},
-    middleware::Next,
-    responder::Responder,
-    route::Route,
-    state::set_state,
-    types::{BoxMiddleware, Request, Response},
+  body::TakoBody,
+  extractors::params::PathParams,
+  handler::{BoxHandler, Handler},
+  middleware::Next,
+  responder::Responder,
+  route::Route,
+  state::set_state,
+  types::{BoxMiddleware, Request, Response},
 };
 
 #[cfg(feature = "plugins")]
@@ -81,458 +81,461 @@ use std::sync::atomic::AtomicBool;
 /// router.state("app_name", "MyApp".to_string());
 /// ```
 pub struct Router {
-    /// Map of registered routes keyed by method.
-    inner: DashMap<Method, matchit::Router<Arc<Route>>>,
-    /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
-    routes: DashMap<Method, Vec<Weak<Route>>>,
-    /// Global middleware chain applied to all routes.
-    pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
-    /// Optional fallback handler executed when no route matches.
-    fallback: Option<BoxHandler>,
-    /// Registered plugins for extending functionality.
-    #[cfg(feature = "plugins")]
-    plugins: Vec<Box<dyn TakoPlugin>>,
-    /// Flag to ensure plugins are initialized only once.
-    #[cfg(feature = "plugins")]
-    plugins_initialized: AtomicBool,
+  /// Map of registered routes keyed by method.
+  inner: DashMap<Method, matchit::Router<Arc<Route>>>,
+  /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
+  routes: DashMap<Method, Vec<Weak<Route>>>,
+  /// Global middleware chain applied to all routes.
+  pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
+  /// Optional fallback handler executed when no route matches.
+  fallback: Option<BoxHandler>,
+  /// Registered plugins for extending functionality.
+  #[cfg(feature = "plugins")]
+  plugins: Vec<Box<dyn TakoPlugin>>,
+  /// Flag to ensure plugins are initialized only once.
+  #[cfg(feature = "plugins")]
+  plugins_initialized: AtomicBool,
 }
 
 impl Router {
-    /// Creates a new, empty router.
-    pub fn new() -> Self {
-        Self {
-            inner: DashMap::default(),
-            routes: DashMap::default(),
-            middlewares: RwLock::new(Vec::new()),
-            fallback: None,
-            #[cfg(feature = "plugins")]
-            plugins: Vec::new(),
-            #[cfg(feature = "plugins")]
-            plugins_initialized: AtomicBool::new(false),
-        }
+  /// Creates a new, empty router.
+  pub fn new() -> Self {
+    Self {
+      inner: DashMap::default(),
+      routes: DashMap::default(),
+      middlewares: RwLock::new(Vec::new()),
+      fallback: None,
+      #[cfg(feature = "plugins")]
+      plugins: Vec::new(),
+      #[cfg(feature = "plugins")]
+      plugins_initialized: AtomicBool::new(false),
+    }
+  }
+
+  /// Registers a new route with the router.
+  ///
+  /// Associates an HTTP method and path pattern with a handler function. The path
+  /// can contain dynamic segments using curly braces (e.g., `/users/{id}`), which
+  /// are extracted as parameters during request processing.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, Method, responder::Responder, types::Request};
+  ///
+  /// async fn get_user(_req: Request) -> impl Responder {
+  ///     "User details"
+  /// }
+  ///
+  /// async fn create_user(_req: Request) -> impl Responder {
+  ///     "User created"
+  /// }
+  ///
+  /// let mut router = Router::new();
+  /// router.route(Method::GET, "/users/{id}", get_user);
+  /// router.route(Method::POST, "/users", create_user);
+  /// router.route(Method::GET, "/health", |_req| async { "OK" });
+  /// ```
+  pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    let route = Arc::new(Route::new(
+      path.to_string(),
+      method.clone(),
+      BoxHandler::new::<H, T>(handler),
+      None,
+    ));
+
+    let mut method_router = self
+      .inner
+      .entry(method.clone())
+      .or_insert_with(matchit::Router::new);
+
+    if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+      panic!("Failed to register route: {}", err);
     }
 
-    /// Registers a new route with the router.
-    ///
-    /// Associates an HTTP method and path pattern with a handler function. The path
-    /// can contain dynamic segments using curly braces (e.g., `/users/{id}`), which
-    /// are extracted as parameters during request processing.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, Method, responder::Responder, types::Request};
-    ///
-    /// async fn get_user(_req: Request) -> impl Responder {
-    ///     "User details"
-    /// }
-    ///
-    /// async fn create_user(_req: Request) -> impl Responder {
-    ///     "User created"
-    /// }
-    ///
-    /// let mut router = Router::new();
-    /// router.route(Method::GET, "/users/{id}", get_user);
-    /// router.route(Method::POST, "/users", create_user);
-    /// router.route(Method::GET, "/health", |_req| async { "OK" });
-    /// ```
-    pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
-    where
-        H: Handler<T> + Clone + 'static,
-    {
-        let route = Arc::new(Route::new(
-            path.to_string(),
-            method.clone(),
-            BoxHandler::new::<H, T>(handler),
-            None,
-        ));
+    self
+      .routes
+      .entry(method)
+      .or_insert_with(Vec::new)
+      .push(Arc::downgrade(&route));
 
-        let mut method_router = self
-            .inner
-            .entry(method.clone())
-            .or_insert_with(matchit::Router::new);
+    route
+  }
 
-        if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
-            panic!("Failed to register route: {}", err);
-        }
-
-        self.routes
-            .entry(method)
-            .or_insert_with(Vec::new)
-            .push(Arc::downgrade(&route));
-
-        route
+  /// Registers a route with trailing slash redirection enabled.
+  ///
+  /// When TSR is enabled, requests to paths with or without trailing slashes
+  /// are automatically redirected to the canonical version. This helps maintain
+  /// consistent URLs and prevents duplicate content issues.
+  ///
+  /// # Panics
+  ///
+  /// Panics if called with the root path ("/") since TSR is not applicable.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, Method, responder::Responder, types::Request};
+  ///
+  /// async fn api_handler(_req: Request) -> impl Responder {
+  ///     "API endpoint"
+  /// }
+  ///
+  /// let mut router = Router::new();
+  /// // Both "/api" and "/api/" will redirect to the canonical form
+  /// router.route_with_tsr(Method::GET, "/api", api_handler);
+  /// ```
+  pub fn route_with_tsr<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    if path == "/" {
+      panic!("Cannot route with TSR for root path");
     }
 
-    /// Registers a route with trailing slash redirection enabled.
-    ///
-    /// When TSR is enabled, requests to paths with or without trailing slashes
-    /// are automatically redirected to the canonical version. This helps maintain
-    /// consistent URLs and prevents duplicate content issues.
-    ///
-    /// # Panics
-    ///
-    /// Panics if called with the root path ("/") since TSR is not applicable.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, Method, responder::Responder, types::Request};
-    ///
-    /// async fn api_handler(_req: Request) -> impl Responder {
-    ///     "API endpoint"
-    /// }
-    ///
-    /// let mut router = Router::new();
-    /// // Both "/api" and "/api/" will redirect to the canonical form
-    /// router.route_with_tsr(Method::GET, "/api", api_handler);
-    /// ```
-    pub fn route_with_tsr<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
-    where
-        H: Handler<T> + Clone + 'static,
-    {
-        if path == "/" {
-            panic!("Cannot route with TSR for root path");
-        }
+    let route = Arc::new(Route::new(
+      path.to_string(),
+      method.clone(),
+      BoxHandler::new::<H, T>(handler),
+      Some(true),
+    ));
 
-        let route = Arc::new(Route::new(
-            path.to_string(),
-            method.clone(),
-            BoxHandler::new::<H, T>(handler),
-            Some(true),
-        ));
+    let mut method_router = self
+      .inner
+      .entry(method.clone())
+      .or_insert_with(matchit::Router::new);
 
-        let mut method_router = self
-            .inner
-            .entry(method.clone())
-            .or_insert_with(matchit::Router::new);
-
-        if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
-            panic!("Failed to register route: {}", err);
-        }
-
-        self.routes
-            .entry(method)
-            .or_insert_with(Vec::new)
-            .push(Arc::downgrade(&route));
-
-        route
+    if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+      panic!("Failed to register route: {}", err);
     }
 
-    /// Dispatches an incoming request to the appropriate route handler.
-    pub async fn dispatch(&self, mut req: Request) -> Response {
-        let method = req.method();
-        let path = req.uri().path();
+    self
+      .routes
+      .entry(method)
+      .or_insert_with(Vec::new)
+      .push(Arc::downgrade(&route));
 
-        if let Some(method_router) = self.inner.get(method) {
-            if let Ok(matched) = method_router.at(path) {
-                let route = matched.value;
+    route
+  }
 
-                // Initialize route-level plugins on first request
-                #[cfg(feature = "plugins")]
-                route.setup_plugins_once();
+  /// Dispatches an incoming request to the appropriate route handler.
+  pub async fn dispatch(&self, mut req: Request) -> Response {
+    let method = req.method();
+    let path = req.uri().path();
 
-                if !matched.params.iter().collect::<Vec<_>>().is_empty() {
-                    let mut params = HashMap::new();
-                    for (k, v) in matched.params.iter() {
-                        params.insert(k.to_string(), v.to_string());
-                    }
-                    req.extensions_mut().insert(PathParams(params));
-                }
-                let g_mws = self.middlewares.read().unwrap().clone();
-                let r_mws = route.middlewares.read().unwrap().clone();
-                let mut chain = Vec::new();
-                chain.extend(g_mws.into_iter());
-                chain.extend(r_mws.into_iter());
+    if let Some(method_router) = self.inner.get(method) {
+      if let Ok(matched) = method_router.at(path) {
+        let route = matched.value;
 
-                let next = Next {
-                    middlewares: Arc::new(chain),
-                    endpoint: Arc::new(route.handler.clone()),
-                };
-                return next.run(req).await;
-            }
+        // Initialize route-level plugins on first request
+        #[cfg(feature = "plugins")]
+        route.setup_plugins_once();
+
+        if !matched.params.iter().collect::<Vec<_>>().is_empty() {
+          let mut params = HashMap::new();
+          for (k, v) in matched.params.iter() {
+            params.insert(k.to_string(), v.to_string());
+          }
+          req.extensions_mut().insert(PathParams(params));
         }
+        let g_mws = self.middlewares.read().unwrap().clone();
+        let r_mws = route.middlewares.read().unwrap().clone();
+        let mut chain = Vec::new();
+        chain.extend(g_mws.into_iter());
+        chain.extend(r_mws.into_iter());
 
-        let tsr_path = if path.ends_with('/') {
-            path.trim_end_matches('/').to_string()
-        } else {
-            format!("{}/", path)
+        let next = Next {
+          middlewares: Arc::new(chain),
+          endpoint: Arc::new(route.handler.clone()),
         };
+        return next.run(req).await;
+      }
+    }
 
-        if let Some(method_router) = self.inner.get(method) {
-            if let Ok(matched) = method_router.at(&tsr_path) {
-                if matched.value.tsr {
-                    return hyper::Response::builder()
-                        .status(StatusCode::TEMPORARY_REDIRECT)
-                        .header("Location", tsr_path)
-                        .body(TakoBody::empty())
-                        .unwrap();
-                }
-            }
-        }
+    let tsr_path = if path.ends_with('/') {
+      path.trim_end_matches('/').to_string()
+    } else {
+      format!("{}/", path)
+    };
 
-        // No match: use fallback handler if configured
-        if let Some(handler) = &self.fallback {
-            let g_mws = self.middlewares.read().unwrap().clone();
-            let next = Next {
-                middlewares: Arc::new(g_mws),
-                endpoint: Arc::new(handler.clone()),
-            };
-            return next.run(req).await;
-        }
-
-        hyper::Response::builder()
-            .status(StatusCode::NOT_FOUND)
+    if let Some(method_router) = self.inner.get(method) {
+      if let Ok(matched) = method_router.at(&tsr_path) {
+        if matched.value.tsr {
+          return hyper::Response::builder()
+            .status(StatusCode::TEMPORARY_REDIRECT)
+            .header("Location", tsr_path)
             .body(TakoBody::empty())
-            .unwrap()
-    }
-
-    /// Adds a value to the global state accessible by all handlers.
-    ///
-    /// Global state allows sharing data across different routes and middleware.
-    /// Values are stored by string keys and can be retrieved in handlers using
-    /// the state extraction functionality.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::router::Router;
-    ///
-    /// #[derive(Clone)]
-    /// struct AppConfig {
-    ///     database_url: String,
-    ///     api_key: String,
-    /// }
-    ///
-    /// let mut router = Router::new();
-    /// router.state("config", AppConfig {
-    ///     database_url: "postgresql://localhost/mydb".to_string(),
-    ///     api_key: "secret-key".to_string(),
-    /// });
-    /// router.state("version", "1.0.0".to_string());
-    /// ```
-    pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
-        set_state(value);
-    }
-
-    /// Adds global middleware to the router.
-    ///
-    /// Global middleware is executed for all routes in the order it was added,
-    /// before any route-specific middleware. Middleware can modify requests,
-    /// generate responses, or perform side effects like logging or authentication.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, middleware::Next, types::Request};
-    ///
-    /// let mut router = Router::new();
-    ///
-    /// // Logging middleware
-    /// router.middleware(|req, next| async move {
-    ///     println!("Request: {} {}", req.method(), req.uri());
-    ///     let response = next.run(req).await;
-    ///     println!("Response: {}", response.status());
-    ///     response
-    /// });
-    ///
-    /// // Authentication middleware
-    /// router.middleware(|req, next| async move {
-    ///     if req.headers().contains_key("authorization") {
-    ///         next.run(req).await
-    ///     } else {
-    ///         "Unauthorized".into_response()
-    ///     }
-    /// });
-    /// ```
-    pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
-    where
-        F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
-        Fut: std::future::Future<Output = R> + Send + 'static,
-        R: Responder + Send + 'static,
-    {
-        let mw: BoxMiddleware = Arc::new(move |req, next| {
-            let fut = f(req, next);
-            Box::pin(async move { fut.await.into_response() })
-        });
-
-        self.middlewares.write().unwrap().push(mw);
-        self
-    }
-
-    /// Sets a fallback handler that will be executed when no route matches.
-    ///
-    /// The fallback runs after global middlewares and can be used to implement
-    /// custom 404 pages, catch-all logic, or method-independent handlers.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, Method, responder::Responder, types::Request};
-    ///
-    /// async fn not_found(_req: Request) -> impl Responder { "Not Found" }
-    ///
-    /// let mut router = Router::new();
-    /// router.route(Method::GET, "/", |_req| async { "Hello" });
-    /// router.fallback(not_found);
-    /// ```
-    pub fn fallback<F, Fut, R>(&mut self, handler: F) -> &mut Self
-    where
-        F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
-        Fut: std::future::Future<Output = R> + Send + 'static,
-        R: Responder + Send + 'static,
-    {
-        // Use the Request-arg handler impl to box the fallback
-        self.fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
-        self
-    }
-
-    /// Sets a fallback handler that supports extractors (like `Path`, `Query`, etc.).
-    ///
-    /// Use this when your fallback needs to parse request data via extractors. If you
-    /// only need access to the raw `Request`, prefer `fallback` for simpler type inference.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, responder::Responder, extractors::{path::Path, query::Query}};
-    ///
-    /// #[derive(serde::Deserialize)]
-    /// struct Q { q: Option<String> }
-    ///
-    /// async fn fallback_with_q(Path(_p): Path<String>, Query(_q): Query<Q>) -> impl Responder {
-    ///     "Not Found"
-    /// }
-    ///
-    /// let mut router = Router::new();
-    /// router.fallback_with_extractors(fallback_with_q);
-    /// ```
-    pub fn fallback_with_extractors<H, T>(&mut self, handler: H) -> &mut Self
-    where
-        H: Handler<T> + Clone + 'static,
-    {
-        self.fallback = Some(BoxHandler::new::<H, T>(handler));
-        self
-    }
-
-    /// Registers a plugin with the router.
-    ///
-    /// Plugins extend the router's functionality by providing additional features
-    /// like compression, CORS handling, rate limiting, or custom behavior. Plugins
-    /// are initialized once when the server starts.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # #[cfg(feature = "plugins")]
-    /// use tako::{router::Router, plugins::TakoPlugin};
-    /// # #[cfg(feature = "plugins")]
-    /// use anyhow::Result;
-    ///
-    /// # #[cfg(feature = "plugins")]
-    /// struct LoggingPlugin;
-    ///
-    /// # #[cfg(feature = "plugins")]
-    /// impl TakoPlugin for LoggingPlugin {
-    ///     fn name(&self) -> &'static str {
-    ///         "logging"
-    ///     }
-    ///
-    ///     fn setup(&self, _router: &Router) -> Result<()> {
-    ///         println!("Logging plugin initialized");
-    ///         Ok(())
-    ///     }
-    /// }
-    ///
-    /// # #[cfg(feature = "plugins")]
-    /// # fn example() {
-    /// let mut router = Router::new();
-    /// router.plugin(LoggingPlugin);
-    /// # }
-    /// ```
-    #[cfg(feature = "plugins")]
-    pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
-    where
-        P: TakoPlugin + Clone + Send + Sync + 'static,
-    {
-        self.plugins.push(Box::new(plugin));
-        self
-    }
-
-    /// Returns references to all registered plugins.
-    #[cfg(feature = "plugins")]
-    pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
-        self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
-    }
-
-    /// Initializes all registered plugins exactly once.
-    #[cfg(feature = "plugins")]
-    pub(crate) fn setup_plugins_once(&self) {
-        use std::sync::atomic::Ordering;
-
-        if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
-            for plugin in self.plugins() {
-                let _ = plugin.setup(self);
-            }
+            .unwrap();
         }
+      }
     }
 
-    /// Merges another router into this router.
-    ///
-    /// This method combines routes and middleware from another router into the
-    /// current one. Routes are copied over, and the other router's global middleware
-    /// is prepended to each merged route's middleware chain.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use tako::{router::Router, Method, responder::Responder, types::Request};
-    ///
-    /// async fn api_handler(_req: Request) -> impl Responder {
-    ///     "API response"
-    /// }
-    ///
-    /// async fn web_handler(_req: Request) -> impl Responder {
-    ///     "Web response"
-    /// }
-    ///
-    /// // Create API router
-    /// let mut api_router = Router::new();
-    /// api_router.route(Method::GET, "/users", api_handler);
-    /// api_router.middleware(|req, next| async move {
-    ///     println!("API middleware");
-    ///     next.run(req).await
-    /// });
-    ///
-    /// // Create main router and merge API router
-    /// let mut main_router = Router::new();
-    /// main_router.route(Method::GET, "/", web_handler);
-    /// main_router.merge(api_router);
-    /// ```
-    pub fn merge(&mut self, other: Router) {
-        let upstream_globals = other.middlewares.read().unwrap().clone();
+    // No match: use fallback handler if configured
+    if let Some(handler) = &self.fallback {
+      let g_mws = self.middlewares.read().unwrap().clone();
+      let next = Next {
+        middlewares: Arc::new(g_mws),
+        endpoint: Arc::new(handler.clone()),
+      };
+      return next.run(req).await;
+    }
 
-        for (method, weak_vec) in other.routes.into_iter() {
-            let mut target_router = self
-                .inner
-                .entry(method.clone())
-                .or_insert_with(matchit::Router::new);
+    hyper::Response::builder()
+      .status(StatusCode::NOT_FOUND)
+      .body(TakoBody::empty())
+      .unwrap()
+  }
 
-            for weak in weak_vec {
-                if let Some(route) = weak.upgrade() {
-                    let mut rmw = route.middlewares.write().unwrap();
-                    for mw in upstream_globals.iter().rev() {
-                        rmw.push_front(mw.clone());
-                    }
+  /// Adds a value to the global state accessible by all handlers.
+  ///
+  /// Global state allows sharing data across different routes and middleware.
+  /// Values are stored by string keys and can be retrieved in handlers using
+  /// the state extraction functionality.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  ///
+  /// #[derive(Clone)]
+  /// struct AppConfig {
+  ///     database_url: String,
+  ///     api_key: String,
+  /// }
+  ///
+  /// let mut router = Router::new();
+  /// router.state("config", AppConfig {
+  ///     database_url: "postgresql://localhost/mydb".to_string(),
+  ///     api_key: "secret-key".to_string(),
+  /// });
+  /// router.state("version", "1.0.0".to_string());
+  /// ```
+  pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+    set_state(value);
+  }
 
-                    let _ = target_router.insert(route.path.clone(), route.clone());
+  /// Adds global middleware to the router.
+  ///
+  /// Global middleware is executed for all routes in the order it was added,
+  /// before any route-specific middleware. Middleware can modify requests,
+  /// generate responses, or perform side effects like logging or authentication.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, middleware::Next, types::Request};
+  ///
+  /// let mut router = Router::new();
+  ///
+  /// // Logging middleware
+  /// router.middleware(|req, next| async move {
+  ///     println!("Request: {} {}", req.method(), req.uri());
+  ///     let response = next.run(req).await;
+  ///     println!("Response: {}", response.status());
+  ///     response
+  /// });
+  ///
+  /// // Authentication middleware
+  /// router.middleware(|req, next| async move {
+  ///     if req.headers().contains_key("authorization") {
+  ///         next.run(req).await
+  ///     } else {
+  ///         "Unauthorized".into_response()
+  ///     }
+  /// });
+  /// ```
+  pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
+  where
+    F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+    R: Responder + Send + 'static,
+  {
+    let mw: BoxMiddleware = Arc::new(move |req, next| {
+      let fut = f(req, next);
+      Box::pin(async move { fut.await.into_response() })
+    });
 
-                    self.routes
-                        .entry(method.clone())
-                        .or_insert_with(Vec::new)
-                        .push(Arc::downgrade(&route));
-                }
-            }
+    self.middlewares.write().unwrap().push(mw);
+    self
+  }
+
+  /// Sets a fallback handler that will be executed when no route matches.
+  ///
+  /// The fallback runs after global middlewares and can be used to implement
+  /// custom 404 pages, catch-all logic, or method-independent handlers.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, Method, responder::Responder, types::Request};
+  ///
+  /// async fn not_found(_req: Request) -> impl Responder { "Not Found" }
+  ///
+  /// let mut router = Router::new();
+  /// router.route(Method::GET, "/", |_req| async { "Hello" });
+  /// router.fallback(not_found);
+  /// ```
+  pub fn fallback<F, Fut, R>(&mut self, handler: F) -> &mut Self
+  where
+    F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+    R: Responder + Send + 'static,
+  {
+    // Use the Request-arg handler impl to box the fallback
+    self.fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
+    self
+  }
+
+  /// Sets a fallback handler that supports extractors (like `Path`, `Query`, etc.).
+  ///
+  /// Use this when your fallback needs to parse request data via extractors. If you
+  /// only need access to the raw `Request`, prefer `fallback` for simpler type inference.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, responder::Responder, extractors::{path::Path, query::Query}};
+  ///
+  /// #[derive(serde::Deserialize)]
+  /// struct Q { q: Option<String> }
+  ///
+  /// async fn fallback_with_q(Path(_p): Path<String>, Query(_q): Query<Q>) -> impl Responder {
+  ///     "Not Found"
+  /// }
+  ///
+  /// let mut router = Router::new();
+  /// router.fallback_with_extractors(fallback_with_q);
+  /// ```
+  pub fn fallback_with_extractors<H, T>(&mut self, handler: H) -> &mut Self
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.fallback = Some(BoxHandler::new::<H, T>(handler));
+    self
+  }
+
+  /// Registers a plugin with the router.
+  ///
+  /// Plugins extend the router's functionality by providing additional features
+  /// like compression, CORS handling, rate limiting, or custom behavior. Plugins
+  /// are initialized once when the server starts.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// # #[cfg(feature = "plugins")]
+  /// use tako::{router::Router, plugins::TakoPlugin};
+  /// # #[cfg(feature = "plugins")]
+  /// use anyhow::Result;
+  ///
+  /// # #[cfg(feature = "plugins")]
+  /// struct LoggingPlugin;
+  ///
+  /// # #[cfg(feature = "plugins")]
+  /// impl TakoPlugin for LoggingPlugin {
+  ///     fn name(&self) -> &'static str {
+  ///         "logging"
+  ///     }
+  ///
+  ///     fn setup(&self, _router: &Router) -> Result<()> {
+  ///         println!("Logging plugin initialized");
+  ///         Ok(())
+  ///     }
+  /// }
+  ///
+  /// # #[cfg(feature = "plugins")]
+  /// # fn example() {
+  /// let mut router = Router::new();
+  /// router.plugin(LoggingPlugin);
+  /// # }
+  /// ```
+  #[cfg(feature = "plugins")]
+  pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
+  where
+    P: TakoPlugin + Clone + Send + Sync + 'static,
+  {
+    self.plugins.push(Box::new(plugin));
+    self
+  }
+
+  /// Returns references to all registered plugins.
+  #[cfg(feature = "plugins")]
+  pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
+    self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
+  }
+
+  /// Initializes all registered plugins exactly once.
+  #[cfg(feature = "plugins")]
+  pub(crate) fn setup_plugins_once(&self) {
+    use std::sync::atomic::Ordering;
+
+    if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
+      for plugin in self.plugins() {
+        let _ = plugin.setup(self);
+      }
+    }
+  }
+
+  /// Merges another router into this router.
+  ///
+  /// This method combines routes and middleware from another router into the
+  /// current one. Routes are copied over, and the other router's global middleware
+  /// is prepended to each merged route's middleware chain.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, Method, responder::Responder, types::Request};
+  ///
+  /// async fn api_handler(_req: Request) -> impl Responder {
+  ///     "API response"
+  /// }
+  ///
+  /// async fn web_handler(_req: Request) -> impl Responder {
+  ///     "Web response"
+  /// }
+  ///
+  /// // Create API router
+  /// let mut api_router = Router::new();
+  /// api_router.route(Method::GET, "/users", api_handler);
+  /// api_router.middleware(|req, next| async move {
+  ///     println!("API middleware");
+  ///     next.run(req).await
+  /// });
+  ///
+  /// // Create main router and merge API router
+  /// let mut main_router = Router::new();
+  /// main_router.route(Method::GET, "/", web_handler);
+  /// main_router.merge(api_router);
+  /// ```
+  pub fn merge(&mut self, other: Router) {
+    let upstream_globals = other.middlewares.read().unwrap().clone();
+
+    for (method, weak_vec) in other.routes.into_iter() {
+      let mut target_router = self
+        .inner
+        .entry(method.clone())
+        .or_insert_with(matchit::Router::new);
+
+      for weak in weak_vec {
+        if let Some(route) = weak.upgrade() {
+          let mut rmw = route.middlewares.write().unwrap();
+          for mw in upstream_globals.iter().rev() {
+            rmw.push_front(mw.clone());
+          }
+
+          let _ = target_router.insert(route.path.clone(), route.clone());
+
+          self
+            .routes
+            .entry(method.clone())
+            .or_insert_with(Vec::new)
+            .push(Arc::downgrade(&route));
         }
+      }
     }
+  }
 }

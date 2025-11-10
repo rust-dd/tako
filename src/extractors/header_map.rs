@@ -27,8 +27,8 @@ use http::request::Parts;
 use std::{convert::Infallible, future::ready};
 
 use crate::{
-    extractors::{FromRequest, FromRequestParts},
-    types::Request,
+  extractors::{FromRequest, FromRequestParts},
+  types::Request,
 };
 
 /// Header map extractor that provides access to HTTP request headers.
@@ -60,23 +60,21 @@ use crate::{
 pub struct HeaderMap<'a>(pub &'a hyper::HeaderMap);
 
 impl<'a> FromRequest<'a> for HeaderMap<'a> {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(HeaderMap(req.headers())))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(HeaderMap(req.headers())))
+  }
 }
 
 impl<'a> FromRequestParts<'a> for HeaderMap<'a> {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(HeaderMap(&parts.headers)))
-    }
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(HeaderMap(&parts.headers)))
+  }
 }

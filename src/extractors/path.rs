@@ -28,8 +28,8 @@ use http::request::Parts;
 use std::{convert::Infallible, future::ready};
 
 use crate::{
-    extractors::{FromRequest, FromRequestParts},
-    types::Request,
+  extractors::{FromRequest, FromRequestParts},
+  types::Request,
 };
 
 /// Path extractor that provides access to the HTTP request path.
@@ -56,23 +56,21 @@ use crate::{
 pub struct Path<'a>(pub &'a str);
 
 impl<'a> FromRequest<'a> for Path<'a> {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(Path(req.uri().path())))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(Path(req.uri().path())))
+  }
 }
 
 impl<'a> FromRequestParts<'a> for Path<'a> {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(Path(parts.uri.path())))
-    }
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(Path(parts.uri.path())))
+  }
 }

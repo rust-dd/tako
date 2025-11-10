@@ -28,8 +28,8 @@ use http::{HeaderMap, header::COOKIE, request::Parts};
 use std::{convert::Infallible, future::ready};
 
 use crate::{
-    extractors::{FromRequest, FromRequestParts},
-    types::Request,
+  extractors::{FromRequest, FromRequestParts},
+  types::Request,
 };
 
 /// A wrapper around the `cookie::CookieJar` that provides methods for managing cookies
@@ -55,65 +55,63 @@ use crate::{
 pub struct CookieJar(RawJar);
 
 impl CookieJar {
-    /// Creates a new, empty `CookieJar` instance.
-    pub fn new() -> Self {
-        Self(RawJar::new())
-    }
+  /// Creates a new, empty `CookieJar` instance.
+  pub fn new() -> Self {
+    Self(RawJar::new())
+  }
 
-    /// Initializes a `CookieJar` instance from the `Cookie` header in the provided HTTP headers.
-    pub fn from_headers(headers: &HeaderMap) -> Self {
-        let mut jar = RawJar::new();
+  /// Initializes a `CookieJar` instance from the `Cookie` header in the provided HTTP headers.
+  pub fn from_headers(headers: &HeaderMap) -> Self {
+    let mut jar = RawJar::new();
 
-        if let Some(val) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) {
-            for s in val.split(';') {
-                if let Ok(c) = Cookie::parse(s.trim()) {
-                    jar.add_original(c.into_owned());
-                }
-            }
+    if let Some(val) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) {
+      for s in val.split(';') {
+        if let Ok(c) = Cookie::parse(s.trim()) {
+          jar.add_original(c.into_owned());
         }
-
-        Self(jar)
+      }
     }
 
-    /// Inserts a cookie into the `CookieJar`.
-    pub fn add(&mut self, cookie: Cookie<'static>) {
-        self.0.add(cookie);
-    }
+    Self(jar)
+  }
 
-    /// Deletes a cookie from the `CookieJar` by its name.
-    pub fn remove(&mut self, name: &str) {
-        self.0.remove(Cookie::from(name.to_owned()));
-    }
+  /// Inserts a cookie into the `CookieJar`.
+  pub fn add(&mut self, cookie: Cookie<'static>) {
+    self.0.add(cookie);
+  }
 
-    /// Fetches a cookie from the `CookieJar` by its name.
-    pub fn get(&self, name: &str) -> Option<&Cookie<'_>> {
-        self.0.get(name)
-    }
+  /// Deletes a cookie from the `CookieJar` by its name.
+  pub fn remove(&mut self, name: &str) {
+    self.0.remove(Cookie::from(name.to_owned()));
+  }
 
-    /// Provides an iterator over all cookies in the `CookieJar`.
-    pub fn iter(&self) -> impl Iterator<Item = &Cookie<'static>> {
-        self.0.iter()
-    }
+  /// Fetches a cookie from the `CookieJar` by its name.
+  pub fn get(&self, name: &str) -> Option<&Cookie<'_>> {
+    self.0.get(name)
+  }
+
+  /// Provides an iterator over all cookies in the `CookieJar`.
+  pub fn iter(&self) -> impl Iterator<Item = &Cookie<'static>> {
+    self.0.iter()
+  }
 }
 
 impl<'a> FromRequest<'a> for CookieJar {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(CookieJar::from_headers(req.headers())))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(CookieJar::from_headers(req.headers())))
+  }
 }
 
 impl<'a> FromRequestParts<'a> for CookieJar {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(CookieJar::from_headers(&parts.headers)))
-    }
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(CookieJar::from_headers(&parts.headers)))
+  }
 }

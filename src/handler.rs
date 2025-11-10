@@ -32,9 +32,9 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use futures_util::future::BoxFuture;
 
 use crate::{
-    extractors::FromRequest,
-    responder::Responder,
-    types::{Request, Response},
+  extractors::FromRequest,
+  responder::Responder,
+  types::{Request, Response},
 };
 
 /// Trait for asynchronous HTTP request handlers.
@@ -68,11 +68,11 @@ use crate::{
 /// }
 /// ```
 pub trait Handler<T>: Send + Sync + 'static {
-    /// Future type returned by the handler.
-    type Future: Future<Output = Response> + Send + 'static;
+  /// Future type returned by the handler.
+  type Future: Future<Output = Response> + Send + 'static;
 
-    /// Calls the handler with the given request.
-    fn call(self, req: Request) -> Self::Future;
+  /// Calls the handler with the given request.
+  fn call(self, req: Request) -> Self::Future;
 }
 
 /// Implements `Handler` for functions returning responder types using extractor arguments.
@@ -84,80 +84,80 @@ pub trait Handler<T>: Send + Sync + 'static {
 /// Type-erased handler wrapper for dynamic storage and composition.
 #[derive(Clone)]
 pub struct BoxHandler {
-    /// The inner function that processes requests and produces responses.
-    inner: Arc<dyn Fn(Request) -> BoxFuture<'static, Response> + Send + Sync>,
+  /// The inner function that processes requests and produces responses.
+  inner: Arc<dyn Fn(Request) -> BoxFuture<'static, Response> + Send + Sync>,
 }
 
 impl BoxHandler {
-    /// Creates a new boxed handler from any handler implementation.
-    pub(crate) fn new<H, T>(h: H) -> Self
-    where
-        H: Handler<T> + Clone,
-    {
-        let inner = Arc::new(move |req: Request| {
-            let handler = h.clone();
-            Box::pin(async move { handler.call(req.into()).await }) as BoxFuture<'_, Response>
-        });
+  /// Creates a new boxed handler from any handler implementation.
+  pub(crate) fn new<H, T>(h: H) -> Self
+  where
+    H: Handler<T> + Clone,
+  {
+    let inner = Arc::new(move |req: Request| {
+      let handler = h.clone();
+      Box::pin(async move { handler.call(req.into()).await }) as BoxFuture<'_, Response>
+    });
 
-        Self { inner }
-    }
+    Self { inner }
+  }
 
-    /// Calls the boxed handler with the provided request.
-    pub(crate) fn call(&self, req: Request) -> BoxFuture<'_, Response> {
-        (self.inner)(req)
-    }
+  /// Calls the boxed handler with the provided request.
+  pub(crate) fn call(&self, req: Request) -> BoxFuture<'_, Response> {
+    (self.inner)(req)
+  }
 }
 
 // Zero-argument handlers: `async fn handler() -> impl Responder`
 impl<F, Fut, R> Handler<()> for F
 where
-    F: FnOnce() -> Fut + Clone + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
-    R: Responder,
+  F: FnOnce() -> Fut + Clone + Send + Sync + 'static,
+  Fut: Future<Output = R> + Send + 'static,
+  R: Responder,
 {
-    type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
+  type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
 
-    fn call(self, _req: Request) -> Self::Future {
-        Box::pin(async move { (self)().await.into_response() })
-    }
+  fn call(self, _req: Request) -> Self::Future {
+    Box::pin(async move { (self)().await.into_response() })
+  }
 }
 
 // Back-compat: single Request arg handlers: `async fn handler(req: Request) -> impl Responder`
 impl<F, Fut, R> Handler<(Request,)> for F
 where
-    F: FnOnce(Request) -> Fut + Clone + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
-    R: Responder,
+  F: FnOnce(Request) -> Fut + Clone + Send + Sync + 'static,
+  Fut: Future<Output = R> + Send + 'static,
+  R: Responder,
 {
-    type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
+  type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
 
-    fn call(self, req: Request) -> Self::Future {
-        Box::pin(async move { (self)(req).await.into_response() })
-    }
+  fn call(self, req: Request) -> Self::Future {
+    Box::pin(async move { (self)(req).await.into_response() })
+  }
 }
 
 // Abstraction over extraction that avoids HRTB bounds in impls.
 trait Extract: Sized + Send {
-    type Error: Responder;
+  type Error: Responder;
 
-    fn extract<'a>(
-        req: &'a mut Request,
-    ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>>;
+  fn extract<'a>(
+    req: &'a mut Request,
+  ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>>;
 }
 
 impl<T, E> Extract for T
 where
-    T: Send,
-    E: Responder,
-    for<'a> T: FromRequest<'a, Error = E>,
+  T: Send,
+  E: Responder,
+  for<'a> T: FromRequest<'a, Error = E>,
 {
-    type Error = E;
+  type Error = E;
 
-    fn extract<'a>(
-        req: &'a mut Request,
-    ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>> {
-        Box::pin(<T as FromRequest<'a>>::from_request(req))
-    }
+  fn extract<'a>(
+    req: &'a mut Request,
+  ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>> {
+    Box::pin(<T as FromRequest<'a>>::from_request(req))
+  }
 }
 
 macro_rules! impl_handler {

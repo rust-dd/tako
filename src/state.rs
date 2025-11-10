@@ -30,8 +30,8 @@
 //! ```
 
 use std::{
-    any::{Any, TypeId},
-    sync::Arc,
+  any::{Any, TypeId},
+  sync::Arc,
 };
 
 use dashmap::DashMap;
@@ -44,7 +44,7 @@ use once_cell::sync::Lazy;
 /// `Arc<dyn Any + Send + Sync>` to enable storage of arbitrary types while maintaining
 /// thread safety.
 pub(crate) static GLOBAL_STATE: Lazy<DashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
-    Lazy::new(|| DashMap::new());
+  Lazy::new(|| DashMap::new());
 
 /// Stores a value in the global state under the specified key.
 ///
@@ -74,7 +74,7 @@ pub(crate) static GLOBAL_STATE: Lazy<DashMap<TypeId, Arc<dyn Any + Send + Sync>>
 /// set_state("config", config);
 /// ```
 pub fn set_state<T: Send + Sync + 'static>(value: T) {
-    GLOBAL_STATE.insert(TypeId::of::<T>(), Arc::new(value));
+  GLOBAL_STATE.insert(TypeId::of::<T>(), Arc::new(value));
 }
 
 /// Retrieves a value from the global state by its key.
@@ -103,8 +103,8 @@ pub fn set_state<T: Send + Sync + 'static>(value: T) {
 /// assert!(missing.is_none());
 /// ```
 pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
-    GLOBAL_STATE
-        .get(&TypeId::of::<T>())
-        .map(|v| v.clone())
-        .and_then(|v| v.downcast::<T>().ok())
+  GLOBAL_STATE
+    .get(&TypeId::of::<T>())
+    .map(|v| v.clone())
+    .and_then(|v| v.downcast::<T>().ok())
 }

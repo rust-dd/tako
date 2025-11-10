@@ -26,8 +26,8 @@ use std::{convert::Infallible, fmt::Display};
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{
-    StatusCode,
-    header::{HeaderName, HeaderValue},
+  StatusCode,
+  header::{HeaderName, HeaderValue},
 };
 
 use crate::{body::TakoBody, types::Response};
@@ -69,92 +69,93 @@ pub const NOT_FOUND: (StatusCode, &str) = (StatusCode::NOT_FOUND, "Not Found");
 /// }
 /// ```
 pub trait Responder {
-    /// Converts the implementing type into an HTTP response.
-    fn into_response(self) -> Response;
+  /// Converts the implementing type into an HTTP response.
+  fn into_response(self) -> Response;
 }
 
 impl Responder for Response {
-    fn into_response(self) -> Response {
-        self
-    }
+  fn into_response(self) -> Response {
+    self
+  }
 }
 
 impl Responder for TakoBody {
-    fn into_response(self) -> Response {
-        Response::new(self)
-    }
+  fn into_response(self) -> Response {
+    Response::new(self)
+  }
 }
 
 impl Responder for &'static str {
-    fn into_response(self) -> Response {
-        Response::new(TakoBody::new(Full::from(Bytes::from_static(
-            self.as_bytes(),
-        ))))
-    }
+  fn into_response(self) -> Response {
+    Response::new(TakoBody::new(Full::from(Bytes::from_static(
+      self.as_bytes(),
+    ))))
+  }
 }
 
 impl Responder for String {
-    fn into_response(self) -> Response {
-        Response::new(TakoBody::new(Full::from(Bytes::from(self))))
-    }
+  fn into_response(self) -> Response {
+    Response::new(TakoBody::new(Full::from(Bytes::from(self))))
+  }
 }
 
 impl Responder for () {
-    fn into_response(self) -> Response {
-        Response::new(TakoBody::empty())
-    }
+  fn into_response(self) -> Response {
+    Response::new(TakoBody::empty())
+  }
 }
 
 impl Responder for Infallible {
-    fn into_response(self) -> Response {
-        match self {}
-    }
+  fn into_response(self) -> Response {
+    match self {}
+  }
 }
 
 impl<R> Responder for (StatusCode, R)
 where
-    R: Display,
+  R: Display,
 {
-    fn into_response(self) -> Response {
-        let (status, body) = self;
-        let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
-        *res.status_mut() = status;
-        res
-    }
+  fn into_response(self) -> Response {
+    let (status, body) = self;
+    let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
+    *res.status_mut() = status;
+    res
+  }
 }
 
 pub struct StaticHeaders<const N: usize>(pub [(HeaderName, &'static str); N]);
 
 impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
-    fn into_response(self) -> Response {
-        let (status, StaticHeaders(headers)) = self;
-        let mut res = Response::new(TakoBody::empty());
-        *res.status_mut() = status;
+  fn into_response(self) -> Response {
+    let (status, StaticHeaders(headers)) = self;
+    let mut res = Response::new(TakoBody::empty());
+    *res.status_mut() = status;
 
-        for (name, value) in headers {
-            res.headers_mut()
-                .append(name, HeaderValue::from_static(value));
-        }
-        res
+    for (name, value) in headers {
+      res
+        .headers_mut()
+        .append(name, HeaderValue::from_static(value));
     }
+    res
+  }
 }
 
 impl<T> Responder for anyhow::Result<T>
 where
-    T: Responder,
+  T: Responder,
 {
-    fn into_response(self) -> Response {
-        match self {
-            Ok(ok) => ok.into_response(),
-            Err(err) => {
-                let mut res = Response::new(TakoBody::from(err.to_string()));
-                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                res.headers_mut().insert(
-                    http::header::CONTENT_TYPE,
-                    HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
-                );
-                res
-            }
-        }
+  fn into_response(self) -> Response {
+    match self {
+      Ok(ok) => ok.into_response(),
+      Err(err) => {
+        let mut res = Response::new(TakoBody::from(err.to_string()));
+        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        res.headers_mut().insert(
+          http::header::CONTENT_TYPE,
+          HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+        );
+        res
+      }
     }
+  }
 }

@@ -23,9 +23,9 @@
 //! ```
 
 use std::{
-    io::Write,
-    pin::Pin,
-    task::{Context, Poll},
+  io::Write,
+  pin::Pin,
+  task::{Context, Poll},
 };
 
 use anyhow::Result;
@@ -41,11 +41,11 @@ use crate::{body::TakoBody, types::BoxError};
 /// Compresses an HTTP body stream using Gzip compression algorithm.
 pub fn stream_gzip<B>(body: B, level: u32) -> TakoBody
 where
-    B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
+  B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
 {
-    let upstream = body.into_data_stream();
-    let gzip = GzipStream::new(upstream, level).map_ok(Frame::data);
-    TakoBody::from_try_stream(gzip)
+  let upstream = body.into_data_stream();
+  let gzip = GzipStream::new(upstream, level).map_ok(Frame::data);
+  TakoBody::from_try_stream(gzip)
 }
 
 pin_project! {
@@ -59,71 +59,71 @@ pin_project! {
 }
 
 impl<S> GzipStream<S> {
-    /// Creates a new Gzip compression stream with the specified compression level.
-    fn new(stream: S, level: u32) -> Self {
-        Self {
-            inner: stream,
-            encoder: GzEncoder::new(Vec::new(), Compression::new(level)),
-            pos: 0,
-            done: false,
-        }
+  /// Creates a new Gzip compression stream with the specified compression level.
+  fn new(stream: S, level: u32) -> Self {
+    Self {
+      inner: stream,
+      encoder: GzEncoder::new(Vec::new(), Compression::new(level)),
+      pos: 0,
+      done: false,
     }
+  }
 }
 
 impl<S> Stream for GzipStream<S>
 where
-    S: Stream<Item = Result<Bytes, BoxError>>,
+  S: Stream<Item = Result<Bytes, BoxError>>,
 {
-    type Item = Result<Bytes, BoxError>;
+  type Item = Result<Bytes, BoxError>;
 
-    /// Polls the stream for the next compressed data chunk.
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
+  /// Polls the stream for the next compressed data chunk.
+  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    let mut this = self.project();
 
-        loop {
-            // 1) Do we still have unread bytes in the encoder buffer?
-            if *this.pos < this.encoder.get_ref().len() {
-                let buf = &this.encoder.get_ref()[*this.pos..];
-                *this.pos = this.encoder.get_ref().len();
-                // Immediately send the chunk and return Ready.
-                return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
-            }
-            // 2) If we already finished and nothing is left, end the stream.
-            if *this.done {
-                return Poll::Ready(None);
-            }
-            // 3) Poll the inner stream for more input data.
-            match this.inner.as_mut().poll_next(cx) {
-                // New chunk arrived: compress it, then loop again
-                // (now the buffer certainly contains data).
-                Poll::Ready(Some(Ok(chunk))) => {
-                    if let Err(e) = this
-                        .encoder
-                        .write_all(&chunk)
-                        .and_then(|_| this.encoder.flush())
-                    {
-                        return Poll::Ready(Some(Err(e.into())));
-                    }
-                    continue;
-                }
-                // Error from the inner stream — propagate it.
-                Poll::Ready(Some(Err(e))) => {
-                    return Poll::Ready(Some(Err(e)));
-                }
-                // Inner stream finished: finalize the encoder,
-                // then loop to drain the remaining bytes.
-                Poll::Ready(None) => {
-                    *this.done = true;
-                    if let Err(e) = this.encoder.flush() {
-                        return Poll::Ready(Some(Err(e.into())));
-                    }
-                    continue;
-                }
-                // No new input and no buffered output: we must wait.
-                Poll::Pending => {
-                    return Poll::Pending;
-                }
-            }
+    loop {
+      // 1) Do we still have unread bytes in the encoder buffer?
+      if *this.pos < this.encoder.get_ref().len() {
+        let buf = &this.encoder.get_ref()[*this.pos..];
+        *this.pos = this.encoder.get_ref().len();
+        // Immediately send the chunk and return Ready.
+        return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
+      }
+      // 2) If we already finished and nothing is left, end the stream.
+      if *this.done {
+        return Poll::Ready(None);
+      }
+      // 3) Poll the inner stream for more input data.
+      match this.inner.as_mut().poll_next(cx) {
+        // New chunk arrived: compress it, then loop again
+        // (now the buffer certainly contains data).
+        Poll::Ready(Some(Ok(chunk))) => {
+          if let Err(e) = this
+            .encoder
+            .write_all(&chunk)
+            .and_then(|_| this.encoder.flush())
+          {
+            return Poll::Ready(Some(Err(e.into())));
+          }
+          continue;
         }
+        // Error from the inner stream — propagate it.
+        Poll::Ready(Some(Err(e))) => {
+          return Poll::Ready(Some(Err(e)));
+        }
+        // Inner stream finished: finalize the encoder,
+        // then loop to drain the remaining bytes.
+        Poll::Ready(None) => {
+          *this.done = true;
+          if let Err(e) = this.encoder.flush() {
+            return Poll::Ready(Some(Err(e.into())));
+          }
+          continue;
+        }
+        // No new input and no buffered output: we must wait.
+        Poll::Pending => {
+          return Poll::Pending;
+        }
+      }
     }
+  }
 }

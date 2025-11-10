@@ -20,8 +20,8 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    handler::BoxHandler,
-    types::{BoxMiddleware, Request, Response},
+  handler::BoxHandler,
+  types::{BoxMiddleware, Request, Response},
 };
 
 pub mod basic_auth;
@@ -59,38 +59,38 @@ pub mod jwt_auth;
 /// }
 /// ```
 pub trait IntoMiddleware {
-    fn into_middleware(
-        self,
-    ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
-    + Clone
-    + Send
-    + Sync
-    + 'static;
+  fn into_middleware(
+    self,
+  ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+  + Clone
+  + Send
+  + Sync
+  + 'static;
 }
 
 /// Represents the next step in the middleware execution chain.
 pub struct Next {
-    /// Remaining middlewares to be executed in the chain.
-    pub middlewares: Arc<Vec<BoxMiddleware>>,
-    /// Final endpoint handler to be called after all middlewares.
-    pub endpoint: Arc<BoxHandler>,
+  /// Remaining middlewares to be executed in the chain.
+  pub middlewares: Arc<Vec<BoxMiddleware>>,
+  /// Final endpoint handler to be called after all middlewares.
+  pub endpoint: Arc<BoxHandler>,
 }
 
 impl Next {
-    /// Executes the next middleware or endpoint in the chain.
-    pub async fn run(self, req: Request) -> Response {
-        if let Some((mw, rest)) = self.middlewares.split_first() {
-            let rest = Arc::new(rest.to_vec());
-            mw(
-                req,
-                Next {
-                    middlewares: rest,
-                    endpoint: self.endpoint.clone(),
-                },
-            )
-            .await
-        } else {
-            self.endpoint.call(req).await
-        }
+  /// Executes the next middleware or endpoint in the chain.
+  pub async fn run(self, req: Request) -> Response {
+    if let Some((mw, rest)) = self.middlewares.split_first() {
+      let rest = Arc::new(rest.to_vec());
+      mw(
+        req,
+        Next {
+          middlewares: rest,
+          endpoint: self.endpoint.clone(),
+        },
+      )
+      .await
+    } else {
+      self.endpoint.call(req).await
     }
+  }
 }

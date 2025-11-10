@@ -47,9 +47,9 @@ use jwt_simple::prelude::*;
 use serde::de::DeserializeOwned;
 
 use crate::{
-    middleware::{IntoMiddleware, Next},
-    responder::Responder,
-    types::{Request, Response},
+  middleware::{IntoMiddleware, Next},
+  responder::Responder,
+  types::{Request, Response},
 };
 
 /// Multi-algorithm JWT verification key wrapper supporting various cryptographic algorithms.
@@ -85,92 +85,92 @@ use crate::{
 /// assert_eq!(rsa_verify.alg_id(), "RS256");
 /// ```
 pub enum AnyVerifyKey {
-    /// HMAC-SHA256 symmetric key.
-    HS256(Arc<HS256Key>),
-    /// HMAC-SHA384 symmetric key.
-    HS384(Arc<HS384Key>),
-    /// HMAC-SHA512 symmetric key.
-    HS512(Arc<HS512Key>),
-    /// BLAKE2b symmetric key for high-performance hashing.
-    Blake2b(Arc<Blake2bKey>),
+  /// HMAC-SHA256 symmetric key.
+  HS256(Arc<HS256Key>),
+  /// HMAC-SHA384 symmetric key.
+  HS384(Arc<HS384Key>),
+  /// HMAC-SHA512 symmetric key.
+  HS512(Arc<HS512Key>),
+  /// BLAKE2b symmetric key for high-performance hashing.
+  Blake2b(Arc<Blake2bKey>),
 
-    /// RSA-SHA256 public key with PKCS#1 v1.5 padding.
-    RS256(Arc<RS256PublicKey>),
-    /// RSA-SHA384 public key with PKCS#1 v1.5 padding.
-    RS384(Arc<RS384PublicKey>),
-    /// RSA-SHA512 public key with PKCS#1 v1.5 padding.
-    RS512(Arc<RS512PublicKey>),
+  /// RSA-SHA256 public key with PKCS#1 v1.5 padding.
+  RS256(Arc<RS256PublicKey>),
+  /// RSA-SHA384 public key with PKCS#1 v1.5 padding.
+  RS384(Arc<RS384PublicKey>),
+  /// RSA-SHA512 public key with PKCS#1 v1.5 padding.
+  RS512(Arc<RS512PublicKey>),
 
-    /// RSA-SHA256 public key with PSS padding.
-    PS256(Arc<PS256PublicKey>),
-    /// RSA-SHA384 public key with PSS padding.
-    PS384(Arc<PS384PublicKey>),
-    /// RSA-SHA512 public key with PSS padding.
-    PS512(Arc<PS512PublicKey>),
+  /// RSA-SHA256 public key with PSS padding.
+  PS256(Arc<PS256PublicKey>),
+  /// RSA-SHA384 public key with PSS padding.
+  PS384(Arc<PS384PublicKey>),
+  /// RSA-SHA512 public key with PSS padding.
+  PS512(Arc<PS512PublicKey>),
 
-    /// ECDSA with P-256 curve and SHA-256.
-    ES256(Arc<ES256PublicKey>),
-    /// ECDSA with secp256k1 curve and SHA-256.
-    ES256K(Arc<ES256kPublicKey>),
-    /// ECDSA with P-384 curve and SHA-384.
-    ES384(Arc<ES384PublicKey>),
+  /// ECDSA with P-256 curve and SHA-256.
+  ES256(Arc<ES256PublicKey>),
+  /// ECDSA with secp256k1 curve and SHA-256.
+  ES256K(Arc<ES256kPublicKey>),
+  /// ECDSA with P-384 curve and SHA-384.
+  ES384(Arc<ES384PublicKey>),
 
-    /// Ed25519 Edwards curve signature.
-    EdDSA(Arc<Ed25519PublicKey>),
+  /// Ed25519 Edwards curve signature.
+  EdDSA(Arc<Ed25519PublicKey>),
 }
 
 impl AnyVerifyKey {
-    /// Returns the algorithm identifier for this verification key.
-    pub fn alg_id(&self) -> &'static str {
-        match self {
-            Self::HS256(_) => "HS256",
-            Self::HS384(_) => "HS384",
-            Self::HS512(_) => "HS512",
-            Self::Blake2b(_) => "BLAKE2B",
+  /// Returns the algorithm identifier for this verification key.
+  pub fn alg_id(&self) -> &'static str {
+    match self {
+      Self::HS256(_) => "HS256",
+      Self::HS384(_) => "HS384",
+      Self::HS512(_) => "HS512",
+      Self::Blake2b(_) => "BLAKE2B",
 
-            Self::RS256(_) => "RS256",
-            Self::RS384(_) => "RS384",
-            Self::RS512(_) => "RS512",
+      Self::RS256(_) => "RS256",
+      Self::RS384(_) => "RS384",
+      Self::RS512(_) => "RS512",
 
-            Self::PS256(_) => "PS256",
-            Self::PS384(_) => "PS384",
-            Self::PS512(_) => "PS512",
+      Self::PS256(_) => "PS256",
+      Self::PS384(_) => "PS384",
+      Self::PS512(_) => "PS512",
 
-            Self::ES256(_) => "ES256",
-            Self::ES256K(_) => "ES256K",
-            Self::ES384(_) => "ES384",
+      Self::ES256(_) => "ES256",
+      Self::ES256K(_) => "ES256K",
+      Self::ES384(_) => "ES384",
 
-            Self::EdDSA(_) => "EdDSA",
-        }
+      Self::EdDSA(_) => "EdDSA",
     }
+  }
 
-    /// Verifies a JWT token using this key and returns the decoded claims.
-    pub fn verify<C>(&self, token: &str) -> Result<JWTClaims<C>, jwt_simple::Error>
-    where
-        C: Serialize + DeserializeOwned,
-    {
-        let opts = VerificationOptions::default();
-        match self {
-            Self::HS256(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::HS384(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::HS512(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::Blake2b(k) => k.verify_token::<C>(token, Some(opts)),
+  /// Verifies a JWT token using this key and returns the decoded claims.
+  pub fn verify<C>(&self, token: &str) -> Result<JWTClaims<C>, jwt_simple::Error>
+  where
+    C: Serialize + DeserializeOwned,
+  {
+    let opts = VerificationOptions::default();
+    match self {
+      Self::HS256(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::HS384(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::HS512(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::Blake2b(k) => k.verify_token::<C>(token, Some(opts)),
 
-            Self::RS256(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::RS384(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::RS512(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::RS256(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::RS384(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::RS512(k) => k.verify_token::<C>(token, Some(opts)),
 
-            Self::PS256(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::PS384(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::PS512(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::PS256(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::PS384(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::PS512(k) => k.verify_token::<C>(token, Some(opts)),
 
-            Self::ES256(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::ES256K(k) => k.verify_token::<C>(token, Some(opts)),
-            Self::ES384(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::ES256(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::ES256K(k) => k.verify_token::<C>(token, Some(opts)),
+      Self::ES384(k) => k.verify_token::<C>(token, Some(opts)),
 
-            Self::EdDSA(k) => k.verify_token::<C>(token, Some(opts)),
-        }
+      Self::EdDSA(k) => k.verify_token::<C>(token, Some(opts)),
     }
+  }
 }
 
 /// JWT authentication middleware configuration with multi-algorithm support.
@@ -216,98 +216,96 @@ impl AnyVerifyKey {
 /// ```
 pub struct JwtAuth<T>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
+  T: DeserializeOwned + Send + Sync + 'static,
 {
-    /// Map of algorithm identifiers to verification keys.
-    keys: Arc<HashMap<&'static str, AnyVerifyKey>>,
-    /// Phantom data for generic type association.
-    _phantom: std::marker::PhantomData<T>,
+  /// Map of algorithm identifiers to verification keys.
+  keys: Arc<HashMap<&'static str, AnyVerifyKey>>,
+  /// Phantom data for generic type association.
+  _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T> JwtAuth<T>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
+  T: DeserializeOwned + Send + Sync + 'static,
 {
-    /// Creates a new JWT authentication middleware with the specified verification keys.
-    pub fn new(keys: HashMap<&'static str, AnyVerifyKey>) -> Self {
-        Self {
-            keys: Arc::new(keys),
-            _phantom: std::marker::PhantomData,
-        }
+  /// Creates a new JWT authentication middleware with the specified verification keys.
+  pub fn new(keys: HashMap<&'static str, AnyVerifyKey>) -> Self {
+    Self {
+      keys: Arc::new(keys),
+      _phantom: std::marker::PhantomData,
     }
+  }
 }
 
 impl<T> IntoMiddleware for JwtAuth<T>
 where
-    T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
+  T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    /// Converts the JWT authentication configuration into middleware.
-    fn into_middleware(
-        self,
-    ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
-    + Clone
-    + Send
-    + Sync
-    + 'static {
-        let keys = self.keys.clone();
+  /// Converts the JWT authentication configuration into middleware.
+  fn into_middleware(
+    self,
+  ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+  + Clone
+  + Send
+  + Sync
+  + 'static {
+    let keys = self.keys.clone();
 
-        move |mut req: Request, next: Next| {
-            let keys = keys.clone();
+    move |mut req: Request, next: Next| {
+      let keys = keys.clone();
 
-            Box::pin(async move {
-                // Extract Bearer token from Authorization header
-                let token = match req
-                    .headers()
-                    .get(AUTHORIZATION)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.strip_prefix("Bearer "))
-                    .map(str::trim)
-                {
-                    Some(t) => t,
-                    None => {
-                        return (
-                            StatusCode::UNAUTHORIZED,
-                            "Missing or invalid Authorization header",
-                        )
-                            .into_response();
-                    }
-                };
+      Box::pin(async move {
+        // Extract Bearer token from Authorization header
+        let token = match req
+          .headers()
+          .get(AUTHORIZATION)
+          .and_then(|v| v.to_str().ok())
+          .and_then(|s| s.strip_prefix("Bearer "))
+          .map(str::trim)
+        {
+          Some(t) => t,
+          None => {
+            return (
+              StatusCode::UNAUTHORIZED,
+              "Missing or invalid Authorization header",
+            )
+              .into_response();
+          }
+        };
 
-                // Decode token metadata to get algorithm
-                let token_meta = match jwt_simple::token::Token::decode_metadata(token) {
-                    Ok(h) => h,
-                    Err(_) => {
-                        return (StatusCode::UNAUTHORIZED, "Cannot decode JWT header")
-                            .into_response();
-                    }
-                };
+        // Decode token metadata to get algorithm
+        let token_meta = match jwt_simple::token::Token::decode_metadata(token) {
+          Ok(h) => h,
+          Err(_) => {
+            return (StatusCode::UNAUTHORIZED, "Cannot decode JWT header").into_response();
+          }
+        };
 
-                // Find verification key for the token's algorithm
-                let alg = &token_meta.algorithm();
-                let verify_key = match keys.get(alg) {
-                    Some(k) => k,
-                    None => {
-                        return (
-                            StatusCode::UNAUTHORIZED,
-                            format!("Algorithm {} not allowed", alg),
-                        )
-                            .into_response();
-                    }
-                };
+        // Find verification key for the token's algorithm
+        let alg = &token_meta.algorithm();
+        let verify_key = match keys.get(alg) {
+          Some(k) => k,
+          None => {
+            return (
+              StatusCode::UNAUTHORIZED,
+              format!("Algorithm {} not allowed", alg),
+            )
+              .into_response();
+          }
+        };
 
-                // Verify token and extract claims
-                let claims = match verify_key.verify::<T>(token) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        return (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e))
-                            .into_response();
-                    }
-                };
+        // Verify token and extract claims
+        let claims = match verify_key.verify::<T>(token) {
+          Ok(c) => c,
+          Err(e) => {
+            return (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)).into_response();
+          }
+        };
 
-                // Inject claims into request extensions and continue
-                req.extensions_mut().insert(claims);
-                next.run(req).await.into_response()
-            })
-        }
+        // Inject claims into request extensions and continue
+        req.extensions_mut().insert(claims);
+        next.run(req).await.into_response()
+      })
     }
+  }
 }

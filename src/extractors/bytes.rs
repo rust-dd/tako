@@ -35,12 +35,11 @@ use crate::{extractors::FromRequest, types::Request};
 pub struct Bytes<'a>(pub &'a mut Incoming);
 
 impl<'a> FromRequest<'a> for Bytes<'a> {
-    type Error = Infallible;
+  type Error = Infallible;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Ok(Bytes(req.body_mut())))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Ok(Bytes(req.body_mut())))
+  }
 }

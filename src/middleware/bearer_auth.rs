@@ -42,10 +42,10 @@ use http_body_util::Full;
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
 
 use crate::{
-    body::TakoBody,
-    middleware::{IntoMiddleware, Next},
-    responder::Responder,
-    types::{Request, Response},
+  body::TakoBody,
+  middleware::{IntoMiddleware, Next},
+  responder::Responder,
+  types::{Request, Response},
 };
 
 /// Bearer token authentication middleware configuration.
@@ -93,119 +93,119 @@ use crate::{
 /// });
 /// ```
 pub struct BearerAuth {
-    /// Static token set for quick validation.
-    tokens: Option<HashSet<String>>,
-    /// Custom verification function for dynamic token validation.
-    verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
+  /// Static token set for quick validation.
+  tokens: Option<HashSet<String>>,
+  /// Custom verification function for dynamic token validation.
+  verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
 }
 
 /// Implementation of the `BearerAuth` struct, providing methods to configure
 /// static tokens, custom verification functions, or a combination of both.
 impl BearerAuth {
-    /// Creates authentication middleware with a single static token.
-    pub fn static_token(token: impl Into<String>) -> Self {
-        Self {
-            tokens: Some([token.into()].into()),
-            verify: None,
-        }
+  /// Creates authentication middleware with a single static token.
+  pub fn static_token(token: impl Into<String>) -> Self {
+    Self {
+      tokens: Some([token.into()].into()),
+      verify: None,
     }
+  }
 
-    /// Creates authentication middleware with multiple static tokens.
-    pub fn static_tokens<I>(tokens: I) -> Self
-    where
-        I: IntoIterator,
-        I::Item: Into<String>,
-    {
-        Self {
-            tokens: Some(tokens.into_iter().map(Into::into).collect()),
-            verify: None,
-        }
+  /// Creates authentication middleware with multiple static tokens.
+  pub fn static_tokens<I>(tokens: I) -> Self
+  where
+    I: IntoIterator,
+    I::Item: Into<String>,
+  {
+    Self {
+      tokens: Some(tokens.into_iter().map(Into::into).collect()),
+      verify: None,
     }
+  }
 
-    /// Creates authentication middleware with a custom verification function.
-    pub fn with_verify<F>(f: F) -> Self
-    where
-        F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
-    {
-        Self {
-            tokens: None,
-            verify: Some(Box::new(f)),
-        }
+  /// Creates authentication middleware with a custom verification function.
+  pub fn with_verify<F>(f: F) -> Self
+  where
+    F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
+  {
+    Self {
+      tokens: None,
+      verify: Some(Box::new(f)),
     }
+  }
 
-    /// Creates authentication middleware with both static tokens and custom verification.
-    pub fn static_tokens_with_verify<I, F>(tokens: I, f: F) -> Self
-    where
-        I: IntoIterator,
-        I::Item: Into<String>,
-        F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
-    {
-        Self {
-            tokens: Some(tokens.into_iter().map(Into::into).collect()),
-            verify: Some(Box::new(f)),
-        }
+  /// Creates authentication middleware with both static tokens and custom verification.
+  pub fn static_tokens_with_verify<I, F>(tokens: I, f: F) -> Self
+  where
+    I: IntoIterator,
+    I::Item: Into<String>,
+    F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
+  {
+    Self {
+      tokens: Some(tokens.into_iter().map(Into::into).collect()),
+      verify: Some(Box::new(f)),
     }
+  }
 }
 
 impl IntoMiddleware for BearerAuth {
-    /// Converts the authentication configuration into middleware.
-    fn into_middleware(
-        self,
-    ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
-    + Clone
-    + Send
-    + Sync
-    + 'static {
-        let tokens = self.tokens.map(Arc::new);
-        let verify = self.verify.map(Arc::new);
+  /// Converts the authentication configuration into middleware.
+  fn into_middleware(
+    self,
+  ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+  + Clone
+  + Send
+  + Sync
+  + 'static {
+    let tokens = self.tokens.map(Arc::new);
+    let verify = self.verify.map(Arc::new);
 
-        move |req: Request, next: Next| {
-            let tokens = tokens.clone();
-            let verify = verify.clone();
+    move |req: Request, next: Next| {
+      let tokens = tokens.clone();
+      let verify = verify.clone();
 
-            Box::pin(async move {
-                // Extract Bearer token from Authorization header
-                let tok = req
-                    .headers()
-                    .get(header::AUTHORIZATION)
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|h| h.strip_prefix("Bearer "))
-                    .map(str::trim);
+      Box::pin(async move {
+        // Extract Bearer token from Authorization header
+        let tok = req
+          .headers()
+          .get(header::AUTHORIZATION)
+          .and_then(|h| h.to_str().ok())
+          .and_then(|h| h.strip_prefix("Bearer "))
+          .map(str::trim);
 
-                // Validate extracted token
-                match tok {
-                    None => {
-                        return hyper::Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .header(header::WWW_AUTHENTICATE, "Bearer")
-                            .body(TakoBody::new(Full::from(Bytes::from("Token is missing"))))
-                            .unwrap()
-                            .into_response();
-                    }
-                    Some(t) => {
-                        // Check static token set first
-                        if let Some(set) = &tokens {
-                            if set.contains(t) {
-                                return next.run(req).await.into_response();
-                            }
-                        }
-                        // Use custom verification function if available
-                        if let Some(v) = verify.as_ref() {
-                            if v(t) {
-                                return next.run(req).await.into_response();
-                            }
-                        }
-                    }
-                }
-
-                // Return 401 Unauthorized for invalid tokens
-                hyper::Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .header(header::WWW_AUTHENTICATE, "Bearer")
-                    .body(TakoBody::empty())
-                    .unwrap()
-                    .into_response()
-            })
+        // Validate extracted token
+        match tok {
+          None => {
+            return hyper::Response::builder()
+              .status(StatusCode::BAD_REQUEST)
+              .header(header::WWW_AUTHENTICATE, "Bearer")
+              .body(TakoBody::new(Full::from(Bytes::from("Token is missing"))))
+              .unwrap()
+              .into_response();
+          }
+          Some(t) => {
+            // Check static token set first
+            if let Some(set) = &tokens {
+              if set.contains(t) {
+                return next.run(req).await.into_response();
+              }
+            }
+            // Use custom verification function if available
+            if let Some(v) = verify.as_ref() {
+              if v(t) {
+                return next.run(req).await.into_response();
+              }
+            }
+          }
         }
+
+        // Return 401 Unauthorized for invalid tokens
+        hyper::Response::builder()
+          .status(StatusCode::UNAUTHORIZED)
+          .header(header::WWW_AUTHENTICATE, "Bearer")
+          .body(TakoBody::empty())
+          .unwrap()
+          .into_response()
+      })
     }
+  }
 }

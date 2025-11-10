@@ -67,42 +67,42 @@ const PS_LEN: usize = PREFIX.len() + SUFFIX.len();
 /// ```
 pub struct Sse<S>
 where
-    S: Stream<Item = Bytes> + Send + 'static,
+  S: Stream<Item = Bytes> + Send + 'static,
 {
-    /// The underlying stream of data to be sent as SSE events.
-    pub stream: S,
+  /// The underlying stream of data to be sent as SSE events.
+  pub stream: S,
 }
 
 impl<S> Sse<S>
 where
-    S: Stream<Item = Bytes> + Send + 'static,
+  S: Stream<Item = Bytes> + Send + 'static,
 {
-    /// Creates a new SSE wrapper around the provided stream.
-    pub fn new(stream: S) -> Self {
-        Self { stream }
-    }
+  /// Creates a new SSE wrapper around the provided stream.
+  pub fn new(stream: S) -> Self {
+    Self { stream }
+  }
 }
 
 impl<S> Responder for Sse<S>
 where
-    S: Stream<Item = Bytes> + Send + 'static,
+  S: Stream<Item = Bytes> + Send + 'static,
 {
-    /// Converts the SSE stream into an HTTP response with proper headers.
-    fn into_response(self) -> Response {
-        let stream = self.stream.map(|msg| {
-            let mut buf = BytesMut::with_capacity(PS_LEN + msg.len());
-            buf.extend_from_slice(PREFIX);
-            buf.extend_from_slice(&msg);
-            buf.extend_from_slice(SUFFIX);
-            Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from(buf)))
-        });
+  /// Converts the SSE stream into an HTTP response with proper headers.
+  fn into_response(self) -> Response {
+    let stream = self.stream.map(|msg| {
+      let mut buf = BytesMut::with_capacity(PS_LEN + msg.len());
+      buf.extend_from_slice(PREFIX);
+      buf.extend_from_slice(&msg);
+      buf.extend_from_slice(SUFFIX);
+      Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from(buf)))
+    });
 
-        hyper::Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "text/event-stream")
-            .header(header::CACHE_CONTROL, "no-cache")
-            .header(header::CONNECTION, "keep-alive")
-            .body(TakoBody::new(StreamBody::new(stream)))
-            .unwrap()
-    }
+    hyper::Response::builder()
+      .status(StatusCode::OK)
+      .header(header::CONTENT_TYPE, "text/event-stream")
+      .header(header::CACHE_CONTROL, "no-cache")
+      .header(header::CONNECTION, "keep-alive")
+      .body(TakoBody::new(StreamBody::new(stream)))
+      .unwrap()
+  }
 }

@@ -53,9 +53,9 @@ use serde::de::DeserializeOwned;
 use url::form_urlencoded;
 
 use crate::{
-    extractors::{FromRequest, FromRequestParts},
-    responder::Responder,
-    types::Request,
+  extractors::{FromRequest, FromRequestParts},
+  responder::Responder,
+  types::Request,
 };
 
 /// Query parameter extractor with automatic deserialization to typed structures.
@@ -64,86 +64,84 @@ pub struct Query<T>(pub T);
 /// Error types for query parameter extraction and deserialization.
 #[derive(Debug)]
 pub enum QueryError {
-    /// No query string found in the request URI.
-    MissingQueryString,
-    /// Failed to parse query parameters from the query string.
-    ParseError(String),
-    /// Query parameter deserialization failed (type mismatch, missing field, etc.).
-    DeserializationError(String),
+  /// No query string found in the request URI.
+  MissingQueryString,
+  /// Failed to parse query parameters from the query string.
+  ParseError(String),
+  /// Query parameter deserialization failed (type mismatch, missing field, etc.).
+  DeserializationError(String),
 }
 
 impl Responder for QueryError {
-    /// Converts query parameter errors into appropriate HTTP error responses.
-    fn into_response(self) -> crate::types::Response {
-        match self {
-            QueryError::MissingQueryString => (
-                StatusCode::BAD_REQUEST,
-                "No query string found in request URI",
-            )
-                .into_response(),
-            QueryError::ParseError(err) => (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to parse query parameters: {}", err),
-            )
-                .into_response(),
-            QueryError::DeserializationError(err) => (
-                StatusCode::BAD_REQUEST,
-                format!("Failed to deserialize query parameters: {}", err),
-            )
-                .into_response(),
-        }
+  /// Converts query parameter errors into appropriate HTTP error responses.
+  fn into_response(self) -> crate::types::Response {
+    match self {
+      QueryError::MissingQueryString => (
+        StatusCode::BAD_REQUEST,
+        "No query string found in request URI",
+      )
+        .into_response(),
+      QueryError::ParseError(err) => (
+        StatusCode::BAD_REQUEST,
+        format!("Failed to parse query parameters: {}", err),
+      )
+        .into_response(),
+      QueryError::DeserializationError(err) => (
+        StatusCode::BAD_REQUEST,
+        format!("Failed to deserialize query parameters: {}", err),
+      )
+        .into_response(),
     }
+  }
 }
 
 impl<T> Query<T>
 where
-    T: DeserializeOwned,
+  T: DeserializeOwned,
 {
-    /// Extracts and deserializes query parameters from a URI query string.
-    fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
-        let query = query_string.unwrap_or_default();
+  /// Extracts and deserializes query parameters from a URI query string.
+  fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
+    let query = query_string.unwrap_or_default();
 
-        // Parse query parameters into a HashMap
-        let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
-            .into_owned()
-            .collect();
+    // Parse query parameters into a HashMap
+    let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+      .into_owned()
+      .collect();
 
-        // Convert to JSON value for deserialization
-        let json_value =
-            serde_json::to_value(params).map_err(|e| QueryError::ParseError(e.to_string()))?;
+    // Convert to JSON value for deserialization
+    let json_value =
+      serde_json::to_value(params).map_err(|e| QueryError::ParseError(e.to_string()))?;
 
-        // Deserialize to target type
-        let query_data = serde_json::from_value::<T>(json_value)
-            .map_err(|e| QueryError::DeserializationError(e.to_string()))?;
+    // Deserialize to target type
+    let query_data = serde_json::from_value::<T>(json_value)
+      .map_err(|e| QueryError::DeserializationError(e.to_string()))?;
 
-        Ok(Query(query_data))
-    }
+    Ok(Query(query_data))
+  }
 }
 
 impl<'a, T> FromRequest<'a> for Query<T>
 where
-    T: DeserializeOwned + Send + 'a,
+  T: DeserializeOwned + Send + 'a,
 {
-    type Error = QueryError;
+  type Error = QueryError;
 
-    fn from_request(
-        req: &'a mut Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Self::extract_from_query_string(req.uri().query()))
-    }
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Self::extract_from_query_string(req.uri().query()))
+  }
 }
 
 impl<'a, T> FromRequestParts<'a> for Query<T>
 where
-    T: DeserializeOwned + Send + 'a,
+  T: DeserializeOwned + Send + 'a,
 {
-    type Error = QueryError;
+  type Error = QueryError;
 
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a
-    {
-        ready(Self::extract_from_query_string(parts.uri.query()))
-    }
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    ready(Self::extract_from_query_string(parts.uri.query()))
+  }
 }

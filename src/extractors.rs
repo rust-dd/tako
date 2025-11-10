@@ -130,13 +130,13 @@ pub mod simdjson;
 /// }
 /// ```
 pub trait FromRequest<'a>: Sized {
-    /// Error type returned when extraction fails.
-    type Error: crate::responder::Responder;
+  /// Error type returned when extraction fails.
+  type Error: crate::responder::Responder;
 
-    /// Extracts the type from the HTTP request.
-    fn from_request(
-        req: &'a mut crate::types::Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
+  /// Extracts the type from the HTTP request.
+  fn from_request(
+    req: &'a mut crate::types::Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }
 
 /// Trait for extracting data from HTTP request parts (metadata only).
@@ -169,13 +169,13 @@ pub trait FromRequest<'a>: Sized {
 /// }
 /// ```
 pub trait FromRequestParts<'a>: Sized {
-    /// Error type returned when extraction fails.
-    type Error: crate::responder::Responder;
+  /// Error type returned when extraction fails.
+  type Error: crate::responder::Responder;
 
-    /// Extracts the type from the HTTP request parts.
-    fn from_request_parts(
-        parts: &'a mut Parts,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
+  /// Extracts the type from the HTTP request parts.
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }
 
 // -----------------------------------------------------------------------------
@@ -183,11 +183,11 @@ pub trait FromRequestParts<'a>: Sized {
 // This enables signatures like `async fn handler(req: &mut Request, Path(..), ...)`.
 // -----------------------------------------------------------------------------
 impl<'a> FromRequest<'a> for &'a mut crate::types::Request {
-    type Error = core::convert::Infallible;
+  type Error = core::convert::Infallible;
 
-    fn from_request(
-        req: &'a mut crate::types::Request,
-    ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-        std::future::ready(Ok(req))
-    }
+  fn from_request(
+    req: &'a mut crate::types::Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    std::future::ready(Ok(req))
+  }
 }

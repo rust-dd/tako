@@ -31,9 +31,9 @@
 //! ```
 
 use hyper::{
-    Request,
-    server::conn::{http1, http2},
-    service::service_fn,
+  Request,
+  server::conn::{http1, http2},
+  service::service_fn,
 };
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -46,95 +46,95 @@ use crate::{router::Router, types::BoxError};
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
-    listener: TcpListener,
-    router: Router,
-    certs: Option<&str>,
-    key: Option<&str>,
+  listener: TcpListener,
+  router: Router,
+  certs: Option<&str>,
+  key: Option<&str>,
 ) {
-    run(listener, router, certs, key).await.unwrap();
+  run(listener, router, certs, key).await.unwrap();
 }
 
 /// Runs the TLS server loop, handling secure connections and request dispatch.
 pub async fn run(
-    listener: TcpListener,
-    router: Router,
-    certs: Option<&str>,
-    key: Option<&str>,
+  listener: TcpListener,
+  router: Router,
+  certs: Option<&str>,
+  key: Option<&str>,
 ) -> Result<(), BoxError> {
-    #[cfg(feature = "tako-tracing")]
-    crate::tracing::init_tracing();
+  #[cfg(feature = "tako-tracing")]
+  crate::tracing::init_tracing();
 
-    let certs = load_certs(certs.unwrap_or("cert.pem"));
-    let key = load_key(key.unwrap_or("key.pem"));
+  let certs = load_certs(certs.unwrap_or("cert.pem"));
+  let key = load_key(key.unwrap_or("key.pem"));
 
-    let mut config = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .unwrap();
+  let mut config = ServerConfig::builder()
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .unwrap();
 
-    #[cfg(feature = "http2")]
-    {
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    }
+  #[cfg(feature = "http2")]
+  {
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+  }
 
-    #[cfg(not(feature = "http2"))]
-    {
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
-    }
+  #[cfg(not(feature = "http2"))]
+  {
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+  }
 
-    let acceptor = TlsAcceptor::from(Arc::new(config));
-    let router = Arc::new(router);
+  let acceptor = TlsAcceptor::from(Arc::new(config));
+  let router = Arc::new(router);
 
-    // Setup plugins
-    #[cfg(feature = "plugins")]
-    router.setup_plugins_once();
+  // Setup plugins
+  #[cfg(feature = "plugins")]
+  router.setup_plugins_once();
 
-    tracing::info!("Tako TLS listening on {}", listener.local_addr()?);
+  tracing::info!("Tako TLS listening on {}", listener.local_addr()?);
 
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let acceptor = acceptor.clone();
-        let router = router.clone();
+  loop {
+    let (stream, addr) = listener.accept().await?;
+    let acceptor = acceptor.clone();
+    let router = router.clone();
 
-        tokio::spawn(async move {
-            let tls_stream = match acceptor.accept(stream).await {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::error!("TLS error: {e}");
-                    return;
-                }
-            };
+    tokio::spawn(async move {
+      let tls_stream = match acceptor.accept(stream).await {
+        Ok(s) => s,
+        Err(e) => {
+          tracing::error!("TLS error: {e}");
+          return;
+        }
+      };
 
-            #[cfg(feature = "http2")]
-            let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
+      #[cfg(feature = "http2")]
+      let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
 
-            let io = TokioIo::new(tls_stream);
-            let svc = service_fn(move |mut req: Request<_>| {
-                let r = router.clone();
-                async move {
-                    req.extensions_mut().insert(addr);
-                    Ok::<_, Infallible>(r.dispatch(req).await)
-                }
-            });
+      let io = TokioIo::new(tls_stream);
+      let svc = service_fn(move |mut req: Request<_>| {
+        let r = router.clone();
+        async move {
+          req.extensions_mut().insert(addr);
+          Ok::<_, Infallible>(r.dispatch(req).await)
+        }
+      });
 
-            #[cfg(feature = "http2")]
-            if proto.as_deref() == Some(b"h2") {
-                let h2 = http2::Builder::new(TokioExecutor::new());
+      #[cfg(feature = "http2")]
+      if proto.as_deref() == Some(b"h2") {
+        let h2 = http2::Builder::new(TokioExecutor::new());
 
-                if let Err(e) = h2.serve_connection(io, svc).await {
-                    tracing::error!("HTTP/2 error: {e}");
-                }
-                return;
-            }
+        if let Err(e) = h2.serve_connection(io, svc).await {
+          tracing::error!("HTTP/2 error: {e}");
+        }
+        return;
+      }
 
-            let mut h1 = http1::Builder::new();
-            h1.keep_alive(true);
+      let mut h1 = http1::Builder::new();
+      h1.keep_alive(true);
 
-            if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
-                tracing::error!("HTTP/1.1 error: {e}");
-            }
-        });
-    }
+      if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
+        tracing::error!("HTTP/1.1 error: {e}");
+      }
+    });
+  }
 }
 
 /// Loads TLS certificates from a PEM-encoded file.
@@ -164,8 +164,8 @@ pub async fn run(
 /// # }
 /// ```
 fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
-    let mut rd = BufReader::new(File::open(path).unwrap());
-    certs(&mut rd).map(|r| r.expect("bad cert")).collect()
+  let mut rd = BufReader::new(File::open(path).unwrap());
+  certs(&mut rd).map(|r| r.expect("bad cert")).collect()
 }
 
 /// Loads a private key from a PEM-encoded file.
@@ -195,10 +195,10 @@ fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
 /// # }
 /// ```
 fn load_key(path: &str) -> PrivateKeyDer<'static> {
-    let mut rd = BufReader::new(File::open(path).unwrap());
-    pkcs8_private_keys(&mut rd)
-        .next()
-        .expect("no private key found")
-        .expect("bad private key")
-        .into()
+  let mut rd = BufReader::new(File::open(path).unwrap());
+  pkcs8_private_keys(&mut rd)
+    .next()
+    .expect("no private key found")
+    .expect("bad private key")
+    .into()
 }

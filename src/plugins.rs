@@ -108,9 +108,9 @@ pub mod rate_limiter;
 /// route.plugin(CachePlugin { ttl_seconds: 600 });
 /// ```
 pub trait TakoPlugin: Send + Sync + 'static {
-    /// Returns the unique name identifier for this plugin.
-    fn name(&self) -> &'static str;
+  /// Returns the unique name identifier for this plugin.
+  fn name(&self) -> &'static str;
 
-    /// Configures and initializes the plugin with the given router.
-    fn setup(&self, router: &Router) -> Result<()>;
+  /// Configures and initializes the plugin with the given router.
+  fn setup(&self, router: &Router) -> Result<()>;
 }
