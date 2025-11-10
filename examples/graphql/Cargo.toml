@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.98"
 async-graphql = "7.0.17"
-tako-rs = { path = "../..", features = ["async-graphql"], package = "tako-rs" }
+tako-rs = { path = "../..", features = ["async-graphql", "graphiql"] }
 tokio = { version = "1.45.1", features = ["full"] }

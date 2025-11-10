@@ -4,6 +4,7 @@ use async_graphql::futures_util::stream;
 use async_graphql::{Context, EmptyMutation, Object, Schema, Subscription};
 use std::time::Duration;
 use tako::extractors::FromRequest;
+use tako::graphiql::graphiql;
 use tako::graphql::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use tako::types::Request as TakoRequest;
 use tako::{Method, router::Router};
@@ -40,14 +41,18 @@ async fn main() -> Result<()> {
 
   let mut router = Router::new();
 
+  // GraphQL Playground
+  router.route(Method::GET, "/graphiql", move || async move {
+    graphiql("/graphql", Some("ws://127.0.0.1:8080/ws"))
+  });
+
   // POST /graphql
   router.route(Method::POST, "/graphql", {
     let schema = schema.clone();
-    move |mut req: TakoRequest| {
+    move |GraphQLRequest(req): GraphQLRequest| {
       let schema = schema.clone();
       async move {
-        let gql_req: GraphQLRequest = GraphQLRequest::from_request(&mut req).await.unwrap();
-        let resp = schema.execute(gql_req.0).await;
+        let resp = schema.execute(req).await;
         GraphQLResponse(resp)
       }
     }
@@ -64,6 +69,8 @@ async fn main() -> Result<()> {
 
   println!("GraphQL: POST http://127.0.0.1:8080/graphql");
   println!("Subscriptions (WS): ws://127.0.0.1:8080/ws");
+  #[cfg(feature = "graphiql")]
+  println!("GraphiQL UI: http://127.0.0.1:8080/graphiql");
 
   tako::serve(listener, router).await;
   Ok(())
