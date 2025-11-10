@@ -14,6 +14,7 @@ homepage = "https://github.com/rust-dd/tako"
 [dependencies]
 # ahash = "0.8.12"
 anyhow = "1.0.98"
+async-graphql = { version = "7.0.17", optional = true }
 async-trait = "0.1.88"
 base64 = "0.22.1"
 brotli = { version = "8.0.1", optional = true }
@@ -56,6 +57,7 @@ webpki-roots = { version = "1.0.1", optional = true }
 zstd = { version = "0.13.3", optional = true }
 
 [features]
+async-graphql = ["dep:async-graphql"]
 client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
 default = []
 file-stream = []
@@ -125,3 +127,8 @@ path = "examples/with-state/src/main.rs"
 [[example]]
 name = "extractors-multi"
 path = "examples/extractors-multi/src/main.rs"
+
+[[example]]
+name = "graphql"
+path = "examples/graphql/src/main.rs"
+required-features = ["async-graphql"]

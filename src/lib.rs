@@ -75,6 +75,10 @@ pub mod types;
 /// WebSocket connection handling and message processing.
 pub mod ws;
 
+/// GraphQL support (request extractors, responses, and subscriptions).
+#[cfg(feature = "async-graphql")]
+pub mod graphql;
+
 /// Redirect helpers for building redirect responses.
 pub mod redirect;
 

@@ -1,0 +1,10 @@
+[package]
+name = "graphql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+async-graphql = "7.0.17"
+tako-rs = { path = "../..", features = ["async-graphql"], package = "tako-rs" }
+tokio = { version = "1.45.1", features = ["full"] }
