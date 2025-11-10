@@ -3,8 +3,7 @@ use async_graphql::futures_util::Stream;
 use async_graphql::futures_util::stream;
 use async_graphql::{Context, EmptyMutation, Object, Schema, Subscription};
 use std::time::Duration;
-use tako::extractors::FromRequest;
-use tako::graphiql::graphiql;
+use tako::graphql::graphiql;
 use tako::graphql::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
 use tako::types::Request as TakoRequest;
 use tako::{Method, router::Router};
@@ -41,7 +40,7 @@ async fn main() -> Result<()> {
 
   let mut router = Router::new();
 
-  // GraphQL Playground
+  // GraphiQL UI
   router.route(Method::GET, "/graphiql", move || async move {
     graphiql("/graphql", Some("ws://127.0.0.1:8080/ws"))
   });

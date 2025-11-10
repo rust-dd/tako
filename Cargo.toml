@@ -133,3 +133,8 @@ path = "examples/extractors-multi/src/main.rs"
 name = "graphql"
 path = "examples/graphql/src/main.rs"
 required-features = ["async-graphql"]
+
+[[example]]
+name = "graphql-generic-ws"
+path = "examples/graphql-generic-ws/src/main.rs"
+required-features = ["async-graphql"]
