@@ -58,6 +58,7 @@ zstd = { version = "0.13.3", optional = true }
 
 [features]
 async-graphql = ["dep:async-graphql"]
+graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
 client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
 default = []
 file-stream = []

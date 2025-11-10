@@ -79,9 +79,9 @@ pub mod ws;
 #[cfg(feature = "async-graphql")]
 pub mod graphql;
 
-/// Redirect helpers for building redirect responses.
-pub mod redirect;
-
+/// GraphiQL UI helpers.
+#[cfg(feature = "graphiql")]
+pub mod graphiql;
 pub use bytes::Bytes;
 pub use http_body_util::Full;
 pub use hyper::{Method, StatusCode, header};

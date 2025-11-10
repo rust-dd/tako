@@ -6,18 +6,16 @@
 //! - GraphQLSubscription responder for WebSocket subscriptions
 //!
 //! Enable via the `async-graphql` cargo feature.
-
 #![cfg(feature = "async-graphql")]
 
 use std::{future::Future, str::FromStr, time::Duration};
 
 use async_graphql::{
-  self as gql, BatchRequest as GqlBatchRequest, BatchResponse as GqlBatchResponse, Data, Executor,
+  BatchRequest as GqlBatchRequest, BatchResponse as GqlBatchResponse, Data, Executor,
   Result as GqlResult,
   http::{
-    self as gql_http, DefaultOnConnInitType, DefaultOnPingType, MultipartOptions,
-    WebSocket as GqlWebSocket, WebSocketProtocols, WsMessage, default_on_connection_init,
-    default_on_ping,
+    DefaultOnConnInitType, DefaultOnPingType, MultipartOptions, WebSocket as GqlWebSocket,
+    WebSocketProtocols, WsMessage, default_on_connection_init, default_on_ping,
   },
 };
 use http::{HeaderValue, StatusCode, header};
@@ -32,11 +30,14 @@ use crate::{
   types::{Request, Response},
 };
 
+#[cfg(feature = "graphiql")]
+pub use crate::graphiql::{GraphiQL, graphiql};
+
 /// Single GraphQL request extractor.
-pub struct GraphQLRequest(pub gql::Request);
+pub struct GraphQLRequest(pub async_graphql::Request);
 
 impl GraphQLRequest {
-  pub fn into_inner(self) -> gql::Request {
+  pub fn into_inner(self) -> async_graphql::Request {
     self.0
   }
 }
@@ -57,6 +58,20 @@ pub enum GraphQLError {
   BodyRead(String),
   InvalidJson(String),
   Parse(String),
+}
+
+/// Per-request or global options for GraphQL extraction.
+#[derive(Clone)]
+pub struct GraphQLOptions {
+  pub multipart: MultipartOptions,
+}
+
+impl Default for GraphQLOptions {
+  fn default() -> Self {
+    Self {
+      multipart: MultipartOptions::default(),
+    }
+  }
 }
 
 impl Responder for GraphQLError {
@@ -138,9 +153,22 @@ impl<'a> FromRequest<'a> for GraphQLProtocol {
   }
 }
 
-fn parse_get_request(req: &Request) -> Result<gql::Request, GraphQLError> {
+#[inline]
+fn resolve_opts(req: &Request) -> MultipartOptions {
+  // Prefer per-request options in extensions
+  if let Some(opts) = req.extensions().get::<GraphQLOptions>() {
+    return opts.multipart.clone();
+  }
+  // Fallback to global state
+  if let Some(global) = crate::state::get_state::<GraphQLOptions>() {
+    return global.as_ref().multipart.clone();
+  }
+  MultipartOptions::default()
+}
+
+fn parse_get_request(req: &Request) -> Result<async_graphql::Request, GraphQLError> {
   let qs = req.uri().query().unwrap_or("");
-  gql_http::parse_query_string(qs).map_err(|e| GraphQLError::Parse(e.to_string()))
+  async_graphql::http::parse_query_string(qs).map_err(|e| GraphQLError::Parse(e.to_string()))
 }
 
 async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError> {
@@ -163,6 +191,9 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
         return Ok(GraphQLRequest(parse_get_request(req)?));
       }
 
+      // Resolve MultipartOptions: request extensions -> global state -> default
+      let opts = resolve_opts(req);
+
       let body = read_body_bytes(req).await?;
       let content_type = req
         .headers()
@@ -171,20 +202,29 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
         .map(|s| s.to_string());
 
       let reader = futures_util::io::Cursor::new(body.to_vec());
-      let req =
-        gql_http::receive_body(content_type.as_deref(), reader, MultipartOptions::default())
-          .await
-          .map_err(|e| GraphQLError::Parse(e.to_string()))?;
+      let req = async_graphql::http::receive_body(content_type.as_deref(), reader, opts)
+        .await
+        .map_err(|e| GraphQLError::Parse(e.to_string()))?;
       Ok(GraphQLRequest(req))
     }
   }
 }
 
 /// Helper to receive a single GraphQL request with custom MultipartOptions.
+/// Attach per-request GraphQL options into request extensions.
+pub fn attach_graphql_options(req: &mut Request, opts: GraphQLOptions) {
+  req.extensions_mut().insert(opts);
+}
+
+/// Set global GraphQL options via Tako's global state.
+pub fn set_global_graphql_options(opts: GraphQLOptions) {
+  crate::state::set_state::<GraphQLOptions>(opts);
+}
+
 pub async fn receive_graphql(
   req: &mut Request,
   opts: MultipartOptions,
-) -> Result<gql::Request, GraphQLError> {
+) -> Result<async_graphql::Request, GraphQLError> {
   if req.method() == hyper::Method::GET {
     return parse_get_request(req);
   }
@@ -195,7 +235,7 @@ pub async fn receive_graphql(
     .and_then(|v| v.to_str().ok())
     .map(|s| s.to_string());
   let reader = futures_util::io::Cursor::new(body.to_vec());
-  gql_http::receive_body(content_type.as_deref(), reader, opts)
+  async_graphql::http::receive_body(content_type.as_deref(), reader, opts)
     .await
     .map_err(|e| GraphQLError::Parse(e.to_string()))
 }
@@ -216,7 +256,7 @@ pub async fn receive_graphql_batch(
     .and_then(|v| v.to_str().ok())
     .map(|s| s.to_string());
   let reader = futures_util::io::Cursor::new(body.to_vec());
-  gql_http::receive_batch_body(content_type.as_deref(), reader, opts)
+  async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
     .await
     .map_err(|e| GraphQLError::Parse(e.to_string()))
 }
@@ -234,6 +274,9 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
         return Ok(GraphQLBatchRequest(GqlBatchRequest::Single(single)));
       }
 
+      // Resolve MultipartOptions: request extensions -> global state -> default
+      let opts = resolve_opts(req);
+
       let body = read_body_bytes(req).await?;
       let content_type = req
         .headers()
@@ -241,20 +284,19 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
       let reader = futures_util::io::Cursor::new(body.to_vec());
-      let batch =
-        gql_http::receive_batch_body(content_type.as_deref(), reader, MultipartOptions::default())
-          .await
-          .map_err(|e| GraphQLError::Parse(e.to_string()))?;
+      let batch = async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
+        .await
+        .map_err(|e| GraphQLError::Parse(e.to_string()))?;
       Ok(GraphQLBatchRequest(batch))
     }
   }
 }
 
 /// Single GraphQL response wrapper.
-pub struct GraphQLResponse(pub gql::Response);
+pub struct GraphQLResponse(pub async_graphql::Response);
 
-impl From<gql::Response> for GraphQLResponse {
-  fn from(value: gql::Response) -> Self {
+impl From<async_graphql::Response> for GraphQLResponse {
+  fn from(value: async_graphql::Response) -> Self {
     Self(value)
   }
 }
