@@ -22,6 +22,7 @@
 * **Shared State** — Application‑wide state injection without `unsafe` globals.
 * **Plugin system** — Opt‑in extensions let you add functionality without cluttering the core API.
 * **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2 & TLS** support.
+* **GraphQL integration** — Async-GraphQL integration for Tako: extractors, responses, and subscriptions.
 
 ## Documentation
 
