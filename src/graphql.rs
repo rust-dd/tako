@@ -1,6 +1,5 @@
 //! Async-GraphQL integration for Tako: extractors, responses, and subscriptions.
 //!
-//! This module provides convenient types similar to `async-graphql-axum`:
 //! - GraphQLRequest / GraphQLBatchRequest extractors
 //! - GraphQLResponse / GraphQLBatchResponse responders
 //! - GraphQLSubscription responder for WebSocket subscriptions
@@ -343,7 +342,7 @@ impl Responder for GraphQLBatchResponse {
   }
 }
 
-/// GraphQL WebSocket subscription responder (GraphQL over WebSocket), modeled after async-graphql-axum.
+/// GraphQL WebSocket subscription responder (GraphQL over WebSocket).
 ///
 /// Usage in a handler:
 ///
