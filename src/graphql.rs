@@ -497,7 +497,6 @@ where
     if let Some(on_upgrade) = req.extensions().get::<hyper::upgrade::OnUpgrade>().cloned() {
       let executor = self.executor.clone();
       let data = self.data;
-      // We can't store FnOnce generic types easily in this impl; wrap them using boxes
       let on_conn_init = self.on_connection_init;
       let on_ping = self.on_ping;
       let keepalive = self.keepalive_timeout;
