@@ -47,6 +47,9 @@ pub mod plugins;
 /// Response generation utilities and traits.
 pub mod responder;
 
+/// Redirection utilities for handling HTTP redirects.
+pub mod redirect;
+
 /// Route definition and matching logic.
 mod route;
 
