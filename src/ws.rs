@@ -129,7 +129,7 @@ where
     let key = match req.headers().get("Sec-WebSocket-Key") {
       Some(k) => k,
       None => {
-        return hyper::Response::builder()
+        return http::Response::builder()
           .status(StatusCode::BAD_REQUEST)
           .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
           .unwrap();
@@ -144,7 +144,7 @@ where
       STANDARD.encode(sha1.finalize())
     };
 
-    let response = hyper::Response::builder()
+    let response = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)
       .header(header::UPGRADE, "websocket")
       .header(header::CONNECTION, "Upgrade")

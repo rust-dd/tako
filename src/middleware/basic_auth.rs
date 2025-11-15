@@ -207,7 +207,7 @@ impl IntoMiddleware for BasicAuth {
             }
           }
           None => {
-            return hyper::Response::builder()
+            return http::Response::builder()
               .status(StatusCode::UNAUTHORIZED)
               .header(
                 header::WWW_AUTHENTICATE,

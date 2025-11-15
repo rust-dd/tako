@@ -24,11 +24,11 @@
 use std::{convert::Infallible, fmt::Display};
 
 use bytes::Bytes;
-use http_body_util::Full;
-use hyper::{
+use http::{
   StatusCode,
   header::{HeaderName, HeaderValue},
 };
+use http_body_util::Full;
 
 use crate::{body::TakoBody, types::Response};
 

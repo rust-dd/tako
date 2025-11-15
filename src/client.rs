@@ -34,12 +34,10 @@
 
 use std::{error::Error, sync::Arc};
 
+use http::{Request, Response};
+use http_body::Body;
 use http_body_util::BodyExt;
-use hyper::{
-  Request, Response,
-  body::Body,
-  client::{self, conn::http1::SendRequest},
-};
+use hyper::client::{self, conn::http1::SendRequest};
 use hyper_util::rt::TokioIo;
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use tokio::{net::TcpStream, task::JoinHandle};

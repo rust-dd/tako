@@ -24,7 +24,8 @@
 //! # }
 //! ```
 
-use hyper::{Request, server::conn::http1, service::service_fn};
+use http::Request;
+use hyper::{server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::net::TcpListener;

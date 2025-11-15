@@ -139,7 +139,7 @@ where
       // Check content type
       let content_type = req
         .headers()
-        .get(hyper::header::CONTENT_TYPE)
+        .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok());
 
       if content_type != Some("application/x-www-form-urlencoded") {

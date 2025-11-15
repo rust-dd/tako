@@ -16,8 +16,8 @@
 //! }
 //! ```
 
+use http::StatusCode;
 use http::header::LOCATION;
-use hyper::StatusCode;
 
 use crate::{body::TakoBody, responder::Responder, types::Response};
 
@@ -64,7 +64,7 @@ impl Redirect {
 
 impl Responder for Redirect {
   fn into_response(self) -> Response {
-    hyper::Response::builder()
+    http::Response::builder()
       .status(self.status)
       .header(LOCATION, self.location)
       .body(TakoBody::empty())

@@ -36,7 +36,8 @@ use std::{io::SeekFrom, path::Path};
 use anyhow::Result;
 use bytes::Bytes;
 use futures_util::{TryStream, TryStreamExt};
-use hyper::{StatusCode, body::Frame};
+use http::StatusCode;
+use http_body::Frame;
 use tokio::{
   fs::File,
   io::{AsyncReadExt, AsyncSeekExt},
@@ -127,21 +128,21 @@ where
 
   /// Creates an HTTP 206 Partial Content response for range requests.
   pub fn into_range_response(self, start: u64, end: u64, total_size: u64) -> Response {
-    let mut response = hyper::Response::builder()
-      .status(hyper::StatusCode::PARTIAL_CONTENT)
+    let mut response = http::Response::builder()
+      .status(http::StatusCode::PARTIAL_CONTENT)
       .header(
-        hyper::header::CONTENT_TYPE,
+        http::header::CONTENT_TYPE,
         mime::APPLICATION_OCTET_STREAM.as_ref(),
       )
       .header(
-        hyper::header::CONTENT_RANGE,
+        http::header::CONTENT_RANGE,
         format!("bytes {}-{}/{}", start, end, total_size),
       )
-      .header(hyper::header::CONTENT_LENGTH, (end - start + 1).to_string());
+      .header(http::header::CONTENT_LENGTH, (end - start + 1).to_string());
 
     if let Some(ref name) = self.file_name {
       response = response.header(
-        hyper::header::CONTENT_DISPOSITION,
+        http::header::CONTENT_DISPOSITION,
         format!("attachment; filename=\"{}\"", name),
       );
     }
@@ -155,7 +156,7 @@ where
 
     response.body(body).unwrap_or_else(|e| {
       (
-        hyper::StatusCode::INTERNAL_SERVER_ERROR,
+        http::StatusCode::INTERNAL_SERVER_ERROR,
         format!("FileStream range error: {}", e),
       )
         .into_response()
@@ -193,20 +194,20 @@ where
 {
   /// Converts the file stream into an HTTP response with appropriate headers.
   fn into_response(self) -> Response {
-    let mut response = hyper::Response::builder()
-      .status(hyper::StatusCode::OK)
+    let mut response = http::Response::builder()
+      .status(http::StatusCode::OK)
       .header(
-        hyper::header::CONTENT_TYPE,
+        http::header::CONTENT_TYPE,
         mime::APPLICATION_OCTET_STREAM.as_ref(),
       );
 
     if let Some(size) = self.content_size {
-      response = response.header(hyper::header::CONTENT_LENGTH, size.to_string());
+      response = response.header(http::header::CONTENT_LENGTH, size.to_string());
     }
 
     if let Some(ref name) = self.file_name {
       response = response.header(
-        hyper::header::CONTENT_DISPOSITION,
+        http::header::CONTENT_DISPOSITION,
         format!("attachment; filename=\"{}\"", name),
       );
     }
@@ -220,7 +221,7 @@ where
 
     response.body(body).unwrap_or_else(|e| {
       (
-        hyper::StatusCode::INTERNAL_SERVER_ERROR,
+        http::StatusCode::INTERNAL_SERVER_ERROR,
         format!("FileStream error: {}", e),
       )
         .into_response()

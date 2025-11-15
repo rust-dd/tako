@@ -384,7 +384,7 @@ async fn retain(
   });
 
   if entry.available < 1.0 {
-    return hyper::Response::builder()
+    return http::Response::builder()
       .status(cfg.status_on_limit)
       .body(TakoBody::empty())
       .unwrap();

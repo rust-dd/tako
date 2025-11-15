@@ -255,7 +255,7 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
   let origin = req.headers().get(ORIGIN).cloned();
 
   if req.method() == Method::OPTIONS {
-    let mut resp = hyper::Response::builder()
+    let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
       .body(TakoBody::empty())
       .unwrap();

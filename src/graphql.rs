@@ -187,7 +187,7 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      if req.method() == hyper::Method::GET {
+      if req.method() == http::Method::GET {
         return Ok(GraphQLRequest(parse_get_request(req)?));
       }
 
@@ -225,7 +225,7 @@ pub async fn receive_graphql(
   req: &mut Request,
   opts: MultipartOptions,
 ) -> Result<async_graphql::Request, GraphQLError> {
-  if req.method() == hyper::Method::GET {
+  if req.method() == http::Method::GET {
     return parse_get_request(req);
   }
   let body = read_body_bytes(req).await?;
@@ -245,7 +245,7 @@ pub async fn receive_graphql_batch(
   req: &mut Request,
   opts: MultipartOptions,
 ) -> Result<GqlBatchRequest, GraphQLError> {
-  if req.method() == hyper::Method::GET {
+  if req.method() == http::Method::GET {
     let single = parse_get_request(req)?;
     return Ok(GqlBatchRequest::Single(single));
   }
@@ -268,7 +268,7 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      if req.method() == hyper::Method::GET {
+      if req.method() == http::Method::GET {
         // Treat GET as single request
         let single = parse_get_request(req)?;
         return Ok(GraphQLBatchRequest(GqlBatchRequest::Single(single)));
@@ -481,7 +481,7 @@ where
     };
 
     // Build upgrade response
-    let builder = hyper::Response::builder()
+    let builder = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)
       .header(header::UPGRADE, "websocket")
       .header(header::CONNECTION, "Upgrade")

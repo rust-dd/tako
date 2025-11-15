@@ -175,7 +175,7 @@ impl IntoMiddleware for BearerAuth {
         // Validate extracted token
         match tok {
           None => {
-            return hyper::Response::builder()
+            return http::Response::builder()
               .status(StatusCode::BAD_REQUEST)
               .header(header::WWW_AUTHENTICATE, "Bearer")
               .body(TakoBody::new(Full::from(Bytes::from("Token is missing"))))
@@ -199,7 +199,7 @@ impl IntoMiddleware for BearerAuth {
         }
 
         // Return 401 Unauthorized for invalid tokens
-        hyper::Response::builder()
+        http::Response::builder()
           .status(StatusCode::UNAUTHORIZED)
           .header(header::WWW_AUTHENTICATE, "Bearer")
           .body(TakoBody::empty())

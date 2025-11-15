@@ -37,10 +37,10 @@ use hyper::body::Incoming;
 use crate::{body::TakoBody, middleware::Next};
 
 /// HTTP request type with streaming body support.
-pub type Request = hyper::Request<Incoming>;
+pub type Request = http::Request<Incoming>;
 
 /// HTTP response type with Tako's custom body implementation.
-pub type Response = hyper::Response<TakoBody>;
+pub type Response = http::Response<TakoBody>;
 
 /// Boxed HTTP body type for internal response handling.
 pub(crate) type BoxBody = UnsyncBoxBody<Bytes, BoxError>;

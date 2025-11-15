@@ -35,8 +35,8 @@ use std::{
 };
 
 use dashmap::DashMap;
+use http::Method;
 use http::StatusCode;
-use hyper::Method;
 
 use crate::{
   body::TakoBody,
@@ -269,7 +269,7 @@ impl Router {
     if let Some(method_router) = self.inner.get(method) {
       if let Ok(matched) = method_router.at(&tsr_path) {
         if matched.value.tsr {
-          return hyper::Response::builder()
+          return http::Response::builder()
             .status(StatusCode::TEMPORARY_REDIRECT)
             .header("Location", tsr_path)
             .body(TakoBody::empty())
@@ -288,7 +288,7 @@ impl Router {
       return next.run(req).await;
     }
 
-    hyper::Response::builder()
+    http::Response::builder()
       .status(StatusCode::NOT_FOUND)
       .body(TakoBody::empty())
       .unwrap()
@@ -551,7 +551,7 @@ impl Router {
     if let Some(guard) = route.protocol_guard() {
       if guard != req.version() {
         return Some(
-          hyper::Response::builder()
+          http::Response::builder()
             .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
             .body(TakoBody::empty())
             .unwrap(),

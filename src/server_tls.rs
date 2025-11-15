@@ -30,7 +30,8 @@
 //! # }
 //! ```
 
-use hyper::{Request, server::conn::http1, service::service_fn};
+use http::Request;
+use hyper::{server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::{certs, pkcs8_private_keys};

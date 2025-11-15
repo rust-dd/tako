@@ -32,8 +32,8 @@ use anyhow::Result;
 use bytes::Bytes;
 use flate2::{Compression, write::DeflateEncoder};
 use futures_util::{Stream, TryStreamExt};
+use http_body::{Body, Frame};
 use http_body_util::BodyExt;
-use hyper::body::{Body, Frame};
 use pin_project_lite::pin_project;
 
 use crate::{body::TakoBody, types::BoxError};

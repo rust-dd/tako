@@ -25,11 +25,11 @@
 //! }
 //! ```
 
-use http_body_util::BodyExt;
-use hyper::{
+use http::{
   HeaderMap, StatusCode,
   header::{self, HeaderValue},
 };
+use http_body_util::BodyExt;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{

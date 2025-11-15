@@ -39,8 +39,8 @@
 //! }
 //! ```
 
+use http::{StatusCode, header::HeaderValue};
 use http_body_util::BodyExt;
-use hyper::{StatusCode, header::HeaderValue};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{

@@ -98,9 +98,9 @@ impl ServeDir {
       Ok(contents) => {
         let mime = mime_guess::from_path(file_path).first_or_octet_stream();
         Some(
-          hyper::Response::builder()
+          http::Response::builder()
             .status(StatusCode::OK)
-            .header(hyper::header::CONTENT_TYPE, mime.to_string())
+            .header(http::header::CONTENT_TYPE, mime.to_string())
             .body(TakoBody::from(contents))
             .unwrap(),
         )
@@ -125,7 +125,7 @@ impl ServeDir {
       return resp;
     }
 
-    hyper::Response::builder()
+    http::Response::builder()
       .status(StatusCode::NOT_FOUND)
       .body(TakoBody::from("File not found"))
       .unwrap()
@@ -166,7 +166,7 @@ impl ServeFile {
       Ok(contents) => {
         let mime = mime_guess::from_path(&self.path).first_or_octet_stream();
         Some(
-          hyper::Response::builder()
+          http::Response::builder()
             .status(StatusCode::OK)
             .header(http::header::CONTENT_TYPE, mime.to_string())
             .body(TakoBody::from(contents))
@@ -182,7 +182,7 @@ impl ServeFile {
     if let Some(resp) = self.serve_file().await {
       resp
     } else {
-      hyper::Response::builder()
+      http::Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(TakoBody::from("File not found"))
         .unwrap()

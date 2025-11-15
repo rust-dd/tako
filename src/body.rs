@@ -40,8 +40,8 @@ use bytes::Bytes;
 
 use anyhow::Result;
 use futures_util::{Stream, TryStream, TryStreamExt};
+use http_body::{Body, Frame, SizeHint};
 use http_body_util::{BodyExt, Empty, StreamBody};
-use hyper::body::{Body, Frame, SizeHint};
 
 use crate::types::{BoxBody, BoxError};
 
@@ -92,7 +92,7 @@ impl TakoBody {
     S: Stream<Item = Result<Bytes, E>> + Send + 'static,
     E: Into<BoxError> + Debug + 'static,
   {
-    let stream = stream.map_err(Into::into).map_ok(hyper::body::Frame::data);
+    let stream = stream.map_err(Into::into).map_ok(http_body::Frame::data);
     let body = StreamBody::new(stream).boxed_unsync();
     Self(body)
   }
@@ -158,7 +158,7 @@ body_from_impl!(Bytes);
 ///
 /// ```rust,no_run
 /// use tako::body::TakoBody;
-/// use hyper::body::Body;
+/// use http_body::Body;
 /// use std::pin::Pin;
 /// use std::task::{Context, Poll};
 ///

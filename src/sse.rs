@@ -94,10 +94,10 @@ where
       buf.extend_from_slice(PREFIX);
       buf.extend_from_slice(&msg);
       buf.extend_from_slice(SUFFIX);
-      Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from(buf)))
+      Ok::<_, Infallible>(http_body::Frame::data(Bytes::from(buf)))
     });
 
-    hyper::Response::builder()
+    http::Response::builder()
       .status(StatusCode::OK)
       .header(header::CONTENT_TYPE, "text/event-stream")
       .header(header::CACHE_CONTROL, "no-cache")
