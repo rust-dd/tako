@@ -30,6 +30,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
+use crate::body::TakoBody;
 use crate::router::Router;
 use crate::types::BoxError;
 
@@ -61,7 +62,8 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
         let router = router.clone();
         async move {
           req.extensions_mut().insert(addr);
-          Ok::<_, Infallible>(router.dispatch(req).await)
+          // Map hyper body to TakoBody to keep request hyper-independent
+          Ok::<_, Infallible>(router.dispatch(req.map(TakoBody::new)).await)
         }
       });
 

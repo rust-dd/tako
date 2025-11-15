@@ -32,12 +32,11 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use http_body_util::combinators::UnsyncBoxBody;
-use hyper::body::Incoming;
 
 use crate::{body::TakoBody, middleware::Next};
 
-/// HTTP request type with streaming body support.
-pub type Request = http::Request<Incoming>;
+/// HTTP request type with streaming body support (hyper-independent).
+pub type Request = http::Request<TakoBody>;
 
 /// HTTP response type with Tako's custom body implementation.
 pub type Response = http::Response<TakoBody>;

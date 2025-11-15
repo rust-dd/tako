@@ -39,7 +39,7 @@ use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
-use crate::{router::Router, types::BoxError};
+use crate::{body::TakoBody, router::Router, types::BoxError};
 
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
@@ -116,7 +116,7 @@ pub async fn run(
         let r = router.clone();
         async move {
           req.extensions_mut().insert(addr);
-          Ok::<_, Infallible>(r.dispatch(req).await)
+          Ok::<_, Infallible>(r.dispatch(req.map(TakoBody::new)).await)
         }
       });
 

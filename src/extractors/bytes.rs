@@ -22,17 +22,15 @@
 //! }
 //! ```
 
-use hyper::body::Incoming;
 use std::{convert::Infallible, future::ready};
 
-use crate::{extractors::FromRequest, types::Request};
+use crate::{body::TakoBody, extractors::FromRequest, types::Request};
 
 /// Raw request body extractor that provides access to the underlying body stream.
 ///
-/// This extractor wraps a reference to the raw `hyper::body::Incoming` stream,
-/// allowing direct access to the request body without any processing or buffering.
-/// It's useful for scenarios where you need streaming request body processing or custom parsing logic.
-pub struct Bytes<'a>(pub &'a mut Incoming);
+/// This extractor wraps a reference to the raw request body implementing `http_body::Body`,
+/// allowing direct access to the request body without buffering.
+pub struct Bytes<'a>(pub &'a mut TakoBody);
 
 impl<'a> FromRequest<'a> for Bytes<'a> {
   type Error = Infallible;
