@@ -57,7 +57,7 @@ use crate::{
 ///     }
 /// }
 /// ```
-pub struct HeaderMap<'a>(pub &'a hyper::HeaderMap);
+pub struct HeaderMap<'a>(pub &'a http::HeaderMap);
 
 impl<'a> FromRequest<'a> for HeaderMap<'a> {
   type Error = Infallible;
