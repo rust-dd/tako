@@ -66,6 +66,8 @@ pub struct Route {
   /// Flag to ensure route plugins are initialized only once.
   #[cfg(feature = "plugins")]
   plugins_initialized: AtomicBool,
+  /// HTTP protocol version
+  http_protocol: Option<http::Version>,
 }
 
 impl Route {
@@ -81,6 +83,7 @@ impl Route {
       plugins: RwLock::new(Vec::new()),
       #[cfg(feature = "plugins")]
       plugins_initialized: AtomicBool::new(false),
+      http_protocol: None,
     }
   }
 
@@ -167,5 +170,30 @@ impl Route {
         route_middlewares.push_front(mw.clone());
       }
     }
+  }
+
+  /// HTTP/0.9 guard
+  pub fn h09(&mut self) {
+    self.http_protocol = Some(http::Version::HTTP_09);
+  }
+
+  /// HTTP/1.0 guard
+  pub fn h10(&mut self) {
+    self.http_protocol = Some(http::Version::HTTP_10);
+  }
+
+  /// HTTP/1.1 guard
+  pub fn h11(&mut self) {
+    self.http_protocol = Some(http::Version::HTTP_11);
+  }
+
+  /// HTTP/2 guard
+  pub fn h2(&mut self) {
+    self.http_protocol = Some(http::Version::HTTP_2);
+  }
+
+  /// Returns the configured protocol guard, if any.
+  pub(crate) fn protocol_guard(&self) -> Option<http::Version> {
+    self.http_protocol
   }
 }

@@ -84,6 +84,9 @@ pub mod query;
 /// Range header parsing for partial content requests.
 pub mod range;
 
+/// Global state extraction for accessing shared app state.
+pub mod state;
+
 /// Multipart form data parsing for file uploads and complex forms.
 #[cfg(feature = "multipart")]
 pub mod multipart;

@@ -230,6 +230,11 @@ impl Router {
       if let Ok(matched) = method_router.at(path) {
         let route = matched.value;
 
+        // Protocol guard: early-return if request version does not satisfy route guard
+        if let Some(res) = Self::enforce_protocol_guard(route, &req) {
+          return res;
+        }
+
         // Initialize route-level plugins on first request
         #[cfg(feature = "plugins")]
         route.setup_plugins_once();
@@ -537,5 +542,22 @@ impl Router {
         }
       }
     }
+  }
+
+  /// Ensures the request HTTP version satisfies the route's configured protocol guard.
+  /// Returns `Some(Response)` with 505 HTTP Version Not Supported when the request
+  /// doesn't match the guard, otherwise returns `None` to continue dispatch.
+  fn enforce_protocol_guard(route: &Route, req: &Request) -> Option<Response> {
+    if let Some(guard) = route.protocol_guard() {
+      if guard != req.version() {
+        return Some(
+          hyper::Response::builder()
+            .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
+            .body(TakoBody::empty())
+            .unwrap(),
+        );
+      }
+    }
+    None
   }
 }

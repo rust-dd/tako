@@ -30,12 +30,8 @@
 //! # }
 //! ```
 
-use hyper::{
-  Request,
-  server::conn::{http1, http2},
-  service::service_fn,
-};
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper::{Request, server::conn::http1, service::service_fn};
+use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
@@ -43,6 +39,12 @@ use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
 use crate::{router::Router, types::BoxError};
+
+#[cfg(feature = "http2")]
+use hyper::server::conn::http2;
+
+#[cfg(feature = "http2")]
+use hyper_util::rt::TokioExecutor;
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
@@ -163,7 +165,7 @@ pub async fn run(
 /// println!("Loaded {} certificates", certs.len());
 /// # }
 /// ```
-fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
+pub fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
   let mut rd = BufReader::new(File::open(path).unwrap());
   certs(&mut rd).map(|r| r.expect("bad cert")).collect()
 }
@@ -194,7 +196,7 @@ fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
 /// println!("Loaded private key successfully");
 /// # }
 /// ```
-fn load_key(path: &str) -> PrivateKeyDer<'static> {
+pub fn load_key(path: &str) -> PrivateKeyDer<'static> {
   let mut rd = BufReader::new(File::open(path).unwrap());
   pkcs8_private_keys(&mut rd)
     .next()
