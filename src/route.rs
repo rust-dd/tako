@@ -28,12 +28,10 @@
 //! assert_eq!(params.get("id"), Some(&"123".to_string()));
 //! ```
 
-use std::{
-  collections::VecDeque,
-  sync::{Arc, RwLock},
-};
+use std::{collections::VecDeque, sync::Arc};
 
 use http::Method;
+use parking_lot::RwLock;
 
 use crate::{
   handler::BoxHandler,
@@ -100,7 +98,7 @@ impl Route {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    self.middlewares.write().unwrap().push_back(mw);
+    self.middlewares.write().push_back(mw);
     self
   }
 
@@ -140,7 +138,7 @@ impl Route {
   where
     P: TakoPlugin + Clone + Send + Sync + 'static,
   {
-    self.plugins.write().unwrap().push(Box::new(plugin));
+    self.plugins.write().push(Box::new(plugin));
     self
   }
 
@@ -156,14 +154,14 @@ impl Route {
       // Create a temporary mini-router to capture plugin middleware
       let mini_router = crate::router::Router::new();
 
-      let plugins = self.plugins.read().unwrap();
+      let plugins = self.plugins.read();
       for plugin in plugins.iter() {
         let _ = plugin.setup(&mini_router);
       }
 
       // Transfer middleware from mini-router to this route
-      let plugin_middlewares = mini_router.middlewares.read().unwrap();
-      let mut route_middlewares = self.middlewares.write().unwrap();
+      let plugin_middlewares = mini_router.middlewares.read();
+      let mut route_middlewares = self.middlewares.write();
 
       // Prepend plugin middlewares to route middlewares
       for mw in plugin_middlewares.iter().rev() {

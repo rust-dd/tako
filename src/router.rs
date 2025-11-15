@@ -31,12 +31,13 @@
 
 use std::{
   collections::HashMap,
-  sync::{Arc, RwLock, Weak},
+  sync::{Arc, Weak},
 };
 
 use dashmap::DashMap;
 use http::Method;
 use http::StatusCode;
+use parking_lot::RwLock;
 
 use crate::{
   body::TakoBody,
@@ -246,8 +247,8 @@ impl Router {
           }
           req.extensions_mut().insert(PathParams(params));
         }
-        let g_mws = self.middlewares.read().unwrap().clone();
-        let r_mws = route.middlewares.read().unwrap().clone();
+        let g_mws = self.middlewares.read().clone();
+        let r_mws = route.middlewares.read().clone();
         let mut chain = Vec::new();
         chain.extend(g_mws.into_iter());
         chain.extend(r_mws.into_iter());
@@ -280,7 +281,7 @@ impl Router {
 
     // No match: use fallback handler if configured
     if let Some(handler) = &self.fallback {
-      let g_mws = self.middlewares.read().unwrap().clone();
+      let g_mws = self.middlewares.read().clone();
       let next = Next {
         middlewares: Arc::new(g_mws),
         endpoint: Arc::new(handler.clone()),
@@ -363,7 +364,7 @@ impl Router {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    self.middlewares.write().unwrap().push(mw);
+    self.middlewares.write().push(mw);
     self
   }
 
@@ -517,7 +518,7 @@ impl Router {
   /// main_router.merge(api_router);
   /// ```
   pub fn merge(&mut self, other: Router) {
-    let upstream_globals = other.middlewares.read().unwrap().clone();
+    let upstream_globals = other.middlewares.read().clone();
 
     for (method, weak_vec) in other.routes.into_iter() {
       let mut target_router = self
@@ -527,7 +528,7 @@ impl Router {
 
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
-          let mut rmw = route.middlewares.write().unwrap();
+          let mut rmw = route.middlewares.write();
           for mw in upstream_globals.iter().rev() {
             rmw.push_front(mw.clone());
           }
