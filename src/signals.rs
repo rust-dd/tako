@@ -4,14 +4,17 @@
 //! and handled within a Tako application. It is intended for cross-cutting
 //! concerns such as metrics, logging hooks, or custom application events.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use dashmap::DashMap;
 use futures_util::future::{BoxFuture, join_all};
 use once_cell::sync::Lazy;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
+use tokio::time::{Duration, timeout};
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
+static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);
 
 /// Well-known signal identifiers for common lifecycle and request events.
 pub mod ids {
@@ -22,6 +25,7 @@ pub mod ids {
   pub const REQUEST_STARTED: &str = "request.started";
   pub const REQUEST_COMPLETED: &str = "request.completed";
   pub const ROUTER_HOT_RELOAD: &str = "router.hot_reload";
+  pub const RPC_ERROR: &str = "rpc.error";
 }
 
 /// A signal emitted through the arbiter.
@@ -53,6 +57,23 @@ impl Signal {
       metadata,
     }
   }
+
+  /// Creates a signal from a typed payload implementing `SignalPayload`.
+  pub fn from_payload<P: SignalPayload>(payload: &P) -> Self {
+    Self {
+      id: payload.id().to_string(),
+      metadata: payload.to_metadata(),
+    }
+  }
+}
+
+/// Trait for types that can be converted into a `Signal`.
+pub trait SignalPayload {
+  /// The canonical id for this kind of signal, e.g. "request.completed".
+  fn id(&self) -> &'static str;
+
+  /// Serializes the payload into the metadata map.
+  fn to_metadata(&self) -> HashMap<String, String>;
 }
 
 /// Boxed async signal handler.
@@ -65,11 +86,18 @@ pub type RpcHandler = Arc<
     + Sync,
 >;
 
+/// Exporter callback invoked for every emitted signal.
+pub type SignalExporter = Arc<dyn Fn(&Signal) + Send + Sync>;
+
+/// Simple stream type returned by filtered subscriptions.
+pub type SignalStream = mpsc::UnboundedReceiver<Signal>;
+
 #[derive(Default)]
 struct Inner {
   handlers: DashMap<String, Vec<SignalHandler>>,
   topics: DashMap<String, broadcast::Sender<Signal>>,
   rpc: DashMap<String, RpcHandler>,
+  exporters: DashMap<u64, SignalExporter>,
 }
 
 /// Shared arbiter used to register and dispatch named signals.
@@ -94,10 +122,40 @@ pub fn app_events() -> &'static EventBus {
   app_signals()
 }
 
+/// Error type for typed RPC calls.
+#[derive(Debug, Clone)]
+pub enum RpcError {
+  NoHandler,
+  TypeMismatch,
+}
+
+/// Result type for RPC calls with explicit error reporting.
+pub type RpcResult<T> = Result<T, RpcError>;
+
+/// Error type for RPC calls with timeout support.
+#[derive(Debug, Clone)]
+pub enum RpcTimeoutError {
+  Timeout,
+  Rpc(RpcError),
+}
+
 impl SignalArbiter {
   /// Creates a new, empty signal arbiter.
   pub fn new() -> Self {
     Self::default()
+  }
+
+  /// Sets the global broadcast capacity used for topic channels.
+  ///
+  /// This affects all newly created topics across all arbiters.
+  pub fn set_global_broadcast_capacity(capacity: usize) {
+    let cap = capacity.max(1);
+    GLOBAL_BROADCAST_CAPACITY.store(cap, Ordering::SeqCst);
+  }
+
+  /// Returns the current global broadcast capacity.
+  pub fn global_broadcast_capacity() -> usize {
+    GLOBAL_BROADCAST_CAPACITY.load(Ordering::SeqCst)
   }
 
   /// Returns (and lazily initializes) the broadcast sender for a signal id.
@@ -105,7 +163,8 @@ impl SignalArbiter {
     if let Some(existing) = self.inner.topics.get(id) {
       existing.clone()
     } else {
-      let (tx, _rx) = broadcast::channel(DEFAULT_BROADCAST_CAPACITY);
+      let cap = GLOBAL_BROADCAST_CAPACITY.load(Ordering::SeqCst);
+      let (tx, _rx) = broadcast::channel(cap);
       let entry = self.inner.topics.entry(id.to_string()).or_insert(tx);
       entry.clone()
     }
@@ -143,11 +202,60 @@ impl SignalArbiter {
     sender.subscribe()
   }
 
+  /// Subscribes to all signals whose id starts with the given prefix.
+  ///
+  /// For example, `subscribe_prefix("request.")` will receive
+  /// `request.started`, `request.completed`, etc.
+  pub fn subscribe_prefix(&self, prefix: impl AsRef<str>) -> broadcast::Receiver<Signal> {
+    let mut key = prefix.as_ref().to_string();
+    if !key.ends_with('*') {
+      key.push('*');
+    }
+    let sender = self.topic_sender(&key);
+    sender.subscribe()
+  }
+
   /// Broadcasts a signal to all subscribers without awaiting handler completion.
   pub fn broadcast(&self, signal: Signal) {
+    // Exact id subscribers
     if let Some(sender) = self.inner.topics.get(&signal.id) {
-      let _ = sender.send(signal);
+      let _ = sender.send(signal.clone());
     }
+
+    // Prefix subscribers: keys ending with '*'
+    for entry in self.inner.topics.iter() {
+      let key = entry.key();
+      if let Some(prefix) = key.strip_suffix('*') {
+        if signal.id.starts_with(prefix) {
+          let _ = entry.value().send(signal.clone());
+        }
+      }
+    }
+  }
+
+  /// Subscribes using a filter function on top of an id-based subscription.
+  ///
+  /// This spawns a background task that forwards only matching signals into
+  /// an unbounded channel, which is returned as a `SignalStream`.
+  pub fn subscribe_filtered<F>(&self, id: impl AsRef<str>, filter: F) -> SignalStream
+  where
+    F: Fn(&Signal) -> bool + Send + Sync + 'static,
+  {
+    let mut rx = self.subscribe(id);
+    let (tx, out_rx) = mpsc::unbounded_channel();
+    let filter = Arc::new(filter);
+
+    tokio::spawn(async move {
+      while let Ok(signal) = rx.recv().await {
+        if filter(&signal) {
+          if tx.send(signal).is_err() {
+            break;
+          }
+        }
+      }
+    });
+
+    out_rx
   }
 
   /// Waits for the next occurrence of a signal id (oneshot-style).
@@ -215,16 +323,55 @@ impl SignalArbiter {
     }
   }
 
+  /// Calls a typed RPC handler and returns an owned response with an error type.
+  pub async fn call_rpc_result<Req, Res>(&self, id: impl AsRef<str>, req: Req) -> RpcResult<Res>
+  where
+    Req: Send + Sync + 'static,
+    Res: Send + Sync + Clone + 'static,
+  {
+    let id_str = id.as_ref();
+    let entry = self.inner.rpc.get(id_str);
+    let entry = match entry {
+      Some(e) => e,
+      None => return Err(RpcError::NoHandler),
+    };
+    let handler = entry.clone();
+    drop(entry);
+
+    let raw_req: Arc<dyn Any + Send + Sync> = Arc::new(req);
+    let raw_res = handler(raw_req).await;
+
+    match raw_res.downcast::<Res>() {
+      Ok(res) => Ok((*res).clone()),
+      Err(_) => Err(RpcError::TypeMismatch),
+    }
+  }
+
   /// Calls a typed RPC handler and returns an owned response.
   pub async fn call_rpc<Req, Res>(&self, id: impl AsRef<str>, req: Req) -> Option<Res>
   where
     Req: Send + Sync + 'static,
     Res: Send + Sync + Clone + 'static,
   {
-    self
-      .call_rpc_arc::<Req, Res>(id, req)
-      .await
-      .map(|arc| (*arc).clone())
+    self.call_rpc_result::<Req, Res>(id, req).await.ok()
+  }
+
+  /// Calls a typed RPC handler with a timeout.
+  pub async fn call_rpc_timeout<Req, Res>(
+    &self,
+    id: impl AsRef<str>,
+    req: Req,
+    dur: Duration,
+  ) -> Result<Res, RpcTimeoutError>
+  where
+    Req: Send + Sync + 'static,
+    Res: Send + Sync + Clone + 'static,
+  {
+    match timeout(dur, self.call_rpc_result::<Req, Res>(id, req)).await {
+      Ok(Ok(res)) => Ok(res),
+      Ok(Err(e)) => Err(RpcTimeoutError::Rpc(e)),
+      Err(_) => Err(RpcTimeoutError::Timeout),
+    }
   }
 
   /// Emits a signal and awaits all registered handlers.
@@ -233,6 +380,11 @@ impl SignalArbiter {
   pub async fn emit(&self, signal: Signal) {
     // First, broadcast to any subscribers.
     self.broadcast(signal.clone());
+
+    // Call exporters (non-blocking from the perspective of handlers).
+    for entry in self.inner.exporters.iter() {
+      (entry.value())(&signal);
+    }
 
     if let Some(entry) = self.inner.handlers.get(&signal.id) {
       let handlers = entry.clone();
@@ -250,6 +402,19 @@ impl SignalArbiter {
   /// Emits a signal using the global application-level arbiter.
   pub async fn emit_app(signal: Signal) {
     app_signals().emit(signal).await;
+  }
+
+  /// Registers a global exporter that is invoked for every emitted signal.
+  ///
+  /// Exporters are merged when routers are merged, similar to handlers.
+  pub fn register_exporter<F>(&self, exporter: F)
+  where
+    F: Fn(&Signal) + Send + Sync + 'static,
+  {
+    // Use the pointer address as a simple, best-effort key.
+    let key = Arc::into_raw(Arc::new(())) as u64;
+    let exporter: SignalExporter = Arc::new(exporter);
+    self.inner.exporters.insert(key, exporter);
   }
 
   /// Merges all handlers from `other` into `self`.
@@ -280,5 +445,50 @@ impl SignalArbiter {
       let handler = entry.value().clone();
       self.inner.rpc.insert(id, handler);
     }
+
+    for entry in other.inner.exporters.iter() {
+      let key = entry.key().clone();
+      let exporter = entry.value().clone();
+      self.inner.exporters.insert(key, exporter);
+    }
+  }
+
+  /// Returns a list of known signal ids (exact topics) currently registered.
+  pub fn signal_ids(&self) -> Vec<String> {
+    self
+      .inner
+      .topics
+      .iter()
+      .filter_map(|entry| {
+        let id = entry.key();
+        if id.ends_with('*') {
+          None
+        } else {
+          Some(id.clone())
+        }
+      })
+      .collect()
+  }
+
+  /// Returns a list of known signal prefixes (topics ending with '*').
+  pub fn signal_prefixes(&self) -> Vec<String> {
+    self
+      .inner
+      .topics
+      .iter()
+      .filter_map(|entry| {
+        let id = entry.key();
+        if id.ends_with('*') {
+          Some(id.clone())
+        } else {
+          None
+        }
+      })
+      .collect()
+  }
+
+  /// Returns a list of registered RPC ids.
+  pub fn rpc_ids(&self) -> Vec<String> {
+    self.inner.rpc.iter().map(|e| e.key().clone()).collect()
   }
 }

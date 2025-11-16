@@ -160,3 +160,8 @@ required-features = ["signals"]
 name = "signals-complex"
 path = "examples/signals-complex/src/main.rs"
 required-features = ["signals"]
+
+[[example]]
+name = "signals-advanced"
+path = "examples/signals-advanced/src/main.rs"
+required-features = ["signals"]
