@@ -55,6 +55,10 @@
 //! - `tako-tracing` — structured tracing subscriber
 //! - `zstd` — Zstandard compression option within plugins::compression
 
+use std::io::{self, ErrorKind, Write};
+use std::net::SocketAddr;
+use std::str::FromStr;
+
 /// HTTP request and response body handling utilities.
 pub mod body;
 
@@ -155,6 +159,71 @@ pub use responder::NOT_FOUND;
 /// # }
 /// ```
 pub use server::serve;
+
+/// Bind a TCP listener for `addr`, asking interactively to increment the port
+/// if it is already in use.
+///
+/// This helper is primarily intended for local development and example binaries.
+/// It will keep proposing the next port number until a free one is found or
+/// the user declines.
+pub async fn bind_with_port_fallback(
+  addr: &str,
+) -> io::Result<tokio::net::TcpListener> {
+  let mut socket_addr = SocketAddr::from_str(addr)
+    .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+  let start_port = socket_addr.port();
+
+  loop {
+    let addr_str = socket_addr.to_string();
+    match tokio::net::TcpListener::bind(&addr_str).await {
+      Ok(listener) => {
+        if socket_addr.port() != start_port {
+          println!(
+            "Port {} was in use, starting on {} instead",
+            start_port,
+            socket_addr.port()
+          );
+        }
+        return Ok(listener);
+      }
+      Err(err) if err.kind() == ErrorKind::AddrInUse => {
+        let next_port = socket_addr.port().saturating_add(1);
+        if !ask_to_use_next_port(socket_addr.port(), next_port)? {
+          return Err(err);
+        }
+        socket_addr.set_port(next_port);
+      }
+      Err(err) => return Err(err),
+    }
+  }
+}
+
+fn ask_to_use_next_port(current: u16, next: u16) -> io::Result<bool> {
+  loop {
+    print!(
+      "Port {} is already in use. Start on {} instead? [Y/n]: ",
+      current, next
+    );
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let trimmed = input.trim();
+
+    if trimmed.is_empty()
+      || trimmed.eq_ignore_ascii_case("y")
+      || trimmed.eq_ignore_ascii_case("yes")
+    {
+      return Ok(true);
+    }
+
+    if trimmed.eq_ignore_ascii_case("n") || trimmed.eq_ignore_ascii_case("no") {
+      return Ok(false);
+    }
+
+    println!("Please answer 'y' or 'n'.");
+  }
+}
 
 /// TLS/SSL server implementation for secure connections.
 #[cfg(feature = "tls")]
