@@ -167,6 +167,7 @@ impl Responder for TypedMultipartError {
 ///     Ok(())
 /// }
 /// ```
+#[doc(alias = "multipart")]
 pub struct TakoMultipart<'a>(pub Multipart<'a>);
 
 impl<'a> TakoMultipart<'a> {
@@ -321,6 +322,7 @@ impl FromMultipartField for InMemoryFile {
 ///
 /// * `T` - The target type to deserialize form data into
 /// * `F` - The type used for file fields (must implement `FromMultipartField`)
+#[doc(alias = "typed_multipart")]
 pub struct TakoTypedMultipart<'a, T, F> {
   /// Deserialized data from the multipart request.
   pub data: T,

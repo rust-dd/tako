@@ -96,6 +96,8 @@ use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 /// # Ok(())
 /// # }
 /// ```
+#[doc(alias = "websocket")]
+#[doc(alias = "ws")]
 pub struct TakoWs<H, Fut>
 where
   H: FnOnce(WebSocketStream<TokioIo<Upgraded>>) -> Fut + Send + 'static,

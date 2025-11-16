@@ -62,6 +62,8 @@ use crate::{
 /// assert!(ip.is_private());
 /// ```
 #[derive(Debug, Clone, PartialEq)]
+#[doc(alias = "ip")]
+#[doc(alias = "ipaddr")]
 pub struct IpAddr(pub StdIpAddr);
 
 /// Error type for IP address extraction.

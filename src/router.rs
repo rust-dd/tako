@@ -81,6 +81,7 @@ use std::sync::atomic::AtomicBool;
 /// router.route(Method::GET, "/users/{id}", user_profile);
 /// router.state("app_name", "MyApp".to_string());
 /// ```
+#[doc(alias = "router")]
 pub struct Router {
   /// Map of registered routes keyed by method.
   inner: DashMap<Method, matchit::Router<Arc<Route>>>,
@@ -295,32 +296,32 @@ impl Router {
       .unwrap()
   }
 
-/// Adds a value to the global type-based state accessible by all handlers.
-///
-/// Global state allows sharing data across different routes and middleware.
-/// Values are stored by their concrete type and retrieved via the
-/// [`State`](crate::extractors::state::State) extractor or with
-/// [`crate::state::get_state`].
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::router::Router;
-///
-/// #[derive(Clone)]
-/// struct AppConfig { database_url: String, api_key: String }
-///
-/// let mut router = Router::new();
-/// router.state(AppConfig {
-///     database_url: "postgresql://localhost/mydb".to_string(),
-///     api_key: "secret-key".to_string(),
-/// });
-/// // You can also store simple types by type:
-/// router.state::<String>("1.0.0".to_string());
-/// ```
-pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+  /// Adds a value to the global type-based state accessible by all handlers.
+  ///
+  /// Global state allows sharing data across different routes and middleware.
+  /// Values are stored by their concrete type and retrieved via the
+  /// [`State`](crate::extractors::state::State) extractor or with
+  /// [`crate::state::get_state`].
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  ///
+  /// #[derive(Clone)]
+  /// struct AppConfig { database_url: String, api_key: String }
+  ///
+  /// let mut router = Router::new();
+  /// router.state(AppConfig {
+  ///     database_url: "postgresql://localhost/mydb".to_string(),
+  ///     api_key: "secret-key".to_string(),
+  /// });
+  /// // You can also store simple types by type:
+  /// router.state::<String>("1.0.0".to_string());
+  /// ```
+  pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     set_state(value);
-}
+  }
 
   /// Adds global middleware to the router.
   ///
@@ -458,6 +459,7 @@ pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
   /// # }
   /// ```
   #[cfg(feature = "plugins")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub fn plugin<P>(&mut self, plugin: P) -> &mut Self
   where
     P: TakoPlugin + Clone + Send + Sync + 'static,
@@ -468,12 +470,14 @@ pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
 
   /// Returns references to all registered plugins.
   #[cfg(feature = "plugins")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
     self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
   }
 
   /// Initializes all registered plugins exactly once.
   #[cfg(feature = "plugins")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn setup_plugins_once(&self) {
     use std::sync::atomic::Ordering;
 

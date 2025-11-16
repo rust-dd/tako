@@ -293,6 +293,8 @@ struct Bucket {
 /// router.plugin(limiter);
 /// ```
 #[derive(Clone)]
+#[doc(alias = "rate_limiter")]
+#[doc(alias = "ratelimit")]
 pub struct RateLimiterPlugin {
   /// Rate limiting configuration parameters.
   cfg: Config,

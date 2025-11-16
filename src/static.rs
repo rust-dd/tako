@@ -39,6 +39,8 @@ use crate::{
 };
 
 /// Static directory server with configurable fallback handling.
+#[doc(alias = "static")]
+#[doc(alias = "serve_dir")]
 pub struct ServeDir {
   base_dir: PathBuf,
   fallback: Option<PathBuf>,
@@ -133,6 +135,7 @@ impl ServeDir {
 }
 
 /// Static file server for serving individual files.
+#[doc(alias = "serve_file")]
 pub struct ServeFile {
   path: PathBuf,
 }

@@ -51,6 +51,7 @@ use crate::{extractors::FromRequest, responder::Responder, types::Request};
 pub(crate) struct PathParams(pub HashMap<String, String>);
 
 /// Path parameter extractor with automatic deserialization to typed structures.
+#[doc(alias = "params")]
 pub struct Params<T>(pub T);
 
 /// Error types for path parameter extraction and deserialization.

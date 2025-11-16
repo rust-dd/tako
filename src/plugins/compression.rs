@@ -219,7 +219,7 @@ impl CompressionBuilder {
   }
 
   /// Enables or disables Zstandard compression (requires zstd feature).
-#[cfg(feature = "zstd")]
+  #[cfg(feature = "zstd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn enable_zstd(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Zstd) {
@@ -262,7 +262,7 @@ impl CompressionBuilder {
   }
 
   /// Sets the Zstandard compression level (1-22, requires zstd feature).
-#[cfg(feature = "zstd")]
+  #[cfg(feature = "zstd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn zstd_level(mut self, lvl: i32) -> Self {
     self.0.zstd_level = lvl.clamp(1, 22);
@@ -325,6 +325,10 @@ where
 /// router.plugin(custom);
 /// ```
 #[derive(Clone)]
+#[doc(alias = "compression")]
+#[doc(alias = "gzip")]
+#[doc(alias = "brotli")]
+#[doc(alias = "deflate")]
 pub struct CompressionPlugin {
   cfg: Config,
 }

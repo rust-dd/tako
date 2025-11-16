@@ -48,6 +48,7 @@ use crate::{
 };
 
 /// JWT token extractor that provides access to the raw token string.
+#[doc(alias = "jwt")]
 pub struct Jwt {
   /// Raw JWT token string extracted from Authorization header.
   pub token: String,
@@ -56,6 +57,7 @@ pub struct Jwt {
 }
 
 /// JWT claims extractor with automatic deserialization to typed structures.
+#[doc(alias = "jwt_claims")]
 pub struct JwtClaims<T>(pub T);
 
 /// Error types for JWT extraction and claims parsing.

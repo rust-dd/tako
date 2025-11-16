@@ -172,7 +172,6 @@ impl Body for TakoBody {
   type Data = Bytes;
   type Error = BoxError;
 
-  /// Polls for the next frame of body data.
   #[inline]
   fn poll_frame(
     mut self: Pin<&mut Self>,
@@ -181,13 +180,11 @@ impl Body for TakoBody {
     Pin::new(&mut self.0).poll_frame(cx)
   }
 
-  /// Provides size hints for the body content.
   #[inline]
   fn size_hint(&self) -> SizeHint {
     self.0.size_hint()
   }
 
-  /// Indicates whether the body has reached the end of the stream.
   #[inline]
   fn is_end_stream(&self) -> bool {
     self.0.is_end_stream()

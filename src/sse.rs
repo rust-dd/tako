@@ -65,6 +65,8 @@ const PS_LEN: usize = PREFIX.len() + SUFFIX.len();
 /// let stream = iter(messages);
 /// let sse = Sse::new(stream);
 /// ```
+#[doc(alias = "sse")]
+#[doc(alias = "eventsource")]
 pub struct Sse<S>
 where
   S: Stream<Item = Bytes> + Send + 'static,

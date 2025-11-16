@@ -51,6 +51,7 @@ use crate::{
 };
 
 /// JSON request body extractor with automatic deserialization.
+#[doc(alias = "json")]
 pub struct Json<T>(pub T);
 
 /// Error types for JSON extraction and deserialization.

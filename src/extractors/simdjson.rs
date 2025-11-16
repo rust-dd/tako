@@ -70,6 +70,7 @@ use crate::{
 ///     })
 /// }
 /// ```
+#[doc(alias = "simdjson")]
 pub struct SimdJson<T>(pub T);
 
 /// Error type for SIMD JSON extraction.

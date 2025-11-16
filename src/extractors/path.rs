@@ -53,6 +53,7 @@ use crate::{
 ///     }
 /// }
 /// ```
+#[doc(alias = "path")]
 pub struct Path<'a>(pub &'a str);
 
 impl<'a> FromRequest<'a> for Path<'a> {

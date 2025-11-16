@@ -78,6 +78,8 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
+#[doc(alias = "file_stream")]
+#[doc(alias = "stream")]
 pub struct FileStream<S> {
   /// The underlying byte stream
   pub stream: S,

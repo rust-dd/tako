@@ -57,6 +57,7 @@ use crate::{
 ///     }
 /// }
 /// ```
+#[doc(alias = "headers")]
 pub struct HeaderMap<'a>(pub &'a http::HeaderMap);
 
 impl<'a> FromRequest<'a> for HeaderMap<'a> {

@@ -59,6 +59,7 @@ use crate::{
 };
 
 /// Query parameter extractor with automatic deserialization to typed structures.
+#[doc(alias = "query")]
 pub struct Query<T>(pub T);
 
 /// Error types for query parameter extraction and deserialization.

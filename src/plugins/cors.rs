@@ -221,6 +221,7 @@ impl CorsBuilder {
 /// router.plugin(prod_cors);
 /// ```
 #[derive(Clone)]
+#[doc(alias = "cors")]
 pub struct CorsPlugin {
   cfg: Config,
 }

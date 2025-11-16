@@ -58,6 +58,7 @@ pub mod jwt_auth;
 ///     }
 /// }
 /// ```
+#[doc(alias = "middleware")]
 pub trait IntoMiddleware {
   fn into_middleware(
     self,
@@ -69,6 +70,7 @@ pub trait IntoMiddleware {
 }
 
 /// Represents the next step in the middleware execution chain.
+#[doc(alias = "next")]
 pub struct Next {
   /// Remaining middlewares to be executed in the chain.
   pub middlewares: Arc<Vec<BoxMiddleware>>,

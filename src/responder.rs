@@ -68,6 +68,7 @@ pub const NOT_FOUND: (StatusCode, &str) = (StatusCode::NOT_FOUND, "Not Found");
 ///     }
 /// }
 /// ```
+#[doc(alias = "response")]
 pub trait Responder {
   /// Converts the implementing type into an HTTP response.
   fn into_response(self) -> Response;

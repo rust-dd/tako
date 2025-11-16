@@ -67,6 +67,7 @@ use crate::{
 
 /// Extracted byte range for HTTP partial content requests.
 #[derive(Debug, Clone, Copy)]
+#[doc(alias = "range")]
 pub struct Range {
   /// The starting byte position (0-based, inclusive).
   pub start: u64,

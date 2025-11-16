@@ -47,6 +47,7 @@ use crate::plugins::TakoPlugin;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// HTTP route with path pattern matching and middleware support.
+#[doc(alias = "route")]
 pub struct Route {
   /// Original path string used to create this route.
   pub path: String,
@@ -134,6 +135,7 @@ impl Route {
   /// # }
   /// ```
   #[cfg(feature = "plugins")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub fn plugin<P>(&self, plugin: P) -> &Self
   where
     P: TakoPlugin + Clone + Send + Sync + 'static,
@@ -149,6 +151,7 @@ impl Route {
   /// that plugins register, then adds that middleware to the route's
   /// middleware chain. This ensures plugins are only initialized once.
   #[cfg(feature = "plugins")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn setup_plugins_once(&self) {
     if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
       // Create a temporary mini-router to capture plugin middleware
@@ -186,6 +189,7 @@ impl Route {
   }
 
   /// HTTP/2 guard
+  #[doc(alias = "tsr")]
   pub fn h2(&mut self) {
     self.http_protocol = Some(http::Version::HTTP_2);
   }

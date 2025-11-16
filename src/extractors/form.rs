@@ -53,6 +53,7 @@ use crate::{extractors::FromRequest, responder::Responder, types::Request};
 ///              contact.name, contact.email, contact.message);
 /// }
 /// ```
+#[doc(alias = "form")]
 pub struct Form<T>(pub T);
 
 /// Error type for Form extraction.

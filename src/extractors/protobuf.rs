@@ -42,6 +42,7 @@ use prost::Message;
 use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
 /// Protobuf request body extractor with automatic deserialization.
+#[doc(alias = "protobuf")]
 pub struct Protobuf<T>(pub T);
 
 /// Error types for Protobuf extraction and deserialization.
