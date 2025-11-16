@@ -461,7 +461,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of known signal ids (exact topics) currently registered.
-  pub(crate) fn signal_ids(&self) -> Vec<String> {
+  pub fn signal_ids(&self) -> Vec<String> {
     self
       .inner
       .topics
@@ -478,7 +478,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of known signal prefixes (topics ending with '*').
-  pub(crate) fn signal_prefixes(&self) -> Vec<String> {
+  pub fn signal_prefixes(&self) -> Vec<String> {
     self
       .inner
       .topics
@@ -495,7 +495,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of registered RPC ids.
-  pub(crate) fn rpc_ids(&self) -> Vec<String> {
+  pub fn rpc_ids(&self) -> Vec<String> {
     self.inner.rpc.iter().map(|e| e.key().clone()).collect()
   }
 }
