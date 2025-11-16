@@ -58,24 +58,25 @@ use crate::{
 /// }
 /// ```
 #[doc(alias = "headers")]
-pub struct HeaderMap<'a>(pub &'a http::HeaderMap);
+#[derive(Clone)]
+pub struct HeaderMap(pub http::HeaderMap);
 
-impl<'a> FromRequest<'a> for HeaderMap<'a> {
+impl<'a> FromRequest<'a> for HeaderMap {
   type Error = Infallible;
 
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(HeaderMap(req.headers())))
+    ready(Ok(HeaderMap(req.headers().clone())))
   }
 }
 
-impl<'a> FromRequestParts<'a> for HeaderMap<'a> {
+impl<'a> FromRequestParts<'a> for HeaderMap {
   type Error = Infallible;
 
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(HeaderMap(&parts.headers)))
+    ready(Ok(HeaderMap(parts.headers.clone())))
   }
 }

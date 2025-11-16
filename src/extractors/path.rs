@@ -54,24 +54,24 @@ use crate::{
 /// }
 /// ```
 #[doc(alias = "path")]
-pub struct Path<'a>(pub &'a str);
+pub struct Path(pub String);
 
-impl<'a> FromRequest<'a> for Path<'a> {
+impl<'a> FromRequest<'a> for Path {
   type Error = Infallible;
 
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(Path(req.uri().path())))
+    ready(Ok(Path(req.uri().path().to_string())))
   }
 }
 
-impl<'a> FromRequestParts<'a> for Path<'a> {
+impl<'a> FromRequestParts<'a> for Path {
   type Error = Infallible;
 
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(Path(parts.uri.path())))
+    ready(Ok(Path(parts.uri.path().to_string())))
   }
 }

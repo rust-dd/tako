@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tako::extractors::{header_map::HeaderMap, json::Json, FromRequest};
-use tako::{router::Router, types::Request, Method};
+use tako::extractors::{header_map::HeaderMap, json::Json};
+use tako::{router::Router, Method};
 use tokio::net::TcpListener;
 
 #[derive(Deserialize)]
@@ -18,22 +18,12 @@ struct Output {
 /// POST /echo
 /// Body: {"name": "Alice"}
 ///
-/// Demonstrates using both `Json` and `HeaderMap<'_>` extractors inside a handler.
-async fn echo_with_headers(mut req: Request) -> Json<Output> {
-  // First, grab the headers via the lifetime-based extractor
-  let HeaderMap(headers): HeaderMap<'_> = HeaderMap::from_request(&mut req)
-    .await
-    .expect("failed to extract headers");
-
+/// Demonstrates using both `Json` and `HeaderMap` extractors in the handler signature.
+async fn echo_with_headers(HeaderMap(headers): HeaderMap, Json(payload): Json<Input>) -> Json<Output> {
   let user_agent = headers
     .get("user-agent")
     .and_then(|v| v.to_str().ok())
     .map(|s| s.to_string());
-
-  // Then, read the JSON body
-  let Json(payload): Json<Input> = Json::from_request(&mut req)
-    .await
-    .expect("invalid JSON body");
 
   Json(Output {
     name: payload.name,
