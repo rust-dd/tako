@@ -158,7 +158,7 @@ impl SignalArbiter {
   }
 
   /// Returns (and lazily initializes) the broadcast sender for a signal id.
-  fn topic_sender(&self, id: &str) -> broadcast::Sender<Signal> {
+  pub(crate) fn topic_sender(&self, id: &str) -> broadcast::Sender<Signal> {
     if let Some(existing) = self.inner.topics.get(id) {
       existing.clone()
     } else {
@@ -214,8 +214,16 @@ impl SignalArbiter {
     sender.subscribe()
   }
 
+  /// Subscribes to all signals regardless of their id.
+  ///
+  /// This is a special variant that receives every emitted signal.
+  /// Internally uses a wildcard prefix matching (empty prefix = all signals).
+  pub fn subscribe_all(&self) -> broadcast::Receiver<Signal> {
+    self.subscribe_prefix("")
+  }
+
   /// Broadcasts a signal to all subscribers without awaiting handler completion.
-  pub fn broadcast(&self, signal: Signal) {
+  pub(crate) fn broadcast(&self, signal: Signal) {
     // Exact id subscribers
     if let Some(sender) = self.inner.topics.get(&signal.id) {
       let _ = sender.send(signal.clone());
@@ -399,7 +407,7 @@ impl SignalArbiter {
   }
 
   /// Emits a signal using the global application-level arbiter.
-  pub async fn emit_app(signal: Signal) {
+  pub(crate) async fn emit_app(signal: Signal) {
     app_signals().emit(signal).await;
   }
 
@@ -420,7 +428,7 @@ impl SignalArbiter {
   ///
   /// This is used by router merging so that signal handlers attached to
   /// a merged router continue to be active.
-  pub fn merge_from(&self, other: &SignalArbiter) {
+  pub(crate) fn merge_from(&self, other: &SignalArbiter) {
     for entry in other.inner.handlers.iter() {
       let id = entry.key().clone();
       let handlers = entry.value().clone();
@@ -453,7 +461,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of known signal ids (exact topics) currently registered.
-  pub fn signal_ids(&self) -> Vec<String> {
+  pub(crate) fn signal_ids(&self) -> Vec<String> {
     self
       .inner
       .topics
@@ -470,7 +478,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of known signal prefixes (topics ending with '*').
-  pub fn signal_prefixes(&self) -> Vec<String> {
+  pub(crate) fn signal_prefixes(&self) -> Vec<String> {
     self
       .inner
       .topics
@@ -487,7 +495,7 @@ impl SignalArbiter {
   }
 
   /// Returns a list of registered RPC ids.
-  pub fn rpc_ids(&self) -> Vec<String> {
+  pub(crate) fn rpc_ids(&self) -> Vec<String> {
     self.inner.rpc.iter().map(|e| e.key().clone()).collect()
   }
 }
