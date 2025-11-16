@@ -90,7 +90,9 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
       let svc = service_fn(move |mut req: Request<_>| {
         let router = router.clone();
         async move {
+          #[cfg(feature = "signals")]
           let path = req.uri().path().to_string();
+          #[cfg(feature = "signals")]
           let method = req.method().to_string();
 
           req.extensions_mut().insert(addr);

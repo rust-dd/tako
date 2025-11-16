@@ -24,6 +24,7 @@ use prometheus::{Encoder, Registry, TextEncoder};
 ///
 /// Backend implementations translate Tako signals into metrics updates
 /// or tracing events in external systems.
+#[cfg(feature = "signals")]
 pub trait MetricsBackend: Send + Sync + 'static {
   /// Called when a request is completed at the app level.
   fn on_request_completed(&self, signal: &Signal);
@@ -40,10 +41,12 @@ pub trait MetricsBackend: Send + Sync + 'static {
 
 /// Metrics plugin that subscribes to Tako's signal bus and forwards
 /// events to a configurable metrics backend.
+#[cfg(feature = "signals")]
 pub struct MetricsPlugin<B: MetricsBackend> {
   backend: Arc<B>,
 }
 
+#[cfg(feature = "signals")]
 impl<B: MetricsBackend> Clone for MetricsPlugin<B> {
   fn clone(&self) -> Self {
     Self {
@@ -52,6 +55,7 @@ impl<B: MetricsBackend> Clone for MetricsPlugin<B> {
   }
 }
 
+#[cfg(feature = "signals")]
 impl<B: MetricsBackend> MetricsPlugin<B> {
   /// Creates a new metrics plugin using the provided backend.
   pub fn new(backend: B) -> Self {
@@ -61,6 +65,7 @@ impl<B: MetricsBackend> MetricsPlugin<B> {
   }
 }
 
+#[cfg(feature = "signals")]
 impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
   fn name(&self) -> &'static str {
     "MetricsPlugin"

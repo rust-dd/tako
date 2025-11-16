@@ -170,3 +170,7 @@ required-features = ["signals"]
 name = "signals-advanced"
 path = "examples/signals-advanced/src/main.rs"
 required-features = ["signals"]
+
+[[example]]
+name = "json-header-map"
+path = "examples/json-header-map/src/main.rs"
