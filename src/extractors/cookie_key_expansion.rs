@@ -123,7 +123,7 @@ impl Responder for CookieKeyExpansionError {
         .into_response(),
       CookieKeyExpansionError::DerivationFailed(err) => (
         StatusCode::INTERNAL_SERVER_ERROR,
-        format!("Key derivation failed: {}", err),
+        format!("Key derivation failed: {err}"),
       )
         .into_response(),
       CookieKeyExpansionError::InvalidKeyLength => (

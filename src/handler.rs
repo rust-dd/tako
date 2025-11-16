@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 //! Request handler traits and implementations for type-safe HTTP processing.
 //!
 //! This module provides the core handler abstraction for Tako applications. Handlers are
@@ -96,7 +98,7 @@ impl BoxHandler {
   {
     let inner = Arc::new(move |req: Request| {
       let handler = h.clone();
-      Box::pin(async move { handler.call(req.into()).await }) as BoxFuture<'_, Response>
+      Box::pin(async move { handler.call(req).await }) as BoxFuture<'_, Response>
     });
 
     Self { inner }

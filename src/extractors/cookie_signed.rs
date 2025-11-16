@@ -100,7 +100,7 @@ impl Responder for CookieSignedError {
         .into_response(),
       CookieSignedError::VerificationFailed(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to verify signed cookie: {}", err),
+        format!("Failed to verify signed cookie: {err}"),
       )
         .into_response(),
       CookieSignedError::InvalidCookieFormat => {
@@ -108,7 +108,7 @@ impl Responder for CookieSignedError {
       }
       CookieSignedError::InvalidSignature(cookie_name) => (
         StatusCode::BAD_REQUEST,
-        format!("Invalid signature for cookie: {}", cookie_name),
+        format!("Invalid signature for cookie: {cookie_name}"),
       )
         .into_response(),
     }

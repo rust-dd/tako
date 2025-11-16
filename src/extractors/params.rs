@@ -74,7 +74,7 @@ impl Responder for ParamsError {
         .into_response(),
       ParamsError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to deserialize path parameters: {}", err),
+        format!("Failed to deserialize path parameters: {err}"),
       )
         .into_response(),
     }

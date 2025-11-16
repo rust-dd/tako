@@ -43,7 +43,7 @@ use once_cell::sync::Lazy;
 /// `Arc<dyn Any + Send + Sync>` to enable storage of arbitrary types while maintaining
 /// thread safety.
 pub(crate) static GLOBAL_STATE: Lazy<DashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
-  Lazy::new(|| DashMap::new());
+  Lazy::new(DashMap::new);
 
 /// Stores a value in the global state, keyed by its concrete type `T`.
 ///

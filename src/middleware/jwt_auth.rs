@@ -288,7 +288,7 @@ where
           None => {
             return (
               StatusCode::UNAUTHORIZED,
-              format!("Algorithm {} not allowed", alg),
+              format!("Algorithm {alg} not allowed"),
             )
               .into_response();
           }
@@ -298,7 +298,7 @@ where
         let claims = match verify_key.verify::<T>(token) {
           Ok(c) => c,
           Err(e) => {
-            return (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)).into_response();
+            return (StatusCode::UNAUTHORIZED, format!("Invalid token: {e}")).into_response();
           }
         };
 

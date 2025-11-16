@@ -1,0 +1,9 @@
+[package]
+name = "signals-complex"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+tako-rs = { path = "../..", features = ["signals"] }
+tokio = { version = "1.45.1", features = ["full"] }

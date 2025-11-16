@@ -103,6 +103,10 @@ pub mod sse;
 /// Application state management and dependency injection.
 pub mod state;
 
+#[cfg(feature = "signals")]
+/// In-process signal arbiter for custom events.
+pub mod signals;
+
 /// Static file serving utilities.
 pub mod r#static;
 
