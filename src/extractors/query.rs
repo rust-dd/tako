@@ -84,12 +84,12 @@ impl Responder for QueryError {
         .into_response(),
       QueryError::ParseError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to parse query parameters: {}", err),
+        format!("Failed to parse query parameters: {err}"),
       )
         .into_response(),
       QueryError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to deserialize query parameters: {}", err),
+        format!("Failed to deserialize query parameters: {err}"),
       )
         .into_response(),
     }

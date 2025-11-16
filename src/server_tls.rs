@@ -36,17 +36,16 @@ use hyper::{server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls_pemfile::{certs, pkcs8_private_keys};
-use std::collections::HashMap;
 use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
 use tokio::net::TcpListener;
 use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
-use crate::{
-  body::TakoBody,
-  router::Router,
-  signals::{Signal, SignalArbiter, ids},
-  types::BoxError,
-};
+#[cfg(feature = "signals")]
+use crate::signals::{Signal, SignalArbiter, ids};
+#[cfg(feature = "signals")]
+use std::collections::HashMap;
+
+use crate::{body::TakoBody, router::Router, types::BoxError};
 
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
@@ -99,7 +98,20 @@ pub async fn run(
   #[cfg(feature = "plugins")]
   router.setup_plugins_once();
 
-  // Emit server.
+  let addr_str = listener.local_addr()?.to_string();
+
+  #[cfg(feature = "signals")]
+  {
+    // Emit server.started (TLS)
+    let mut server_meta = HashMap::new();
+    server_meta.insert("addr".to_string(), addr_str.clone());
+    server_meta.insert("transport".to_string(), "tcp".to_string());
+    server_meta.insert("tls".to_string(), "true".to_string());
+    SignalArbiter::emit_app(Signal::with_metadata(ids::SERVER_STARTED, server_meta)).await;
+  }
+
+  tracing::info!("Tako TLS listening on {}", addr_str);
+
   loop {
     let (stream, addr) = listener.accept().await?;
     let acceptor = acceptor.clone();
@@ -114,15 +126,18 @@ pub async fn run(
         }
       };
 
-      // Emit connection.opened (TLS)
-      let mut conn_open_meta = HashMap::new();
-      conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
-      conn_open_meta.insert("tls".to_string(), "true".to_string());
-      SignalArbiter::emit_app(Signal::with_metadata(
-        ids::CONNECTION_OPENED,
-        conn_open_meta,
-      ))
-      .await;
+      #[cfg(feature = "signals")]
+      {
+        // Emit connection.opened (TLS)
+        let mut conn_open_meta = HashMap::new();
+        conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
+        conn_open_meta.insert("tls".to_string(), "true".to_string());
+        SignalArbiter::emit_app(Signal::with_metadata(
+          ids::CONNECTION_OPENED,
+          conn_open_meta,
+        ))
+        .await;
+      }
 
       #[cfg(feature = "http2")]
       let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
@@ -136,18 +151,24 @@ pub async fn run(
 
           req.extensions_mut().insert(addr);
 
-          let mut req_meta = HashMap::new();
-          req_meta.insert("method".to_string(), method.clone());
-          req_meta.insert("path".to_string(), path.clone());
-          SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+          #[cfg(feature = "signals")]
+          {
+            let mut req_meta = HashMap::new();
+            req_meta.insert("method".to_string(), method.clone());
+            req_meta.insert("path".to_string(), path.clone());
+            SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+          }
 
           let response = r.dispatch(req.map(TakoBody::new)).await;
 
-          let mut done_meta = HashMap::new();
-          done_meta.insert("method".to_string(), method);
-          done_meta.insert("path".to_string(), path);
-          done_meta.insert("status".to_string(), response.status().as_u16().to_string());
-          SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+          #[cfg(feature = "signals")]
+          {
+            let mut done_meta = HashMap::new();
+            done_meta.insert("method".to_string(), method);
+            done_meta.insert("path".to_string(), path);
+            done_meta.insert("status".to_string(), response.status().as_u16().to_string());
+            SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+          }
 
           Ok::<_, Infallible>(response)
         }
@@ -161,15 +182,18 @@ pub async fn run(
           tracing::error!("HTTP/2 error: {e}");
         }
 
-        // Emit connection.closed (TLS, h2)
-        let mut conn_close_meta = HashMap::new();
-        conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-        conn_close_meta.insert("tls".to_string(), "true".to_string());
-        SignalArbiter::emit_app(Signal::with_metadata(
-          ids::CONNECTION_CLOSED,
-          conn_close_meta,
-        ))
-        .await;
+        #[cfg(feature = "signals")]
+        {
+          // Emit connection.closed (TLS, h2)
+          let mut conn_close_meta = HashMap::new();
+          conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+          conn_close_meta.insert("tls".to_string(), "true".to_string());
+          SignalArbiter::emit_app(Signal::with_metadata(
+            ids::CONNECTION_CLOSED,
+            conn_close_meta,
+          ))
+          .await;
+        }
         return;
       }
 
@@ -180,15 +204,18 @@ pub async fn run(
         tracing::error!("HTTP/1.1 error: {e}");
       }
 
-      // Emit connection.closed (TLS, h1)
-      let mut conn_close_meta = HashMap::new();
-      conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-      conn_close_meta.insert("tls".to_string(), "true".to_string());
-      SignalArbiter::emit_app(Signal::with_metadata(
-        ids::CONNECTION_CLOSED,
-        conn_close_meta,
-      ))
-      .await;
+      #[cfg(feature = "signals")]
+      {
+        // Emit connection.closed (TLS, h1)
+        let mut conn_close_meta = HashMap::new();
+        conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+        conn_close_meta.insert("tls".to_string(), "true".to_string());
+        SignalArbiter::emit_app(Signal::with_metadata(
+          ids::CONNECTION_CLOSED,
+          conn_close_meta,
+        ))
+        .await;
+      }
     });
   }
 }

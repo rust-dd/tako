@@ -105,7 +105,7 @@ impl Responder for FormError {
         .into_response(),
       FormError::BodyReadError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {}", err),
+        format!("Failed to read request body: {err}"),
       )
         .into_response(),
       FormError::InvalidUtf8 => (
@@ -115,12 +115,12 @@ impl Responder for FormError {
         .into_response(),
       FormError::ParseError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to parse form data: {}", err),
+        format!("Failed to parse form data: {err}"),
       )
         .into_response(),
       FormError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to deserialize form data: {}", err),
+        format!("Failed to deserialize form data: {err}"),
       )
         .into_response(),
     }

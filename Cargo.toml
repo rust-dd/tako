@@ -68,6 +68,7 @@ jemalloc = ["dep:tikv-jemallocator"]
 multipart = ["dep:multer", "dep:uuid"]
 plugins = ["dep:brotli", "dep:flate2"]
 protobuf = ["dep:prost"]
+signals = []
 simd = ["dep:simd-json", "jemalloc"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
 tako-tracing = ["dep:tracing-subscriber"]
@@ -139,3 +140,23 @@ required-features = ["async-graphql"]
 name = "graphql-generic-ws"
 path = "examples/graphql-generic-ws/src/main.rs"
 required-features = ["async-graphql"]
+
+[[example]]
+name = "signals-basic"
+path = "examples/signals-basic/src/main.rs"
+required-features = ["signals"]
+
+[[example]]
+name = "signals-rpc"
+path = "examples/signals-rpc/src/main.rs"
+required-features = ["signals"]
+
+[[example]]
+name = "signals-route"
+path = "examples/signals-route/src/main.rs"
+required-features = ["signals"]
+
+[[example]]
+name = "signals-complex"
+path = "examples/signals-complex/src/main.rs"
+required-features = ["signals"]

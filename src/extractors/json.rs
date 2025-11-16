@@ -81,12 +81,12 @@ impl Responder for JsonError {
       }
       JsonError::BodyReadError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {}", err),
+        format!("Failed to read request body: {err}"),
       )
         .into_response(),
       JsonError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to deserialize JSON: {}", err),
+        format!("Failed to deserialize JSON: {err}"),
       )
         .into_response(),
     }

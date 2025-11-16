@@ -147,10 +147,9 @@ where
           .get(CONTENT_LENGTH)
           .and_then(|v| v.to_str().ok())
           .and_then(|s| s.parse::<usize>().ok())
+          && len > limit
         {
-          if len > limit {
-            return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
-          }
+          return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
         }
 
         // TODO: add run-time stream truncation if your Body supports it.

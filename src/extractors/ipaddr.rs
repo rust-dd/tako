@@ -88,7 +88,7 @@ impl Responder for IpAddrError {
         .into_response(),
       IpAddrError::InvalidIpFormat(ip) => (
         StatusCode::BAD_REQUEST,
-        format!("Invalid IP address format: {}", ip),
+        format!("Invalid IP address format: {ip}"),
       )
         .into_response(),
       IpAddrError::HeaderParseError => (
@@ -169,12 +169,11 @@ impl IpAddr {
     ];
 
     for header_name in &header_names {
-      if let Some(header_value) = headers.get(*header_name) {
-        if let Ok(header_str) = header_value.to_str() {
-          if let Some(ip) = Self::parse_ip_from_header(header_str) {
-            return Ok(Self(ip));
-          }
-        }
+      if let Some(header_value) = headers.get(*header_name)
+        && let Ok(header_str) = header_value.to_str()
+        && let Some(ip) = Self::parse_ip_from_header(header_str)
+      {
+        return Ok(Self(ip));
       }
     }
 
@@ -193,8 +192,8 @@ impl IpAddr {
       }
 
       // Handle "Forwarded" header format: for=192.168.1.1:1234
-      let ip_part = if part.starts_with("for=") {
-        &part[4..]
+      let ip_part = if let Some(ip_part) = part.strip_prefix("for=") {
+        ip_part
       } else {
         part
       };

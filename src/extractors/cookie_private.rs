@@ -98,7 +98,7 @@ impl Responder for CookiePrivateError {
         .into_response(),
       CookiePrivateError::DecryptionFailed(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to decrypt private cookie: {}", err),
+        format!("Failed to decrypt private cookie: {err}"),
       )
         .into_response(),
       CookiePrivateError::InvalidCookieFormat => {

@@ -184,16 +184,16 @@ impl IntoMiddleware for BearerAuth {
           }
           Some(t) => {
             // Check static token set first
-            if let Some(set) = &tokens {
-              if set.contains(t) {
-                return next.run(req).await.into_response();
-              }
+            if let Some(set) = &tokens
+              && set.contains(t)
+            {
+              return next.run(req).await.into_response();
             }
             // Use custom verification function if available
-            if let Some(v) = verify.as_ref() {
-              if v(t) {
-                return next.run(req).await.into_response();
-              }
+            if let Some(v) = verify.as_ref()
+              && v(t)
+            {
+              return next.run(req).await.into_response();
             }
           }
         }

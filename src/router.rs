@@ -46,10 +46,12 @@ use crate::{
   middleware::Next,
   responder::Responder,
   route::Route,
-  signals::{Signal, SignalArbiter},
   state::set_state,
   types::{BoxMiddleware, Request, Response},
 };
+
+#[cfg(feature = "signals")]
+use crate::signals::{Signal, SignalArbiter};
 
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
@@ -99,6 +101,7 @@ pub struct Router {
   #[cfg(feature = "plugins")]
   plugins_initialized: AtomicBool,
   /// Signal arbiter for in-process event emission and handling.
+  #[cfg(feature = "signals")]
   signals: SignalArbiter,
 }
 
@@ -114,6 +117,7 @@ impl Router {
       plugins: Vec::new(),
       #[cfg(feature = "plugins")]
       plugins_initialized: AtomicBool::new(false),
+      #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
     }
   }
@@ -153,19 +157,16 @@ impl Router {
       None,
     ));
 
-    let mut method_router = self
-      .inner
-      .entry(method.clone())
-      .or_insert_with(matchit::Router::new);
+    let mut method_router = self.inner.entry(method.clone()).or_default();
 
     if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
-      panic!("Failed to register route: {}", err);
+      panic!("Failed to register route: {err}");
     }
 
     self
       .routes
       .entry(method)
-      .or_insert_with(Vec::new)
+      .or_default()
       .push(Arc::downgrade(&route));
 
     route
@@ -209,19 +210,16 @@ impl Router {
       Some(true),
     ));
 
-    let mut method_router = self
-      .inner
-      .entry(method.clone())
-      .or_insert_with(matchit::Router::new);
+    let mut method_router = self.inner.entry(method.clone()).or_default();
 
     if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
-      panic!("Failed to register route: {}", err);
+      panic!("Failed to register route: {err}");
     }
 
     self
       .routes
       .entry(method)
-      .or_insert_with(Vec::new)
+      .or_default()
       .push(Arc::downgrade(&route));
 
     route
@@ -232,56 +230,55 @@ impl Router {
     let method = req.method();
     let path = req.uri().path();
 
-    if let Some(method_router) = self.inner.get(method) {
-      if let Ok(matched) = method_router.at(path) {
-        let route = matched.value;
+    if let Some(method_router) = self.inner.get(method)
+      && let Ok(matched) = method_router.at(path)
+    {
+      let route = matched.value;
 
-        // Protocol guard: early-return if request version does not satisfy route guard
-        if let Some(res) = Self::enforce_protocol_guard(route, &req) {
-          return res;
-        }
-
-        // Initialize route-level plugins on first request
-        #[cfg(feature = "plugins")]
-        route.setup_plugins_once();
-
-        if !matched.params.iter().collect::<Vec<_>>().is_empty() {
-          let mut params = HashMap::new();
-          for (k, v) in matched.params.iter() {
-            params.insert(k.to_string(), v.to_string());
-          }
-          req.extensions_mut().insert(PathParams(params));
-        }
-        let g_mws = self.middlewares.read().clone();
-        let r_mws = route.middlewares.read().clone();
-        let mut chain = Vec::new();
-        chain.extend(g_mws.into_iter());
-        chain.extend(r_mws.into_iter());
-
-        let next = Next {
-          middlewares: Arc::new(chain),
-          endpoint: Arc::new(route.handler.clone()),
-        };
-        return next.run(req).await;
+      // Protocol guard: early-return if request version does not satisfy route guard
+      if let Some(res) = Self::enforce_protocol_guard(route, &req) {
+        return res;
       }
+
+      // Initialize route-level plugins on first request
+      #[cfg(feature = "plugins")]
+      route.setup_plugins_once();
+
+      if !matched.params.iter().collect::<Vec<_>>().is_empty() {
+        let mut params = HashMap::new();
+        for (k, v) in matched.params.iter() {
+          params.insert(k.to_string(), v.to_string());
+        }
+        req.extensions_mut().insert(PathParams(params));
+      }
+      let g_mws = self.middlewares.read().clone();
+      let r_mws = route.middlewares.read().clone();
+      let mut chain = Vec::new();
+      chain.extend(g_mws.into_iter());
+      chain.extend(r_mws.into_iter());
+
+      let next = Next {
+        middlewares: Arc::new(chain),
+        endpoint: Arc::new(route.handler.clone()),
+      };
+      return next.run(req).await;
     }
 
     let tsr_path = if path.ends_with('/') {
       path.trim_end_matches('/').to_string()
     } else {
-      format!("{}/", path)
+      format!("{path}/")
     };
 
-    if let Some(method_router) = self.inner.get(method) {
-      if let Ok(matched) = method_router.at(&tsr_path) {
-        if matched.value.tsr {
-          return http::Response::builder()
-            .status(StatusCode::TEMPORARY_REDIRECT)
-            .header("Location", tsr_path)
-            .body(TakoBody::empty())
-            .unwrap();
-        }
-      }
+    if let Some(method_router) = self.inner.get(method)
+      && let Ok(matched) = method_router.at(&tsr_path)
+      && matched.value.tsr
+    {
+      return http::Response::builder()
+        .status(StatusCode::TEMPORARY_REDIRECT)
+        .header("Location", tsr_path)
+        .body(TakoBody::empty())
+        .unwrap();
     }
 
     // No match: use fallback handler if configured
@@ -327,16 +324,19 @@ impl Router {
     set_state(value);
   }
 
+  #[cfg(feature = "signals")]
   /// Returns a reference to the signal arbiter.
   pub fn signals(&self) -> &SignalArbiter {
     &self.signals
   }
 
+  #[cfg(feature = "signals")]
   /// Returns a clone of the signal arbiter, useful for sharing through state.
   pub fn signal_arbiter(&self) -> SignalArbiter {
     self.signals.clone()
   }
 
+  #[cfg(feature = "signals")]
   /// Registers a handler for a named signal on this router's arbiter.
   pub fn on_signal<F, Fut>(&self, id: impl Into<String>, handler: F)
   where
@@ -346,6 +346,7 @@ impl Router {
     self.signals.on(id, handler);
   }
 
+  #[cfg(feature = "signals")]
   /// Emits a signal through this router's arbiter.
   pub async fn emit_signal(&self, signal: Signal) {
     self.signals.emit(signal).await;
@@ -552,10 +553,7 @@ impl Router {
     let upstream_globals = other.middlewares.read().clone();
 
     for (method, weak_vec) in other.routes.into_iter() {
-      let mut target_router = self
-        .inner
-        .entry(method.clone())
-        .or_insert_with(matchit::Router::new);
+      let mut target_router = self.inner.entry(method.clone()).or_default();
 
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
@@ -569,12 +567,13 @@ impl Router {
           self
             .routes
             .entry(method.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(Arc::downgrade(&route));
         }
       }
     }
 
+    #[cfg(feature = "signals")]
     self.signals.merge_from(&other.signals);
   }
 
@@ -582,15 +581,15 @@ impl Router {
   /// Returns `Some(Response)` with 505 HTTP Version Not Supported when the request
   /// doesn't match the guard, otherwise returns `None` to continue dispatch.
   fn enforce_protocol_guard(route: &Route, req: &Request) -> Option<Response> {
-    if let Some(guard) = route.protocol_guard() {
-      if guard != req.version() {
-        return Some(
-          http::Response::builder()
-            .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
-            .body(TakoBody::empty())
-            .unwrap(),
-        );
-      }
+    if let Some(guard) = route.protocol_guard()
+      && guard != req.version()
+    {
+      return Some(
+        http::Response::builder()
+          .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
+          .body(TakoBody::empty())
+          .unwrap(),
+      );
     }
     None
   }

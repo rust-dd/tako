@@ -200,10 +200,10 @@ impl IntoMiddleware for BasicAuth {
             }
 
             // Use custom verification function if available
-            if let Some(cb) = &verify {
-              if cb(&u, &p) {
-                return next.run(req).await.into_response();
-              }
+            if let Some(cb) = &verify
+              && cb(&u, &p)
+            {
+              return next.run(req).await.into_response();
             }
           }
           None => {

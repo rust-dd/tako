@@ -59,7 +59,7 @@ impl Responder for AcceptLanguageError {
       }
       AcceptLanguageError::ParseError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to parse Accept-Language header: {}", err),
+        format!("Failed to parse Accept-Language header: {err}"),
       )
         .into_response(),
     }
@@ -117,13 +117,12 @@ impl AcceptLanguage {
         let quality_str = &part[q_pos + 3..].trim();
 
         let quality = quality_str.parse::<f32>().map_err(|e| {
-          AcceptLanguageError::ParseError(format!("Invalid quality value '{}': {}", quality_str, e))
+          AcceptLanguageError::ParseError(format!("Invalid quality value '{quality_str}': {e}"))
         })?;
 
-        if quality < 0.0 || quality > 1.0 {
+        if !(0.0..=1.0).contains(&quality) {
           return Err(AcceptLanguageError::ParseError(format!(
-            "Quality value must be between 0.0 and 1.0, got: {}",
-            quality
+            "Quality value must be between 0.0 and 1.0, got: {quality}"
           )));
         }
 
