@@ -26,6 +26,8 @@ pub mod ids {
   pub const REQUEST_COMPLETED: &str = "request.completed";
   pub const ROUTER_HOT_RELOAD: &str = "router.hot_reload";
   pub const RPC_ERROR: &str = "rpc.error";
+  pub const ROUTE_REQUEST_STARTED: &str = "route.request.started";
+  pub const ROUTE_REQUEST_COMPLETED: &str = "route.request.completed";
 }
 
 /// A signal emitted through the arbiter.

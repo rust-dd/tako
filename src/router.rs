@@ -51,7 +51,7 @@ use crate::{
 };
 
 #[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter};
+use crate::signals::{Signal, SignalArbiter, ids};
 
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
@@ -227,11 +227,11 @@ impl Router {
 
   /// Dispatches an incoming request to the appropriate route handler.
   pub async fn dispatch(&self, mut req: Request) -> Response {
-    let method = req.method();
-    let path = req.uri().path();
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
 
-    if let Some(method_router) = self.inner.get(method)
-      && let Ok(matched) = method_router.at(path)
+    if let Some(method_router) = self.inner.get(&method)
+      && let Ok(matched) = method_router.at(&path)
     {
       let route = matched.value;
 
@@ -239,6 +239,9 @@ impl Router {
       if let Some(res) = Self::enforce_protocol_guard(route, &req) {
         return res;
       }
+
+      #[cfg(feature = "signals")]
+      let route_signals = route.signal_arbiter();
 
       // Initialize route-level plugins on first request
       #[cfg(feature = "plugins")]
@@ -261,7 +264,42 @@ impl Router {
         middlewares: Arc::new(chain),
         endpoint: Arc::new(route.handler.clone()),
       };
-      return next.run(req).await;
+
+      #[cfg(feature = "signals")]
+      {
+        let method_str = method.to_string();
+        let path_str = path.clone();
+
+        let mut start_meta = HashMap::new();
+        start_meta.insert("method".to_string(), method_str.clone());
+        start_meta.insert("path".to_string(), path_str.clone());
+        route_signals
+          .emit(Signal::with_metadata(
+            ids::ROUTE_REQUEST_STARTED,
+            start_meta,
+          ))
+          .await;
+
+        let response = next.run(req).await;
+
+        let mut done_meta = HashMap::new();
+        done_meta.insert("method".to_string(), method_str);
+        done_meta.insert("path".to_string(), path_str);
+        done_meta.insert("status".to_string(), response.status().as_u16().to_string());
+        route_signals
+          .emit(Signal::with_metadata(
+            ids::ROUTE_REQUEST_COMPLETED,
+            done_meta,
+          ))
+          .await;
+
+        return response;
+      }
+
+      #[cfg(not(feature = "signals"))]
+      {
+        return next.run(req).await;
+      }
     }
 
     let tsr_path = if path.ends_with('/') {
@@ -270,7 +308,7 @@ impl Router {
       format!("{path}/")
     };
 
-    if let Some(method_router) = self.inner.get(method)
+    if let Some(method_router) = self.inner.get(&method)
       && let Ok(matched) = method_router.at(&tsr_path)
       && matched.value.tsr
     {

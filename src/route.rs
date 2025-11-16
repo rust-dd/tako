@@ -40,6 +40,9 @@ use crate::{
   types::{BoxMiddleware, Request},
 };
 
+#[cfg(feature = "signals")]
+use crate::signals::{Signal, SignalArbiter};
+
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
 
@@ -67,6 +70,9 @@ pub struct Route {
   plugins_initialized: AtomicBool,
   /// HTTP protocol version
   http_protocol: Option<http::Version>,
+  /// Route-level signal arbiter.
+  #[cfg(feature = "signals")]
+  pub(crate) signals: SignalArbiter,
 }
 
 impl Route {
@@ -83,6 +89,8 @@ impl Route {
       #[cfg(feature = "plugins")]
       plugins_initialized: AtomicBool::new(false),
       http_protocol: None,
+      #[cfg(feature = "signals")]
+      signals: SignalArbiter::new(),
     }
   }
 
@@ -197,5 +205,33 @@ impl Route {
   /// Returns the configured protocol guard, if any.
   pub(crate) fn protocol_guard(&self) -> Option<http::Version> {
     self.http_protocol
+  }
+
+  #[cfg(feature = "signals")]
+  /// Returns a reference to this route's signal arbiter.
+  pub fn signals(&self) -> &SignalArbiter {
+    &self.signals
+  }
+
+  #[cfg(feature = "signals")]
+  /// Returns a clone of this route's signal arbiter for shared usage.
+  pub fn signal_arbiter(&self) -> SignalArbiter {
+    self.signals.clone()
+  }
+
+  #[cfg(feature = "signals")]
+  /// Registers a handler for a named signal on this route's arbiter.
+  pub fn on_signal<F, Fut>(&self, id: impl Into<String>, handler: F)
+  where
+    F: Fn(Signal) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+  {
+    self.signals.on(id, handler);
+  }
+
+  #[cfg(feature = "signals")]
+  /// Emits a signal through this route's arbiter.
+  pub async fn emit_signal(&self, signal: Signal) {
+    self.signals.emit(signal).await;
   }
 }
