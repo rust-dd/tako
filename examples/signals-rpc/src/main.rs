@@ -17,15 +17,16 @@ struct AddResponse {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let bus = SignalArbiter::new();
+  let arbiter = SignalArbiter::new();
 
   // Register a typed RPC handler under "rpc.add"
-  bus.register_rpc::<AddRequest, AddResponse, _, _>("rpc.add", |req: Arc<AddRequest>| async move {
-    AddResponse { sum: req.a + req.b }
-  });
+  arbiter
+    .register_rpc::<AddRequest, AddResponse, _, _>("rpc.add", |req: Arc<AddRequest>| async move {
+      AddResponse { sum: req.a + req.b }
+    });
 
   // Call the RPC handler and print the result
-  if let Some(res) = bus
+  if let Some(res) = arbiter
     .call_rpc::<AddRequest, AddResponse>("rpc.add", AddRequest { a: 2, b: 40 })
     .await
   {
@@ -33,9 +34,9 @@ async fn main() -> Result<()> {
   }
 
   // Demonstrate waiting for a specific event once
-  let bus_for_listener = bus.clone();
+  let arbiter_for_listener = arbiter.clone();
   tokio::spawn(async move {
-    if let Some(signal) = bus_for_listener.once("custom.event").await {
+    if let Some(signal) = arbiter_for_listener.once("custom.event").await {
       println!("[signals-rpc] received custom.event: {:?}", signal.metadata);
     }
   });
@@ -43,7 +44,9 @@ async fn main() -> Result<()> {
   // Emit a custom event that the listener above will receive
   let mut meta = std::collections::HashMap::new();
   meta.insert("message".to_string(), "hello from signals-rpc".to_string());
-  bus.emit(Signal::with_metadata("custom.event", meta)).await;
+  arbiter
+    .emit(Signal::with_metadata("custom.event", meta))
+    .await;
 
   // Give the listener a moment to process the event before exiting
   sleep(Duration::from_millis(100)).await;

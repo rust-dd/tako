@@ -81,7 +81,7 @@ pub trait SignalPayload {
 /// Boxed async signal handler.
 pub type SignalHandler = Arc<dyn Fn(Signal) -> BoxFuture<'static, ()> + Send + Sync>;
 
-/// Boxed typed RPC handler used by the event bus.
+/// Boxed typed RPC handler used by the signal arbiter.
 pub type RpcHandler = Arc<
   dyn Fn(Arc<dyn Any + Send + Sync>) -> BoxFuture<'static, Arc<dyn Any + Send + Sync>>
     + Send
@@ -116,11 +116,8 @@ pub fn app_signals() -> &'static SignalArbiter {
   &APP_SIGNAL_ARBITER
 }
 
-/// Alias for using the signal arbiter as a general event bus.
-pub type EventBus = SignalArbiter;
-
-/// Returns the global application-level event bus.
-pub fn app_events() -> &'static EventBus {
+/// Returns the global application-level signal arbiter.
+pub fn app_events() -> &'static SignalArbiter {
   app_signals()
 }
 

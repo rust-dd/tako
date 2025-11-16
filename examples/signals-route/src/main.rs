@@ -24,8 +24,8 @@ async fn route_handler(State(bus): State<SignalArbiter>) -> impl Responder {
 
 fn init_route_signals(router: &mut Router) {
   // Expose the router-level arbiter to handlers via State<SignalArbiter>
-  let bus = router.signal_arbiter();
-  router.state(bus.clone());
+  let arbiter = router.signal_arbiter();
+  router.state(arbiter.clone());
 
   // Log all route-level hits
   router.on_signal("routes.hit", |signal: Signal| async move {

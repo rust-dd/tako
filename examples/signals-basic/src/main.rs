@@ -13,15 +13,15 @@ async fn hello(_: Request) -> impl Responder {
 }
 
 fn init_signals() {
-  let bus = app_events();
+  let arbiter = app_events();
 
   // Simple callback-style handler for server start
-  bus.on(ids::SERVER_STARTED, |signal: Signal| async move {
+  arbiter.on(ids::SERVER_STARTED, |signal: Signal| async move {
     println!("[signals-basic] server.started: {:?}", signal.metadata);
   });
 
   // Stream-style listener for completed requests
-  let mut rx = bus.subscribe(ids::REQUEST_COMPLETED);
+  let mut rx = arbiter.subscribe(ids::REQUEST_COMPLETED);
   tokio::spawn(async move {
     while let Ok(signal) = rx.recv().await {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();

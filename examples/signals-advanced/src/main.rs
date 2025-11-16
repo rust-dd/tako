@@ -48,8 +48,8 @@ async fn hello() -> impl Responder {
   "Hello from signals-advanced".into_response()
 }
 
-async fn calc_ok(State(bus): State<SignalArbiter>) -> impl Responder {
-  match bus
+async fn calc_ok(State(arbiter): State<SignalArbiter>) -> impl Responder {
+  match arbiter
     .call_rpc_timeout::<SlowAddRequest, SlowAddResponse>(
       "calc.add",
       SlowAddRequest {
@@ -66,8 +66,8 @@ async fn calc_ok(State(bus): State<SignalArbiter>) -> impl Responder {
   }
 }
 
-async fn calc_timeout(State(bus): State<SignalArbiter>) -> impl Responder {
-  match bus
+async fn calc_timeout(State(arbiter): State<SignalArbiter>) -> impl Responder {
+  match arbiter
     .call_rpc_timeout::<SlowAddRequest, SlowAddResponse>(
       "calc.add",
       SlowAddRequest {
@@ -84,14 +84,14 @@ async fn calc_timeout(State(bus): State<SignalArbiter>) -> impl Responder {
   }
 }
 
-async fn emit_typed(State(bus): State<SignalArbiter>) -> impl Responder {
+async fn emit_typed(State(arbiter): State<SignalArbiter>) -> impl Responder {
   let event = RequestCompletedEvent {
     method: "GET".into(),
     path: "/emit-typed".into(),
     status: 201,
   };
   let sig = Signal::from_payload(&event);
-  bus.emit(sig).await;
+  arbiter.emit(sig).await;
 
   "emitted typed RequestCompletedEvent on router bus".into_response()
 }
@@ -100,17 +100,19 @@ async fn error_route() -> anyhow::Result<String> {
   Err(anyhow::anyhow!("simulated error for 5xx filter"))
 }
 
-async fn route_with_signals(State(bus): State<SignalArbiter>) -> impl Responder {
+async fn route_with_signals(State(arbiter): State<SignalArbiter>) -> impl Responder {
   let mut meta = HashMap::new();
   meta.insert("path".to_string(), "/route".to_string());
 
-  bus.emit(Signal::with_metadata("routes.hit", meta)).await;
+  arbiter
+    .emit(Signal::with_metadata("routes.hit", meta))
+    .await;
 
   "route_with_signals hit".into_response()
 }
 
 fn init_app_signals() {
-  let bus = app_events();
+  let arbiter = app_events();
 
   // Configure broadcast capacity
   SignalArbiter::set_global_broadcast_capacity(128);
@@ -120,27 +122,27 @@ fn init_app_signals() {
   );
 
   // Exporter: log every signal as a simple line
-  bus.register_exporter(|signal: &Signal| {
+  arbiter.register_exporter(|signal: &Signal| {
     println!("[advanced][exporter] {} {:?}", signal.id, signal.metadata);
   });
 
   // Log server start
-  bus.on(ids::SERVER_STARTED, |signal: Signal| async move {
+  arbiter.on(ids::SERVER_STARTED, |signal: Signal| async move {
     println!("[advanced][server] started: {:?}", signal.metadata);
   });
 
   // Simple handler for completed requests
-  bus.on(ids::REQUEST_COMPLETED, |signal: Signal| async move {
+  arbiter.on(ids::REQUEST_COMPLETED, |signal: Signal| async move {
     println!("[advanced][handler] {} -> {:?}", signal.id, signal.metadata);
   });
 
   // RPC error events
-  bus.on(ids::RPC_ERROR, |signal: Signal| async move {
+  arbiter.on(ids::RPC_ERROR, |signal: Signal| async move {
     println!("[advanced][rpc_error] {:?}", signal.metadata);
   });
 
   // Prefix subscription for all request.* signals
-  let mut prefix_rx = bus.subscribe_prefix("request.");
+  let mut prefix_rx = arbiter.subscribe_prefix("request.");
   tokio::spawn(async move {
     while let Ok(signal) = prefix_rx.recv().await {
       println!("[advanced][prefix] {} {:?}", signal.id, signal.metadata);
@@ -148,15 +150,16 @@ fn init_app_signals() {
   });
 
   // Filtered subscription for 5xx request.completed signals
-  let filtered_bus = bus.clone();
-  let mut error_stream = filtered_bus.subscribe_filtered(ids::REQUEST_COMPLETED, |sig: &Signal| {
-    sig
-      .metadata
-      .get("status")
-      .and_then(|s| s.parse::<u16>().ok())
-      .map(|status| status >= 500)
-      .unwrap_or(false)
-  });
+  let filtered_arbiter = arbiter.clone();
+  let mut error_stream =
+    filtered_arbiter.subscribe_filtered(ids::REQUEST_COMPLETED, |sig: &Signal| {
+      sig
+        .metadata
+        .get("status")
+        .and_then(|s| s.parse::<u16>().ok())
+        .map(|status| status >= 500)
+        .unwrap_or(false)
+    });
 
   tokio::spawn(async move {
     while let Some(signal) = error_stream.recv().await {
@@ -165,18 +168,18 @@ fn init_app_signals() {
   });
 
   // Introspection for app-level topics
-  println!("[advanced][app] signal ids: {:?}", bus.signal_ids());
+  println!("[advanced][app] signal ids: {:?}", arbiter.signal_ids());
   println!(
     "[advanced][app] signal prefixes: {:?}",
-    bus.signal_prefixes()
+    arbiter.signal_prefixes()
   );
 }
 
 fn init_router_signals(router: &mut Router) {
-  let bus = router.signal_arbiter();
+  let arbiter = router.signal_arbiter();
 
   // Expose router-level arbiter to handlers
-  router.state(bus.clone());
+  router.state(arbiter.clone());
 
   // Route-level event logging
   router.on_signal("routes.hit", |signal: Signal| async move {
@@ -185,8 +188,8 @@ fn init_router_signals(router: &mut Router) {
     }
   });
 
-  // Typed RPC on router-level bus
-  bus.register_rpc::<SlowAddRequest, SlowAddResponse, _, _>(
+  // Typed RPC on router-level arbiter
+  arbiter.register_rpc::<SlowAddRequest, SlowAddResponse, _, _>(
     "calc.add",
     |req: Arc<SlowAddRequest>| async move {
       sleep(Duration::from_millis(req.delay_ms)).await;
@@ -194,7 +197,7 @@ fn init_router_signals(router: &mut Router) {
     },
   );
 
-  println!("[advanced][router] rpc ids: {:?}", bus.rpc_ids());
+  println!("[advanced][router] rpc ids: {:?}", arbiter.rpc_ids());
 }
 
 #[tokio::main]

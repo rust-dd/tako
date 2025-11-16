@@ -26,8 +26,8 @@ async fn hello() -> impl Responder {
   "Hello from signals-complex".into_response()
 }
 
-async fn calc(State(bus): State<SignalArbiter>) -> impl Responder {
-  if let Some(res) = bus
+async fn calc(State(arbiter): State<SignalArbiter>) -> impl Responder {
+  if let Some(res) = arbiter
     .call_rpc::<AddRequest, AddResponse>("calc.add", AddRequest { a: 10, b: 32 })
     .await
   {
@@ -46,15 +46,15 @@ async fn trigger_hot_reload() -> impl Responder {
 }
 
 fn init_app_signals() {
-  let bus = app_events();
+  let arbiter = app_events();
 
   // Log when server starts
-  bus.on(ids::SERVER_STARTED, |signal: Signal| async move {
+  arbiter.on(ids::SERVER_STARTED, |signal: Signal| async move {
     println!("[signals-complex] server.started: {:?}", signal.metadata);
   });
 
   // Metrics-style listener for completed requests
-  let mut rx = bus.subscribe(ids::REQUEST_COMPLETED);
+  let mut rx = arbiter.subscribe(ids::REQUEST_COMPLETED);
   tokio::spawn(async move {
     while let Ok(signal) = rx.recv().await {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();
@@ -68,19 +68,19 @@ fn init_app_signals() {
   });
 
   // Wait once for router.hot_reload, then log
-  let bus_once = app_events().clone();
+  let arbiter_once = app_events().clone();
   tokio::spawn(async move {
-    if let Some(signal) = bus_once.once(ids::ROUTER_HOT_RELOAD).await {
+    if let Some(signal) = arbiter_once.once(ids::ROUTER_HOT_RELOAD).await {
       println!("[signals-complex] router.hot_reload: {:?}", signal.metadata);
     }
   });
 }
 
 fn init_router_signals(router: &mut Router) {
-  let bus = router.signal_arbiter();
+  let arbiter = router.signal_arbiter();
 
   // Expose router-level arbiter to handlers
-  router.state(bus.clone());
+  router.state(arbiter.clone());
 
   // Route-level event logging
   router.on_signal("routes.hit", |signal: Signal| async move {
@@ -89,18 +89,20 @@ fn init_router_signals(router: &mut Router) {
     }
   });
 
-  // Typed RPC on router-level bus
-  bus
+  // Typed RPC on router-level arbiter
+  arbiter
     .register_rpc::<AddRequest, AddResponse, _, _>("calc.add", |req: Arc<AddRequest>| async move {
       AddResponse { sum: req.a + req.b }
     });
 }
 
-async fn route_with_signals(State(bus): State<SignalArbiter>) -> impl Responder {
+async fn route_with_signals(State(arbiter): State<SignalArbiter>) -> impl Responder {
   let mut meta = HashMap::new();
   meta.insert("path".to_string(), "/route".to_string());
 
-  bus.emit(Signal::with_metadata("routes.hit", meta)).await;
+  arbiter
+    .emit(Signal::with_metadata("routes.hit", meta))
+    .await;
 
   "route_with_signals hit".into_response()
 }

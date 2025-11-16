@@ -69,10 +69,10 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
   #[cfg(feature = "signals")]
   fn setup(&self, _router: &Router) -> Result<()> {
     let backend = self.backend.clone();
-    let app_bus = app_events();
+    let app_arbiter = app_events();
 
     // App-level request.completed metrics
-    app_bus.on(ids::REQUEST_COMPLETED, move |signal: Signal| {
+    app_arbiter.on(ids::REQUEST_COMPLETED, move |signal: Signal| {
       let backend = backend.clone();
       async move {
         backend.on_request_completed(&signal);
@@ -81,7 +81,7 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
 
     // Connection lifetime metrics
     let backend_conn = self.backend.clone();
-    app_bus.on(ids::CONNECTION_OPENED, move |signal: Signal| {
+    app_arbiter.on(ids::CONNECTION_OPENED, move |signal: Signal| {
       let backend = backend_conn.clone();
       async move {
         backend.on_connection_opened(&signal);
@@ -89,7 +89,7 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
     });
 
     let backend_close = self.backend.clone();
-    app_bus.on(ids::CONNECTION_CLOSED, move |signal: Signal| {
+    app_arbiter.on(ids::CONNECTION_CLOSED, move |signal: Signal| {
       let backend = backend_close.clone();
       async move {
         backend.on_connection_closed(&signal);
@@ -98,7 +98,7 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
 
     // Route-level request.completed metrics via prefix subscription
     let backend_route = self.backend.clone();
-    let mut rx = app_bus.subscribe_prefix("route.request.");
+    let mut rx = app_arbiter.subscribe_prefix("route.request.");
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
         backend_route.on_route_request_completed(&signal);
