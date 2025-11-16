@@ -407,7 +407,7 @@ impl SignalArbiter {
   }
 
   /// Emits a signal using the global application-level arbiter.
-  pub(crate) async fn emit_app(signal: Signal) {
+  pub async fn emit_app(signal: Signal) {
     app_signals().emit(signal).await;
   }
 
