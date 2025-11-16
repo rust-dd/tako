@@ -2,8 +2,8 @@
 //!
 //! This module provides extractors for parsing JWT (JSON Web Token) tokens from HTTP
 //! Authorization headers and extracting claims into strongly-typed Rust structures.
-//! It supports both raw JWT access through [`Jwt`] and automatic claims deserialization
-//! through [`JwtClaims`], with built-in token validation and error handling for malformed
+//! It supports both raw JWT access through [`Jwt`](crate::extractors::jwt::Jwt) and automatic claims deserialization
+//! through [`JwtClaims`](crate::extractors::jwt::JwtClaims), with built-in token validation and error handling for malformed
 //! or expired tokens.
 //!
 //! # Examples

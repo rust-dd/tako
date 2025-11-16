@@ -1,6 +1,6 @@
 //! Private cookie extraction and management for HTTP requests.
 //!
-//! This module provides the [`CookiePrivate`] extractor that manages encrypted cookies
+//! This module provides the [`CookiePrivate`](crate::extractors::cookie_private::CookiePrivate) extractor that manages encrypted cookies
 //! using a master key. Private cookies are encrypted to ensure that cookie values
 //! cannot be read or tampered with by clients, providing a secure way to store
 //! sensitive data in client-side cookies.

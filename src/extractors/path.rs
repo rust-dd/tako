@@ -1,6 +1,6 @@
 //! Path extraction from HTTP requests.
 //!
-//! This module provides the [`Path`] extractor for accessing the URI path from
+//! This module provides the [`Path`](crate::extractors::path::Path) extractor for accessing the URI path from
 //! incoming HTTP requests. It wraps a reference to the path string, allowing
 //! efficient access to the request path without copying the underlying data.
 //!

@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
 //! Plugin system for extending framework functionality with composable modules.
 //!
 //! This module provides the core plugin infrastructure for Tako, allowing developers

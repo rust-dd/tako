@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
 //! Rate limiting plugin using token bucket algorithm for controlling request frequency.
 //!
 //! This module provides rate limiting functionality to protect Tako applications from abuse

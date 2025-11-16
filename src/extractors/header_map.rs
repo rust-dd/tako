@@ -1,6 +1,6 @@
 //! Header extraction from HTTP requests.
 //!
-//! This module provides the [`HeaderMap`] extractor for accessing HTTP headers from
+//! This module provides the [`HeaderMap`](crate::extractors::header_map::HeaderMap) extractor for accessing HTTP headers from
 //! incoming requests. It wraps a reference to the headers, allowing efficient access
 //! to header values without copying the underlying data.
 //!

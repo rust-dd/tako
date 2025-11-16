@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
 //! Cross-Origin Resource Sharing (CORS) plugin for handling cross-origin HTTP requests.
 //!
 //! This module provides comprehensive CORS support for Tako web applications, enabling

@@ -295,33 +295,32 @@ impl Router {
       .unwrap()
   }
 
-  /// Adds a value to the global state accessible by all handlers.
-  ///
-  /// Global state allows sharing data across different routes and middleware.
-  /// Values are stored by string keys and can be retrieved in handlers using
-  /// the state extraction functionality.
-  ///
-  /// # Examples
-  ///
-  /// ```rust
-  /// use tako::router::Router;
-  ///
-  /// #[derive(Clone)]
-  /// struct AppConfig {
-  ///     database_url: String,
-  ///     api_key: String,
-  /// }
-  ///
-  /// let mut router = Router::new();
-  /// router.state("config", AppConfig {
-  ///     database_url: "postgresql://localhost/mydb".to_string(),
-  ///     api_key: "secret-key".to_string(),
-  /// });
-  /// router.state("version", "1.0.0".to_string());
-  /// ```
-  pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
+/// Adds a value to the global type-based state accessible by all handlers.
+///
+/// Global state allows sharing data across different routes and middleware.
+/// Values are stored by their concrete type and retrieved via the
+/// [`State`](crate::extractors::state::State) extractor or with
+/// [`crate::state::get_state`].
+///
+/// # Examples
+///
+/// ```rust
+/// use tako::router::Router;
+///
+/// #[derive(Clone)]
+/// struct AppConfig { database_url: String, api_key: String }
+///
+/// let mut router = Router::new();
+/// router.state(AppConfig {
+///     database_url: "postgresql://localhost/mydb".to_string(),
+///     api_key: "secret-key".to_string(),
+/// });
+/// // You can also store simple types by type:
+/// router.state::<String>("1.0.0".to_string());
+/// ```
+pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     set_state(value);
-  }
+}
 
   /// Adds global middleware to the router.
   ///

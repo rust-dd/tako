@@ -1,6 +1,6 @@
 //! Client IP address extraction from HTTP request headers.
 //!
-//! This module provides the [`IpAddr`] extractor for determining the client's IP address
+//! This module provides the [`IpAddr`](crate::extractors::ipaddr::IpAddr) extractor for determining the client's IP address
 //! from various HTTP headers commonly used by proxies, load balancers, and CDNs.
 //! It supports both IPv4 and IPv6 addresses and provides methods for inspecting
 //! IP address properties like whether it's private, loopback, etc.

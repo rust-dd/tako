@@ -1,6 +1,6 @@
 //! Form data extraction from HTTP request bodies.
 //!
-//! This module provides the [`Form`] extractor for parsing `application/x-www-form-urlencoded`
+//! This module provides the [`Form`](crate::extractors::form::Form) extractor for parsing `application/x-www-form-urlencoded`
 //! request bodies into strongly-typed Rust structures. It uses serde for deserialization,
 //! allowing automatic parsing of form data into any type that implements `DeserializeOwned`.
 //!

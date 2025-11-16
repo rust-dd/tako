@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
 //! HTTP response compression plugin supporting multiple algorithms and streaming.
 //!
 //! This module provides comprehensive HTTP response compression functionality for Tako
@@ -97,6 +98,7 @@ pub enum Encoding {
   Deflate,
   /// Zstandard compression - high performance, excellent ratio (requires zstd feature).
   #[cfg(feature = "zstd")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   Zstd,
 }
 
@@ -217,7 +219,8 @@ impl CompressionBuilder {
   }
 
   /// Enables or disables Zstandard compression (requires zstd feature).
-  #[cfg(feature = "zstd")]
+#[cfg(feature = "zstd")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn enable_zstd(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Zstd) {
       self.0.enabled.push(Encoding::Zstd)
@@ -259,7 +262,8 @@ impl CompressionBuilder {
   }
 
   /// Sets the Zstandard compression level (1-22, requires zstd feature).
-  #[cfg(feature = "zstd")]
+#[cfg(feature = "zstd")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn zstd_level(mut self, lvl: i32) -> Self {
     self.0.zstd_level = lvl.clamp(1, 22);
     self
@@ -568,6 +572,7 @@ fn compress_deflate(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 
 /// Compresses data using Zstandard algorithm (requires zstd feature).
 #[cfg(feature = "zstd")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
 fn compress_zstd(data: &[u8], lvl: i32) -> std::io::Result<Vec<u8>> {
   zstd_encode(data, lvl)
 }

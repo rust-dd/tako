@@ -1,30 +1,66 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! A lightweight and modular web framework for building async applications in Rust.
+//! A lightweight, modular web framework for async applications.
 //!
-//! Tako provides core components for routing, middleware, request handling, and response
-//! generation. The framework is designed around composable modules that can be mixed and
-//! matched based on application needs. Key types include `Router` for routing requests,
-//! various extractors for parsing request data, and responders for generating responses.
+//! Tako focuses on ergonomics and composability. It provides routing, extractors,
+//! responses, middleware, streaming, WebSockets/SSE, optional TLS, and integrations
+//! like GraphQL — in a small, pragmatic package.
 //!
-//! # Examples
+//! # High-level features
+//! - Macro-free routing with dynamic path params and TSR support
+//! - Type-safe handlers with extractor-based arguments (Axum-like ergonomics)
+//! - Simple `Responder` trait to return strings, tuples, or full responses
+//! - Middleware pipeline (auth, body limits, etc.) and optional plugins (CORS, compression, rate limits)
+//! - Streaming bodies, file serving, range requests, and SSE
+//! - WebSocket upgrades and helpers
+//! - Optional TLS (rustls) and HTTP/2 (feature)
+//! - Optional GraphQL support (async-graphql) and GraphiQL UI
+//!
+//! # Compatibility
+//! - Runtime: `tokio`
+//! - HTTP: `hyper` 1.x
+//!
+//! # Quickstart
 //!
 //! ```rust
 //! use tako::{Method, router::Router, responder::Responder, types::Request};
 //!
-//! async fn hello(_: Request) -> impl Responder {
-//!     "Hello, World!".into_response()
-//! }
+//! async fn hello(_: Request) -> impl Responder { "Hello, World!" }
 //!
 //! let mut router = Router::new();
 //! router.route(Method::GET, "/", hello);
 //! ```
+//!
+//! # Key concepts
+//! - [router::Router] manages routes, middleware and dispatch.
+//! - [extractors] parse request data (headers, params, JSON, forms, etc.).
+//! - [responder::Responder] converts return values into HTTP responses.
+//! - [middleware] composes cross-cutting concerns.
+//!
+//! - Static file serving (module `static`) and [file_stream] provide static and streaming file responses.
+//! - [ws] and [sse] enable real-time communication.
+//! - [plugins] add CORS, compression, and rate limiting (feature: `plugins`).
+//! - [graphql] and [graphiql] add GraphQL support (feature: `async-graphql` / `graphiql`).
+//!
+//! # Feature flags
+//! - `client` — outbound HTTP clients over TCP/TLS
+//! - `file-stream` — file streaming utilities
+//! - `http2` — enable ALPN h2 in TLS server
+//! - `jemalloc` — use jemalloc as global allocator
+//! - `multipart` — multipart form-data extractors
+//! - `plugins` — CORS, compression, rate limiting
+//! - `protobuf` — protobuf extractors (prost)
+//! - `simd` — SIMD JSON extractor (simd-json)
+//! - `tls` — TLS server (rustls)
+//! - `tako-tracing` — structured tracing subscriber
+//! - `zstd` — Zstandard compression option within plugins::compression
 
 /// HTTP request and response body handling utilities.
 pub mod body;
 
 /// HTTP client implementation for making outbound requests.
 #[cfg(feature = "client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod client;
 
 /// Request data extraction utilities for parsing query params, JSON, and more.
@@ -32,6 +68,7 @@ pub mod extractors;
 
 /// File streaming utilities for serving files.
 #[cfg(feature = "file-stream")]
+#[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub mod file_stream;
 
 /// Request handler traits and implementations.
@@ -42,6 +79,7 @@ pub mod middleware;
 
 /// Plugin system for extending framework functionality.
 #[cfg(feature = "plugins")]
+#[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
 pub mod plugins;
 
 /// Response generation utilities and traits.
@@ -70,6 +108,7 @@ pub mod r#static;
 
 /// Distributed tracing integration for observability.
 #[cfg(feature = "tako-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tako-tracing")))]
 pub mod tracing;
 
 /// Core type definitions used throughout the framework.
@@ -80,10 +119,12 @@ pub mod ws;
 
 /// GraphQL support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 pub mod graphql;
 
 /// GraphiQL UI helpers.
 #[cfg(feature = "graphiql")]
+#[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
 pub use bytes::Bytes;
 pub use http::{Method, StatusCode, header};
@@ -113,6 +154,7 @@ pub use server::serve;
 
 /// TLS/SSL server implementation for secure connections.
 #[cfg(feature = "tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub mod server_tls;
 
 /// Starts the HTTPS server with TLS encryption support.
@@ -137,9 +179,11 @@ pub mod server_tls;
 /// # }
 /// ```
 #[cfg(feature = "tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls::serve_tls;
 
 /// Global memory allocator using jemalloc for improved performance.
 #[cfg(feature = "jemalloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

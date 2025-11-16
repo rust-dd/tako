@@ -31,6 +31,8 @@
 //! # }
 //! ```
 
+#![cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
+
 use std::{io::SeekFrom, path::Path};
 
 use anyhow::Result;

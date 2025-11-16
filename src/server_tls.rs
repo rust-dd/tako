@@ -1,4 +1,5 @@
 #![cfg(feature = "tls")]
+#![cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 
 //! TLS-enabled HTTP server implementation for secure connections.
 //!

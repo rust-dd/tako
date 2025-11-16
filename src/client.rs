@@ -32,6 +32,8 @@
 //! # }
 //! ```
 
+#![cfg_attr(docsrs, doc(cfg(feature = "client")))]
+
 use std::{error::Error, sync::Arc};
 
 use http::{Request, Response};

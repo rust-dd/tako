@@ -1,6 +1,6 @@
 //! Signed cookie extraction and management for HTTP requests.
 //!
-//! This module provides the [`CookieSigned`] extractor that manages HMAC-signed cookies
+//! This module provides the [`CookieSigned`](crate::extractors::cookie_signed::CookieSigned) extractor that manages HMAC-signed cookies
 //! using a master key. Signed cookies use HMAC (Hash-based Message Authentication Code)
 //! to ensure that cookie values haven't been tampered with, while keeping the content
 //! readable. This provides integrity protection without confidentiality.

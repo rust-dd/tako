@@ -1,6 +1,6 @@
 //! Cookie extraction and management for HTTP requests.
 //!
-//! This module provides the [`CookieJar`] extractor that wraps the `cookie` crate's
+//! This module provides the [`CookieJar`](crate::extractors::cookie_jar::CookieJar) extractor that wraps the `cookie` crate's
 //! `CookieJar` and integrates with the application's request lifecycle. It allows
 //! extracting, adding, removing, and retrieving cookies from HTTP requests.
 //!

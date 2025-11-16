@@ -1,6 +1,7 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "simd")))]
 //! SIMD-accelerated JSON extraction from HTTP request bodies.
 //!
-//! This module provides the [`SimdJson`] extractor that leverages SIMD-accelerated JSON
+//! This module provides the [`SimdJson`](crate::extractors::simdjson::SimdJson) extractor that leverages SIMD-accelerated JSON
 //! parsing via the `simd_json` crate for high-performance deserialization of request bodies.
 //! It offers similar functionality to standard JSON extractors but with potentially
 //! better performance for large JSON payloads.

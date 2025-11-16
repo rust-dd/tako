@@ -1,6 +1,6 @@
 //! Raw request body access for HTTP requests.
 //!
-//! This module provides the [`Bytes`] extractor for accessing the raw HTTP request body
+//! This module provides the [`Bytes`](crate::extractors::bytes::Bytes) extractor for accessing the raw HTTP request body
 //! as a `hyper::body::Incoming` stream. This is useful when you need low-level access
 //! to the request body stream for custom processing, streaming, or when working directly
 //! with hyper's body types.

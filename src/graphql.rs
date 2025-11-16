@@ -6,6 +6,7 @@
 //!
 //! Enable via the `async-graphql` cargo feature.
 #![cfg(feature = "async-graphql")]
+#![cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 
 use std::{future::Future, str::FromStr, time::Duration};
 

@@ -3,6 +3,7 @@
 //! Enable with the `graphiql` feature. This module provides a `graphiql()` function that
 //! returns an HTML page rendering the GraphiQL UI, wired to your GraphQL and WS endpoints.
 #![cfg(feature = "graphiql")]
+#![cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 
 use http::{HeaderValue, header};
 

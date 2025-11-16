@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "protobuf")))]
 //! Protobuf request body extraction and deserialization for API endpoints.
 //!
 //! This module provides extractors for parsing Protocol Buffer request bodies into strongly-typed
