@@ -103,6 +103,9 @@ pub mod sse;
 /// Application state management and dependency injection.
 pub mod state;
 
+/// In-process signal arbiter for custom events.
+pub mod signals;
+
 /// Static file serving utilities.
 pub mod r#static;
 

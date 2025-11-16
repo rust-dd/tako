@@ -46,6 +46,7 @@ use crate::{
   middleware::Next,
   responder::Responder,
   route::Route,
+  signals::{Signal, SignalArbiter},
   state::set_state,
   types::{BoxMiddleware, Request, Response},
 };
@@ -97,6 +98,8 @@ pub struct Router {
   /// Flag to ensure plugins are initialized only once.
   #[cfg(feature = "plugins")]
   plugins_initialized: AtomicBool,
+  /// Signal arbiter for in-process event emission and handling.
+  signals: SignalArbiter,
 }
 
 impl Router {
@@ -111,6 +114,7 @@ impl Router {
       plugins: Vec::new(),
       #[cfg(feature = "plugins")]
       plugins_initialized: AtomicBool::new(false),
+      signals: SignalArbiter::new(),
     }
   }
 
@@ -321,6 +325,30 @@ impl Router {
   /// ```
   pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     set_state(value);
+  }
+
+  /// Returns a reference to the signal arbiter.
+  pub fn signals(&self) -> &SignalArbiter {
+    &self.signals
+  }
+
+  /// Returns a clone of the signal arbiter, useful for sharing through state.
+  pub fn signal_arbiter(&self) -> SignalArbiter {
+    self.signals.clone()
+  }
+
+  /// Registers a handler for a named signal on this router's arbiter.
+  pub fn on_signal<F, Fut>(&self, id: impl Into<String>, handler: F)
+  where
+    F: Fn(Signal) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+  {
+    self.signals.on(id, handler);
+  }
+
+  /// Emits a signal through this router's arbiter.
+  pub async fn emit_signal(&self, signal: Signal) {
+    self.signals.emit(signal).await;
   }
 
   /// Adds global middleware to the router.
@@ -546,6 +574,8 @@ impl Router {
         }
       }
     }
+
+    self.signals.merge_from(&other.signals);
   }
 
   /// Ensures the request HTTP version satisfies the route's configured protocol guard.

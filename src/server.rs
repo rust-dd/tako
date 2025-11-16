@@ -28,10 +28,12 @@ use http::Request;
 use hyper::{server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::{collections::HashMap};
 use tokio::net::TcpListener;
 
 use crate::body::TakoBody;
 use crate::router::Router;
+use crate::signals::{ids, Signal, SignalArbiter};
 use crate::types::BoxError;
 
 /// Starts the Tako HTTP server with the given listener and router.
@@ -49,7 +51,16 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
   #[cfg(feature = "plugins")]
   router.setup_plugins_once();
 
-  tracing::debug!("Tako listening on {}", listener.local_addr()?);
+  let addr_str = listener.local_addr()?.to_string();
+
+  // Emit server.started
+  let mut server_meta = HashMap::new();
+  server_meta.insert("addr".to_string(), addr_str.clone());
+  server_meta.insert("transport".to_string(), "tcp".to_string());
+  server_meta.insert("tls".to_string(), "false".to_string());
+  SignalArbiter::emit_app(Signal::with_metadata(ids::SERVER_STARTED, server_meta)).await;
+
+  tracing::debug!("Tako listening on {}", addr_str);
 
   loop {
     let (stream, addr) = listener.accept().await?;
@@ -58,12 +69,34 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
 
     // Spawn a new task to handle each incoming connection.
     tokio::spawn(async move {
+      // Emit connection.opened
+      let mut conn_open_meta = HashMap::new();
+      conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
+      SignalArbiter::emit_app(Signal::with_metadata(ids::CONNECTION_OPENED, conn_open_meta)).await;
+
       let svc = service_fn(move |mut req: Request<_>| {
         let router = router.clone();
         async move {
+          let path = req.uri().path().to_string();
+          let method = req.method().to_string();
+
           req.extensions_mut().insert(addr);
-          // Map hyper body to TakoBody to keep request hyper-independent
-          Ok::<_, Infallible>(router.dispatch(req.map(TakoBody::new)).await)
+
+          let mut req_meta = HashMap::new();
+          req_meta.insert("method".to_string(), method.clone());
+          req_meta.insert("path".to_string(), path.clone());
+          SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+
+          // Map hyper body to TakoBody to keep request body independent
+          let response = router.dispatch(req.map(TakoBody::new)).await;
+
+          let mut done_meta = HashMap::new();
+          done_meta.insert("method".to_string(), method);
+          done_meta.insert("path".to_string(), path);
+          done_meta.insert("status".to_string(), response.status().as_u16().to_string());
+          SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+
+          Ok::<_, Infallible>(response)
         }
       });
 
@@ -75,6 +108,11 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
       if let Err(err) = conn.await {
         tracing::error!("Error serving connection: {err}");
       }
+
+      // Emit connection.closed
+      let mut conn_close_meta = HashMap::new();
+      conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+      SignalArbiter::emit_app(Signal::with_metadata(ids::CONNECTION_CLOSED, conn_close_meta)).await;
     });
   }
 }
