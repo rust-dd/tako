@@ -6,16 +6,10 @@ use tako::{
   extractors::state::State,
   responder::Responder,
   router::Router,
-  signals::{
-    app_events,
-    ids,
-    Signal,
-    SignalArbiter,
-    SignalPayload,
-  },
+  signals::{Signal, SignalArbiter, SignalPayload, app_events, ids},
 };
 use tokio::net::TcpListener;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug, Clone)]
 struct RequestCompletedEvent {
@@ -172,7 +166,10 @@ fn init_app_signals() {
 
   // Introspection for app-level topics
   println!("[advanced][app] signal ids: {:?}", bus.signal_ids());
-  println!("[advanced][app] signal prefixes: {:?}", bus.signal_prefixes());
+  println!(
+    "[advanced][app] signal prefixes: {:?}",
+    bus.signal_prefixes()
+  );
 }
 
 fn init_router_signals(router: &mut Router) {
@@ -214,13 +211,14 @@ async fn main() -> Result<()> {
   router.route(Method::GET, "/calc/ok", calc_ok);
   router.route(Method::GET, "/calc/timeout", calc_timeout);
   router.route(Method::GET, "/emit-typed", emit_typed);
-
-  // Route with its own route-level signal handlers
-  let route = router.route(Method::GET, "/route", route_with_signals);
-  route.on_signal(ids::ROUTE_REQUEST_COMPLETED, |signal: Signal| async move {
-    println!("[advanced][route-level] /route completed: {:?}", signal.metadata);
-  });
-
+  router
+    .route(Method::GET, "/route", route_with_signals)
+    .on_signal(ids::ROUTE_REQUEST_COMPLETED, |signal: Signal| async move {
+      println!(
+        "[advanced][route-level] /route completed: {:?}",
+        signal.metadata
+      );
+    });
   router.route(Method::GET, "/error", error_route);
 
   tako::serve(listener, router).await;
