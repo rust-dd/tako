@@ -225,6 +225,24 @@ impl Router {
     route
   }
 
+  /// Executes the given endpoint through the global middleware chain.
+  ///
+  /// This helper is used for cases like TSR redirects and default 404 responses,
+  /// ensuring that router-level middleware (e.g., CORS) always runs.
+  async fn run_with_global_middlewares_for_endpoint(
+    &self,
+    req: Request,
+    endpoint: BoxHandler,
+  ) -> Response {
+    let g_mws = self.middlewares.read().clone();
+    let next = Next {
+      middlewares: Arc::new(g_mws),
+      endpoint: Arc::new(endpoint),
+    };
+
+    next.run(req).await
+  }
+
   /// Dispatches an incoming request to the appropriate route handler.
   pub async fn dispatch(&self, mut req: Request) -> Response {
     let method = req.method().clone();
@@ -312,27 +330,37 @@ impl Router {
       && let Ok(matched) = method_router.at(&tsr_path)
       && matched.value.tsr
     {
-      return http::Response::builder()
-        .status(StatusCode::TEMPORARY_REDIRECT)
-        .header("Location", tsr_path)
-        .body(TakoBody::empty())
-        .unwrap();
+      let handler = move |_req: Request| async move {
+        http::Response::builder()
+          .status(StatusCode::TEMPORARY_REDIRECT)
+          .header("Location", tsr_path.clone())
+          .body(TakoBody::empty())
+          .unwrap()
+      };
+
+      return self
+        .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+        .await;
     }
 
     // No match: use fallback handler if configured
     if let Some(handler) = &self.fallback {
-      let g_mws = self.middlewares.read().clone();
-      let next = Next {
-        middlewares: Arc::new(g_mws),
-        endpoint: Arc::new(handler.clone()),
-      };
-      return next.run(req).await;
+      return self
+        .run_with_global_middlewares_for_endpoint(req, handler.clone())
+        .await;
     }
 
-    http::Response::builder()
-      .status(StatusCode::NOT_FOUND)
-      .body(TakoBody::empty())
-      .unwrap()
+    // No fallback: run global middlewares (if any) around a default 404 response
+    let handler = |_req: Request| async {
+      http::Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(TakoBody::empty())
+        .unwrap()
+    };
+
+    self
+      .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+      .await
   }
 
   /// Adds a value to the global type-based state accessible by all handlers.
