@@ -108,7 +108,7 @@ pub struct Router {
 impl Router {
   /// Creates a new, empty router.
   pub fn new() -> Self {
-    Self {
+    let router = Self {
       inner: DashMap::default(),
       routes: DashMap::default(),
       middlewares: RwLock::new(Vec::new()),
@@ -119,7 +119,17 @@ impl Router {
       plugins_initialized: AtomicBool::new(false),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
+    };
+
+    #[cfg(feature = "signals")]
+    {
+      // If not already present, expose router-level SignalArbiter via global state
+      if crate::state::get_state::<SignalArbiter>().is_none() {
+        set_state::<SignalArbiter>(router.signals.clone());
+      }
     }
+
+    router
   }
 
   /// Registers a new route with the router.
