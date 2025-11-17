@@ -312,7 +312,13 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
   }
 
   // Access-Control-Allow-Headers header
-  if !cfg.headers.is_empty() {
+  if cfg.headers.is_empty() {
+    // Allow all request headers by default when none are explicitly configured.
+    resp.headers_mut().insert(
+      ACCESS_CONTROL_ALLOW_HEADERS,
+      HeaderValue::from_static("*"),
+    );
+  } else {
     let h = cfg
       .headers
       .iter()
