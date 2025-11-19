@@ -134,6 +134,7 @@ pub mod graphql;
 #[cfg(feature = "graphiql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
+
 pub use bytes::Bytes;
 pub use http::{Method, StatusCode, header};
 pub use http_body_util::Full;
@@ -166,11 +167,9 @@ pub use server::serve;
 /// This helper is primarily intended for local development and example binaries.
 /// It will keep proposing the next port number until a free one is found or
 /// the user declines.
-pub async fn bind_with_port_fallback(
-  addr: &str,
-) -> io::Result<tokio::net::TcpListener> {
-  let mut socket_addr = SocketAddr::from_str(addr)
-    .map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpListener> {
+  let mut socket_addr =
+    SocketAddr::from_str(addr).map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
   let start_port = socket_addr.port();
 
   loop {
