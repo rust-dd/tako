@@ -46,7 +46,8 @@
 //! }
 //! ```
 
-use std::{collections::HashMap, future::ready};
+use std::collections::HashMap;
+use crate::types::BuildHasher;
 
 use http::{StatusCode, request::Parts};
 use serde::de::DeserializeOwned;
@@ -105,7 +106,7 @@ where
     let query = query_string.unwrap_or_default();
 
     // Parse query parameters into a HashMap
-    let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+    let params: HashMap<String, String, BuildHasher> = form_urlencoded::parse(query.as_bytes())
       .into_owned()
       .collect();
 
@@ -130,7 +131,7 @@ where
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_query_string(req.uri().query()))
+    futures_util::future::ready(Self::extract_from_query_string(req.uri().query()))
   }
 }
 
@@ -143,6 +144,6 @@ where
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_query_string(parts.uri.query()))
+    futures_util::future::ready(Self::extract_from_query_string(parts.uri.query()))
   }
 }

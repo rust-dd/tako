@@ -61,9 +61,10 @@ async fn raw_with_file(mut req: Request) -> impl Responder {
 
 async fn raw_text(mut req: Request) -> impl Responder {
   use std::collections::HashMap;
+  use tako::types::BuildHasher;
 
   let TakoMultipart(mut mp) = TakoMultipart::from_request(&mut req).await.unwrap();
-  let mut map = HashMap::new();
+  let mut map: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
 
   while let Some(field) = mp.next_field().await.unwrap() {
     if field.file_name().is_some() {

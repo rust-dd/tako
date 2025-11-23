@@ -38,7 +38,8 @@
 //! }
 //! ```
 
-use std::{collections::HashMap, future::ready};
+use std::collections::HashMap;
+use crate::types::BuildHasher;
 
 use http::StatusCode;
 use serde::de::DeserializeOwned;
@@ -48,7 +49,7 @@ use crate::{extractors::FromRequest, responder::Responder, types::Request};
 
 /// Internal helper struct for storing path parameters extracted from routes.
 #[derive(Clone, Default)]
-pub(crate) struct PathParams(pub HashMap<String, String>);
+pub(crate) struct PathParams(pub HashMap<String, String, BuildHasher>);
 
 /// Path parameter extractor with automatic deserialization to typed structures.
 #[doc(alias = "params")]
@@ -90,7 +91,7 @@ where
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_params(req))
+    futures_util::future::ready(Self::extract_params(req))
   }
 }
 
@@ -114,7 +115,7 @@ where
   }
 
   /// Converts string parameters into JSON-compatible values with type coercion.
-  fn coerce_params(map: &HashMap<String, String>) -> Map<String, Value> {
+fn coerce_params(map: &HashMap<String, String, BuildHasher>) -> Map<String, Value> {
     let mut result = Map::new();
 
     for (k, v) in map {

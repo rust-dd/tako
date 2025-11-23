@@ -60,7 +60,7 @@ where
   fn from_request(
     _req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    std::future::ready(match get_state::<T>() {
+    futures_util::future::ready(match get_state::<T>() {
       Some(arc) => Ok(Self(arc)),
       None => Err(MissingState),
     })
@@ -76,7 +76,7 @@ where
   fn from_request_parts(
     _parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    std::future::ready(match get_state::<T>() {
+    futures_util::future::ready(match get_state::<T>() {
       Some(arc) => Ok(Self(arc)),
       None => Err(MissingState),
     })

@@ -12,6 +12,7 @@ documentation = "https://docs.rs/tako-rs"
 homepage = "https://github.com/rust-dd/tako"
 
 [dependencies]
+ahash = { version = "0.8.12", features = ["serde"], optional = true }
 anyhow = "1.0.98"
 async-graphql = { version = "7.0.17", optional = true }
 async-trait = "0.1.88"
@@ -76,7 +77,9 @@ protobuf = ["dep:prost"]
 signals = []
 simd = ["dep:simd-json", "jemalloc"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+ahash = ["dep:ahash"]
 tako-tracing = ["dep:tracing-subscriber"]
+zero-copy-extractors = []
 zstd = ["dep:zstd", "plugins"]
 
 [lib]

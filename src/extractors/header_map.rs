@@ -24,7 +24,7 @@
 //! ```
 
 use http::request::Parts;
-use std::{convert::Infallible, future::ready};
+use std::convert::Infallible;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -67,7 +67,7 @@ impl<'a> FromRequest<'a> for HeaderMap {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(HeaderMap(req.headers().clone())))
+    futures_util::future::ready(Ok(HeaderMap(req.headers().clone())))
   }
 }
 
@@ -77,6 +77,6 @@ impl<'a> FromRequestParts<'a> for HeaderMap {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(HeaderMap(parts.headers.clone())))
+    futures_util::future::ready(Ok(HeaderMap(parts.headers.clone())))
   }
 }

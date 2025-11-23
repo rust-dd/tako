@@ -23,7 +23,6 @@
 
 use cookie::Key;
 use http::{StatusCode, request::Parts};
-use std::future::ready;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -279,7 +278,7 @@ impl<'a> FromRequest<'a> for CookieKeyExpansion {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_request(req))
+    futures_util::future::ready(Self::extract_from_request(req))
   }
 }
 
@@ -289,6 +288,6 @@ impl<'a> FromRequestParts<'a> for CookieKeyExpansion {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_parts(parts))
+    futures_util::future::ready(Self::extract_from_parts(parts))
   }
 }

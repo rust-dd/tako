@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use tako::types::BuildHasher;
 
 use anyhow::Result;
 use tako::{
@@ -38,7 +39,7 @@ async fn calc(State(arbiter): State<SignalArbiter>) -> impl Responder {
 }
 
 async fn trigger_hot_reload() -> impl Responder {
-  let mut meta = HashMap::new();
+  let mut meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
   meta.insert("reason".to_string(), "manual-trigger".to_string());
   SignalArbiter::emit_app(Signal::with_metadata(ids::ROUTER_HOT_RELOAD, meta)).await;
 
@@ -97,7 +98,7 @@ fn init_router_signals(router: &mut Router) {
 }
 
 async fn route_with_signals(State(arbiter): State<SignalArbiter>) -> impl Responder {
-  let mut meta = HashMap::new();
+  let mut meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
   meta.insert("path".to_string(), "/route".to_string());
 
   arbiter

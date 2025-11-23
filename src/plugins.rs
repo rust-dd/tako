@@ -62,6 +62,9 @@ pub mod rate_limiter;
 /// Metrics/tracing plugin for integrating with systems like Prometheus or OpenTelemetry.
 pub mod metrics;
 
+/// Idempotency-Key based request de-duplication plugin.
+pub mod idempotency;
+
 /// Trait for implementing Tako framework plugins.
 ///
 /// Plugins extend the framework's functionality by implementing this trait. They can

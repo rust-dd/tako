@@ -191,6 +191,6 @@ impl<'a> FromRequest<'a> for &'a mut crate::types::Request {
   fn from_request(
     req: &'a mut crate::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    std::future::ready(Ok(req))
+    futures_util::future::ready(Ok(req))
   }
 }

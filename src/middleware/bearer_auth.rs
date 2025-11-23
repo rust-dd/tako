@@ -40,6 +40,7 @@ use bytes::Bytes;
 use http::{StatusCode, header};
 use http_body_util::Full;
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use crate::types::BuildHasher;
 
 use crate::{
   body::TakoBody,
@@ -94,7 +95,7 @@ use crate::{
 /// ```
 pub struct BearerAuth {
   /// Static token set for quick validation.
-  tokens: Option<HashSet<String>>,
+  tokens: Option<HashSet<String, BuildHasher>>,
   /// Custom verification function for dynamic token validation.
   verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
 }
@@ -104,8 +105,10 @@ pub struct BearerAuth {
 impl BearerAuth {
   /// Creates authentication middleware with a single static token.
   pub fn static_token(token: impl Into<String>) -> Self {
+    let mut set: HashSet<String, BuildHasher> = HashSet::with_hasher(BuildHasher::default());
+    set.insert(token.into());
     Self {
-      tokens: Some([token.into()].into()),
+      tokens: Some(set),
       verify: None,
     }
   }

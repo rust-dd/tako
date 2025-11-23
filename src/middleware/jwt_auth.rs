@@ -41,6 +41,7 @@
 //! ```
 
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use crate::types::BuildHasher;
 
 use http::{StatusCode, header::AUTHORIZATION};
 use jwt_simple::prelude::*;
@@ -219,7 +220,7 @@ where
   T: DeserializeOwned + Send + Sync + 'static,
 {
   /// Map of algorithm identifiers to verification keys.
-  keys: Arc<HashMap<&'static str, AnyVerifyKey>>,
+  keys: Arc<HashMap<&'static str, AnyVerifyKey, BuildHasher>>,
   /// Phantom data for generic type association.
   _phantom: std::marker::PhantomData<T>,
 }
@@ -229,7 +230,7 @@ where
   T: DeserializeOwned + Send + Sync + 'static,
 {
   /// Creates a new JWT authentication middleware with the specified verification keys.
-  pub fn new(keys: HashMap<&'static str, AnyVerifyKey>) -> Self {
+  pub fn new(keys: HashMap<&'static str, AnyVerifyKey, BuildHasher>) -> Self {
     Self {
       keys: Arc::new(keys),
       _phantom: std::marker::PhantomData,

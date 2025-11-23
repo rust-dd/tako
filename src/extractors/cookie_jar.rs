@@ -25,7 +25,7 @@
 //! ```
 use cookie::{Cookie, CookieJar as RawJar};
 use http::{HeaderMap, header::COOKIE, request::Parts};
-use std::{convert::Infallible, future::ready};
+use std::convert::Infallible;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -102,7 +102,7 @@ impl<'a> FromRequest<'a> for CookieJar {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(CookieJar::from_headers(req.headers())))
+    futures_util::future::ready(Ok(CookieJar::from_headers(req.headers())))
   }
 }
 
@@ -112,6 +112,6 @@ impl<'a> FromRequestParts<'a> for CookieJar {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(CookieJar::from_headers(&parts.headers)))
+    futures_util::future::ready(Ok(CookieJar::from_headers(&parts.headers)))
   }
 }

@@ -116,7 +116,7 @@ impl<'a> FromRequestParts<'a> for GraphQLProtocol {
   fn from_request_parts(
     parts: &'a mut http::request::Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    std::future::ready(
+    futures_util::future::ready(
       parts
         .headers
         .get(header::SEC_WEBSOCKET_PROTOCOL)
@@ -138,7 +138,7 @@ impl<'a> FromRequest<'a> for GraphQLProtocol {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    std::future::ready(
+    futures_util::future::ready(
       req
         .headers()
         .get(header::SEC_WEBSOCKET_PROTOCOL)

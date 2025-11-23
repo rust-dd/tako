@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use tako::types::BuildHasher;
 
 use anyhow::Result;
 use tako::{
@@ -23,8 +24,8 @@ impl SignalPayload for RequestCompletedEvent {
     ids::REQUEST_COMPLETED
   }
 
-  fn to_metadata(&self) -> HashMap<String, String> {
-    let mut m = HashMap::new();
+  fn to_metadata(&self) -> HashMap<String, String, BuildHasher> {
+    let mut m: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
     m.insert("method".into(), self.method.clone());
     m.insert("path".into(), self.path.clone());
     m.insert("status".into(), self.status.to_string());
@@ -101,7 +102,7 @@ async fn error_route() -> anyhow::Result<String> {
 }
 
 async fn route_with_signals(State(arbiter): State<SignalArbiter>) -> impl Responder {
-  let mut meta = HashMap::new();
+  let mut meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
   meta.insert("path".to_string(), "/route".to_string());
 
   arbiter

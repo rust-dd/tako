@@ -31,7 +31,6 @@
 //! # }
 //! ```
 
-use http::Request;
 use hyper::{server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -42,6 +41,8 @@ use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
 
 #[cfg(feature = "signals")]
 use crate::signals::{Signal, SignalArbiter, ids};
+#[cfg(feature = "signals")]
+use crate::types::BuildHasher;
 #[cfg(feature = "signals")]
 use std::collections::HashMap;
 
@@ -103,7 +104,8 @@ pub async fn run(
   #[cfg(feature = "signals")]
   {
     // Emit server.started (TLS)
-    let mut server_meta = HashMap::new();
+    let mut server_meta: HashMap<String, String, BuildHasher> =
+      HashMap::with_hasher(BuildHasher::default());
     server_meta.insert("addr".to_string(), addr_str.clone());
     server_meta.insert("transport".to_string(), "tcp".to_string());
     server_meta.insert("tls".to_string(), "true".to_string());
@@ -129,7 +131,8 @@ pub async fn run(
       #[cfg(feature = "signals")]
       {
         // Emit connection.opened (TLS)
-        let mut conn_open_meta = HashMap::new();
+        let mut conn_open_meta: HashMap<String, String, BuildHasher> =
+          HashMap::with_hasher(BuildHasher::default());
         conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
         conn_open_meta.insert("tls".to_string(), "true".to_string());
         SignalArbiter::emit_app(Signal::with_metadata(
@@ -143,7 +146,7 @@ pub async fn run(
       let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
 
       let io = TokioIo::new(tls_stream);
-      let svc = service_fn(move |mut req: Request<_>| {
+      let svc = service_fn(move |mut req| {
         let r = router.clone();
         async move {
           #[cfg(feature = "signals")]
@@ -155,7 +158,8 @@ pub async fn run(
 
           #[cfg(feature = "signals")]
           {
-            let mut req_meta = HashMap::new();
+            let mut req_meta: HashMap<String, String, BuildHasher> =
+              HashMap::with_hasher(BuildHasher::default());
             req_meta.insert("method".to_string(), method.clone());
             req_meta.insert("path".to_string(), path.clone());
             SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
@@ -165,7 +169,8 @@ pub async fn run(
 
           #[cfg(feature = "signals")]
           {
-            let mut done_meta = HashMap::new();
+            let mut done_meta: HashMap<String, String, BuildHasher> =
+              HashMap::with_hasher(BuildHasher::default());
             done_meta.insert("method".to_string(), method);
             done_meta.insert("path".to_string(), path);
             done_meta.insert("status".to_string(), response.status().as_u16().to_string());
@@ -187,7 +192,8 @@ pub async fn run(
         #[cfg(feature = "signals")]
         {
           // Emit connection.closed (TLS, h2)
-          let mut conn_close_meta = HashMap::new();
+          let mut conn_close_meta: HashMap<String, String, BuildHasher> =
+            HashMap::with_hasher(BuildHasher::default());
           conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
           conn_close_meta.insert("tls".to_string(), "true".to_string());
           SignalArbiter::emit_app(Signal::with_metadata(
@@ -209,7 +215,8 @@ pub async fn run(
       #[cfg(feature = "signals")]
       {
         // Emit connection.closed (TLS, h1)
-        let mut conn_close_meta = HashMap::new();
+        let mut conn_close_meta: HashMap<String, String, BuildHasher> =
+          HashMap::with_hasher(BuildHasher::default());
         conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
         conn_close_meta.insert("tls".to_string(), "true".to_string());
         SignalArbiter::emit_app(Signal::with_metadata(

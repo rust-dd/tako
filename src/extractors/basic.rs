@@ -32,7 +32,6 @@
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use http::{StatusCode, request::Parts};
-use std::future::ready;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -144,7 +143,7 @@ impl<'a> FromRequest<'a> for Basic {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(req.headers()))
+    futures_util::future::ready(Self::extract_from_headers(req.headers()))
   }
 }
 
@@ -154,6 +153,6 @@ impl<'a> FromRequestParts<'a> for Basic {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(&parts.headers))
+    futures_util::future::ready(Self::extract_from_headers(&parts.headers))
   }
 }

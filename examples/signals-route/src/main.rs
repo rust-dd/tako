@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use tako::types::BuildHasher;
 
 use anyhow::Result;
 use tako::{
@@ -11,7 +12,7 @@ use tako::{
 use tokio::net::TcpListener;
 
 async fn route_handler(State(bus): State<SignalArbiter>) -> impl Responder {
-  let mut meta = HashMap::new();
+  let mut meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
   // In a real app you might extract the path from Request via another extractor;
   // here we just tag a static value for demonstration.
   meta.insert("path".to_string(), "/route".to_string());
