@@ -47,6 +47,7 @@
 //! ```
 
 use std::collections::HashMap;
+use crate::types::BuildHasher;
 
 use http::{StatusCode, request::Parts};
 use serde::de::DeserializeOwned;
@@ -105,7 +106,7 @@ where
     let query = query_string.unwrap_or_default();
 
     // Parse query parameters into a HashMap
-    let params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+    let params: HashMap<String, String, BuildHasher> = form_urlencoded::parse(query.as_bytes())
       .into_owned()
       .collect();
 

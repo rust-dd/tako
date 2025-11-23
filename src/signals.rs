@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{any::Any, collections::HashMap, sync::Arc};
+use crate::types::BuildHasher;
 
 use dashmap::DashMap;
 use futures_util::future::{BoxFuture, join_all};
@@ -40,7 +41,7 @@ pub struct Signal {
   /// Identifier of the signal, for example "request.started" or "metrics.tick".
   pub id: String,
   /// Optional metadata payload carried with the signal.
-  pub metadata: HashMap<String, String>,
+  pub metadata: HashMap<String, String, BuildHasher>,
 }
 
 impl Signal {
@@ -48,12 +49,12 @@ impl Signal {
   pub fn new(id: impl Into<String>) -> Self {
     Self {
       id: id.into(),
-      metadata: HashMap::new(),
+      metadata: HashMap::with_hasher(BuildHasher::default()),
     }
   }
 
   /// Creates a new signal with initial metadata.
-  pub fn with_metadata(id: impl Into<String>, metadata: HashMap<String, String>) -> Self {
+  pub fn with_metadata(id: impl Into<String>, metadata: HashMap<String, String, BuildHasher>) -> Self {
     Self {
       id: id.into(),
       metadata,
@@ -75,7 +76,7 @@ pub trait SignalPayload {
   fn id(&self) -> &'static str;
 
   /// Serializes the payload into the metadata map.
-  fn to_metadata(&self) -> HashMap<String, String>;
+  fn to_metadata(&self) -> HashMap<String, String, BuildHasher>;
 }
 
 /// Boxed async signal handler.

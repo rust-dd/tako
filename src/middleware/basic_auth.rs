@@ -46,6 +46,7 @@ use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header};
 use http_body_util::Full;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use crate::types::BuildHasher;
 
 /// Basic HTTP authentication middleware configuration.
 ///
@@ -89,7 +90,7 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 /// ```
 pub struct BasicAuth {
   /// Static user credentials map (username -> password).
-  users: Option<Arc<HashMap<String, String>>>,
+  users: Option<Arc<HashMap<String, String, BuildHasher>>>,
   /// Custom verification function for dynamic authentication.
   verify: Option<Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>>,
   /// Authentication realm for WWW-Authenticate header.
