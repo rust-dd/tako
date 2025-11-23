@@ -143,7 +143,7 @@ pub async fn run(
       let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
 
       let io = TokioIo::new(tls_stream);
-      let svc = service_fn(move |mut req: Request<_>| {
+      let svc = service_fn(move |mut req| {
         let r = router.clone();
         async move {
           #[cfg(feature = "signals")]

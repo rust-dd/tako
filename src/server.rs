@@ -24,7 +24,6 @@
 //! # }
 //! ```
 
-use http::Request;
 use hyper::{server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -87,7 +86,7 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
         .await;
       }
 
-      let svc = service_fn(move |mut req: Request<_>| {
+      let svc = service_fn(move |mut req| {
         let router = router.clone();
         async move {
           #[cfg(feature = "signals")]
