@@ -135,6 +135,10 @@ pub mod graphql;
 #[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
 
+#[cfg(feature = "zero-copy-extractors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zero-copy-extractors")))]
+pub mod zero_copy_extractors;
+
 pub use bytes::Bytes;
 pub use http::{Method, StatusCode, header};
 pub use http_body_util::Full;
