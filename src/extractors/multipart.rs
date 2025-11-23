@@ -36,7 +36,6 @@ use http_body_util::BodyExt;
 use multer::Multipart;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
-use std::future::ready;
 use tokio::{fs::File, io::AsyncWriteExt};
 use uuid::Uuid;
 
@@ -184,7 +183,7 @@ impl<'a> FromRequest<'a> for TakoMultipart<'a> {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_multipart(req))
+    futures_util::future::ready(Self::extract_multipart(req))
   }
 }
 

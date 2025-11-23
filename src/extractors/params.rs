@@ -38,7 +38,7 @@
 //! }
 //! ```
 
-use std::{collections::HashMap, future::ready};
+use std::collections::HashMap;
 
 use http::StatusCode;
 use serde::de::DeserializeOwned;
@@ -90,7 +90,7 @@ where
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_params(req))
+    futures_util::future::ready(Self::extract_params(req))
   }
 }
 

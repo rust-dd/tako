@@ -22,7 +22,7 @@
 //! }
 //! ```
 
-use std::{convert::Infallible, future::ready};
+use std::convert::Infallible;
 
 use crate::{body::TakoBody, extractors::FromRequest, types::Request};
 
@@ -39,6 +39,6 @@ impl<'a> FromRequest<'a> for Bytes<'a> {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    ready(Ok(Bytes(req.body_mut())))
+    futures_util::future::ready(Ok(Bytes(req.body_mut())))
   }
 }

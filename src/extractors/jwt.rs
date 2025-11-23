@@ -39,7 +39,6 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use http::{StatusCode, request::Parts};
 use serde::de::DeserializeOwned;
-use std::future::ready;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -267,7 +266,7 @@ impl<'a> FromRequest<'a> for Jwt {
   fn from_request(
     req: &'a mut Request,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(req.headers()))
+    futures_util::future::ready(Self::extract_from_headers(req.headers()))
   }
 }
 
@@ -277,7 +276,7 @@ impl<'a> FromRequestParts<'a> for Jwt {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(&parts.headers))
+    futures_util::future::ready(Self::extract_from_headers(&parts.headers))
   }
 }
 
@@ -290,7 +289,7 @@ where
   fn from_request(
     req: &'a mut Request,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(req.headers()))
+    futures_util::future::ready(Self::extract_from_headers(req.headers()))
   }
 }
 
@@ -303,6 +302,6 @@ where
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Self::extract_from_headers(&parts.headers))
+    futures_util::future::ready(Self::extract_from_headers(&parts.headers))
   }
 }

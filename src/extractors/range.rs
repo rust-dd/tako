@@ -57,7 +57,6 @@
 //! ```
 
 use http::{HeaderMap, StatusCode, request::Parts};
-use std::future::ready;
 
 use crate::{
   extractors::{FromRequest, FromRequestParts},
@@ -145,7 +144,7 @@ impl<'a> FromRequest<'a> for Option<Range> {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Range::from_headers(req.headers()))
+    futures_util::future::ready(Range::from_headers(req.headers()))
   }
 }
 
@@ -155,6 +154,6 @@ impl<'a> FromRequestParts<'a> for Option<Range> {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    ready(Range::from_headers(&parts.headers))
+    futures_util::future::ready(Range::from_headers(&parts.headers))
   }
 }
