@@ -49,3 +49,9 @@ pub(crate) type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Boxed middleware function type for dynamic middleware composition.
 pub type BoxMiddleware = Arc<dyn Fn(Request, Next) -> BoxFuture<'static, Response> + Send + Sync>;
+
+#[cfg(feature = "tako-ahash")]
+pub type BuildHasher = ahash::RandomState;
+
+#[cfg(not(feature = "tako-ahash"))]
+pub type BuildHasher = std::collections::hash_map::RandomState;

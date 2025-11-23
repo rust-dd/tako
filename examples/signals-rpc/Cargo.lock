@@ -38,7 +38,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
@@ -1622,7 +1621,6 @@ dependencies = [
 name = "signals-rpc"
 version = "0.1.0"
 dependencies = [
- "ahash",
  "anyhow",
  "tako-rs",
  "tokio",
@@ -1727,7 +1725,6 @@ dependencies = [
 name = "tako-rs"
 version = "0.6.0"
 dependencies = [
- "ahash",
  "anyhow",
  "async-trait",
  "base64",

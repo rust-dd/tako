@@ -27,7 +27,11 @@ use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 
-use crate::{extractors::FromRequest, responder::Responder, types::Request};
+use crate::{
+  extractors::FromRequest,
+  responder::Responder,
+  types::{BuildHasher, Request},
+};
 
 /// Represents a form extracted from an HTTP request body.
 ///
@@ -164,7 +168,7 @@ where
         .collect::<Vec<(String, String)>>();
 
       // Convert to HashMap
-      let form_map = HashMap::<String, String>::from_iter(form_data);
+      let form_map = HashMap::<String, String, BuildHasher>::from_iter(form_data);
 
       // Convert to JSON value for deserialization
       let json_value =
