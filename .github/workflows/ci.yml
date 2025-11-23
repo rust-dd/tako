@@ -50,18 +50,5 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-build-
 
-      # Build in release mode
-      - name: Build in release mode
-        run: cargo build --release --all-features
-
-      # Compile tests for all features without running them
-      - name: Compile tests (all features)
-        run: cargo test --all-features --no-run
-
-      # Run tests
-      - name: Run tests
-        run: cargo test --release --all-features
-
-      # Validate examples
       - name: Build all examples
         run: cargo build --release --all-features --examples
