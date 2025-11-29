@@ -36,11 +36,11 @@
 //! });
 //! ```
 
+use crate::types::BuildHasher;
 use bytes::Bytes;
 use http::{StatusCode, header};
 use http_body_util::Full;
 use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
-use crate::types::BuildHasher;
 
 use crate::{
   body::TakoBody,

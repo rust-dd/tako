@@ -40,8 +40,8 @@
 //! let multi_auth = JwtAuth::<UserClaims>::new(multi_keys);
 //! ```
 
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use crate::types::BuildHasher;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use http::{StatusCode, header::AUTHORIZATION};
 use jwt_simple::prelude::*;

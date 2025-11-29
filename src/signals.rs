@@ -4,9 +4,9 @@
 //! and handled within a Tako application. It is intended for cross-cutting
 //! concerns such as metrics, logging hooks, or custom application events.
 
+use crate::types::BuildHasher;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{any::Any, collections::HashMap, sync::Arc};
-use crate::types::BuildHasher;
 
 use dashmap::DashMap;
 use futures_util::future::{BoxFuture, join_all};
@@ -54,7 +54,10 @@ impl Signal {
   }
 
   /// Creates a new signal with initial metadata.
-  pub fn with_metadata(id: impl Into<String>, metadata: HashMap<String, String, BuildHasher>) -> Self {
+  pub fn with_metadata(
+    id: impl Into<String>,
+    metadata: HashMap<String, String, BuildHasher>,
+  ) -> Self {
     Self {
       id: id.into(),
       metadata,
