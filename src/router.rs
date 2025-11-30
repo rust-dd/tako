@@ -29,11 +29,11 @@
 //! });
 //! ```
 
+use crate::types::BuildHasher;
 use std::{
   collections::HashMap,
   sync::{Arc, Weak},
 };
-use crate::types::BuildHasher;
 
 use dashmap::DashMap;
 use http::Method;
@@ -277,7 +277,8 @@ impl Router {
       route.setup_plugins_once();
 
       if !matched.params.iter().collect::<Vec<_>>().is_empty() {
-        let mut params: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
+        let mut params: HashMap<String, String, BuildHasher> =
+          HashMap::with_hasher(BuildHasher::default());
         for (k, v) in matched.params.iter() {
           params.insert(k.to_string(), v.to_string());
         }
@@ -299,7 +300,8 @@ impl Router {
         let method_str = method.to_string();
         let path_str = path.clone();
 
-        let mut start_meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
+        let mut start_meta: HashMap<String, String, BuildHasher> =
+          HashMap::with_hasher(BuildHasher::default());
         start_meta.insert("method".to_string(), method_str.clone());
         start_meta.insert("path".to_string(), path_str.clone());
         route_signals
@@ -311,7 +313,8 @@ impl Router {
 
         let response = next.run(req).await;
 
-        let mut done_meta: HashMap<String, String, BuildHasher> = HashMap::with_hasher(BuildHasher::default());
+        let mut done_meta: HashMap<String, String, BuildHasher> =
+          HashMap::with_hasher(BuildHasher::default());
         done_meta.insert("method".to_string(), method_str);
         done_meta.insert("path".to_string(), path_str);
         done_meta.insert("status".to_string(), response.status().as_u16().to_string());

@@ -38,8 +38,8 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
 use crate::types::BuildHasher;
+use std::collections::HashMap;
 
 use http::StatusCode;
 use serde::de::DeserializeOwned;
@@ -115,7 +115,7 @@ where
   }
 
   /// Converts string parameters into JSON-compatible values with type coercion.
-fn coerce_params(map: &HashMap<String, String, BuildHasher>) -> Map<String, Value> {
+  fn coerce_params(map: &HashMap<String, String, BuildHasher>) -> Map<String, Value> {
     let mut result = Map::new();
 
     for (k, v) in map {

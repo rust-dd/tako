@@ -46,8 +46,8 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
 use crate::types::BuildHasher;
+use std::collections::HashMap;
 
 use http::{StatusCode, request::Parts};
 use serde::de::DeserializeOwned;

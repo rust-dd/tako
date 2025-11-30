@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use tako::signals::{Signal, SignalArbiter};
-use tokio::time::{Duration, sleep};
 use tako::types::BuildHasher;
+use tokio::time::{Duration, sleep};
 
 #[derive(Debug)]
 struct AddRequest {
@@ -43,7 +43,8 @@ async fn main() -> Result<()> {
   });
 
   // Emit a custom event that the listener above will receive
-  let mut meta: std::collections::HashMap<String, String, BuildHasher> = std::collections::HashMap::with_hasher(BuildHasher::default());
+  let mut meta: std::collections::HashMap<String, String, BuildHasher> =
+    std::collections::HashMap::with_hasher(BuildHasher::default());
   meta.insert("message".to_string(), "hello from signals-rpc".to_string());
   arbiter
     .emit(Signal::with_metadata("custom.event", meta))

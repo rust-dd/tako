@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tako::extractors::{header_map::HeaderMap, json::Json};
-use tako::{router::Router, Method};
+use tako::{Method, router::Router};
 use tokio::net::TcpListener;
 
 #[derive(Deserialize)]
@@ -19,7 +19,10 @@ struct Output {
 /// Body: {"name": "Alice"}
 ///
 /// Demonstrates using both `Json` and `HeaderMap` extractors in the handler signature.
-async fn echo_with_headers(HeaderMap(headers): HeaderMap, Json(payload): Json<Input>) -> Json<Output> {
+async fn echo_with_headers(
+  HeaderMap(headers): HeaderMap,
+  Json(payload): Json<Input>,
+) -> Json<Output> {
   let user_agent = headers
     .get("user-agent")
     .and_then(|v| v.to_str().ok())

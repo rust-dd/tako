@@ -35,6 +35,7 @@
 //! });
 //! ```
 
+use crate::types::BuildHasher;
 use crate::{
   body::TakoBody,
   middleware::{IntoMiddleware, Next},
@@ -46,7 +47,6 @@ use bytes::Bytes;
 use http::{HeaderValue, StatusCode, header};
 use http_body_util::Full;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
-use crate::types::BuildHasher;
 
 /// Basic HTTP authentication middleware configuration.
 ///
