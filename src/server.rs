@@ -27,7 +27,11 @@
 use hyper::{server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
+#[cfg(not(feature = "compio"))]
 use tokio::net::TcpListener;
+
+#[cfg(feature = "compio")]
+use compio::net::TcpListener;
 
 #[cfg(feature = "signals")]
 use crate::signals::{Signal, SignalArbiter, ids};
