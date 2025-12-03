@@ -1,33 +1,13 @@
-//! HTTP server implementation and lifecycle management.
-//!
-//! This module provides the core server functionality for Tako, built on top of Hyper.
-//! It handles incoming TCP connections, dispatches requests through the router, and
-//! manages the server lifecycle. The main entry point is the `serve` function which
-//! starts an HTTP server with the provided listener and router configuration.
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use tako::{serve, router::Router, Method, responder::Responder, types::Request};
-//! use tokio::net::TcpListener;
-//!
-//! async fn hello(_: Request) -> impl Responder {
-//!     "Hello, World!".into_response()
-//! }
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let listener = TcpListener::bind("127.0.0.1:8080").await?;
-//! let mut router = Router::new();
-//! router.route(Method::GET, "/", hello);
-//! serve(listener, router).await;
-//! # Ok(())
-//! # }
-//! ```
-
-use hyper::{server::conn::http1, service::service_fn};
 use std::convert::Infallible;
 use std::sync::Arc;
-use tokio::net::TcpListener;
+
+use compio::net::TcpListener;
+use cyper_core::HyperStream;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+
+use crate::body::TakoBody;
+use crate::{router::Router, types::BoxError};
 
 #[cfg(feature = "signals")]
 use crate::signals::{Signal, SignalArbiter, ids};
@@ -36,22 +16,15 @@ use crate::types::BuildHasher;
 #[cfg(feature = "signals")]
 use std::collections::HashMap;
 
-use crate::body::TakoBody;
-use crate::router::Router;
-use crate::types::BoxError;
-
-/// Starts the Tako HTTP server with the given listener and router.
 pub async fn serve(listener: TcpListener, router: Router) {
-  run(listener, router).await.unwrap();
+  run(listener, router).await.unwrap()
 }
 
-/// Runs the main server loop, accepting connections and dispatching requests.
 async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   crate::tracing::init_tracing();
 
   let router = Arc::new(router);
-  // Setup plugins
   #[cfg(feature = "plugins")]
   router.setup_plugins_once();
 
@@ -72,11 +45,10 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
 
   loop {
     let (stream, addr) = listener.accept().await?;
-    let io = hyper_util::rt::TokioIo::new(stream);
+    let io = HyperStream::new(stream);
     let router = router.clone();
 
-    // Spawn a new task to handle each incoming connection.
-    tokio::spawn(async move {
+    compio::runtime::spawn(async move {
       #[cfg(feature = "signals")]
       {
         // Emit connection.opened
@@ -128,7 +100,6 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
 
       let mut http = http1::Builder::new();
       http.keep_alive(true);
-      // Serve the connection using HTTP/1.1 with support for upgrades.
       let conn = http.serve_connection(io, svc).with_upgrades();
 
       if let Err(err) = conn.await {
@@ -147,6 +118,7 @@ async fn run(listener: TcpListener, router: Router) -> Result<(), BoxError> {
         ))
         .await;
       }
-    });
+    })
+    .detach();
   }
 }

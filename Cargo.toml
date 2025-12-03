@@ -19,8 +19,9 @@ async-trait = "0.1.88"
 base64 = "0.22.1"
 brotli = { version = "8.0.1", optional = true }
 bytes = "1.10.1"
-compio = { version = "0.17.0", features = ["runtime"], optional = true }
+compio = { version = "0.17.0", features = ["rustls"], optional = true }
 cookie = { version = "0.18.1", features = ["private", "signed"] }
+cyper-core = { version = "0.7.0", optional = true }
 dashmap = "6.1.0"
 flate2 = { version = "1.1.2", optional = true }
 futures-util = "0.3.31"
@@ -62,6 +63,7 @@ webpki-roots = { version = "1.0.1", optional = true }
 zstd = { version = "0.13.3", optional = true }
 
 
+
 [target.'cfg(target_os = "freebsd")'.dependencies]
 jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"] }
 
@@ -70,7 +72,7 @@ jwt-simple = { version = "0.12.12" }
 
 [features]
 async-graphql = ["dep:async-graphql"]
-compio = ["dep:compio"]
+compio = ["dep:compio", "dep:cyper-core"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry-prometheus", "plugins", "signals"]
 graphiql = ["dep:async-graphql", "async-graphql/graphiql"]

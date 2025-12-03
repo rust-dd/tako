@@ -233,6 +233,15 @@ fn ask_to_use_next_port(current: u16, next: u16) -> io::Result<bool> {
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub mod server_tls;
 
+/// Compio server implementation for efficient I/O operations.
+#[cfg(feature = "compio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
+pub mod server_compio;
+
+#[cfg(feature = "compio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
+pub mod server_tls_compio;
+
 /// Starts the HTTPS server with TLS encryption support.
 ///
 /// Similar to `serve` but enables TLS encryption for secure connections. Requires
