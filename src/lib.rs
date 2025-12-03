@@ -163,7 +163,11 @@ pub use responder::NOT_FOUND;
 /// # Ok(())
 /// # }
 /// ```
+#[cfg(not(feature = "compio"))]
 pub use server::serve;
+
+#[cfg(feature = "compio")]
+pub use server_compio::serve;
 
 /// Bind a TCP listener for `addr`, asking interactively to increment the port
 /// if it is already in use.
@@ -229,7 +233,7 @@ fn ask_to_use_next_port(current: u16, next: u16) -> io::Result<bool> {
 }
 
 /// TLS/SSL server implementation for secure connections.
-#[cfg(feature = "tls")]
+#[cfg(all(not(feature = "compio-tls"), feature = "tls"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub mod server_tls;
 
@@ -238,7 +242,7 @@ pub mod server_tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub mod server_compio;
 
-#[cfg(feature = "compio")]
+#[cfg(feature = "compio-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub mod server_tls_compio;
 
@@ -263,9 +267,13 @@ pub mod server_tls_compio;
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "tls")]
+#[cfg(all(not(feature = "compio"), feature = "tls"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls::serve_tls;
+
+#[cfg(feature = "compio-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub use server_tls_compio::serve_tls;
 
 /// Global memory allocator using jemalloc for improved performance.
 #[cfg(feature = "jemalloc")]
