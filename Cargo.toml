@@ -118,6 +118,11 @@ name = "hello-world"
 path = "examples/hello-world/src/main.rs"
 
 [[example]]
+name = "hello-world-compio"
+path = "examples/hello-world-compio/src/main.rs"
+required-features = ["compio"]
+
+[[example]]
 name = "multipart"
 path = "examples/multipart/src/main.rs"
 required-features = ["multipart"]
