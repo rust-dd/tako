@@ -141,11 +141,6 @@ name = "websocket"
 path = "examples/websocket/src/main.rs"
 
 [[example]]
-name = "websocket-compio"
-path = "examples/websocket-compio/src/main.rs"
-required-features = ["compio"]
-
-[[example]]
 name = "websocket-http2"
 path = "examples/websocket-http2/src/main.rs"
 required-features = ["http2", "tls"]

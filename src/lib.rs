@@ -126,9 +126,6 @@ pub mod types;
 #[cfg(not(feature = "compio"))]
 pub mod ws;
 
-#[cfg(feature = "compio")]
-pub mod ws_compio;
-
 /// GraphQL support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
