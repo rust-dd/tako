@@ -1,0 +1,11 @@
+[package]
+name = "websocket-compio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+async-once-cell = "0.5.4"
+compio = { version = "0.17.0", features = ["macros"] }
+futures-util = "0.3.31"
+tako-rs = { path = "../..", features = ["compio"] }

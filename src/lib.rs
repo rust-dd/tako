@@ -123,7 +123,11 @@ pub mod tracing;
 pub mod types;
 
 /// WebSocket connection handling and message processing.
+#[cfg(not(feature = "compio"))]
 pub mod ws;
+
+#[cfg(feature = "compio")]
+pub mod ws_compio;
 
 /// GraphQL support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
@@ -175,6 +179,7 @@ pub use server_compio::serve;
 /// This helper is primarily intended for local development and example binaries.
 /// It will keep proposing the next port number until a free one is found or
 /// the user declines.
+#[cfg(not(feature = "compio"))]
 pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpListener> {
   let mut socket_addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
@@ -183,6 +188,37 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpLi
   loop {
     let addr_str = socket_addr.to_string();
     match tokio::net::TcpListener::bind(&addr_str).await {
+      Ok(listener) => {
+        if socket_addr.port() != start_port {
+          println!(
+            "Port {} was in use, starting on {} instead",
+            start_port,
+            socket_addr.port()
+          );
+        }
+        return Ok(listener);
+      }
+      Err(err) if err.kind() == ErrorKind::AddrInUse => {
+        let next_port = socket_addr.port().saturating_add(1);
+        if !ask_to_use_next_port(socket_addr.port(), next_port)? {
+          return Err(err);
+        }
+        socket_addr.set_port(next_port);
+      }
+      Err(err) => return Err(err),
+    }
+  }
+}
+
+#[cfg(feature = "compio")]
+pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpListener> {
+  let mut socket_addr =
+    SocketAddr::from_str(addr).map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
+  let start_port = socket_addr.port();
+
+  loop {
+    let addr_str = socket_addr.to_string();
+    match compio::net::TcpListener::bind(&addr_str).await {
       Ok(listener) => {
         if socket_addr.port() != start_port {
           println!(
