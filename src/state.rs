@@ -33,8 +33,8 @@ use std::{
   sync::Arc,
 };
 
-use dashmap::DashMap;
 use once_cell::sync::Lazy;
+use scc::HashMap as SccHashMap;
 
 /// Global state storage using thread-safe concurrent hash map.
 ///
@@ -42,8 +42,8 @@ use once_cell::sync::Lazy;
 /// shared across different parts of the application. Values are stored as type-erased
 /// `Arc<dyn Any + Send + Sync>` to enable storage of arbitrary types while maintaining
 /// thread safety.
-pub(crate) static GLOBAL_STATE: Lazy<DashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
-  Lazy::new(DashMap::new);
+pub(crate) static GLOBAL_STATE: Lazy<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
+  Lazy::new(SccHashMap::new);
 
 /// Stores a value in the global state, keyed by its concrete type `T`.
 ///
@@ -69,7 +69,7 @@ pub(crate) static GLOBAL_STATE: Lazy<DashMap<TypeId, Arc<dyn Any + Send + Sync>>
 /// set_state(config);
 /// ```
 pub fn set_state<T: Send + Sync + 'static>(value: T) {
-  GLOBAL_STATE.insert(TypeId::of::<T>(), Arc::new(value));
+  std::mem::drop(GLOBAL_STATE.insert_sync(TypeId::of::<T>(), Arc::new(value)));
 }
 
 /// Retrieves a value from the global state by its concrete type `T`.
@@ -97,7 +97,7 @@ pub fn set_state<T: Send + Sync + 'static>(value: T) {
 /// ```
 pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
   GLOBAL_STATE
-    .get(&TypeId::of::<T>())
+    .get_sync(&TypeId::of::<T>())
     .map(|v| v.clone())
     .and_then(|v| v.downcast::<T>().ok())
 }

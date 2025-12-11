@@ -35,10 +35,10 @@ use std::{
   sync::{Arc, Weak},
 };
 
-use dashmap::DashMap;
 use http::Method;
 use http::StatusCode;
 use parking_lot::RwLock;
+use scc::HashMap as SccHashMap;
 
 use crate::{
   body::TakoBody,
@@ -88,9 +88,9 @@ use std::sync::atomic::AtomicBool;
 #[doc(alias = "router")]
 pub struct Router {
   /// Map of registered routes keyed by method.
-  inner: DashMap<Method, matchit::Router<Arc<Route>>>,
+  inner: SccHashMap<Method, matchit::Router<Arc<Route>>>,
   /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
-  routes: DashMap<Method, Vec<Weak<Route>>>,
+  routes: SccHashMap<Method, Vec<Weak<Route>>>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
   /// Optional fallback handler executed when no route matches.
@@ -110,8 +110,8 @@ impl Router {
   /// Creates a new, empty router.
   pub fn new() -> Self {
     let router = Self {
-      inner: DashMap::default(),
-      routes: DashMap::default(),
+      inner: SccHashMap::default(),
+      routes: SccHashMap::default(),
       middlewares: RwLock::new(Vec::new()),
       fallback: None,
       #[cfg(feature = "plugins")]
@@ -168,15 +168,18 @@ impl Router {
       None,
     ));
 
-    let mut method_router = self.inner.entry(method.clone()).or_default();
+    let mut method_router = self.inner.entry_sync(method.clone()).or_default();
 
-    if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+    if let Err(err) = method_router
+      .get_mut()
+      .insert(path.to_string(), route.clone())
+    {
       panic!("Failed to register route: {err}");
     }
 
     self
       .routes
-      .entry(method)
+      .entry_sync(method)
       .or_default()
       .push(Arc::downgrade(&route));
 
@@ -221,15 +224,18 @@ impl Router {
       Some(true),
     ));
 
-    let mut method_router = self.inner.entry(method.clone()).or_default();
+    let mut method_router = self.inner.entry_sync(method.clone()).or_default();
 
-    if let Err(err) = method_router.insert(path.to_string(), route.clone()) {
+    if let Err(err) = method_router
+      .get_mut()
+      .insert(path.to_string(), route.clone())
+    {
       panic!("Failed to register route: {err}");
     }
 
     self
       .routes
-      .entry(method)
+      .entry_sync(method)
       .or_default()
       .push(Arc::downgrade(&route));
 
@@ -259,7 +265,7 @@ impl Router {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    if let Some(method_router) = self.inner.get(&method)
+    if let Some(method_router) = self.inner.get_sync(&method)
       && let Ok(matched) = method_router.at(&path)
     {
       let route = matched.value;
@@ -340,7 +346,7 @@ impl Router {
       format!("{path}/")
     };
 
-    if let Some(method_router) = self.inner.get(&method)
+    if let Some(method_router) = self.inner.get_sync(&method)
       && let Ok(matched) = method_router.at(&tsr_path)
       && matched.value.tsr
     {
@@ -632,8 +638,8 @@ impl Router {
   pub fn merge(&mut self, other: Router) {
     let upstream_globals = other.middlewares.read().clone();
 
-    for (method, weak_vec) in other.routes.into_iter() {
-      let mut target_router = self.inner.entry(method.clone()).or_default();
+    other.routes.iter_sync(|method, weak_vec| {
+      let mut target_router = self.inner.entry_sync(method.clone()).or_default();
 
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
@@ -642,16 +648,20 @@ impl Router {
             rmw.push_front(mw.clone());
           }
 
-          let _ = target_router.insert(route.path.clone(), route.clone());
+          let _ = target_router
+            .get_mut()
+            .insert(route.path.clone(), route.clone());
 
           self
             .routes
-            .entry(method.clone())
+            .entry_sync(method.clone())
             .or_default()
             .push(Arc::downgrade(&route));
         }
       }
-    }
+
+      true
+    });
 
     #[cfg(feature = "signals")]
     self.signals.merge_from(&other.signals);
