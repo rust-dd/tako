@@ -58,8 +58,8 @@ use std::{
 };
 
 use anyhow::Result;
-use dashmap::DashMap;
 use http::StatusCode;
+use scc::HashMap as SccHashMap;
 use tokio::time;
 
 use crate::{
@@ -192,7 +192,7 @@ impl RateLimiterBuilder {
   pub fn build(self) -> RateLimiterPlugin {
     RateLimiterPlugin {
       cfg: self.0,
-      store: Arc::new(DashMap::new()),
+      store: Arc::new(SccHashMap::new()),
       task_started: Arc::new(AtomicBool::new(false)),
     }
   }
@@ -299,7 +299,7 @@ pub struct RateLimiterPlugin {
   /// Rate limiting configuration parameters.
   cfg: Config,
   /// Concurrent map storing token buckets for each IP address.
-  store: Arc<DashMap<IpAddr, Bucket>>,
+  store: Arc<SccHashMap<IpAddr, Bucket>>,
   /// Flag to ensure background task is spawned only once.
   task_started: Arc<AtomicBool>,
 }
@@ -333,7 +333,7 @@ impl TakoPlugin for RateLimiterPlugin {
         loop {
           tick.tick().await;
           let now = Instant::now();
-          store.retain(|_, b| {
+          store.retain_sync(|_, b| {
             b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
             now.duration_since(b.last_seen) < purge_after
           });
@@ -373,7 +373,7 @@ async fn retain(
   req: Request,
   next: Next,
   cfg: Config,
-  store: Arc<DashMap<IpAddr, Bucket>>,
+  store: Arc<SccHashMap<IpAddr, Bucket>>,
 ) -> impl Responder {
   let ip = req
     .extensions()
@@ -381,7 +381,7 @@ async fn retain(
     .map(|sa| sa.ip())
     .unwrap_or(IpAddr::from([0, 0, 0, 0]));
 
-  let mut entry = store.entry(ip).or_insert_with(|| Bucket {
+  let mut entry = store.entry_sync(ip).or_insert_with(|| Bucket {
     available: cfg.max_requests as f64,
     last_seen: Instant::now(),
   });
