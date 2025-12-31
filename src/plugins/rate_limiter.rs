@@ -359,13 +359,13 @@ impl TakoPlugin for RateLimiterPlugin {
 /// use tako::middleware::Next;
 /// use tako::types::Request;
 /// use std::sync::Arc;
-/// use dashmap::DashMap;
+/// use scc::HashMap as SccHashMap;
 ///
 /// # async fn example() {
 /// # let req = Request::builder().body(tako::body::TakoBody::empty()).unwrap();
 /// # let next = Next { middlewares: Arc::new(vec![]), endpoint: Arc::new(|_| Box::pin(async { tako::types::Response::new(tako::body::TakoBody::empty()) })) };
 /// let config = Config::default();
-/// let store = Arc::new(DashMap::new());
+/// let store = Arc::new(SccHashMap::new());
 /// let response = retain(req, next, config, store).await;
 /// # }
 /// ```
