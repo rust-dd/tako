@@ -29,15 +29,16 @@
 //! let boxed = BoxHandler::new(hello_handler);
 //! ```
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::{
-  extractors::FromRequest,
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Trait for asynchronous HTTP request handlers.
 ///

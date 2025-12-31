@@ -1,11 +1,11 @@
 use anyhow::Result;
-use tako::{
-  Method,
-  responder::Responder,
-  router::Router,
-  signals::{Signal, app_events, ids},
-  types::Request,
-};
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::signals::Signal;
+use tako::signals::app_events;
+use tako::signals::ids;
+use tako::types::Request;
 use tokio::net::TcpListener;
 
 async fn hello(_: Request) -> impl Responder {

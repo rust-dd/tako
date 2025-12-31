@@ -1,14 +1,13 @@
 use std::collections::HashMap;
-use tako::types::BuildHasher;
 
 use anyhow::Result;
-use tako::{
-  Method,
-  extractors::state::State,
-  responder::Responder,
-  router::Router,
-  signals::{Signal, SignalArbiter},
-};
+use tako::Method;
+use tako::extractors::state::State;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::signals::Signal;
+use tako::signals::SignalArbiter;
+use tako::types::BuildHasher;
 use tokio::net::TcpListener;
 
 async fn route_handler(State(bus): State<SignalArbiter>) -> impl Responder {

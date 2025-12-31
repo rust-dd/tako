@@ -28,26 +28,27 @@
 //! assert_eq!(params.get("id"), Some(&"123".to_string()));
 //! ```
 
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
+use std::sync::Arc;
+#[cfg(feature = "plugins")]
+use std::sync::atomic::AtomicBool;
+#[cfg(feature = "plugins")]
+use std::sync::atomic::Ordering;
 
 use http::Method;
 use parking_lot::RwLock;
 
-use crate::{
-  handler::BoxHandler,
-  middleware::Next,
-  responder::Responder,
-  types::{BoxMiddleware, Request},
-};
-
-#[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter};
-
+use crate::handler::BoxHandler;
+use crate::middleware::Next;
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
-
-#[cfg(feature = "plugins")]
-use std::sync::atomic::{AtomicBool, Ordering};
+use crate::responder::Responder;
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+use crate::types::BoxMiddleware;
+use crate::types::Request;
 
 /// HTTP route with path pattern matching and middleware support.
 #[doc(alias = "route")]

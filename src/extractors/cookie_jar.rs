@@ -23,14 +23,17 @@
 //!     }
 //! }
 //! ```
-use cookie::{Cookie, CookieJar as RawJar};
-use http::{HeaderMap, header::COOKIE, request::Parts};
 use std::convert::Infallible;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  types::Request,
-};
+use cookie::Cookie;
+use cookie::CookieJar as RawJar;
+use http::HeaderMap;
+use http::header::COOKIE;
+use http::request::Parts;
+
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::types::Request;
 
 /// A wrapper around the `cookie::CookieJar` that provides methods for managing cookies
 /// in HTTP requests and responses.

@@ -55,7 +55,9 @@
 //! - `tako-tracing` — structured tracing subscriber
 //! - `zstd` — Zstandard compression option within plugins::compression
 
-use std::io::{self, ErrorKind, Write};
+use std::io::ErrorKind;
+use std::io::Write;
+use std::io::{self};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -140,10 +142,11 @@ pub mod graphiql;
 pub mod zero_copy_extractors;
 
 pub use bytes::Bytes;
-pub use http::{Method, StatusCode, header};
+pub use http::Method;
+pub use http::StatusCode;
+pub use http::header;
 pub use http_body_util::Full;
 pub use responder::NOT_FOUND;
-
 /// Starts the HTTP server with the given listener and router.
 ///
 /// This is the main entry point for starting a Tako web server. The function takes

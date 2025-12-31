@@ -48,22 +48,24 @@
 //! ```
 
 use anyhow::Result;
-use http::{
-  HeaderName, HeaderValue, Method, StatusCode,
-  header::{
-    ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_MAX_AGE, ORIGIN,
-  },
-};
+use http::HeaderName;
+use http::HeaderValue;
+use http::Method;
+use http::StatusCode;
+use http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS;
+use http::header::ACCESS_CONTROL_ALLOW_HEADERS;
+use http::header::ACCESS_CONTROL_ALLOW_METHODS;
+use http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
+use http::header::ACCESS_CONTROL_MAX_AGE;
+use http::header::ORIGIN;
 
-use crate::{
-  body::TakoBody,
-  middleware::Next,
-  plugins::TakoPlugin,
-  responder::Responder,
-  router::Router,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
+use crate::types::Response;
 
 /// CORS policy configuration settings for cross-origin request handling.
 ///

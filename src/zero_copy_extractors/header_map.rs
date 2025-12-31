@@ -2,7 +2,8 @@ use std::convert::Infallible;
 
 use futures_util::future::ready;
 
-use crate::extractors::{FromRequest, FromRequestParts};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 
 pub struct HeaderMapBorrowed<'a>(pub &'a http::HeaderMap);
 

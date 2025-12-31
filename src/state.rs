@@ -28,10 +28,9 @@
 //! assert_eq!(retrieved.as_ref().map(|c| &**c), Some(&config));
 //! ```
 
-use std::{
-  any::{Any, TypeId},
-  sync::Arc,
-};
+use std::any::Any;
+use std::any::TypeId;
+use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;

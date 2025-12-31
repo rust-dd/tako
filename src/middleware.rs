@@ -17,12 +17,14 @@
 //! }
 //! ```
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use crate::{
-  handler::BoxHandler,
-  types::{BoxMiddleware, Request, Response},
-};
+use crate::handler::BoxHandler;
+use crate::types::BoxMiddleware;
+use crate::types::Request;
+use crate::types::Response;
 
 pub mod basic_auth;
 pub mod bearer_auth;

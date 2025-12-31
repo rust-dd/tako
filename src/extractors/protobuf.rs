@@ -39,7 +39,9 @@ use http::StatusCode;
 use http_body_util::BodyExt;
 use prost::Message;
 
-use crate::{extractors::FromRequest, responder::Responder, types::Request};
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// Protobuf request body extractor with automatic deserialization.
 #[doc(alias = "protobuf")]

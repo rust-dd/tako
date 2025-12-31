@@ -26,12 +26,17 @@
 
 use std::convert::Infallible;
 
-use bytes::{Bytes, BytesMut};
-use http::{StatusCode, header};
+use bytes::Bytes;
+use bytes::BytesMut;
+use http::StatusCode;
+use http::header;
 use http_body_util::StreamBody;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::Stream;
+use tokio_stream::StreamExt;
 
-use crate::{body::TakoBody, responder::Responder, types::Response};
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::Response;
 
 const PREFIX: &[u8] = b"data: ";
 const SUFFIX: &[u8] = b"\n\n";

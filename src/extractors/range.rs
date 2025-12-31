@@ -56,13 +56,14 @@
 //! }
 //! ```
 
-use http::{HeaderMap, StatusCode, request::Parts};
+use http::HeaderMap;
+use http::StatusCode;
+use http::request::Parts;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// Extracted byte range for HTTP partial content requests.
 #[derive(Debug, Clone, Copy)]

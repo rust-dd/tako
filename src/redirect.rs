@@ -19,7 +19,9 @@
 use http::StatusCode;
 use http::header::LOCATION;
 
-use crate::{body::TakoBody, responder::Responder, types::Response};
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::Response;
 
 /// A redirect response builder that implements `Responder`.
 pub struct Redirect {

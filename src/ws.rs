@@ -41,19 +41,24 @@
 //! # }
 //! ```
 
-use crate::{
-  body::TakoBody,
-  responder::Responder,
-  types::{Request, Response},
-};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use std::future::Future;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use futures_util::FutureExt;
-use http::{StatusCode, header};
+use http::StatusCode;
+use http::header;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
-use sha1::{Digest, Sha1};
-use std::future::Future;
-use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+use sha1::Digest;
+use sha1::Sha1;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Role;
+
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// WebSocket connection handler with upgrade protocol support.
 ///

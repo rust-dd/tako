@@ -1,6 +1,8 @@
-use std::{convert::Infallible, future::ready};
+use std::convert::Infallible;
+use std::future::ready;
 
-use crate::extractors::{FromRequest, FromRequestParts};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 
 /// Zero-copy path extractor borrowing the request URI path.
 pub struct PathBorrowed<'a>(pub &'a str);

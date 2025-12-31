@@ -38,14 +38,17 @@
 //! }
 //! ```
 
-use crate::types::BuildHasher;
 use std::collections::HashMap;
 
 use http::StatusCode;
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value};
+use serde_json::Map;
+use serde_json::Value;
 
-use crate::{extractors::FromRequest, responder::Responder, types::Request};
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
 
 /// Internal helper struct for storing path parameters extracted from routes.
 #[derive(Clone, Default)]

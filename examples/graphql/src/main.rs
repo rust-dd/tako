@@ -1,12 +1,20 @@
+use std::time::Duration;
+
 use anyhow::Result;
+use async_graphql::Context;
+use async_graphql::EmptyMutation;
+use async_graphql::Object;
+use async_graphql::Schema;
+use async_graphql::Subscription;
 use async_graphql::futures_util::Stream;
 use async_graphql::futures_util::stream;
-use async_graphql::{Context, EmptyMutation, Object, Schema, Subscription};
-use std::time::Duration;
+use tako::Method;
+use tako::graphql::GraphQLRequest;
+use tako::graphql::GraphQLResponse;
+use tako::graphql::GraphQLSubscription;
 use tako::graphql::graphiql;
-use tako::graphql::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
+use tako::router::Router;
 use tako::types::Request as TakoRequest;
-use tako::{Method, router::Router};
 use tokio::net::TcpListener;
 
 struct QueryRoot;

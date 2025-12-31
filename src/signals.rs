@@ -4,15 +4,22 @@
 //! and handled within a Tako application. It is intended for cross-cutting
 //! concerns such as metrics, logging hooks, or custom application events.
 
-use crate::types::BuildHasher;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
-use futures_util::future::{BoxFuture, join_all};
+use futures_util::future::BoxFuture;
+use futures_util::future::join_all;
 use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;
-use tokio::sync::{broadcast, mpsc};
-use tokio::time::{Duration, timeout};
+use tokio::sync::broadcast;
+use tokio::sync::mpsc;
+use tokio::time::Duration;
+use tokio::time::timeout;
+
+use crate::types::BuildHasher;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
 static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);

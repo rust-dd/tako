@@ -24,13 +24,13 @@
 //! }
 //! ```
 
-use http::request::Parts;
 use std::convert::Infallible;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  types::Request,
-};
+use http::request::Parts;
+
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::types::Request;
 
 /// Path extractor that provides access to the HTTP request path.
 ///

@@ -24,7 +24,9 @@
 
 use std::convert::Infallible;
 
-use crate::{body::TakoBody, extractors::FromRequest, types::Request};
+use crate::body::TakoBody;
+use crate::extractors::FromRequest;
+use crate::types::Request;
 
 /// Raw request body extractor that provides access to the underlying body stream.
 ///

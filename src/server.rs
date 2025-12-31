@@ -24,21 +24,26 @@
 //! # }
 //! ```
 
-use hyper::{server::conn::http1, service::service_fn};
-use std::convert::Infallible;
-use std::sync::Arc;
-use tokio::net::TcpListener;
-
-#[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter, ids};
-#[cfg(feature = "signals")]
-use crate::types::BuildHasher;
 #[cfg(feature = "signals")]
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::sync::Arc;
+
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use tokio::net::TcpListener;
 
 use crate::body::TakoBody;
 use crate::router::Router;
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+#[cfg(feature = "signals")]
+use crate::signals::ids;
 use crate::types::BoxError;
+#[cfg(feature = "signals")]
+use crate::types::BuildHasher;
 
 /// Starts the Tako HTTP server with the given listener and router.
 pub async fn serve(listener: TcpListener, router: Router) {

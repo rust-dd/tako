@@ -17,33 +17,36 @@
 //! - Response headers are filtered to exclude hop-by-hop and length-specific headers.
 //! - Storage is in-memory; TTL-based cleanup runs periodically.
 
-use std::{
-  sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-  },
-  time::{Duration, Instant},
-};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 use bytes::Bytes;
-use http::{
-  HeaderName, HeaderValue, Method, StatusCode,
-  header::{CONTENT_LENGTH, CONTENT_TYPE, LOCATION, RETRY_AFTER},
-};
+use http::HeaderName;
+use http::HeaderValue;
+use http::Method;
+use http::StatusCode;
+use http::header::CONTENT_LENGTH;
+use http::header::CONTENT_TYPE;
+use http::header::LOCATION;
+use http::header::RETRY_AFTER;
 use http_body_util::BodyExt;
 use scc::HashMap as SccHashMap;
-use sha1::{Digest, Sha1};
-use tokio::{sync::Notify, time::timeout};
+use sha1::Digest;
+use sha1::Sha1;
+use tokio::sync::Notify;
+use tokio::time::timeout;
 
-use crate::{
-  body::TakoBody,
-  middleware::Next,
-  plugins::TakoPlugin,
-  responder::Responder,
-  router::Router,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Which request attributes are included in the idempotency key scope.
 #[derive(Clone, Copy)]

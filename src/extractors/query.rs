@@ -46,18 +46,18 @@
 //! }
 //! ```
 
-use crate::types::BuildHasher;
 use std::collections::HashMap;
 
-use http::{StatusCode, request::Parts};
+use http::StatusCode;
+use http::request::Parts;
 use serde::de::DeserializeOwned;
 use url::form_urlencoded;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
 
 /// Query parameter extractor with automatic deserialization to typed structures.
 #[doc(alias = "query")]

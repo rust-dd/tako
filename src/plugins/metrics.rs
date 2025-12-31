@@ -8,17 +8,30 @@
 //! a concrete backend is provided based on the selected feature, while
 //! the core plugin logic remains backend-agnostic.
 
-use anyhow::Result;
 use std::sync::Arc;
 
-#[cfg(feature = "signals")]
-use crate::signals::{Signal, app_events, ids};
-use crate::{plugins::TakoPlugin, router::Router};
+use anyhow::Result;
+#[cfg(feature = "metrics-prometheus")]
+use prometheus::Encoder;
+#[cfg(feature = "metrics-prometheus")]
+use prometheus::Registry;
+#[cfg(feature = "metrics-prometheus")]
+use prometheus::TextEncoder;
 
 #[cfg(feature = "metrics-prometheus")]
-use crate::{Method, extractors::state::State, responder::Responder};
+use crate::Method;
 #[cfg(feature = "metrics-prometheus")]
-use prometheus::{Encoder, Registry, TextEncoder};
+use crate::extractors::state::State;
+use crate::plugins::TakoPlugin;
+#[cfg(feature = "metrics-prometheus")]
+use crate::responder::Responder;
+use crate::router::Router;
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::app_events;
+#[cfg(feature = "signals")]
+use crate::signals::ids;
 
 /// Common interface for metrics backends used by the metrics plugin.
 ///
@@ -123,9 +136,14 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
 /// Prometheus backend implementation.
 #[cfg(feature = "metrics-prometheus")]
 pub mod prometheus_backend {
-  use super::{MetricsBackend, Signal};
-  use prometheus::{IntCounterVec, Opts, Registry};
   use std::sync::Arc;
+
+  use prometheus::IntCounterVec;
+  use prometheus::Opts;
+  use prometheus::Registry;
+
+  use super::MetricsBackend;
+  use super::Signal;
 
   /// Basic Prometheus metrics backend that tracks HTTP request counts
   /// and connection counts using labels for method, path, and status.
@@ -267,9 +285,12 @@ pub mod prometheus_backend {
 /// OpenTelemetry backend implementation.
 #[cfg(feature = "metrics-opentelemetry")]
 pub mod opentelemetry_backend {
-  use super::{MetricsBackend, Signal};
   use opentelemetry::KeyValue;
-  use opentelemetry::metrics::{Counter, Meter};
+  use opentelemetry::metrics::Counter;
+  use opentelemetry::metrics::Meter;
+
+  use super::MetricsBackend;
+  use super::Signal;
 
   /// Basic OpenTelemetry metrics backend that records counters using the
   /// global meter provider. Users are expected to configure an exporter

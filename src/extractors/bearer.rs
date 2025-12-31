@@ -36,13 +36,13 @@
 //! }
 //! ```
 
-use http::{StatusCode, request::Parts};
+use http::StatusCode;
+use http::request::Parts;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// Bearer token authentication credentials extracted from Authorization header.
 ///

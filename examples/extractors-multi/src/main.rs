@@ -1,7 +1,11 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use tako::extractors::{json::Json, params::Params, query::Query};
-use tako::{Method, router::Router};
+use serde::Deserialize;
+use serde::Serialize;
+use tako::Method;
+use tako::extractors::json::Json;
+use tako::extractors::params::Params;
+use tako::extractors::query::Query;
+use tako::router::Router;
 use tokio::net::TcpListener;
 
 #[derive(Deserialize)]

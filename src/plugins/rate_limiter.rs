@@ -48,24 +48,25 @@
 //! api_route.plugin(api_limiter);
 //! ```
 
-use std::{
-  net::{IpAddr, SocketAddr},
-  sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-  },
-  time::{Duration, Instant},
-};
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 use http::StatusCode;
 use scc::HashMap as SccHashMap;
 use tokio::time;
 
-use crate::{
-  body::TakoBody, middleware::Next, plugins::TakoPlugin, responder::Responder, router::Router,
-  types::Request,
-};
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
 
 /// Rate limiter configuration parameters.
 ///

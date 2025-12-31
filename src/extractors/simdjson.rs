@@ -26,19 +26,19 @@
 //! }
 //! ```
 
-use http::{
-  HeaderMap, StatusCode,
-  header::{self, HeaderValue},
-};
+use http::HeaderMap;
+use http::StatusCode;
+use http::header::HeaderValue;
+use http::header::{self};
 use http_body_util::BodyExt;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-use crate::{
-  body::TakoBody,
-  extractors::FromRequest,
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// An extractor that (de)serializes JSON using SIMD-accelerated parsing.
 ///

@@ -27,14 +27,18 @@
 //! }
 //! ```
 
-use cookie::{Cookie, CookieJar, Key};
-use http::{HeaderMap, StatusCode, header::COOKIE, request::Parts};
+use cookie::Cookie;
+use cookie::CookieJar;
+use cookie::Key;
+use http::HeaderMap;
+use http::StatusCode;
+use http::header::COOKIE;
+use http::request::Parts;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// A wrapper that provides methods for managing encrypted cookies in HTTP requests and responses.
 ///

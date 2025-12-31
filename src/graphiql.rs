@@ -5,9 +5,12 @@
 #![cfg(feature = "graphiql")]
 #![cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 
-use http::{HeaderValue, header};
+use http::HeaderValue;
+use http::header;
 
-use crate::{body::TakoBody, responder::Responder, types::Response};
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::Response;
 
 /// Response wrapper for GraphiQL HTML.
 pub struct GraphiQL(pub(crate) String);

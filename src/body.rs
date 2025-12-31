@@ -30,20 +30,25 @@
 //! let stream_body = TakoBody::from_stream(stream_data);
 //! ```
 
-use std::{
-  fmt::Debug,
-  pin::Pin,
-  task::{Context, Poll},
-};
-
-use bytes::Bytes;
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 
 use anyhow::Result;
-use futures_util::{Stream, TryStream, TryStreamExt};
-use http_body::{Body, Frame, SizeHint};
-use http_body_util::{BodyExt, Empty, StreamBody};
+use bytes::Bytes;
+use futures_util::Stream;
+use futures_util::TryStream;
+use futures_util::TryStreamExt;
+use http_body::Body;
+use http_body::Frame;
+use http_body::SizeHint;
+use http_body_util::BodyExt;
+use http_body_util::Empty;
+use http_body_util::StreamBody;
 
-use crate::types::{BoxBody, BoxError};
+use crate::types::BoxBody;
+use crate::types::BoxError;
 
 /// HTTP body wrapper with streaming and conversion support.
 ///

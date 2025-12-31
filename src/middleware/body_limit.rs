@@ -36,15 +36,18 @@
 //! });
 //! ```
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use http::{StatusCode, header::CONTENT_LENGTH};
+use http::StatusCode;
+use http::header::CONTENT_LENGTH;
 
-use crate::{
-  middleware::{IntoMiddleware, Next},
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::middleware::IntoMiddleware;
+use crate::middleware::Next;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Request body size limiting middleware configuration.
 ///

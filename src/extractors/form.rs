@@ -22,16 +22,16 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
+
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
 
-use crate::{
-  extractors::FromRequest,
-  responder::Responder,
-  types::{BuildHasher, Request},
-};
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
 
 /// Represents a form extracted from an HTTP request body.
 ///

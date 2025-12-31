@@ -21,16 +21,17 @@
 //! let response = ().into_response();
 //! ```
 
-use std::{convert::Infallible, fmt::Display};
+use std::convert::Infallible;
+use std::fmt::Display;
 
 use bytes::Bytes;
-use http::{
-  StatusCode,
-  header::{HeaderName, HeaderValue},
-};
+use http::StatusCode;
+use http::header::HeaderName;
+use http::header::HeaderValue;
 use http_body_util::Full;
 
-use crate::{body::TakoBody, types::Response};
+use crate::body::TakoBody;
+use crate::types::Response;
 
 /// A default 404 Not Found response.
 ///

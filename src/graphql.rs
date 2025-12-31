@@ -8,31 +8,45 @@
 #![cfg(feature = "async-graphql")]
 #![cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 
-use std::{future::Future, str::FromStr, time::Duration};
+use std::future::Future;
+use std::str::FromStr;
+use std::time::Duration;
 
-use async_graphql::{
-  BatchRequest as GqlBatchRequest, BatchResponse as GqlBatchResponse, Data, Executor,
-  Result as GqlResult,
-  http::{
-    DefaultOnConnInitType, DefaultOnPingType, MultipartOptions, WebSocket as GqlWebSocket,
-    WebSocketProtocols, WsMessage, default_on_connection_init, default_on_ping,
-  },
-};
-use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
-use http::{HeaderValue, StatusCode, header};
+use async_graphql::BatchRequest as GqlBatchRequest;
+use async_graphql::BatchResponse as GqlBatchResponse;
+use async_graphql::Data;
+use async_graphql::Executor;
+use async_graphql::Result as GqlResult;
+use async_graphql::http::DefaultOnConnInitType;
+use async_graphql::http::DefaultOnPingType;
+use async_graphql::http::MultipartOptions;
+use async_graphql::http::WebSocket as GqlWebSocket;
+use async_graphql::http::WebSocketProtocols;
+use async_graphql::http::WsMessage;
+use async_graphql::http::default_on_connection_init;
+use async_graphql::http::default_on_ping;
+use futures_util::Sink;
+use futures_util::SinkExt as _;
+use futures_util::Stream;
+use futures_util::StreamExt as _;
+use http::HeaderValue;
+use http::StatusCode;
+use http::header;
 use http_body_util::BodyExt;
 use hyper_util::rt::TokioIo;
-use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Role;
 
-use crate::{
-  body::TakoBody,
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::{Request, Response},
-};
-
+use crate::body::TakoBody;
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 #[cfg(feature = "graphiql")]
-pub use crate::graphiql::{GraphiQL, graphiql};
+pub use crate::graphiql::GraphiQL;
+#[cfg(feature = "graphiql")]
+pub use crate::graphiql::graphiql;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Single GraphQL request extractor.
 pub struct GraphQLRequest(pub async_graphql::Request);
@@ -473,8 +487,10 @@ where
     };
 
     let accept = {
-      use base64::{Engine as _, engine::general_purpose::STANDARD};
-      use sha1::{Digest, Sha1};
+      use base64::Engine as _;
+      use base64::engine::general_purpose::STANDARD;
+      use sha1::Digest;
+      use sha1::Sha1;
       let mut sha1 = Sha1::new();
       sha1.update(key.as_bytes());
       sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");

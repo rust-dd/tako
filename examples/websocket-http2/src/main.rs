@@ -1,9 +1,14 @@
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
-use tako::{Method, responder::Responder, types::Request, ws::TakoWs};
+use futures_util::SinkExt;
+use futures_util::StreamExt;
+use tako::Method;
+use tako::responder::Responder;
+use tako::types::Request;
+use tako::ws::TakoWs;
 use tokio_stream::wrappers::IntervalStream;
-use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Utf8Bytes;
 
 pub async fn ws_echo(req: Request) -> impl Responder {
   TakoWs::new(req, |mut ws| async move {

@@ -39,16 +39,17 @@
 //! }
 //! ```
 
-use http::{StatusCode, header::HeaderValue};
+use http::StatusCode;
+use http::header::HeaderValue;
 use http_body_util::BodyExt;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-use crate::{
-  body::TakoBody,
-  extractors::FromRequest,
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::extractors::FromRequest;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// JSON request body extractor with automatic deserialization.
 #[doc(alias = "json")]

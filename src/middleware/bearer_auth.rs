@@ -36,18 +36,23 @@
 //! });
 //! ```
 
-use crate::types::BuildHasher;
-use bytes::Bytes;
-use http::{StatusCode, header};
-use http_body_util::Full;
-use std::{collections::HashSet, future::Future, pin::Pin, sync::Arc};
+use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use crate::{
-  body::TakoBody,
-  middleware::{IntoMiddleware, Next},
-  responder::Responder,
-  types::{Request, Response},
-};
+use bytes::Bytes;
+use http::StatusCode;
+use http::header;
+use http_body_util::Full;
+
+use crate::body::TakoBody;
+use crate::middleware::IntoMiddleware;
+use crate::middleware::Next;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Bearer token authentication middleware configuration.
 ///

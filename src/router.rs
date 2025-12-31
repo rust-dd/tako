@@ -29,36 +29,37 @@
 //! });
 //! ```
 
-use crate::types::BuildHasher;
-use std::{
-  collections::HashMap,
-  sync::{Arc, Weak},
-};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::Weak;
+#[cfg(feature = "plugins")]
+use std::sync::atomic::AtomicBool;
 
 use http::Method;
 use http::StatusCode;
 use parking_lot::RwLock;
 use scc::HashMap as SccHashMap;
 
-use crate::{
-  body::TakoBody,
-  extractors::params::PathParams,
-  handler::{BoxHandler, Handler},
-  middleware::Next,
-  responder::Responder,
-  route::Route,
-  state::set_state,
-  types::{BoxMiddleware, Request, Response},
-};
-
-#[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter, ids};
-
+use crate::body::TakoBody;
+use crate::extractors::params::PathParams;
+use crate::handler::BoxHandler;
+use crate::handler::Handler;
+use crate::middleware::Next;
 #[cfg(feature = "plugins")]
 use crate::plugins::TakoPlugin;
-
-#[cfg(feature = "plugins")]
-use std::sync::atomic::AtomicBool;
+use crate::responder::Responder;
+use crate::route::Route;
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+#[cfg(feature = "signals")]
+use crate::signals::ids;
+use crate::state::set_state;
+use crate::types::BoxMiddleware;
+use crate::types::BuildHasher;
+use crate::types::Request;
+use crate::types::Response;
 
 /// HTTP router for managing routes, middleware, and request dispatching.
 ///

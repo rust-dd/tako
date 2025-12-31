@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use tako::signals::{Signal, SignalArbiter};
+use tako::signals::Signal;
+use tako::signals::SignalArbiter;
 use tako::types::BuildHasher;
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
+use tokio::time::sleep;
 
 #[derive(Debug)]
 struct AddRequest {
