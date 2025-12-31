@@ -312,7 +312,7 @@ impl SignalArbiter {
       })
     });
 
-    self.inner.rpc.insert_sync(id_str, handler);
+    std::mem::drop(self.inner.rpc.insert_sync(id_str, handler));
   }
 
   /// Calls a typed RPC handler and returns a shared pointer to the response.
@@ -427,7 +427,7 @@ impl SignalArbiter {
     // Use the pointer address as a simple, best-effort key.
     let key = Arc::into_raw(Arc::new(())) as u64;
     let exporter: SignalExporter = Arc::new(exporter);
-    self.inner.exporters.insert_sync(key, exporter);
+    std::mem::drop(self.inner.exporters.insert_sync(key, exporter));
   }
 
   /// Merges all handlers from `other` into `self`.
@@ -452,12 +452,12 @@ impl SignalArbiter {
     });
 
     other.inner.rpc.iter_sync(|k, v| {
-      self.inner.rpc.insert_sync(k.clone(), v.clone());
+      let _ = self.inner.rpc.insert_sync(k.clone(), v.clone());
       true
     });
 
     other.inner.exporters.iter_sync(|k, v| {
-      self.inner.exporters.insert_sync(k.clone(), v.clone());
+      let _ = self.inner.exporters.insert_sync(k.clone(), v.clone());
       true
     });
   }
