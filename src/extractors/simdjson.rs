@@ -1,14 +1,18 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "simd")))]
 //! SIMD-accelerated JSON extraction from HTTP request bodies.
 //!
-//! This module provides the [`SimdJson`](crate::extractors::simdjson::SimdJson) extractor that leverages SIMD-accelerated JSON
-//! parsing via the `simd_json` crate for high-performance deserialization of request bodies.
-//! It offers similar functionality to standard JSON extractors but with potentially
-//! better performance for large JSON payloads.
+//! This module provides two extractors behind the `simd` feature:
+//! - [`SimdJson`](crate::extractors::simdjson::SimdJson) uses the `simd_json` crate.
+//! - [`SonicJson`](crate::extractors::simdjson::SonicJson) uses the `sonic_rs` crate.
+//!
+//! Both extractors validate the `Content-Type` header, read the full request body into an owned buffer,
+//! and deserialize it into the requested type.
 //!
 //! # Examples
 //!
-//! ```rust
+//! Using [`SimdJson`](crate::extractors::simdjson::SimdJson):
+//!
+//! ```
 //! use tako::extractors::simdjson::SimdJson;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -23,6 +27,26 @@
 //!     println!("Creating user: {}", user.name);
 //!     // Process user creation...
 //!     SimdJson(user)
+//! }
+//! ```
+//!
+//! Using [`SonicJson`](crate::extractors::simdjson::SonicJson):
+//!
+//! ```
+//! use tako::extractors::simdjson::SonicJson;
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Deserialize, Serialize)]
+//! struct User {
+//!     name: String,
+//!     email: String,
+//!     age: u32,
+//! }
+//!
+//! async fn create_user_handler(SonicJson(user): SonicJson<User>) -> SonicJson<User> {
+//!     println!("Creating user: {}", user.name);
+//!     // Process user creation...
+//!     SonicJson(user)
 //! }
 //! ```
 
@@ -50,9 +74,11 @@ use crate::types::Response;
 /// The extractor also implements [`Responder`], allowing it to be returned
 /// directly from handler functions for JSON responses.
 ///
+/// See also [`SonicJson`] for an alternative backend with the same API.
+///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use tako::extractors::simdjson::SimdJson;
 /// use serde::{Deserialize, Serialize};
 ///
@@ -73,7 +99,7 @@ use crate::types::Response;
 #[doc(alias = "simdjson")]
 pub struct SimdJson<T>(pub T);
 
-/// Error type for SIMD JSON extraction.
+/// Error type for the SIMD JSON extractors.
 #[derive(Debug)]
 pub enum SimdJsonError {
   /// Request content type is not recognized as JSON.
@@ -187,6 +213,33 @@ where
   }
 }
 
+/// An extractor that (de)serializes JSON using the `sonic_rs` backend.
+///
+/// `SonicJson<T>` behaves similarly to [`SimdJson`] but uses `sonic_rs` for parsing
+/// and serialization.
+///
+/// The extractor validates the `Content-Type` header, reads the full request body,
+/// and deserializes it into the requested type.
+///
+/// The extractor also implements [`Responder`], allowing it to be returned
+/// directly from handler functions for JSON responses.
+///
+/// # Examples
+///
+/// ```
+/// use tako::extractors::simdjson::SonicJson;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Deserialize, Serialize)]
+/// struct ApiResponse {
+///     ok: bool,
+/// }
+///
+/// async fn api_handler(SonicJson(_request): SonicJson<ApiResponse>) -> SonicJson<ApiResponse> {
+///     SonicJson(ApiResponse { ok: true })
+/// }
+/// ```
+#[doc(alias = "sonicjson")]
 pub struct SonicJson<T>(pub T);
 
 impl<'a, T> FromRequest<'a> for SonicJson<T>
