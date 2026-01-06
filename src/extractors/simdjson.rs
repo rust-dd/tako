@@ -186,3 +186,67 @@ where
     }
   }
 }
+
+pub struct SonicJson<T>(pub T);
+
+impl<'a, T> FromRequest<'a> for SonicJson<T>
+where
+  T: DeserializeOwned + Send + 'static,
+{
+  type Error = SimdJsonError;
+
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    async move {
+      // Basic content-type validation so we can fail fast.
+      if !is_json_content_type(req.headers()) {
+        return Err(SimdJsonError::InvalidContentType);
+      }
+
+      // Collect the entire request body.
+      let bytes = req
+        .body_mut()
+        .collect()
+        .await
+        .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
+        .to_bytes();
+
+      let mut owned = bytes.to_vec();
+
+      // SIMD-accelerated deserialization.
+      let data = sonic_rs::from_slice::<T>(&mut owned)
+        .map_err(|e| SimdJsonError::DeserializationError(e.to_string()))?;
+
+      Ok(SonicJson(data))
+    }
+  }
+}
+
+impl<T> Responder for SonicJson<T>
+where
+  T: Serialize,
+{
+  /// Converts the wrapped data into an HTTP JSON response.
+  fn into_response(self) -> Response {
+    match sonic_rs::to_vec(&self.0) {
+      Ok(buf) => {
+        let mut res = Response::new(TakoBody::from(buf));
+        res.headers_mut().insert(
+          header::CONTENT_TYPE,
+          HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
+        );
+        res
+      }
+      Err(err) => {
+        let mut res = Response::new(TakoBody::from(err.to_string()));
+        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        res.headers_mut().insert(
+          header::CONTENT_TYPE,
+          HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+        );
+        res
+      }
+    }
+  }
+}
