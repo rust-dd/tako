@@ -3148,7 +3148,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "ahash",
  "anyhow",
