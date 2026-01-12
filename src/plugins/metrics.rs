@@ -117,11 +117,20 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
     // Route-level request.completed metrics via prefix subscription
     let backend_route = self.backend.clone();
     let mut rx = app_arbiter.subscribe_prefix("route.request.");
+    #[cfg(not(feature = "compio"))]
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
         backend_route.on_route_request_completed(&signal);
       }
     });
+
+    #[cfg(feature = "compio")]
+    compio::runtime::spawn(async move {
+      while let Ok(signal) = rx.recv().await {
+        backend_route.on_route_request_completed(&signal);
+      }
+    })
+    .detach();
 
     Ok(())
   }
