@@ -27,6 +27,7 @@ pub use vespera_core::RequestBody;
 pub use vespera_core::Response as VesperaResponse;
 pub use vespera_core::RouteInfo;
 pub use vespera_core::Schema;
+pub use vespera_core::SchemaRef;
 pub use vespera_core::SchemaType;
 pub use vespera_core::Server;
 pub use vespera_core::ServerVariable;
@@ -146,10 +147,107 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
 
     let request_body = route.request_body.as_ref().map(|rb| {
         let mut content = BTreeMap::new();
+        let schema = if rb.schema_properties.is_empty() {
+            None
+        } else {
+            let mut properties = BTreeMap::new();
+            for prop in &rb.schema_properties {
+                properties.insert(
+                    prop.name.clone(),
+                    SchemaRef::Inline(Box::new(Schema {
+                        ref_path: None,
+                        schema_type: Some(match prop.property_type.as_str() {
+                            "integer" => SchemaType::Integer,
+                            "number" => SchemaType::Number,
+                            "boolean" => SchemaType::Boolean,
+                            "array" => SchemaType::Array,
+                            "object" => SchemaType::Object,
+                            _ => SchemaType::String,
+                        }),
+                        format: None,
+                        title: None,
+                        description: prop.description.clone(),
+                        default: None,
+                        example: None,
+                        examples: None,
+                        minimum: None,
+                        maximum: None,
+                        exclusive_minimum: None,
+                        exclusive_maximum: None,
+                        multiple_of: None,
+                        min_length: None,
+                        max_length: None,
+                        pattern: None,
+                        items: None,
+                        prefix_items: None,
+                        min_items: None,
+                        max_items: None,
+                        unique_items: None,
+                        properties: None,
+                        required: None,
+                        additional_properties: None,
+                        min_properties: None,
+                        max_properties: None,
+                        r#enum: None,
+                        all_of: None,
+                        any_of: None,
+                        one_of: None,
+                        not: None,
+                        nullable: None,
+                        read_only: None,
+                        write_only: None,
+                        external_docs: None,
+                        defs: None,
+                        dynamic_anchor: None,
+                        dynamic_ref: None,
+                    })),
+                );
+            }
+            Some(SchemaRef::Inline(Box::new(Schema {
+                ref_path: None,
+                schema_type: Some(SchemaType::Object),
+                format: None,
+                title: None,
+                description: None,
+                default: None,
+                example: None,
+                examples: None,
+                minimum: None,
+                maximum: None,
+                exclusive_minimum: None,
+                exclusive_maximum: None,
+                multiple_of: None,
+                min_length: None,
+                max_length: None,
+                pattern: None,
+                items: None,
+                prefix_items: None,
+                min_items: None,
+                max_items: None,
+                unique_items: None,
+                properties: Some(properties),
+                required: None,
+                additional_properties: None,
+                min_properties: None,
+                max_properties: None,
+                r#enum: None,
+                all_of: None,
+                any_of: None,
+                one_of: None,
+                not: None,
+                nullable: None,
+                read_only: None,
+                write_only: None,
+                external_docs: None,
+                defs: None,
+                dynamic_anchor: None,
+                dynamic_ref: None,
+            })))
+        };
         content.insert(
             rb.content_type.clone(),
             MediaType {
-                schema: None,
+                schema,
                 example: None,
                 examples: None,
             },

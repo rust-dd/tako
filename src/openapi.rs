@@ -124,6 +124,19 @@ pub struct OpenApiRequestBody {
     pub required: bool,
     /// Content type (e.g., "application/json").
     pub content_type: String,
+    /// Schema properties for the request body (name, type, description).
+    pub schema_properties: Vec<RequestBodyProperty>,
+}
+
+/// A property definition for request body schema.
+#[derive(Clone, Debug)]
+pub struct RequestBodyProperty {
+    /// Property name.
+    pub name: String,
+    /// Property type (e.g., "string", "integer", "boolean").
+    pub property_type: String,
+    /// Property description.
+    pub description: Option<String>,
 }
 
 #[cfg(feature = "utoipa")]

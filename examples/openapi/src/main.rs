@@ -13,7 +13,7 @@ use tako::extractors::params::Params;
 use tako::extractors::query::Query;
 use tako::openapi::ui::{Scalar, SwaggerUi};
 use tako::openapi::vespera::{generate_openapi_from_routes, Info, VesperaOpenApiJson};
-use tako::openapi::{OpenApiParameter, OpenApiRequestBody, ParameterLocation};
+use tako::openapi::{OpenApiParameter, OpenApiRequestBody, ParameterLocation, RequestBodyProperty};
 use tako::responder::Responder;
 use tako::router::Router;
 use tako::types::{Request, Response};
@@ -177,6 +177,23 @@ fn setup_routes(router: &mut Router) {
             description: Some("User data".to_string()),
             required: true,
             content_type: "application/json".to_string(),
+            schema_properties: vec![
+                RequestBodyProperty {
+                    name: "id".to_string(),
+                    property_type: "integer".to_string(),
+                    description: Some("Unique user identifier".to_string()),
+                },
+                RequestBodyProperty {
+                    name: "name".to_string(),
+                    property_type: "string".to_string(),
+                    description: Some("User's full name".to_string()),
+                },
+                RequestBodyProperty {
+                    name: "email".to_string(),
+                    property_type: "string".to_string(),
+                    description: Some("User's email address".to_string()),
+                },
+            ],
         })
         .response(201, "User created successfully")
         .response(400, "Invalid request body");
