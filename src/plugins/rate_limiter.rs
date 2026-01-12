@@ -349,7 +349,7 @@ impl TakoPlugin for RateLimiterPlugin {
         loop {
           compio::time::sleep(interval).await;
           let now = Instant::now();
-          store.retain(|_, b| {
+          store.retain_sync(|_, b| {
             b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
             now.duration_since(b.last_seen) < purge_after
           });
