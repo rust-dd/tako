@@ -1,6 +1,8 @@
 use anyhow::Result;
 use serde::Serialize;
-use tako::{Method, extractors::json::Json, router::Router};
+use tako::Method;
+use tako::extractors::json::Json;
+use tako::router::Router;
 use tokio::net::TcpListener;
 
 #[derive(Serialize)]

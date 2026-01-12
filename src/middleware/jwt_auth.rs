@@ -40,18 +40,22 @@
 //! let multi_auth = JwtAuth::<UserClaims>::new(multi_keys);
 //! ```
 
-use crate::types::BuildHasher;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use http::{StatusCode, header::AUTHORIZATION};
+use http::StatusCode;
+use http::header::AUTHORIZATION;
 use jwt_simple::prelude::*;
 use serde::de::DeserializeOwned;
 
-use crate::{
-  middleware::{IntoMiddleware, Next},
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::middleware::IntoMiddleware;
+use crate::middleware::Next;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Multi-algorithm JWT verification key wrapper supporting various cryptographic algorithms.
 ///

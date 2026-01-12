@@ -34,15 +34,21 @@
 
 #![cfg_attr(docsrs, doc(cfg(feature = "client")))]
 
-use std::{error::Error, sync::Arc};
+use std::error::Error;
+use std::sync::Arc;
 
-use http::{Request, Response};
+use http::Request;
+use http::Response;
 use http_body::Body;
 use http_body_util::BodyExt;
-use hyper::client::{self, conn::http1::SendRequest};
+use hyper::client::conn::http1::SendRequest;
+use hyper::client::{self};
 use hyper_util::rt::TokioIo;
-use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
-use tokio::{net::TcpStream, task::JoinHandle};
+use rustls::ClientConfig;
+use rustls::RootCertStore;
+use rustls::pki_types::ServerName;
+use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 

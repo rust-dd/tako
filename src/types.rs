@@ -33,7 +33,8 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use http_body_util::combinators::UnsyncBoxBody;
 
-use crate::{body::TakoBody, middleware::Next};
+use crate::body::TakoBody;
+use crate::middleware::Next;
 
 /// HTTP request type with streaming body support (hyper-independent).
 pub type Request = http::Request<TakoBody>;

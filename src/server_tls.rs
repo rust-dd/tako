@@ -31,28 +31,39 @@
 //! # }
 //! ```
 
-use hyper::{server::conn::http1, service::service_fn};
-use hyper_util::rt::TokioIo;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use std::{convert::Infallible, fs::File, io::BufReader, sync::Arc};
-use tokio::net::TcpListener;
-use tokio_rustls::{TlsAcceptor, rustls::ServerConfig};
-
-#[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter, ids};
-#[cfg(feature = "signals")]
-use crate::types::BuildHasher;
 #[cfg(feature = "signals")]
 use std::collections::HashMap;
+use std::convert::Infallible;
+use std::fs::File;
+use std::io::BufReader;
+use std::sync::Arc;
 
-use crate::{body::TakoBody, router::Router, types::BoxError};
-
+use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
-
+use hyper::service::service_fn;
 #[cfg(feature = "http2")]
 use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::TokioIo;
+use rustls::pki_types::CertificateDer;
+use rustls::pki_types::PrivateKeyDer;
+use rustls_pemfile::certs;
+use rustls_pemfile::pkcs8_private_keys;
+use tokio::net::TcpListener;
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
+
+use crate::body::TakoBody;
+use crate::router::Router;
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+#[cfg(feature = "signals")]
+use crate::signals::ids;
+use crate::types::BoxError;
+#[cfg(feature = "signals")]
+use crate::types::BuildHasher;
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(

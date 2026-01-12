@@ -22,12 +22,11 @@ use std::sync::Arc;
 
 use http::request::Parts;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  state::get_state,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::state::get_state;
+use crate::types::Request;
 
 /// Extractor for accessing a value stored in Tako's global state by type.
 pub struct State<T>(pub Arc<T>);

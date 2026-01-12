@@ -1,16 +1,19 @@
-use std::{collections::HashMap, sync::Arc};
-use tako::types::BuildHasher;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::Result;
-use tako::{
-  Method,
-  extractors::state::State,
-  responder::Responder,
-  router::Router,
-  signals::{Signal, SignalArbiter, app_events, ids},
-};
+use tako::Method;
+use tako::extractors::state::State;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::signals::Signal;
+use tako::signals::SignalArbiter;
+use tako::signals::app_events;
+use tako::signals::ids;
+use tako::types::BuildHasher;
 use tokio::net::TcpListener;
-use tokio::time::{Duration, sleep};
+use tokio::time::Duration;
+use tokio::time::sleep;
 
 #[derive(Debug)]
 struct AddRequest {

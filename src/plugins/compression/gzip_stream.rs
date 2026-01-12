@@ -22,21 +22,24 @@
 //! let fast_compressed = stream_gzip(api_response, 1);
 //! ```
 
-use std::{
-  io::Write,
-  pin::Pin,
-  task::{Context, Poll},
-};
+use std::io::Write;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 
 use anyhow::Result;
 use bytes::Bytes;
-use flate2::{Compression, write::GzEncoder};
-use futures_util::{Stream, TryStreamExt};
-use http_body::{Body, Frame};
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use futures_util::Stream;
+use futures_util::TryStreamExt;
+use http_body::Body;
+use http_body::Frame;
 use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
 
-use crate::{body::TakoBody, types::BoxError};
+use crate::body::TakoBody;
+use crate::types::BoxError;
 
 /// Compresses an HTTP body stream using Gzip compression algorithm.
 pub fn stream_gzip<B>(body: B, level: u32) -> TakoBody

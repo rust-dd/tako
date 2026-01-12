@@ -23,13 +23,13 @@
 //! }
 //! ```
 
-use http::request::Parts;
 use std::convert::Infallible;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  types::Request,
-};
+use http::request::Parts;
+
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::types::Request;
 
 /// Header map extractor that provides access to HTTP request headers.
 ///

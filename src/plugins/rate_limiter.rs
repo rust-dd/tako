@@ -48,23 +48,24 @@
 //! api_route.plugin(api_limiter);
 //! ```
 
-use std::{
-  net::{IpAddr, SocketAddr},
-  sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-  },
-  time::{Duration, Instant},
-};
+use std::net::IpAddr;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
-use dashmap::DashMap;
 use http::StatusCode;
+use scc::HashMap as SccHashMap;
 
-use crate::{
-  body::TakoBody, middleware::Next, plugins::TakoPlugin, responder::Responder, router::Router,
-  types::Request,
-};
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
 
 /// Rate limiter configuration parameters.
 ///
@@ -191,7 +192,7 @@ impl RateLimiterBuilder {
   pub fn build(self) -> RateLimiterPlugin {
     RateLimiterPlugin {
       cfg: self.0,
-      store: Arc::new(DashMap::new()),
+      store: Arc::new(SccHashMap::new()),
       task_started: Arc::new(AtomicBool::new(false)),
     }
   }
@@ -298,7 +299,7 @@ pub struct RateLimiterPlugin {
   /// Rate limiting configuration parameters.
   cfg: Config,
   /// Concurrent map storing token buckets for each IP address.
-  store: Arc<DashMap<IpAddr, Bucket>>,
+  store: Arc<SccHashMap<IpAddr, Bucket>>,
   /// Flag to ensure background task is spawned only once.
   task_started: Arc<AtomicBool>,
 }
@@ -333,7 +334,7 @@ impl TakoPlugin for RateLimiterPlugin {
         loop {
           tick.tick().await;
           let now = Instant::now();
-          store.retain(|_, b| {
+          store.retain_sync(|_, b| {
             b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
             now.duration_since(b.last_seen) < purge_after
           });
@@ -375,13 +376,13 @@ impl TakoPlugin for RateLimiterPlugin {
 /// use tako::middleware::Next;
 /// use tako::types::Request;
 /// use std::sync::Arc;
-/// use dashmap::DashMap;
+/// use scc::HashMap as SccHashMap;
 ///
 /// # async fn example() {
 /// # let req = Request::builder().body(tako::body::TakoBody::empty()).unwrap();
 /// # let next = Next { middlewares: Arc::new(vec![]), endpoint: Arc::new(|_| Box::pin(async { tako::types::Response::new(tako::body::TakoBody::empty()) })) };
 /// let config = Config::default();
-/// let store = Arc::new(DashMap::new());
+/// let store = Arc::new(SccHashMap::new());
 /// let response = retain(req, next, config, store).await;
 /// # }
 /// ```
@@ -389,7 +390,7 @@ async fn retain(
   req: Request,
   next: Next,
   cfg: Config,
-  store: Arc<DashMap<IpAddr, Bucket>>,
+  store: Arc<SccHashMap<IpAddr, Bucket>>,
 ) -> impl Responder {
   let ip = req
     .extensions()
@@ -397,7 +398,7 @@ async fn retain(
     .map(|sa| sa.ip())
     .unwrap_or(IpAddr::from([0, 0, 0, 0]));
 
-  let mut entry = store.entry(ip).or_insert_with(|| Bucket {
+  let mut entry = store.entry_sync(ip).or_insert_with(|| Bucket {
     available: cfg.max_requests as f64,
     last_seen: Instant::now(),
   });

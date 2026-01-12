@@ -32,15 +32,16 @@ use hyper_util::rt::TokioIo;
 #[cfg(not(feature = "compio"))]
 use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
-use crate::{
-  body::TakoBody,
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::{Request, Response},
-};
-
+use crate::body::TakoBody;
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 #[cfg(feature = "graphiql")]
-pub use crate::graphiql::{GraphiQL, graphiql};
+pub use crate::graphiql::GraphiQL;
+#[cfg(feature = "graphiql")]
+pub use crate::graphiql::graphiql;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Single GraphQL request extractor.
 pub struct GraphQLRequest(pub async_graphql::Request);
@@ -485,8 +486,10 @@ where
     };
 
     let accept = {
-      use base64::{Engine as _, engine::general_purpose::STANDARD};
-      use sha1::{Digest, Sha1};
+      use base64::Engine as _;
+      use base64::engine::general_purpose::STANDARD;
+      use sha1::Digest;
+      use sha1::Sha1;
       let mut sha1 = Sha1::new();
       sha1.update(key.as_bytes());
       sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");

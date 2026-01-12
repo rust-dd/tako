@@ -17,33 +17,36 @@
 //! - Response headers are filtered to exclude hop-by-hop and length-specific headers.
 //! - Storage is in-memory; TTL-based cleanup runs periodically.
 
-use std::{
-  sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-  },
-  time::{Duration, Instant},
-};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 use bytes::Bytes;
-use dashmap::DashMap;
-use http::{
-  HeaderName, HeaderValue, Method, StatusCode,
-  header::{CONTENT_LENGTH, CONTENT_TYPE, LOCATION, RETRY_AFTER},
-};
+use http::HeaderName;
+use http::HeaderValue;
+use http::Method;
+use http::StatusCode;
+use http::header::CONTENT_LENGTH;
+use http::header::CONTENT_TYPE;
+use http::header::LOCATION;
+use http::header::RETRY_AFTER;
 use http_body_util::BodyExt;
-use sha1::{Digest, Sha1};
-use tokio::{sync::Notify, time::timeout};
+use scc::HashMap as SccHashMap;
+use sha1::Digest;
+use sha1::Sha1;
+use tokio::sync::Notify;
+use tokio::time::timeout;
 
-use crate::{
-  body::TakoBody,
-  middleware::Next,
-  plugins::TakoPlugin,
-  responder::Responder,
-  router::Router,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Which request attributes are included in the idempotency key scope.
 #[derive(Clone, Copy)]
@@ -173,15 +176,15 @@ enum Entry {
 }
 
 #[derive(Clone)]
-struct Store(Arc<DashMap<String, Entry>>);
+struct Store(Arc<SccHashMap<String, Entry>>);
 
 impl Store {
   fn new() -> Self {
-    Self(Arc::new(DashMap::new()))
+    Self(Arc::new(SccHashMap::new()))
   }
 
   fn get(&self, k: &str) -> Option<Entry> {
-    self.0.get(k).map(|e| match &*e {
+    self.0.get_sync(k).map(|e| match &*e {
       Entry::InFlight {
         payload_sig,
         notify,
@@ -197,28 +200,28 @@ impl Store {
 
   fn insert_inflight(&self, k: String, payload_sig: [u8; 20]) -> Arc<Notify> {
     let notify = Arc::new(Notify::new());
-    self.0.insert(
+    std::mem::drop(self.0.insert_sync(
       k,
       Entry::InFlight {
         payload_sig,
         notify: notify.clone(),
         started: Instant::now(),
       },
-    );
+    ));
     notify
   }
 
   fn complete(&self, k: String, completed: Completed) {
-    self.0.insert(k, Entry::Completed(completed));
+    std::mem::drop(self.0.insert_sync(k, Entry::Completed(completed)));
   }
 
   fn remove(&self, k: &str) {
-    let _ = self.0.remove(k);
+    let _ = self.0.remove_sync(k);
   }
 
   fn retain_expired(&self) {
     let now = Instant::now();
-    self.0.retain(|_, v| match v {
+    self.0.retain_sync(|_, v| match v {
       Entry::Completed(c) => c.expires_at > now,
       Entry::InFlight { .. } => true,
     });

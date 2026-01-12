@@ -5,11 +5,11 @@
 //! log levels, and span events. The tracing system helps with debugging, monitoring,
 //! and understanding application behavior in development and production environments.
 
-use tracing_subscriber::{
-  Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
-};
-
 pub use tracing::level_filters::LevelFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub static mut TRACING_LEVEL: LevelFilter = LevelFilter::DEBUG;
 

@@ -27,20 +27,19 @@
 //! # }
 //! ```
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 
 use http::StatusCode;
 #[cfg(not(feature = "compio"))]
 use tokio::fs;
-
 #[cfg(feature = "compio")]
 use compio::fs;
 
-use crate::{
-  body::TakoBody,
-  responder::Responder,
-  types::{Request, Response},
-};
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Static directory server with configurable fallback handling.
 #[doc(alias = "static")]

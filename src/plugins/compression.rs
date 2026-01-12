@@ -49,19 +49,23 @@
 //! api_route.plugin(advanced);
 //! ```
 
+use std::io::Read;
+use std::io::Write;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use bytes::Bytes;
-use flate2::{
-  Compression as GzLevel,
-  write::{DeflateEncoder, GzEncoder},
-};
-use http::{
-  HeaderValue, StatusCode,
-  header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, VARY},
-};
+use flate2::Compression as GzLevel;
+use flate2::write::DeflateEncoder;
+use flate2::write::GzEncoder;
+use http::HeaderValue;
+use http::StatusCode;
+use http::header::ACCEPT_ENCODING;
+use http::header::CONTENT_ENCODING;
+use http::header::CONTENT_LENGTH;
+use http::header::CONTENT_TYPE;
+use http::header::VARY;
 use http_body_util::BodyExt;
-use std::io::{Read, Write};
 
 pub mod brotli_stream;
 pub mod deflate_stream;
@@ -71,21 +75,18 @@ pub mod zstd_stream;
 #[cfg(feature = "zstd")]
 use zstd::stream::encode_all as zstd_encode;
 
+use crate::body::TakoBody;
+use crate::middleware::Next;
+use crate::plugins::TakoPlugin;
+use crate::plugins::compression::brotli_stream::stream_brotli;
+use crate::plugins::compression::deflate_stream::stream_deflate;
+use crate::plugins::compression::gzip_stream::stream_gzip;
 #[cfg(feature = "zstd")]
 use crate::plugins::compression::zstd_stream::stream_zstd;
-use crate::{
-  body::TakoBody,
-  middleware::Next,
-  plugins::{
-    TakoPlugin,
-    compression::{
-      brotli_stream::stream_brotli, deflate_stream::stream_deflate, gzip_stream::stream_gzip,
-    },
-  },
-  responder::Responder,
-  router::Router,
-  types::{Request, Response},
-};
+use crate::responder::Responder;
+use crate::router::Router;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Supported HTTP compression encoding algorithms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,5 +1,7 @@
 use anyhow::Result;
-use tako::{Method, responder::Responder, router::Router};
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
 use tokio::net::TcpListener;
 
 async fn hello_world() -> impl Responder {

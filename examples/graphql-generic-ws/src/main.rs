@@ -1,16 +1,29 @@
-use anyhow::Result;
-use async_graphql::futures_util::{Stream, stream};
-use async_graphql::{Context, EmptyMutation, Object, Schema, Subscription};
-use http::{HeaderValue, StatusCode, header};
-use hyper_util::rt::TokioIo;
 use std::time::Duration;
+
+use anyhow::Result;
+use async_graphql::Context;
+use async_graphql::EmptyMutation;
+use async_graphql::Object;
+use async_graphql::Schema;
+use async_graphql::Subscription;
+use async_graphql::futures_util::Stream;
+use async_graphql::futures_util::stream;
+use http::HeaderValue;
+use http::StatusCode;
+use http::header;
+use hyper_util::rt::TokioIo;
+use tako::Method;
 use tako::extractors::FromRequest;
-use tako::graphql::{GraphQLRequest, GraphQLResponse, GraphQLWebSocket};
+use tako::graphql::GraphQLRequest;
+use tako::graphql::GraphQLResponse;
+use tako::graphql::GraphQLWebSocket;
 use tako::responder::Responder;
-use tako::types::{Request as TakoRequest, Response as TakoResponse};
-use tako::{Method, router::Router};
+use tako::router::Router;
+use tako::types::Request as TakoRequest;
+use tako::types::Response as TakoResponse;
 use tokio::net::TcpListener;
-use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Role;
 
 struct QueryRoot;
 
@@ -66,8 +79,10 @@ async fn ws_generic(mut req: TakoRequest) -> TakoResponse {
     None => return (StatusCode::BAD_REQUEST, "Missing Sec-WebSocket-Key").into_response(),
   };
   let accept = {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use sha1::{Digest, Sha1};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+    use sha1::Digest;
+    use sha1::Sha1;
     let mut sha1 = Sha1::new();
     sha1.update(key.as_bytes());
     sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");

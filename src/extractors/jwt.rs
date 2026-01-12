@@ -36,15 +36,16 @@
 //! }
 //! ```
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use http::{StatusCode, request::Parts};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use http::StatusCode;
+use http::request::Parts;
 use serde::de::DeserializeOwned;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// JWT token extractor that provides access to the raw token string.
 #[doc(alias = "jwt")]

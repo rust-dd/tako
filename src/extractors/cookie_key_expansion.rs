@@ -22,13 +22,13 @@
 //! ```
 
 use cookie::Key;
-use http::{StatusCode, request::Parts};
+use http::StatusCode;
+use http::request::Parts;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// Key derivation contexts for different cryptographic purposes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -215,7 +215,8 @@ impl CookieKeyExpansion {
   /// Performs simplified key expansion.
   fn hkdf_expand(&self, info: &[u8]) -> Result<Vec<u8>, CookieKeyExpansionError> {
     use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use std::hash::Hash;
+    use std::hash::Hasher;
 
     // This is a simplified key derivation - in production, use a proper HKDF implementation
     // like the `hkdf` crate or similar cryptographic library

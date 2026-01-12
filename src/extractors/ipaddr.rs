@@ -26,14 +26,16 @@
 //! }
 //! ```
 
-use http::{StatusCode, request::Parts};
-use std::{net::IpAddr as StdIpAddr, str::FromStr};
+use std::net::IpAddr as StdIpAddr;
+use std::str::FromStr;
 
-use crate::{
-  extractors::{FromRequest, FromRequestParts},
-  responder::Responder,
-  types::Request,
-};
+use http::StatusCode;
+use http::request::Parts;
+
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
+use crate::responder::Responder;
+use crate::types::Request;
 
 /// Extractor for client IP address from HTTP request headers.
 ///

@@ -2,12 +2,17 @@ use std::convert::Infallible;
 
 use anyhow::Result;
 use bytes::Bytes;
-use futures_util::{StreamExt, stream};
-use http::{StatusCode, header};
+use futures_util::StreamExt;
+use futures_util::stream;
+use http::StatusCode;
+use http::header;
 use http_body::Frame;
-use tako::{
-  Method, body::TakoBody, responder::Responder, router::Router, sse::Sse, types::Request,
-};
+use tako::Method;
+use tako::body::TakoBody;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::sse::Sse;
+use tako::types::Request;
 use tokio::net::TcpListener;
 
 async fn numbers(_: Request) -> impl Responder {

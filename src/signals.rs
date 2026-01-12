@@ -4,18 +4,23 @@
 //! and handled within a Tako application. It is intended for cross-cutting
 //! concerns such as metrics, logging hooks, or custom application events.
 
-use crate::types::BuildHasher;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{any::Any, collections::HashMap, sync::Arc};
+use std::any::Any;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
-use dashmap::DashMap;
-use futures_util::future::{BoxFuture, join_all};
+use futures_util::future::BoxFuture;
+use futures_util::future::join_all;
 use once_cell::sync::Lazy;
+use scc::HashMap as SccHashMap;
 use tokio::sync::{broadcast, mpsc};
 #[cfg(not(feature = "compio"))]
 use std::time::Duration;
 #[cfg(not(feature = "compio"))]
 use tokio::time::timeout;
+
+use crate::types::BuildHasher;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
 static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);
@@ -103,10 +108,10 @@ pub type SignalStream = mpsc::UnboundedReceiver<Signal>;
 
 #[derive(Default)]
 struct Inner {
-  handlers: DashMap<String, Vec<SignalHandler>>,
-  topics: DashMap<String, broadcast::Sender<Signal>>,
-  rpc: DashMap<String, RpcHandler>,
-  exporters: DashMap<u64, SignalExporter>,
+  handlers: SccHashMap<String, Vec<SignalHandler>>,
+  topics: SccHashMap<String, broadcast::Sender<Signal>>,
+  rpc: SccHashMap<String, RpcHandler>,
+  exporters: SccHashMap<u64, SignalExporter>,
 }
 
 /// Shared arbiter used to register and dispatch named signals.
@@ -166,12 +171,12 @@ impl SignalArbiter {
 
   /// Returns (and lazily initializes) the broadcast sender for a signal id.
   pub(crate) fn topic_sender(&self, id: &str) -> broadcast::Sender<Signal> {
-    if let Some(existing) = self.inner.topics.get(id) {
+    if let Some(existing) = self.inner.topics.get_sync(id) {
       existing.clone()
     } else {
       let cap = GLOBAL_BROADCAST_CAPACITY.load(Ordering::SeqCst);
       let (tx, _rx) = broadcast::channel(cap);
-      let entry = self.inner.topics.entry(id.to_string()).or_insert(tx);
+      let entry = self.inner.topics.entry_sync(id.to_string()).or_insert(tx);
       entry.clone()
     }
   }
@@ -193,7 +198,7 @@ impl SignalArbiter {
     self
       .inner
       .handlers
-      .entry(id)
+      .entry_sync(id)
       .or_insert_with(Vec::new)
       .push(handler);
   }
@@ -232,19 +237,20 @@ impl SignalArbiter {
   /// Broadcasts a signal to all subscribers without awaiting handler completion.
   pub(crate) fn broadcast(&self, signal: Signal) {
     // Exact id subscribers
-    if let Some(sender) = self.inner.topics.get(&signal.id) {
+    if let Some(sender) = self.inner.topics.get_sync(&signal.id) {
       let _ = sender.send(signal.clone());
     }
 
     // Prefix subscribers: keys ending with '*'
-    for entry in self.inner.topics.iter() {
-      let key = entry.key();
+    self.inner.topics.iter_sync(|key, v| {
       if let Some(prefix) = key.strip_suffix('*') {
         if signal.id.starts_with(prefix) {
-          let _ = entry.value().send(signal.clone());
+          let _ = v.send(signal.clone());
         }
       }
-    }
+
+      true
+    });
   }
 
   /// Subscribes using a filter function on top of an id-based subscription.
@@ -327,7 +333,7 @@ impl SignalArbiter {
       })
     });
 
-    self.inner.rpc.insert(id_str, handler);
+    std::mem::drop(self.inner.rpc.insert_sync(id_str, handler));
   }
 
   /// Calls a typed RPC handler and returns a shared pointer to the response.
@@ -337,7 +343,7 @@ impl SignalArbiter {
     Res: Send + Sync + 'static,
   {
     let id_str = id.as_ref();
-    let entry = self.inner.rpc.get(id_str)?;
+    let entry = self.inner.rpc.get_sync(id_str)?;
     let handler = entry.clone();
     drop(entry);
 
@@ -357,7 +363,7 @@ impl SignalArbiter {
     Res: Send + Sync + Clone + 'static,
   {
     let id_str = id.as_ref();
-    let entry = self.inner.rpc.get(id_str);
+    let entry = self.inner.rpc.get_sync(id_str);
     let entry = match entry {
       Some(e) => e,
       None => return Err(RpcError::NoHandler),
@@ -410,11 +416,12 @@ impl SignalArbiter {
     self.broadcast(signal.clone());
 
     // Call exporters (non-blocking from the perspective of handlers).
-    for entry in self.inner.exporters.iter() {
-      (entry.value())(&signal);
-    }
+    self.inner.exporters.iter_sync(|_, v| {
+      v(&signal);
+      true
+    });
 
-    if let Some(entry) = self.inner.handlers.get(&signal.id) {
+    if let Some(entry) = self.inner.handlers.get_sync(&signal.id) {
       let handlers = entry.clone();
       drop(entry);
 
@@ -442,7 +449,7 @@ impl SignalArbiter {
     // Use the pointer address as a simple, best-effort key.
     let key = Arc::into_raw(Arc::new(())) as u64;
     let exporter: SignalExporter = Arc::new(exporter);
-    self.inner.exporters.insert(key, exporter);
+    std::mem::drop(self.inner.exporters.insert_sync(key, exporter));
   }
 
   /// Merges all handlers from `other` into `self`.
@@ -450,73 +457,64 @@ impl SignalArbiter {
   /// This is used by router merging so that signal handlers attached to
   /// a merged router continue to be active.
   pub(crate) fn merge_from(&self, other: &SignalArbiter) {
-    for entry in other.inner.handlers.iter() {
-      let id = entry.key().clone();
-      let handlers = entry.value().clone();
-
+    other.inner.handlers.iter_sync(|k, v| {
       self
         .inner
         .handlers
-        .entry(id)
+        .entry_sync(k.clone())
         .or_insert_with(Vec::new)
-        .extend(handlers);
-    }
+        .extend(v.clone());
 
-    for entry in other.inner.topics.iter() {
-      let id = entry.key().clone();
-      let sender = entry.value().clone();
-      self.inner.topics.entry(id).or_insert(sender);
-    }
+      true
+    });
 
-    for entry in other.inner.rpc.iter() {
-      let id = entry.key().clone();
-      let handler = entry.value().clone();
-      self.inner.rpc.insert(id, handler);
-    }
+    other.inner.topics.iter_sync(|k, v| {
+      self.inner.topics.entry_sync(k.clone()).or_insert(v.clone());
+      true
+    });
 
-    for entry in other.inner.exporters.iter() {
-      let key = entry.key().clone();
-      let exporter = entry.value().clone();
-      self.inner.exporters.insert(key, exporter);
-    }
+    other.inner.rpc.iter_sync(|k, v| {
+      let _ = self.inner.rpc.insert_sync(k.clone(), v.clone());
+      true
+    });
+
+    other.inner.exporters.iter_sync(|k, v| {
+      let _ = self.inner.exporters.insert_sync(k.clone(), v.clone());
+      true
+    });
   }
 
   /// Returns a list of known signal ids (exact topics) currently registered.
   pub fn signal_ids(&self) -> Vec<String> {
-    self
-      .inner
-      .topics
-      .iter()
-      .filter_map(|entry| {
-        let id = entry.key();
-        if id.ends_with('*') {
-          None
-        } else {
-          Some(id.clone())
-        }
-      })
-      .collect()
+    let mut ids = Vec::new();
+    self.inner.topics.iter_sync(|k, _| {
+      if !k.ends_with('*') {
+        ids.push(k.clone());
+      }
+      true
+    });
+    ids
   }
 
   /// Returns a list of known signal prefixes (topics ending with '*').
   pub fn signal_prefixes(&self) -> Vec<String> {
-    self
-      .inner
-      .topics
-      .iter()
-      .filter_map(|entry| {
-        let id = entry.key();
-        if id.ends_with('*') {
-          Some(id.clone())
-        } else {
-          None
-        }
-      })
-      .collect()
+    let mut prefixes = Vec::new();
+    self.inner.topics.iter_sync(|k, _| {
+      if k.ends_with('*') {
+        prefixes.push(k.clone());
+      }
+      true
+    });
+    prefixes
   }
 
   /// Returns a list of registered RPC ids.
   pub fn rpc_ids(&self) -> Vec<String> {
-    self.inner.rpc.iter().map(|e| e.key().clone()).collect()
+    let mut ids = Vec::new();
+    self.inner.rpc.iter_sync(|k, _| {
+      ids.push(k.clone());
+      true
+    });
+    ids
   }
 }

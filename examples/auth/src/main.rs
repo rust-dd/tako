@@ -1,10 +1,10 @@
 use anyhow::Result;
-use tako::{
-  Method,
-  middleware::{IntoMiddleware, basic_auth, bearer_auth},
-  responder::Responder,
-  types::Request,
-};
+use tako::Method;
+use tako::middleware::IntoMiddleware;
+use tako::middleware::basic_auth;
+use tako::middleware::bearer_auth;
+use tako::responder::Responder;
+use tako::types::Request;
 
 async fn basic_auth_route(_: Request) -> impl Responder {
   "Basic Auth Route"

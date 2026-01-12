@@ -33,24 +33,24 @@
 
 #![cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 
-use std::{io::SeekFrom, path::Path};
+use std::io::SeekFrom;
+use std::path::Path;
 
 use anyhow::Result;
 use bytes::Bytes;
-use futures_util::{TryStream, TryStreamExt};
+use futures_util::TryStream;
+use futures_util::TryStreamExt;
 use http::StatusCode;
 use http_body::Frame;
-use tokio::{
-  fs::File,
-  io::{AsyncReadExt, AsyncSeekExt},
-};
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncSeekExt;
 use tokio_util::io::ReaderStream;
 
-use crate::{
-  body::TakoBody,
-  responder::Responder,
-  types::{BoxError, Response},
-};
+use crate::body::TakoBody;
+use crate::responder::Responder;
+use crate::types::BoxError;
+use crate::types::Response;
 
 /// HTTP file stream with metadata support for efficient file delivery.
 ///

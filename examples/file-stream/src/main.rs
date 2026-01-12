@@ -1,6 +1,11 @@
 use anyhow::Result;
-use tako::{Method, file_stream::FileStream, responder::Responder, router::Router, types::Request};
-use tokio::{fs::File, net::TcpListener};
+use tako::Method;
+use tako::file_stream::FileStream;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::types::Request;
+use tokio::fs::File;
+use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
 
 async fn serve_file(_: Request) -> impl Responder {

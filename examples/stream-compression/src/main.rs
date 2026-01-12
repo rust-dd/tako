@@ -1,8 +1,9 @@
 use anyhow::Result;
-use tako::{
-  Method, plugins::compression::CompressionBuilder, responder::Responder, router::Router,
-  types::Request,
-};
+use tako::Method;
+use tako::plugins::compression::CompressionBuilder;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::types::Request;
 use tokio::net::TcpListener;
 
 use crate::text::TEXT;

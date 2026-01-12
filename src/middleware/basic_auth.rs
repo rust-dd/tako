@@ -35,18 +35,25 @@
 //! });
 //! ```
 
-use crate::types::BuildHasher;
-use crate::{
-  body::TakoBody,
-  middleware::{IntoMiddleware, Next},
-  responder::Responder,
-  types::{Request, Response},
-};
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
 use base64::Engine;
 use bytes::Bytes;
-use http::{HeaderValue, StatusCode, header};
+use http::HeaderValue;
+use http::StatusCode;
+use http::header;
 use http_body_util::Full;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+
+use crate::body::TakoBody;
+use crate::middleware::IntoMiddleware;
+use crate::middleware::Next;
+use crate::responder::Responder;
+use crate::types::BuildHasher;
+use crate::types::Request;
+use crate::types::Response;
 
 /// Basic HTTP authentication middleware configuration.
 ///

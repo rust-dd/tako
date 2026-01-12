@@ -1,10 +1,9 @@
 use anyhow::Result;
-use tako::{
-  Method,
-  responder::Responder,
-  router::Router,
-  state::{get_state, set_state},
-};
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::state::get_state;
+use tako::state::set_state;
 use tokio::net::TcpListener;
 
 async fn hello_world() -> impl Responder {
