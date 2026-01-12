@@ -99,6 +99,7 @@ mod route;
 pub mod router;
 
 /// HTTP server implementation and configuration.
+#[cfg(not(feature = "compio"))]
 mod server;
 
 /// Server-Sent Events (SSE) support for real-time communication.

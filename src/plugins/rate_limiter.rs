@@ -60,7 +60,6 @@ use std::{
 use anyhow::Result;
 use dashmap::DashMap;
 use http::StatusCode;
-use tokio::time;
 
 use crate::{
   body::TakoBody, middleware::Next, plugins::TakoPlugin, responder::Responder, router::Router,
@@ -326,8 +325,9 @@ impl TakoPlugin for RateLimiterPlugin {
       let cfg = self.cfg.clone();
       let store = self.store.clone();
 
+      #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
-        let mut tick = time::interval(Duration::from_millis(cfg.refill_interval_ms));
+        let mut tick = tokio::time::interval(Duration::from_millis(cfg.refill_interval_ms));
         let requests_to_add = cfg.refill_rate as f64;
         let purge_after = Duration::from_secs(300);
         loop {
@@ -339,6 +339,22 @@ impl TakoPlugin for RateLimiterPlugin {
           });
         }
       });
+
+      #[cfg(feature = "compio")]
+      compio::runtime::spawn(async move {
+        let requests_to_add = cfg.refill_rate as f64;
+        let purge_after = Duration::from_secs(300);
+        let interval = Duration::from_millis(cfg.refill_interval_ms);
+        loop {
+          compio::time::sleep(interval).await;
+          let now = Instant::now();
+          store.retain(|_, b| {
+            b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
+            now.duration_since(b.last_seen) < purge_after
+          });
+        }
+      })
+      .detach();
     }
 
     Ok(())

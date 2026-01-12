@@ -12,7 +12,10 @@ use dashmap::DashMap;
 use futures_util::future::{BoxFuture, join_all};
 use once_cell::sync::Lazy;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{Duration, timeout};
+#[cfg(not(feature = "compio"))]
+use std::time::Duration;
+#[cfg(not(feature = "compio"))]
+use tokio::time::timeout;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
 static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);
@@ -256,6 +259,7 @@ impl SignalArbiter {
     let (tx, out_rx) = mpsc::unbounded_channel();
     let filter = Arc::new(filter);
 
+    #[cfg(not(feature = "compio"))]
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
         if filter(&signal) {
@@ -265,6 +269,18 @@ impl SignalArbiter {
         }
       }
     });
+
+    #[cfg(feature = "compio")]
+    compio::runtime::spawn(async move {
+      while let Ok(signal) = rx.recv().await {
+        if filter(&signal) {
+          if tx.send(signal).is_err() {
+            break;
+          }
+        }
+      }
+    })
+    .detach();
 
     out_rx
   }
@@ -368,6 +384,7 @@ impl SignalArbiter {
   }
 
   /// Calls a typed RPC handler with a timeout.
+  #[cfg(not(feature = "compio"))]
   pub async fn call_rpc_timeout<Req, Res>(
     &self,
     id: impl AsRef<str>,
