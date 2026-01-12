@@ -31,7 +31,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use http::StatusCode;
+#[cfg(not(feature = "compio"))]
 use tokio::fs;
+#[cfg(feature = "compio")]
+use compio::fs;
 
 use crate::body::TakoBody;
 use crate::responder::Responder;

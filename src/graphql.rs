@@ -8,34 +8,29 @@
 #![cfg(feature = "async-graphql")]
 #![cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 
-use std::future::Future;
 use std::str::FromStr;
-use std::time::Duration;
+#[cfg(not(feature = "compio"))]
+use std::{future::Future, time::Duration};
 
-use async_graphql::BatchRequest as GqlBatchRequest;
-use async_graphql::BatchResponse as GqlBatchResponse;
-use async_graphql::Data;
-use async_graphql::Executor;
-use async_graphql::Result as GqlResult;
-use async_graphql::http::DefaultOnConnInitType;
-use async_graphql::http::DefaultOnPingType;
-use async_graphql::http::MultipartOptions;
-use async_graphql::http::WebSocket as GqlWebSocket;
-use async_graphql::http::WebSocketProtocols;
-use async_graphql::http::WsMessage;
-use async_graphql::http::default_on_connection_init;
-use async_graphql::http::default_on_ping;
-use futures_util::Sink;
-use futures_util::SinkExt as _;
-use futures_util::Stream;
-use futures_util::StreamExt as _;
-use http::HeaderValue;
-use http::StatusCode;
-use http::header;
+use async_graphql::{
+  BatchRequest as GqlBatchRequest, BatchResponse as GqlBatchResponse,
+  http::{MultipartOptions, WebSocketProtocols},
+};
+#[cfg(not(feature = "compio"))]
+use async_graphql::{
+  Data, Executor, Result as GqlResult,
+  http::{DefaultOnConnInitType, DefaultOnPingType, default_on_connection_init, default_on_ping},
+};
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::{WebSocket as GqlWebSocket, WsMessage};
+#[cfg(not(feature = "compio"))]
+use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
+use http::{HeaderValue, StatusCode, header};
 use http_body_util::BodyExt;
+#[cfg(not(feature = "compio"))]
 use hyper_util::rt::TokioIo;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::Role;
+#[cfg(not(feature = "compio"))]
+use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
 
 use crate::body::TakoBody;
 use crate::extractors::FromRequest;
@@ -368,6 +363,7 @@ impl Responder for GraphQLBatchResponse {
 ///     async move { GraphQLSubscription::new(req, schema) }
 /// });
 /// ```
+#[cfg(not(feature = "compio"))]
 pub struct GraphQLSubscription<E, OnConnInit = DefaultOnConnInitType, OnPing = DefaultOnPingType>
 where
   E: Executor,
@@ -380,6 +376,7 @@ where
   keepalive_timeout: Option<Duration>,
 }
 
+#[cfg(not(feature = "compio"))]
 impl<E> GraphQLSubscription<E, DefaultOnConnInitType, DefaultOnPingType>
 where
   E: Executor,
@@ -396,6 +393,7 @@ where
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl<E, OnConnInit, OnPing> GraphQLSubscription<E, OnConnInit, OnPing>
 where
   E: Executor,
@@ -441,6 +439,7 @@ where
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl<E, OnConnInit, OnConnInitFut, OnPing, OnPingFut> Responder
   for GraphQLSubscription<E, OnConnInit, OnPing>
 where
@@ -566,6 +565,7 @@ where
 ///
 /// This is a generic API so you can integrate custom websocket
 /// transports while reusing Tako's mapping to async-graphql's WebSocket state machine.
+#[cfg(not(feature = "compio"))]
 pub struct GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
   E: Executor,
@@ -580,6 +580,7 @@ where
   keepalive_timeout: Option<Duration>,
 }
 
+#[cfg(not(feature = "compio"))]
 impl<S, E>
   GraphQLWebSocket<
     futures_util::stream::SplitSink<S, tokio_tungstenite::tungstenite::Message>,
@@ -601,6 +602,7 @@ where
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E>
   GraphQLWebSocket<SinkT, StreamT, E, DefaultOnConnInitType, DefaultOnPingType>
 where
@@ -630,6 +632,7 @@ where
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E, OnConnInit, OnPing> GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
   SinkT: Sink<tokio_tungstenite::tungstenite::Message>,
@@ -650,6 +653,7 @@ where
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E, OnConnInit, OnConnInitFut, OnPing, OnPingFut>
   GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where

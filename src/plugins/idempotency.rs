@@ -270,6 +270,8 @@ impl TakoPlugin for IdempotencyPlugin {
     if !self.janitor_started.swap(true, Ordering::SeqCst) {
       let store = self.store.clone();
       let ttl = self.cfg.ttl_secs;
+
+      #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(ttl.max(60).min(3600)));
         loop {
@@ -277,6 +279,16 @@ impl TakoPlugin for IdempotencyPlugin {
           store.retain_expired();
         }
       });
+
+      #[cfg(feature = "compio")]
+      compio::runtime::spawn(async move {
+        let interval = Duration::from_secs(ttl.max(60).min(3600));
+        loop {
+          compio::time::sleep(interval).await;
+          store.retain_expired();
+        }
+      })
+      .detach();
     }
 
     Ok(())

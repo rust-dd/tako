@@ -14,9 +14,10 @@ use futures_util::future::BoxFuture;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;
-use tokio::sync::broadcast;
-use tokio::sync::mpsc;
-use tokio::time::Duration;
+use tokio::sync::{broadcast, mpsc};
+#[cfg(not(feature = "compio"))]
+use std::time::Duration;
+#[cfg(not(feature = "compio"))]
 use tokio::time::timeout;
 
 use crate::types::BuildHasher;
@@ -264,6 +265,7 @@ impl SignalArbiter {
     let (tx, out_rx) = mpsc::unbounded_channel();
     let filter = Arc::new(filter);
 
+    #[cfg(not(feature = "compio"))]
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
         if filter(&signal) {
@@ -273,6 +275,18 @@ impl SignalArbiter {
         }
       }
     });
+
+    #[cfg(feature = "compio")]
+    compio::runtime::spawn(async move {
+      while let Ok(signal) = rx.recv().await {
+        if filter(&signal) {
+          if tx.send(signal).is_err() {
+            break;
+          }
+        }
+      }
+    })
+    .detach();
 
     out_rx
   }
@@ -376,6 +390,7 @@ impl SignalArbiter {
   }
 
   /// Calls a typed RPC handler with a timeout.
+  #[cfg(not(feature = "compio"))]
   pub async fn call_rpc_timeout<Req, Res>(
     &self,
     id: impl AsRef<str>,
