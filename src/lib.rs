@@ -137,6 +137,11 @@ pub mod graphql;
 #[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
 
+/// OpenAPI documentation generation integrations (utoipa, vespera).
+#[cfg(any(feature = "utoipa", feature = "vespera"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
+pub mod openapi;
+
 #[cfg(feature = "zero-copy-extractors")]
 #[cfg_attr(docsrs, doc(cfg(feature = "zero-copy-extractors")))]
 pub mod zero_copy_extractors;

@@ -684,4 +684,46 @@ impl Router {
     }
     None
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // OpenAPI route collection
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /// Collects OpenAPI metadata from all registered routes.
+  ///
+  /// Returns a vector of tuples containing the HTTP method, path, and OpenAPI
+  /// metadata for each route that has OpenAPI information attached.
+  ///
+  /// # Examples
+  ///
+  /// ```rust,ignore
+  /// use tako::{router::Router, Method};
+  ///
+  /// let mut router = Router::new();
+  /// router.route(Method::GET, "/users", list_users)
+  ///     .summary("List users")
+  ///     .tag("users");
+  ///
+  /// for (method, path, openapi) in router.collect_openapi_routes() {
+  ///     println!("{} {} - {:?}", method, path, openapi.summary);
+  /// }
+  /// ```
+  #[cfg(any(feature = "utoipa", feature = "vespera"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
+  pub fn collect_openapi_routes(&self) -> Vec<(Method, String, crate::openapi::RouteOpenApi)> {
+    let mut result = Vec::new();
+
+    self.routes.iter_sync(|method, weak_vec| {
+      for weak in weak_vec {
+        if let Some(route) = weak.upgrade() {
+          if let Some(openapi) = route.openapi_metadata() {
+            result.push((method.clone(), route.path.clone(), openapi));
+          }
+        }
+      }
+      true
+    });
+
+    result
+  }
 }
