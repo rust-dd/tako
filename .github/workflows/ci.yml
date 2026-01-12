@@ -25,5 +25,11 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Build release
+        run: cargo build --release
+
+      - name: Build all features
+        run: cargo build --release --all-features
+
       - name: Build all examples
-        run: cargo build --release --all-features --examples
+        run: cargo build --release --examples
