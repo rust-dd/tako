@@ -65,6 +65,9 @@ pub mod metrics;
 /// Idempotency-Key based request de-duplication plugin.
 pub mod idempotency;
 
+/// Upload progress tracking plugin for monitoring file uploads.
+pub mod upload_progress;
+
 /// Trait for implementing Tako framework plugins.
 ///
 /// Plugins extend the framework's functionality by implementing this trait. They can
