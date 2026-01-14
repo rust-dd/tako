@@ -175,7 +175,6 @@ pub use responder::NOT_FOUND;
 /// ```
 #[cfg(not(feature = "compio"))]
 pub use server::serve;
-
 #[cfg(feature = "compio")]
 pub use server_compio::serve;
 
@@ -288,6 +287,32 @@ pub mod server_compio;
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub mod server_tls_compio;
 
+/// HTTP/3 server implementation using QUIC transport.
+#[cfg(feature = "http3")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+pub mod server_h3;
+
+/// Starts the HTTP/3 server with QUIC transport.
+///
+/// HTTP/3 provides improved performance through QUIC's features like reduced
+/// latency, better multiplexing, and built-in encryption.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "http3")]
+/// use tako::{serve_h3, router::Router};
+///
+/// # #[cfg(feature = "http3")]
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let router = Router::new();
+/// serve_h3(router, "[::]:4433", Some("cert.pem"), Some("key.pem")).await;
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "http3")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+pub use server_h3::serve_h3;
 /// Starts the HTTPS server with TLS encryption support.
 ///
 /// Similar to `serve` but enables TLS encryption for secure connections. Requires
@@ -312,7 +337,6 @@ pub mod server_tls_compio;
 #[cfg(all(not(feature = "compio"), feature = "tls"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls::serve_tls;
-
 #[cfg(feature = "compio-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls_compio::serve_tls;

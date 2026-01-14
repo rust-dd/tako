@@ -9,14 +9,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+#[cfg(not(feature = "compio"))]
+use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;
-use tokio::sync::{broadcast, mpsc};
-#[cfg(not(feature = "compio"))]
-use std::time::Duration;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 #[cfg(not(feature = "compio"))]
 use tokio::time::timeout;
 

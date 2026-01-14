@@ -8,29 +8,52 @@
 #![cfg(feature = "async-graphql")]
 #![cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 
+#[cfg(not(feature = "compio"))]
+use std::future::Future;
 use std::str::FromStr;
 #[cfg(not(feature = "compio"))]
-use std::{future::Future, time::Duration};
+use std::time::Duration;
 
-use async_graphql::{
-  BatchRequest as GqlBatchRequest, BatchResponse as GqlBatchResponse,
-  http::{MultipartOptions, WebSocketProtocols},
-};
+use async_graphql::BatchRequest as GqlBatchRequest;
+use async_graphql::BatchResponse as GqlBatchResponse;
 #[cfg(not(feature = "compio"))]
-use async_graphql::{
-  Data, Executor, Result as GqlResult,
-  http::{DefaultOnConnInitType, DefaultOnPingType, default_on_connection_init, default_on_ping},
-};
+use async_graphql::Data;
 #[cfg(not(feature = "compio"))]
-use async_graphql::http::{WebSocket as GqlWebSocket, WsMessage};
+use async_graphql::Executor;
 #[cfg(not(feature = "compio"))]
-use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
-use http::{HeaderValue, StatusCode, header};
+use async_graphql::Result as GqlResult;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::DefaultOnConnInitType;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::DefaultOnPingType;
+use async_graphql::http::MultipartOptions;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::WebSocket as GqlWebSocket;
+use async_graphql::http::WebSocketProtocols;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::WsMessage;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::default_on_connection_init;
+#[cfg(not(feature = "compio"))]
+use async_graphql::http::default_on_ping;
+#[cfg(not(feature = "compio"))]
+use futures_util::Sink;
+#[cfg(not(feature = "compio"))]
+use futures_util::SinkExt as _;
+#[cfg(not(feature = "compio"))]
+use futures_util::Stream;
+#[cfg(not(feature = "compio"))]
+use futures_util::StreamExt as _;
+use http::HeaderValue;
+use http::StatusCode;
+use http::header;
 use http_body_util::BodyExt;
 #[cfg(not(feature = "compio"))]
 use hyper_util::rt::TokioIo;
 #[cfg(not(feature = "compio"))]
-use tokio_tungstenite::{WebSocketStream, tungstenite::protocol::Role};
+use tokio_tungstenite::WebSocketStream;
+#[cfg(not(feature = "compio"))]
+use tokio_tungstenite::tungstenite::protocol::Role;
 
 use crate::body::TakoBody;
 use crate::extractors::FromRequest;

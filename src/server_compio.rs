@@ -1,3 +1,5 @@
+#[cfg(feature = "signals")]
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -7,14 +9,16 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 
 use crate::body::TakoBody;
-use crate::{router::Router, types::BoxError};
-
+use crate::router::Router;
 #[cfg(feature = "signals")]
-use crate::signals::{Signal, SignalArbiter, ids};
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+#[cfg(feature = "signals")]
+use crate::signals::ids;
+use crate::types::BoxError;
 #[cfg(feature = "signals")]
 use crate::types::BuildHasher;
-#[cfg(feature = "signals")]
-use std::collections::HashMap;
 
 pub async fn serve(listener: TcpListener, router: Router) {
   run(listener, router).await.unwrap()

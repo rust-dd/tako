@@ -64,6 +64,9 @@ uuid = { version = "1.17.0", optional = true, features = ["v4"] }
 vespera_core = { version = "0.1", optional = true }
 webpki-roots = { version = "1.0.1", optional = true }
 zstd = { version = "0.13.3", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+quinn = { version = "0.11.9", optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
 jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"] }
@@ -89,6 +92,7 @@ protobuf = ["dep:prost"]
 signals = []
 simd = ["dep:simd-json", "dep:sonic-rs", "jemalloc"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
 ahash = ["dep:ahash"]
 tako-tracing = ["dep:tracing-subscriber"]
 utoipa = ["dep:utoipa"]
@@ -127,6 +131,11 @@ path = "examples/hello-world/src/main.rs"
 name = "hello-world-compio"
 path = "examples/hello-world-compio/src/main.rs"
 required-features = ["compio"]
+
+[[example]]
+name = "hello-world-http3"
+path = "examples/hello-world-http3/src/main.rs"
+required-features = ["http3"]
 
 [[example]]
 name = "multipart"

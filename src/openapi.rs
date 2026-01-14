@@ -72,71 +72,71 @@ use std::collections::BTreeMap;
 /// used to generate OpenAPI specifications from Tako routes.
 #[derive(Clone, Debug, Default)]
 pub struct RouteOpenApi {
-    /// Unique identifier for the operation.
-    pub operation_id: Option<String>,
-    /// Short summary of the operation.
-    pub summary: Option<String>,
-    /// Detailed description of the operation.
-    pub description: Option<String>,
-    /// Tags for grouping operations.
-    pub tags: Vec<String>,
-    /// Whether the operation is deprecated.
-    pub deprecated: bool,
-    /// Response descriptions keyed by status code.
-    pub responses: BTreeMap<u16, String>,
-    /// Parameter descriptions.
-    pub parameters: Vec<OpenApiParameter>,
-    /// Request body description.
-    pub request_body: Option<OpenApiRequestBody>,
-    /// Security requirements.
-    pub security: Vec<String>,
+  /// Unique identifier for the operation.
+  pub operation_id: Option<String>,
+  /// Short summary of the operation.
+  pub summary: Option<String>,
+  /// Detailed description of the operation.
+  pub description: Option<String>,
+  /// Tags for grouping operations.
+  pub tags: Vec<String>,
+  /// Whether the operation is deprecated.
+  pub deprecated: bool,
+  /// Response descriptions keyed by status code.
+  pub responses: BTreeMap<u16, String>,
+  /// Parameter descriptions.
+  pub parameters: Vec<OpenApiParameter>,
+  /// Request body description.
+  pub request_body: Option<OpenApiRequestBody>,
+  /// Security requirements.
+  pub security: Vec<String>,
 }
 
 /// OpenAPI parameter definition.
 #[derive(Clone, Debug)]
 pub struct OpenApiParameter {
-    /// Parameter name.
-    pub name: String,
-    /// Parameter location (query, header, path, cookie).
-    pub location: ParameterLocation,
-    /// Parameter description.
-    pub description: Option<String>,
-    /// Whether the parameter is required.
-    pub required: bool,
+  /// Parameter name.
+  pub name: String,
+  /// Parameter location (query, header, path, cookie).
+  pub location: ParameterLocation,
+  /// Parameter description.
+  pub description: Option<String>,
+  /// Whether the parameter is required.
+  pub required: bool,
 }
 
 /// Location of an OpenAPI parameter.
 #[derive(Clone, Debug, Default)]
 pub enum ParameterLocation {
-    #[default]
-    Query,
-    Header,
-    Path,
-    Cookie,
+  #[default]
+  Query,
+  Header,
+  Path,
+  Cookie,
 }
 
 /// OpenAPI request body definition.
 #[derive(Clone, Debug)]
 pub struct OpenApiRequestBody {
-    /// Description of the request body.
-    pub description: Option<String>,
-    /// Whether the request body is required.
-    pub required: bool,
-    /// Content type (e.g., "application/json").
-    pub content_type: String,
-    /// Schema properties for the request body (name, type, description).
-    pub schema_properties: Vec<RequestBodyProperty>,
+  /// Description of the request body.
+  pub description: Option<String>,
+  /// Whether the request body is required.
+  pub required: bool,
+  /// Content type (e.g., "application/json").
+  pub content_type: String,
+  /// Schema properties for the request body (name, type, description).
+  pub schema_properties: Vec<RequestBodyProperty>,
 }
 
 /// A property definition for request body schema.
 #[derive(Clone, Debug)]
 pub struct RequestBodyProperty {
-    /// Property name.
-    pub name: String,
-    /// Property type (e.g., "string", "integer", "boolean").
-    pub property_type: String,
-    /// Property description.
-    pub description: Option<String>,
+  /// Property name.
+  pub name: String,
+  /// Property type (e.g., "string", "integer", "boolean").
+  pub property_type: String,
+  /// Property description.
+  pub description: Option<String>,
 }
 
 #[cfg(feature = "utoipa")]

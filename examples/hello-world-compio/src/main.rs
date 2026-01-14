@@ -1,6 +1,8 @@
 use anyhow::Result;
 use compio::net::TcpListener;
-use tako::{Method, responder::Responder, router::Router};
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
 
 async fn hello_world() -> impl Responder {
   "Hello, World!".into_response()

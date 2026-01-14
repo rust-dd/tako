@@ -6,81 +6,86 @@
 //! Run with: cargo run --example openapi-utoipa --features utoipa
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use tako::Method;
 use tako::body::TakoBody;
 use tako::extractors::json::Json;
 use tako::extractors::params::Params;
 use tako::extractors::query::Query;
-use tako::openapi::ui::{Scalar, SwaggerUi};
-use tako::openapi::utoipa::{OpenApi, OpenApiJson, ToSchema};
+use tako::openapi::ui::Scalar;
+use tako::openapi::ui::SwaggerUi;
+use tako::openapi::utoipa::OpenApi;
+use tako::openapi::utoipa::OpenApiJson;
+use tako::openapi::utoipa::ToSchema;
 use tako::responder::Responder;
 use tako::router::Router;
-use tako::types::{Request, Response};
-use tako::Method;
+use tako::types::Request;
+use tako::types::Response;
 use tokio::net::TcpListener;
 
 /// User model for the API.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 struct User {
-    /// Unique user identifier.
-    id: u64,
-    /// User's display name.
-    name: String,
-    /// User's email address.
-    email: String,
+  /// Unique user identifier.
+  id: u64,
+  /// User's display name.
+  name: String,
+  /// User's email address.
+  email: String,
 }
 
 /// Path parameters for user operations.
 #[derive(Debug, Deserialize)]
 struct IdParam {
-    id: u64,
+  id: u64,
 }
 
 /// Query parameters for listing users.
 #[derive(Debug, Deserialize, ToSchema)]
 struct ListQuery {
-    /// Maximum number of users to return.
-    #[serde(default = "default_limit")]
-    limit: u32,
-    /// Number of users to skip.
-    #[serde(default)]
-    offset: u32,
+  /// Maximum number of users to return.
+  #[serde(default = "default_limit")]
+  limit: u32,
+  /// Number of users to skip.
+  #[serde(default)]
+  offset: u32,
 }
 
 fn default_limit() -> u32 {
-    10
+  10
 }
 
 /// Response for listing users.
 #[derive(Debug, Serialize, ToSchema)]
 struct UserList {
-    /// List of users.
-    users: Vec<User>,
-    /// Total number of users.
-    total: u64,
+  /// List of users.
+  users: Vec<User>,
+  /// Total number of users.
+  total: u64,
 }
 
 /// Request body for creating a user.
 #[derive(Debug, Deserialize, ToSchema)]
 struct CreateUserRequest {
-    /// User's display name.
-    name: String,
-    /// User's email address.
-    email: String,
+  /// User's display name.
+  name: String,
+  /// User's email address.
+  email: String,
 }
 
 /// Health check response.
 #[derive(Debug, Serialize, ToSchema)]
 struct HealthResponse {
-    /// Health status.
-    status: String,
+  /// Health status.
+  status: String,
 }
 
 /// Error response.
 #[derive(Debug, Serialize, ToSchema)]
 struct ErrorResponse {
-    /// Error message.
-    message: String,
+  /// Error message.
+  message: String,
 }
 
 /// List all users with pagination.
@@ -97,27 +102,27 @@ struct ErrorResponse {
     tag = "users"
 )]
 async fn list_users(Query(query): Query<ListQuery>) -> impl Responder {
-    let users = vec![
-        User {
-            id: 1,
-            name: "Alice".to_string(),
-            email: "alice@example.com".to_string(),
-        },
-        User {
-            id: 2,
-            name: "Bob".to_string(),
-            email: "bob@example.com".to_string(),
-        },
-    ];
+  let users = vec![
+    User {
+      id: 1,
+      name: "Alice".to_string(),
+      email: "alice@example.com".to_string(),
+    },
+    User {
+      id: 2,
+      name: "Bob".to_string(),
+      email: "bob@example.com".to_string(),
+    },
+  ];
 
-    Json(UserList {
-        users: users
-            .into_iter()
-            .skip(query.offset as usize)
-            .take(query.limit as usize)
-            .collect(),
-        total: 2,
-    })
+  Json(UserList {
+    users: users
+      .into_iter()
+      .skip(query.offset as usize)
+      .take(query.limit as usize)
+      .collect(),
+    total: 2,
+  })
 }
 
 /// Get a user by ID.
@@ -134,21 +139,21 @@ async fn list_users(Query(query): Query<ListQuery>) -> impl Responder {
     tag = "users"
 )]
 async fn get_user(Params(params): Params<IdParam>) -> Response {
-    if params.id == 1 {
-        Json(User {
-            id: 1,
-            name: "Alice".to_string(),
-            email: "alice@example.com".to_string(),
-        })
-        .into_response()
-    } else {
-        let mut res = Json(ErrorResponse {
-            message: "User not found".to_string(),
-        })
-        .into_response();
-        *res.status_mut() = http::StatusCode::NOT_FOUND;
-        res
-    }
+  if params.id == 1 {
+    Json(User {
+      id: 1,
+      name: "Alice".to_string(),
+      email: "alice@example.com".to_string(),
+    })
+    .into_response()
+  } else {
+    let mut res = Json(ErrorResponse {
+      message: "User not found".to_string(),
+    })
+    .into_response();
+    *res.status_mut() = http::StatusCode::NOT_FOUND;
+    res
+  }
 }
 
 /// Create a new user.
@@ -163,15 +168,15 @@ async fn get_user(Params(params): Params<IdParam>) -> Response {
     tag = "users"
 )]
 async fn create_user(Json(data): Json<CreateUserRequest>) -> Response {
-    let user = User {
-        id: 3,
-        name: data.name,
-        email: data.email,
-    };
+  let user = User {
+    id: 3,
+    name: data.name,
+    email: data.email,
+  };
 
-    let mut res = Json(user).into_response();
-    *res.status_mut() = http::StatusCode::CREATED;
-    res
+  let mut res = Json(user).into_response();
+  *res.status_mut() = http::StatusCode::CREATED;
+  res
 }
 
 /// Delete a user by ID.
@@ -191,19 +196,19 @@ async fn create_user(Json(data): Json<CreateUserRequest>) -> Response {
     )
 )]
 async fn delete_user(Params(params): Params<IdParam>) -> Response {
-    if params.id == 1 {
-        http::Response::builder()
-            .status(http::StatusCode::NO_CONTENT)
-            .body(TakoBody::empty())
-            .unwrap()
-    } else {
-        let mut res = Json(ErrorResponse {
-            message: "User not found".to_string(),
-        })
-        .into_response();
-        *res.status_mut() = http::StatusCode::NOT_FOUND;
-        res
-    }
+  if params.id == 1 {
+    http::Response::builder()
+      .status(http::StatusCode::NO_CONTENT)
+      .body(TakoBody::empty())
+      .unwrap()
+  } else {
+    let mut res = Json(ErrorResponse {
+      message: "User not found".to_string(),
+    })
+    .into_response();
+    *res.status_mut() = http::StatusCode::NOT_FOUND;
+    res
+  }
 }
 
 /// Health check endpoint.
@@ -216,9 +221,9 @@ async fn delete_user(Params(params): Params<IdParam>) -> Response {
     tag = "system"
 )]
 async fn health() -> impl Responder {
-    Json(HealthResponse {
-        status: "healthy".to_string(),
-    })
+  Json(HealthResponse {
+    status: "healthy".to_string(),
+  })
 }
 
 /// OpenAPI documentation for the API.
@@ -251,38 +256,38 @@ struct ApiDoc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
 
-    let mut router = Router::new();
+  let mut router = Router::new();
 
-    // API routes
-    router.route(Method::GET, "/health", health);
-    router.route(Method::GET, "/users", list_users);
-    router.route(Method::GET, "/users/{id}", get_user);
-    router.route(Method::POST, "/users", create_user);
-    router.route(Method::DELETE, "/users/{id}", delete_user);
+  // API routes
+  router.route(Method::GET, "/health", health);
+  router.route(Method::GET, "/users", list_users);
+  router.route(Method::GET, "/users/{id}", get_user);
+  router.route(Method::POST, "/users", create_user);
+  router.route(Method::DELETE, "/users/{id}", delete_user);
 
-    // OpenAPI spec endpoint
-    router.route(Method::GET, "/openapi.json", |_: Request| async {
-        OpenApiJson(ApiDoc::openapi())
-    });
+  // OpenAPI spec endpoint
+  router.route(Method::GET, "/openapi.json", |_: Request| async {
+    OpenApiJson(ApiDoc::openapi())
+  });
 
-    // Swagger UI
-    router.route(Method::GET, "/docs", |_: Request| async {
-        SwaggerUi::new("/openapi.json").title("Tako API - Swagger UI")
-    });
+  // Swagger UI
+  router.route(Method::GET, "/docs", |_: Request| async {
+    SwaggerUi::new("/openapi.json").title("Tako API - Swagger UI")
+  });
 
-    // Scalar UI
-    router.route(Method::GET, "/scalar", |_: Request| async {
-        Scalar::new("/openapi.json").title("Tako API - Scalar")
-    });
+  // Scalar UI
+  router.route(Method::GET, "/scalar", |_: Request| async {
+    Scalar::new("/openapi.json").title("Tako API - Scalar")
+  });
 
-    println!("Server running at http://127.0.0.1:8080");
-    println!("OpenAPI spec: http://127.0.0.1:8080/openapi.json");
-    println!("Swagger UI:   http://127.0.0.1:8080/docs");
-    println!("Scalar UI:    http://127.0.0.1:8080/scalar");
+  println!("Server running at http://127.0.0.1:8080");
+  println!("OpenAPI spec: http://127.0.0.1:8080/openapi.json");
+  println!("Swagger UI:   http://127.0.0.1:8080/docs");
+  println!("Scalar UI:    http://127.0.0.1:8080/scalar");
 
-    tako::serve(listener, router).await;
+  tako::serve(listener, router).await;
 
-    Ok(())
+  Ok(())
 }

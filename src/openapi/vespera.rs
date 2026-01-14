@@ -7,9 +7,7 @@
 #![cfg(feature = "vespera")]
 #![cfg_attr(docsrs, doc(cfg(feature = "vespera")))]
 
-pub use vespera_core::openapi;
-pub use vespera_core::route;
-pub use vespera_core::schema;
+use http::StatusCode;
 pub use vespera_core::Contact;
 pub use vespera_core::Example;
 pub use vespera_core::Header;
@@ -32,8 +30,9 @@ pub use vespera_core::SchemaType;
 pub use vespera_core::Server;
 pub use vespera_core::ServerVariable;
 pub use vespera_core::Tag;
-
-use http::StatusCode;
+pub use vespera_core::openapi;
+pub use vespera_core::route;
+pub use vespera_core::schema;
 
 use crate::body::TakoBody;
 use crate::responder::Responder;
@@ -62,19 +61,19 @@ use crate::types::Response;
 pub struct VesperaOpenApiJson(pub OpenApi);
 
 impl Responder for VesperaOpenApiJson {
-    fn into_response(self) -> Response {
-        match serde_json::to_vec(&self.0) {
-            Ok(buf) => {
-                let mut res = Response::new(TakoBody::from(buf));
-                res.headers_mut().insert(
-                    http::header::CONTENT_TYPE,
-                    http::HeaderValue::from_static("application/json"),
-                );
-                res
-            }
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-        }
+  fn into_response(self) -> Response {
+    match serde_json::to_vec(&self.0) {
+      Ok(buf) => {
+        let mut res = Response::new(TakoBody::from(buf));
+        res.headers_mut().insert(
+          http::header::CONTENT_TYPE,
+          http::HeaderValue::from_static("application/json"),
+        );
+        res
+      }
+      Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+  }
 }
 
 /// Converts an HTTP method to Vespera's HttpMethod.
@@ -88,211 +87,209 @@ impl Responder for VesperaOpenApiJson {
 /// let method = http_method_to_vespera(&Method::GET);
 /// ```
 pub fn http_method_to_vespera(method: &http::Method) -> HttpMethod {
-    match method.as_str() {
-        "GET" => HttpMethod::Get,
-        "POST" => HttpMethod::Post,
-        "PUT" => HttpMethod::Put,
-        "PATCH" => HttpMethod::Patch,
-        "DELETE" => HttpMethod::Delete,
-        "HEAD" => HttpMethod::Head,
-        "OPTIONS" => HttpMethod::Options,
-        "TRACE" => HttpMethod::Trace,
-        _ => HttpMethod::Get,
-    }
+  match method.as_str() {
+    "GET" => HttpMethod::Get,
+    "POST" => HttpMethod::Post,
+    "PUT" => HttpMethod::Put,
+    "PATCH" => HttpMethod::Patch,
+    "DELETE" => HttpMethod::Delete,
+    "HEAD" => HttpMethod::Head,
+    "OPTIONS" => HttpMethod::Options,
+    "TRACE" => HttpMethod::Trace,
+    _ => HttpMethod::Get,
+  }
 }
 
 /// Converts Tako's ParameterLocation to Vespera's ParameterLocation.
-pub fn parameter_location_to_vespera(
-    loc: &super::ParameterLocation,
-) -> ParameterLocation {
-    match loc {
-        super::ParameterLocation::Query => ParameterLocation::Query,
-        super::ParameterLocation::Header => ParameterLocation::Header,
-        super::ParameterLocation::Path => ParameterLocation::Path,
-        super::ParameterLocation::Cookie => ParameterLocation::Cookie,
-    }
+pub fn parameter_location_to_vespera(loc: &super::ParameterLocation) -> ParameterLocation {
+  match loc {
+    super::ParameterLocation::Query => ParameterLocation::Query,
+    super::ParameterLocation::Header => ParameterLocation::Header,
+    super::ParameterLocation::Path => ParameterLocation::Path,
+    super::ParameterLocation::Cookie => ParameterLocation::Cookie,
+  }
 }
 
 /// Converts Tako route OpenAPI metadata to a Vespera Operation.
 pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
-    use std::collections::BTreeMap;
+  use std::collections::BTreeMap;
 
-    let parameters: Vec<Parameter> = route
-        .parameters
-        .iter()
-        .map(|p| Parameter {
-            name: p.name.clone(),
-            r#in: parameter_location_to_vespera(&p.location),
-            description: p.description.clone(),
-            required: Some(p.required),
-            schema: None,
-            example: None,
-        })
-        .collect();
+  let parameters: Vec<Parameter> = route
+    .parameters
+    .iter()
+    .map(|p| Parameter {
+      name: p.name.clone(),
+      r#in: parameter_location_to_vespera(&p.location),
+      description: p.description.clone(),
+      required: Some(p.required),
+      schema: None,
+      example: None,
+    })
+    .collect();
 
-    let responses: BTreeMap<String, VesperaResponse> = route
-        .responses
-        .iter()
-        .map(|(status, desc)| {
-            (
-                status.to_string(),
-                VesperaResponse {
-                    description: desc.clone(),
-                    headers: None,
-                    content: None,
-                },
-            )
-        })
-        .collect();
+  let responses: BTreeMap<String, VesperaResponse> = route
+    .responses
+    .iter()
+    .map(|(status, desc)| {
+      (
+        status.to_string(),
+        VesperaResponse {
+          description: desc.clone(),
+          headers: None,
+          content: None,
+        },
+      )
+    })
+    .collect();
 
-    let request_body = route.request_body.as_ref().map(|rb| {
-        let mut content = BTreeMap::new();
-        let schema = if rb.schema_properties.is_empty() {
-            None
-        } else {
-            let mut properties = BTreeMap::new();
-            for prop in &rb.schema_properties {
-                properties.insert(
-                    prop.name.clone(),
-                    SchemaRef::Inline(Box::new(Schema {
-                        ref_path: None,
-                        schema_type: Some(match prop.property_type.as_str() {
-                            "integer" => SchemaType::Integer,
-                            "number" => SchemaType::Number,
-                            "boolean" => SchemaType::Boolean,
-                            "array" => SchemaType::Array,
-                            "object" => SchemaType::Object,
-                            _ => SchemaType::String,
-                        }),
-                        format: None,
-                        title: None,
-                        description: prop.description.clone(),
-                        default: None,
-                        example: None,
-                        examples: None,
-                        minimum: None,
-                        maximum: None,
-                        exclusive_minimum: None,
-                        exclusive_maximum: None,
-                        multiple_of: None,
-                        min_length: None,
-                        max_length: None,
-                        pattern: None,
-                        items: None,
-                        prefix_items: None,
-                        min_items: None,
-                        max_items: None,
-                        unique_items: None,
-                        properties: None,
-                        required: None,
-                        additional_properties: None,
-                        min_properties: None,
-                        max_properties: None,
-                        r#enum: None,
-                        all_of: None,
-                        any_of: None,
-                        one_of: None,
-                        not: None,
-                        nullable: None,
-                        read_only: None,
-                        write_only: None,
-                        external_docs: None,
-                        defs: None,
-                        dynamic_anchor: None,
-                        dynamic_ref: None,
-                    })),
-                );
-            }
-            Some(SchemaRef::Inline(Box::new(Schema {
-                ref_path: None,
-                schema_type: Some(SchemaType::Object),
-                format: None,
-                title: None,
-                description: None,
-                default: None,
-                example: None,
-                examples: None,
-                minimum: None,
-                maximum: None,
-                exclusive_minimum: None,
-                exclusive_maximum: None,
-                multiple_of: None,
-                min_length: None,
-                max_length: None,
-                pattern: None,
-                items: None,
-                prefix_items: None,
-                min_items: None,
-                max_items: None,
-                unique_items: None,
-                properties: Some(properties),
-                required: None,
-                additional_properties: None,
-                min_properties: None,
-                max_properties: None,
-                r#enum: None,
-                all_of: None,
-                any_of: None,
-                one_of: None,
-                not: None,
-                nullable: None,
-                read_only: None,
-                write_only: None,
-                external_docs: None,
-                defs: None,
-                dynamic_anchor: None,
-                dynamic_ref: None,
-            })))
-        };
-        content.insert(
-            rb.content_type.clone(),
-            MediaType {
-                schema,
-                example: None,
-                examples: None,
-            },
-        );
-        RequestBody {
-            description: rb.description.clone(),
-            required: Some(rb.required),
-            content,
-        }
-    });
-
-    let security = if route.security.is_empty() {
-        None
+  let request_body = route.request_body.as_ref().map(|rb| {
+    let mut content = BTreeMap::new();
+    let schema = if rb.schema_properties.is_empty() {
+      None
     } else {
-        Some(
-            route
-                .security
-                .iter()
-                .map(|s| {
-                    let mut map = std::collections::HashMap::new();
-                    map.insert(s.clone(), vec![]);
-                    map
-                })
-                .collect(),
-        )
+      let mut properties = BTreeMap::new();
+      for prop in &rb.schema_properties {
+        properties.insert(
+          prop.name.clone(),
+          SchemaRef::Inline(Box::new(Schema {
+            ref_path: None,
+            schema_type: Some(match prop.property_type.as_str() {
+              "integer" => SchemaType::Integer,
+              "number" => SchemaType::Number,
+              "boolean" => SchemaType::Boolean,
+              "array" => SchemaType::Array,
+              "object" => SchemaType::Object,
+              _ => SchemaType::String,
+            }),
+            format: None,
+            title: None,
+            description: prop.description.clone(),
+            default: None,
+            example: None,
+            examples: None,
+            minimum: None,
+            maximum: None,
+            exclusive_minimum: None,
+            exclusive_maximum: None,
+            multiple_of: None,
+            min_length: None,
+            max_length: None,
+            pattern: None,
+            items: None,
+            prefix_items: None,
+            min_items: None,
+            max_items: None,
+            unique_items: None,
+            properties: None,
+            required: None,
+            additional_properties: None,
+            min_properties: None,
+            max_properties: None,
+            r#enum: None,
+            all_of: None,
+            any_of: None,
+            one_of: None,
+            not: None,
+            nullable: None,
+            read_only: None,
+            write_only: None,
+            external_docs: None,
+            defs: None,
+            dynamic_anchor: None,
+            dynamic_ref: None,
+          })),
+        );
+      }
+      Some(SchemaRef::Inline(Box::new(Schema {
+        ref_path: None,
+        schema_type: Some(SchemaType::Object),
+        format: None,
+        title: None,
+        description: None,
+        default: None,
+        example: None,
+        examples: None,
+        minimum: None,
+        maximum: None,
+        exclusive_minimum: None,
+        exclusive_maximum: None,
+        multiple_of: None,
+        min_length: None,
+        max_length: None,
+        pattern: None,
+        items: None,
+        prefix_items: None,
+        min_items: None,
+        max_items: None,
+        unique_items: None,
+        properties: Some(properties),
+        required: None,
+        additional_properties: None,
+        min_properties: None,
+        max_properties: None,
+        r#enum: None,
+        all_of: None,
+        any_of: None,
+        one_of: None,
+        not: None,
+        nullable: None,
+        read_only: None,
+        write_only: None,
+        external_docs: None,
+        defs: None,
+        dynamic_anchor: None,
+        dynamic_ref: None,
+      })))
     };
-
-    Operation {
-        operation_id: route.operation_id.clone(),
-        tags: if route.tags.is_empty() {
-            None
-        } else {
-            Some(route.tags.clone())
-        },
-        summary: route.summary.clone(),
-        description: route.description.clone(),
-        parameters: if parameters.is_empty() {
-            None
-        } else {
-            Some(parameters)
-        },
-        request_body,
-        responses,
-        security,
+    content.insert(
+      rb.content_type.clone(),
+      MediaType {
+        schema,
+        example: None,
+        examples: None,
+      },
+    );
+    RequestBody {
+      description: rb.description.clone(),
+      required: Some(rb.required),
+      content,
     }
+  });
+
+  let security = if route.security.is_empty() {
+    None
+  } else {
+    Some(
+      route
+        .security
+        .iter()
+        .map(|s| {
+          let mut map = std::collections::HashMap::new();
+          map.insert(s.clone(), vec![]);
+          map
+        })
+        .collect(),
+    )
+  };
+
+  Operation {
+    operation_id: route.operation_id.clone(),
+    tags: if route.tags.is_empty() {
+      None
+    } else {
+      Some(route.tags.clone())
+    },
+    summary: route.summary.clone(),
+    description: route.description.clone(),
+    parameters: if parameters.is_empty() {
+      None
+    } else {
+      Some(parameters)
+    },
+    request_body,
+    responses,
+    security,
+  }
 }
 
 /// Generates a Vespera OpenAPI spec from Tako router's collected routes.
@@ -314,43 +311,40 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
 ///
 /// let spec = generate_openapi_from_routes(&router, info);
 /// ```
-pub fn generate_openapi_from_routes(
-    router: &crate::router::Router,
-    info: Info,
-) -> OpenApi {
-    use std::collections::BTreeMap;
+pub fn generate_openapi_from_routes(router: &crate::router::Router, info: Info) -> OpenApi {
+  use std::collections::BTreeMap;
 
-    let routes = router.collect_openapi_routes();
-    let mut paths: BTreeMap<String, PathItem> = BTreeMap::new();
+  let routes = router.collect_openapi_routes();
+  let mut paths: BTreeMap<String, PathItem> = BTreeMap::new();
 
-    for (method, path, route_openapi) in routes {
-        let operation = route_openapi_to_operation(&route_openapi);
-        let vespera_method = http_method_to_vespera(&method);
+  for (method, path, route_openapi) in routes {
+    let operation = route_openapi_to_operation(&route_openapi);
+    let vespera_method = http_method_to_vespera(&method);
 
-        let path_item = paths.entry(path).or_insert_with(|| PathItem {
-            get: None,
-            post: None,
-            put: None,
-            patch: None,
-            delete: None,
-            head: None,
-            options: None,
-            trace: None,
-            parameters: None,
-            summary: None,
-            description: None,
-        });
-        path_item.set_operation(vespera_method, operation);
-    }
+    let path_item = paths.entry(path).or_insert_with(|| PathItem {
+      get: None,
+      post: None,
+      put: None,
+      patch: None,
+      delete: None,
+      head: None,
+      options: None,
+      trace: None,
+      parameters: None,
+      summary: None,
+      description: None,
+    });
+    path_item.set_operation(vespera_method, operation);
+  }
 
-    OpenApi {
-        openapi: OpenApiVersion::default(),
-        info,
-        servers: None,
-        paths,
-        components: None,
-        security: None,
-        tags: None,
-        external_docs: None,
-    }
+  OpenApi {
+    openapi: OpenApiVersion::default(),
+    info,
+    servers: None,
+    paths,
+    components: None,
+    security: None,
+    tags: None,
+    external_docs: None,
+  }
 }

@@ -48,30 +48,30 @@ use crate::types::Response;
 /// }
 /// ```
 pub struct SwaggerUi {
-    spec_url: String,
-    title: String,
+  spec_url: String,
+  title: String,
 }
 
 impl SwaggerUi {
-    /// Creates a new Swagger UI pointing to the given OpenAPI spec URL.
-    pub fn new(spec_url: impl Into<String>) -> Self {
-        Self {
-            spec_url: spec_url.into(),
-            title: "API Documentation".to_string(),
-        }
+  /// Creates a new Swagger UI pointing to the given OpenAPI spec URL.
+  pub fn new(spec_url: impl Into<String>) -> Self {
+    Self {
+      spec_url: spec_url.into(),
+      title: "API Documentation".to_string(),
     }
+  }
 
-    /// Sets the page title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
-    }
+  /// Sets the page title.
+  pub fn title(mut self, title: impl Into<String>) -> Self {
+    self.title = title.into();
+    self
+  }
 }
 
 impl Responder for SwaggerUi {
-    fn into_response(self) -> Response {
-        let html = format!(
-            r#"<!DOCTYPE html>
+  fn into_response(self) -> Response {
+    let html = format!(
+      r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -97,17 +97,17 @@ impl Responder for SwaggerUi {
     </script>
 </body>
 </html>"#,
-            title = self.title,
-            spec_url = self.spec_url
-        );
+      title = self.title,
+      spec_url = self.spec_url
+    );
 
-        let mut res = Response::new(TakoBody::from(html));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        res
-    }
+    let mut res = Response::new(TakoBody::from(html));
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    res
+  }
 }
 
 /// Scalar responder that serves a modern, beautiful API documentation UI.
@@ -124,63 +124,63 @@ impl Responder for SwaggerUi {
 /// }
 /// ```
 pub struct Scalar {
-    spec_url: String,
-    title: String,
-    theme: ScalarTheme,
+  spec_url: String,
+  title: String,
+  theme: ScalarTheme,
 }
 
 /// Theme options for Scalar UI.
 #[derive(Clone, Copy, Default)]
 pub enum ScalarTheme {
-    #[default]
-    Default,
-    Purple,
-    Saturn,
-    BluePlanet,
-    Moon,
-    DeepSpace,
+  #[default]
+  Default,
+  Purple,
+  Saturn,
+  BluePlanet,
+  Moon,
+  DeepSpace,
 }
 
 impl ScalarTheme {
-    fn as_str(&self) -> &'static str {
-        match self {
-            ScalarTheme::Default => "default",
-            ScalarTheme::Purple => "purple",
-            ScalarTheme::Saturn => "saturn",
-            ScalarTheme::BluePlanet => "bluePlanet",
-            ScalarTheme::Moon => "moon",
-            ScalarTheme::DeepSpace => "deepSpace",
-        }
+  fn as_str(&self) -> &'static str {
+    match self {
+      ScalarTheme::Default => "default",
+      ScalarTheme::Purple => "purple",
+      ScalarTheme::Saturn => "saturn",
+      ScalarTheme::BluePlanet => "bluePlanet",
+      ScalarTheme::Moon => "moon",
+      ScalarTheme::DeepSpace => "deepSpace",
     }
+  }
 }
 
 impl Scalar {
-    /// Creates a new Scalar UI pointing to the given OpenAPI spec URL.
-    pub fn new(spec_url: impl Into<String>) -> Self {
-        Self {
-            spec_url: spec_url.into(),
-            title: "API Documentation".to_string(),
-            theme: ScalarTheme::default(),
-        }
+  /// Creates a new Scalar UI pointing to the given OpenAPI spec URL.
+  pub fn new(spec_url: impl Into<String>) -> Self {
+    Self {
+      spec_url: spec_url.into(),
+      title: "API Documentation".to_string(),
+      theme: ScalarTheme::default(),
     }
+  }
 
-    /// Sets the page title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
-    }
+  /// Sets the page title.
+  pub fn title(mut self, title: impl Into<String>) -> Self {
+    self.title = title.into();
+    self
+  }
 
-    /// Sets the Scalar theme.
-    pub fn theme(mut self, theme: ScalarTheme) -> Self {
-        self.theme = theme;
-        self
-    }
+  /// Sets the Scalar theme.
+  pub fn theme(mut self, theme: ScalarTheme) -> Self {
+    self.theme = theme;
+    self
+  }
 }
 
 impl Responder for Scalar {
-    fn into_response(self) -> Response {
-        let html = format!(
-            r#"<!DOCTYPE html>
+  fn into_response(self) -> Response {
+    let html = format!(
+      r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -198,18 +198,18 @@ impl Responder for Scalar {
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 </body>
 </html>"#,
-            title = self.title,
-            spec_url = self.spec_url,
-            theme = self.theme.as_str()
-        );
+      title = self.title,
+      spec_url = self.spec_url,
+      theme = self.theme.as_str()
+    );
 
-        let mut res = Response::new(TakoBody::from(html));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        res
-    }
+    let mut res = Response::new(TakoBody::from(html));
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    res
+  }
 }
 
 /// RapiDoc responder that serves a feature-rich API documentation viewer.
@@ -226,82 +226,82 @@ impl Responder for Scalar {
 /// }
 /// ```
 pub struct RapiDoc {
-    spec_url: String,
-    title: String,
-    theme: RapiDocTheme,
-    render_style: RapiDocRenderStyle,
+  spec_url: String,
+  title: String,
+  theme: RapiDocTheme,
+  render_style: RapiDocRenderStyle,
 }
 
 /// Theme options for RapiDoc UI.
 #[derive(Clone, Copy, Default)]
 pub enum RapiDocTheme {
-    #[default]
-    Light,
-    Dark,
+  #[default]
+  Light,
+  Dark,
 }
 
 impl RapiDocTheme {
-    fn as_str(&self) -> &'static str {
-        match self {
-            RapiDocTheme::Light => "light",
-            RapiDocTheme::Dark => "dark",
-        }
+  fn as_str(&self) -> &'static str {
+    match self {
+      RapiDocTheme::Light => "light",
+      RapiDocTheme::Dark => "dark",
     }
+  }
 }
 
 /// Render style options for RapiDoc.
 #[derive(Clone, Copy, Default)]
 pub enum RapiDocRenderStyle {
-    #[default]
-    Read,
-    View,
-    Focused,
+  #[default]
+  Read,
+  View,
+  Focused,
 }
 
 impl RapiDocRenderStyle {
-    fn as_str(&self) -> &'static str {
-        match self {
-            RapiDocRenderStyle::Read => "read",
-            RapiDocRenderStyle::View => "view",
-            RapiDocRenderStyle::Focused => "focused",
-        }
+  fn as_str(&self) -> &'static str {
+    match self {
+      RapiDocRenderStyle::Read => "read",
+      RapiDocRenderStyle::View => "view",
+      RapiDocRenderStyle::Focused => "focused",
     }
+  }
 }
 
 impl RapiDoc {
-    /// Creates a new RapiDoc UI pointing to the given OpenAPI spec URL.
-    pub fn new(spec_url: impl Into<String>) -> Self {
-        Self {
-            spec_url: spec_url.into(),
-            title: "API Documentation".to_string(),
-            theme: RapiDocTheme::default(),
-            render_style: RapiDocRenderStyle::default(),
-        }
+  /// Creates a new RapiDoc UI pointing to the given OpenAPI spec URL.
+  pub fn new(spec_url: impl Into<String>) -> Self {
+    Self {
+      spec_url: spec_url.into(),
+      title: "API Documentation".to_string(),
+      theme: RapiDocTheme::default(),
+      render_style: RapiDocRenderStyle::default(),
     }
+  }
 
-    /// Sets the page title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
-    }
+  /// Sets the page title.
+  pub fn title(mut self, title: impl Into<String>) -> Self {
+    self.title = title.into();
+    self
+  }
 
-    /// Sets the RapiDoc theme.
-    pub fn theme(mut self, theme: RapiDocTheme) -> Self {
-        self.theme = theme;
-        self
-    }
+  /// Sets the RapiDoc theme.
+  pub fn theme(mut self, theme: RapiDocTheme) -> Self {
+    self.theme = theme;
+    self
+  }
 
-    /// Sets the render style.
-    pub fn render_style(mut self, style: RapiDocRenderStyle) -> Self {
-        self.render_style = style;
-        self
-    }
+  /// Sets the render style.
+  pub fn render_style(mut self, style: RapiDocRenderStyle) -> Self {
+    self.render_style = style;
+    self
+  }
 }
 
 impl Responder for RapiDoc {
-    fn into_response(self) -> Response {
-        let html = format!(
-            r#"<!DOCTYPE html>
+  fn into_response(self) -> Response {
+    let html = format!(
+      r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -319,19 +319,19 @@ impl Responder for RapiDoc {
     ></rapi-doc>
 </body>
 </html>"#,
-            title = self.title,
-            spec_url = self.spec_url,
-            theme = self.theme.as_str(),
-            render_style = self.render_style.as_str()
-        );
+      title = self.title,
+      spec_url = self.spec_url,
+      theme = self.theme.as_str(),
+      render_style = self.render_style.as_str()
+    );
 
-        let mut res = Response::new(TakoBody::from(html));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        res
-    }
+    let mut res = Response::new(TakoBody::from(html));
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    res
+  }
 }
 
 /// Redoc responder that serves the Redoc API documentation interface.
@@ -347,30 +347,30 @@ impl Responder for RapiDoc {
 /// }
 /// ```
 pub struct Redoc {
-    spec_url: String,
-    title: String,
+  spec_url: String,
+  title: String,
 }
 
 impl Redoc {
-    /// Creates a new Redoc UI pointing to the given OpenAPI spec URL.
-    pub fn new(spec_url: impl Into<String>) -> Self {
-        Self {
-            spec_url: spec_url.into(),
-            title: "API Documentation".to_string(),
-        }
+  /// Creates a new Redoc UI pointing to the given OpenAPI spec URL.
+  pub fn new(spec_url: impl Into<String>) -> Self {
+    Self {
+      spec_url: spec_url.into(),
+      title: "API Documentation".to_string(),
     }
+  }
 
-    /// Sets the page title.
-    pub fn title(mut self, title: impl Into<String>) -> Self {
-        self.title = title.into();
-        self
-    }
+  /// Sets the page title.
+  pub fn title(mut self, title: impl Into<String>) -> Self {
+    self.title = title.into();
+    self
+  }
 }
 
 impl Responder for Redoc {
-    fn into_response(self) -> Response {
-        let html = format!(
-            r#"<!DOCTYPE html>
+  fn into_response(self) -> Response {
+    let html = format!(
+      r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -386,15 +386,15 @@ impl Responder for Redoc {
     <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
 </body>
 </html>"#,
-            title = self.title,
-            spec_url = self.spec_url
-        );
+      title = self.title,
+      spec_url = self.spec_url
+    );
 
-        let mut res = Response::new(TakoBody::from(html));
-        res.headers_mut().insert(
-            http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        res
-    }
+    let mut res = Response::new(TakoBody::from(html));
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    res
+  }
 }
