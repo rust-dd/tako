@@ -40,7 +40,7 @@ use bytes::Bytes;
 use h3::quic::BidiStream;
 use h3::server::RequestStream;
 use http::Request;
-use http_body_util::BodyExt;
+use http_body::Body;
 use quinn::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
@@ -83,6 +83,9 @@ async fn run(
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   crate::tracing::init_tracing();
+
+  // Install default crypto provider for rustls (required for QUIC/TLS)
+  let _ = rustls::crypto::ring::default_provider().install_default();
 
   let certs_vec = load_certs(certs.unwrap_or("cert.pem"));
   let key = load_key(key.unwrap_or("key.pem"));
@@ -267,11 +270,20 @@ where
 
   stream.send_response(resp).await?;
 
-  // Send body data
-  let collected = body.collect().await?;
-  let data = collected.to_bytes();
-  if !data.is_empty() {
-    stream.send_data(data).await?;
+  // Stream body data frame by frame (supports SSE)
+  let mut body = std::pin::pin!(body);
+  while let Some(frame) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+    match frame {
+      Ok(frame) => {
+        if let Some(data) = frame.data_ref().filter(|d| !d.is_empty()) {
+          stream.send_data(data.clone()).await?;
+        }
+      }
+      Err(e) => {
+        tracing::error!("HTTP/3 body frame error: {e}");
+        break;
+      }
+    }
   }
 
   stream.finish().await?;

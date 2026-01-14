@@ -64,7 +64,10 @@ use crate::types::Request;
 pub struct Query<T>(pub T);
 
 /// Error types for query parameter extraction and deserialization.
-#[derive(Debug)]
+///
+/// This error type implements `std::error::Error` for integration with
+/// error handling libraries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
   /// No query string found in the request URI.
   MissingQueryString,
@@ -73,6 +76,20 @@ pub enum QueryError {
   /// Query parameter deserialization failed (type mismatch, missing field, etc.).
   DeserializationError(String),
 }
+
+impl std::fmt::Display for QueryError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingQueryString => write!(f, "no query string found in request URI"),
+      Self::ParseError(err) => write!(f, "failed to parse query parameters: {err}"),
+      Self::DeserializationError(err) => {
+        write!(f, "failed to deserialize query parameters: {err}")
+      }
+    }
+  }
+}
+
+impl std::error::Error for QueryError {}
 
 impl Responder for QueryError {
   /// Converts query parameter errors into appropriate HTTP error responses.

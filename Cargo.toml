@@ -138,6 +138,11 @@ path = "examples/hello-world-http3/src/main.rs"
 required-features = ["http3"]
 
 [[example]]
+name = "http3-sse"
+path = "examples/http3-sse/src/main.rs"
+required-features = ["http3"]
+
+[[example]]
 name = "multipart"
 path = "examples/multipart/src/main.rs"
 required-features = ["multipart"]

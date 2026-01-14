@@ -150,45 +150,67 @@ impl Default for Config {
 ///     .max_age_secs(86400)
 ///     .build();
 /// ```
+#[must_use]
 pub struct CorsBuilder(Config);
+
+impl Default for CorsBuilder {
+  #[inline]
+  fn default() -> Self {
+    Self::new()
+  }
+}
 
 impl CorsBuilder {
   /// Creates a new CORS configuration builder with default settings.
+  #[inline]
+  #[must_use]
   pub fn new() -> Self {
     Self(Config::default())
   }
 
   /// Adds an allowed origin to the CORS policy.
+  #[inline]
+  #[must_use]
   pub fn allow_origin(mut self, o: impl Into<String>) -> Self {
     self.0.origins.push(o.into());
     self
   }
 
   /// Sets the allowed HTTP methods for cross-origin requests.
+  #[inline]
+  #[must_use]
   pub fn allow_methods(mut self, m: &[Method]) -> Self {
     self.0.methods = m.to_vec();
     self
   }
 
   /// Sets the allowed request headers for cross-origin requests.
+  #[inline]
+  #[must_use]
   pub fn allow_headers(mut self, h: &[HeaderName]) -> Self {
     self.0.headers = h.to_vec();
     self
   }
 
   /// Enables or disables credential sharing in cross-origin requests.
+  #[inline]
+  #[must_use]
   pub fn allow_credentials(mut self, allow: bool) -> Self {
     self.0.allow_credentials = allow;
     self
   }
 
   /// Sets the maximum age for preflight request caching.
+  #[inline]
+  #[must_use]
   pub fn max_age_secs(mut self, secs: u32) -> Self {
     self.0.max_age_secs = Some(secs);
     self
   }
 
   /// Builds the CORS plugin with the configured settings.
+  #[inline]
+  #[must_use]
   pub fn build(self) -> CorsPlugin {
     CorsPlugin { cfg: self.0 }
   }
@@ -262,7 +284,7 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
       .body(TakoBody::empty())
-      .unwrap();
+      .expect("valid CORS preflight response");
     add_cors_headers(&cfg, origin, &mut resp);
     return resp.into_response();
   }
@@ -290,7 +312,7 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
 
   resp.headers_mut().insert(
     ACCESS_CONTROL_ALLOW_ORIGIN,
-    HeaderValue::from_str(&allow_origin).unwrap(),
+    HeaderValue::from_str(&allow_origin).expect("valid origin header value"),
   );
 
   // Access-Control-Allow-Methods header
@@ -309,7 +331,7 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
   if let Some(v) = methods {
     resp.headers_mut().insert(
       ACCESS_CONTROL_ALLOW_METHODS,
-      HeaderValue::from_str(&v).unwrap(),
+      HeaderValue::from_str(&v).expect("valid methods header value"),
     );
   }
 
@@ -328,7 +350,7 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
       .join(",");
     resp.headers_mut().insert(
       ACCESS_CONTROL_ALLOW_HEADERS,
-      HeaderValue::from_str(&h).unwrap(),
+      HeaderValue::from_str(&h).expect("valid headers header value"),
     );
   }
 
@@ -344,7 +366,7 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
   if let Some(secs) = cfg.max_age_secs {
     resp.headers_mut().insert(
       ACCESS_CONTROL_MAX_AGE,
-      HeaderValue::from_str(&secs.to_string()).unwrap(),
+      HeaderValue::from_str(&secs.to_string()).expect("valid max-age header value"),
     );
   }
 }

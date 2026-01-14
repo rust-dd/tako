@@ -56,7 +56,11 @@ use crate::types::Response;
 pub struct Json<T>(pub T);
 
 /// Error types for JSON extraction and deserialization.
-#[derive(Debug)]
+///
+/// This error type implements `std::error::Error` for integration with
+/// error handling libraries and provides detailed error messages for
+/// debugging JSON parsing issues.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JsonError {
   /// Content-Type header is not application/json or compatible JSON type.
   InvalidContentType,
@@ -67,6 +71,21 @@ pub enum JsonError {
   /// JSON deserialization failed (syntax error, type mismatch, etc.).
   DeserializationError(String),
 }
+
+impl std::fmt::Display for JsonError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::InvalidContentType => {
+        write!(f, "invalid content type; expected application/json")
+      }
+      Self::MissingContentType => write!(f, "missing content type header"),
+      Self::BodyReadError(err) => write!(f, "failed to read request body: {err}"),
+      Self::DeserializationError(err) => write!(f, "failed to deserialize JSON: {err}"),
+    }
+  }
+}
+
+impl std::error::Error for JsonError {}
 
 impl Responder for JsonError {
   /// Converts JSON extraction errors into appropriate HTTP error responses.
@@ -114,6 +133,13 @@ where
   type Error = JsonError;
 
   /// Extracts and deserializes JSON data from the HTTP request body.
+  ///
+  /// # Errors
+  ///
+  /// Returns [`JsonError`] if:
+  /// - The Content-Type header is missing or not `application/json`.
+  /// - The request body cannot be read.
+  /// - The JSON cannot be deserialized into the target type.
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {

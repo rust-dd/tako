@@ -184,6 +184,13 @@ pub use server_compio::serve;
 /// This helper is primarily intended for local development and example binaries.
 /// It will keep proposing the next port number until a free one is found or
 /// the user declines.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The provided address string is not a valid socket address.
+/// - The port is already in use and the user declines to try another port.
+/// - A non-recoverable I/O error occurs during binding.
 #[cfg(not(feature = "compio"))]
 pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpListener> {
   let mut socket_addr =
@@ -215,6 +222,15 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpLi
   }
 }
 
+/// Bind a TCP listener for `addr`, asking interactively to increment the port
+/// if it is already in use (compio version).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The provided address string is not a valid socket address.
+/// - The port is already in use and the user declines to try another port.
+/// - A non-recoverable I/O error occurs during binding.
 #[cfg(feature = "compio")]
 pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpListener> {
   let mut socket_addr =

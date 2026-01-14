@@ -107,8 +107,16 @@ pub struct Router {
   signals: SignalArbiter,
 }
 
+impl Default for Router {
+  #[inline]
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Router {
   /// Creates a new, empty router.
+  #[must_use]
   pub fn new() -> Self {
     let router = Self {
       inner: SccHashMap::default(),
@@ -139,6 +147,10 @@ impl Router {
   /// Associates an HTTP method and path pattern with a handler function. The path
   /// can contain dynamic segments using curly braces (e.g., `/users/{id}`), which
   /// are extracted as parameters during request processing.
+  ///
+  /// # Panics
+  ///
+  /// Panics if a route with the same method and path pattern is already registered.
   ///
   /// # Examples
   ///
@@ -195,7 +207,8 @@ impl Router {
   ///
   /// # Panics
   ///
-  /// Panics if called with the root path ("/") since TSR is not applicable.
+  /// - Panics if called with the root path (`"/"`) since TSR is not applicable.
+  /// - Panics if a route with the same method and path pattern is already registered.
   ///
   /// # Examples
   ///
@@ -356,7 +369,7 @@ impl Router {
           .status(StatusCode::TEMPORARY_REDIRECT)
           .header("Location", tsr_path.clone())
           .body(TakoBody::empty())
-          .unwrap()
+          .expect("valid redirect response")
       };
 
       return self
@@ -376,7 +389,7 @@ impl Router {
       http::Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(TakoBody::empty())
-        .unwrap()
+        .expect("valid 404 response")
     };
 
     self
@@ -679,7 +692,7 @@ impl Router {
         http::Response::builder()
           .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
           .body(TakoBody::empty())
-          .unwrap(),
+          .expect("valid HTTP version not supported response"),
       );
     }
     None

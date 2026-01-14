@@ -72,12 +72,33 @@ pub trait IntoMiddleware {
 }
 
 /// Represents the next step in the middleware execution chain.
+///
+/// `Next` is passed to middleware functions to allow them to continue
+/// the request processing chain. Calling `next.run(req)` will execute
+/// the remaining middleware and eventually the endpoint handler.
 #[doc(alias = "next")]
 pub struct Next {
   /// Remaining middlewares to be executed in the chain.
   pub middlewares: Arc<Vec<BoxMiddleware>>,
   /// Final endpoint handler to be called after all middlewares.
   pub endpoint: Arc<BoxHandler>,
+}
+
+impl std::fmt::Debug for Next {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Next")
+      .field("middlewares_remaining", &self.middlewares.len())
+      .finish_non_exhaustive()
+  }
+}
+
+impl Clone for Next {
+  fn clone(&self) -> Self {
+    Self {
+      middlewares: Arc::clone(&self.middlewares),
+      endpoint: Arc::clone(&self.endpoint),
+    }
+  }
 }
 
 impl Next {

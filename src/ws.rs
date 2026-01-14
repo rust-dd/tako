@@ -139,7 +139,7 @@ where
         return http::Response::builder()
           .status(StatusCode::BAD_REQUEST)
           .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
-          .unwrap();
+          .expect("valid bad request response");
       }
     };
 
@@ -157,7 +157,7 @@ where
       .header(header::CONNECTION, "Upgrade")
       .header("Sec-WebSocket-Accept", accept)
       .body(TakoBody::empty())
-      .unwrap();
+      .expect("valid WebSocket upgrade response");
 
     if let Some(on_upgrade) = req.extensions().get::<hyper::upgrade::OnUpgrade>().cloned() {
       let handler = self.handler;

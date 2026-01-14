@@ -110,6 +110,6 @@ where
       .header(header::CACHE_CONTROL, "no-cache")
       .header(header::CONNECTION, "keep-alive")
       .body(TakoBody::new(StreamBody::new(stream)))
-      .unwrap()
+      .expect("valid SSE response")
   }
 }

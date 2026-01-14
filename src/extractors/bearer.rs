@@ -58,7 +58,10 @@ pub struct Bearer {
 }
 
 /// Error types for Bearer token authentication extraction and validation.
-#[derive(Debug)]
+///
+/// This error type implements `std::error::Error` for integration with
+/// error handling libraries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BearerAuthError {
   /// Authorization header is missing from the request.
   MissingAuthHeader,
@@ -69,6 +72,19 @@ pub enum BearerAuthError {
   /// Bearer token is present but empty.
   EmptyToken,
 }
+
+impl std::fmt::Display for BearerAuthError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingAuthHeader => write!(f, "missing Authorization header"),
+      Self::InvalidAuthHeader => write!(f, "invalid Authorization header"),
+      Self::InvalidBearerFormat => write!(f, "Authorization header is not Bearer token"),
+      Self::EmptyToken => write!(f, "Bearer token is empty"),
+    }
+  }
+}
+
+impl std::error::Error for BearerAuthError {}
 
 impl Responder for BearerAuthError {
   /// Converts Bearer authentication errors into appropriate HTTP responses.

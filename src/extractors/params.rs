@@ -59,13 +59,29 @@ pub(crate) struct PathParams(pub HashMap<String, String, BuildHasher>);
 pub struct Params<T>(pub T);
 
 /// Error types for path parameter extraction and deserialization.
-#[derive(Debug)]
+///
+/// This error type implements `std::error::Error` for integration with
+/// error handling libraries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParamsError {
   /// Path parameters not found in request extensions (internal routing error).
   MissingPathParams,
   /// Parameter deserialization failed (type mismatch, missing field, etc.).
   DeserializationError(String),
 }
+
+impl std::fmt::Display for ParamsError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingPathParams => write!(f, "path parameters not found in request extensions"),
+      Self::DeserializationError(err) => {
+        write!(f, "failed to deserialize path parameters: {err}")
+      }
+    }
+  }
+}
+
+impl std::error::Error for ParamsError {}
 
 impl Responder for ParamsError {
   /// Converts path parameter errors into appropriate HTTP error responses.

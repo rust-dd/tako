@@ -81,8 +81,15 @@ use crate::types::BoxError;
 /// ```
 pub struct TakoBody(BoxBody);
 
+impl std::fmt::Debug for TakoBody {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("TakoBody").finish_non_exhaustive()
+  }
+}
+
 impl TakoBody {
   /// Creates a new body from any type implementing the `Body` trait.
+  #[inline]
   pub fn new<B>(body: B) -> Self
   where
     B: Body<Data = Bytes> + Send + 'static,
@@ -92,6 +99,7 @@ impl TakoBody {
   }
 
   /// Creates a body from a stream of byte results.
+  #[inline]
   pub fn from_stream<S, E>(stream: S) -> Self
   where
     S: Stream<Item = Result<Bytes, E>> + Send + 'static,
@@ -103,6 +111,7 @@ impl TakoBody {
   }
 
   /// Creates a body from a stream of HTTP frames.
+  #[inline]
   pub fn from_try_stream<S, E>(stream: S) -> Self
   where
     S: TryStream<Ok = Frame<Bytes>, Error = E> + Send + 'static,
@@ -113,6 +122,8 @@ impl TakoBody {
   }
 
   /// Creates an empty body with no content.
+  #[inline]
+  #[must_use]
   pub fn empty() -> Self {
     Self::new(Empty::new())
   }

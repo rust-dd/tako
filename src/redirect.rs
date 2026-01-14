@@ -24,6 +24,10 @@ use crate::responder::Responder;
 use crate::types::Response;
 
 /// A redirect response builder that implements `Responder`.
+///
+/// Use the constructors like [`found`], [`see_other`], [`temporary`], or [`permanent`]
+/// to create redirects with appropriate HTTP status codes.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Redirect {
   status: StatusCode,
   location: String,
@@ -31,6 +35,8 @@ pub struct Redirect {
 
 impl Redirect {
   /// Create a redirect with a custom status code.
+  #[inline]
+  #[must_use]
   pub fn with_status(location: impl Into<String>, status: StatusCode) -> Self {
     Self {
       status,
@@ -39,26 +45,36 @@ impl Redirect {
   }
 
   /// 302 Found (common temporary redirect).
+  #[inline]
+  #[must_use]
   pub fn found(location: impl Into<String>) -> Self {
     Self::with_status(location, StatusCode::FOUND)
   }
 
   /// 303 See Other (commonly used after POST to redirect to a GET page).
+  #[inline]
+  #[must_use]
   pub fn see_other(location: impl Into<String>) -> Self {
     Self::with_status(location, StatusCode::SEE_OTHER)
   }
 
   /// 307 Temporary Redirect (preserves the HTTP method).
+  #[inline]
+  #[must_use]
   pub fn temporary(location: impl Into<String>) -> Self {
     Self::with_status(location, StatusCode::TEMPORARY_REDIRECT)
   }
 
   /// 301 Moved Permanently.
+  #[inline]
+  #[must_use]
   pub fn permanent_moved(location: impl Into<String>) -> Self {
     Self::with_status(location, StatusCode::MOVED_PERMANENTLY)
   }
 
   /// 308 Permanent Redirect.
+  #[inline]
+  #[must_use]
   pub fn permanent(location: impl Into<String>) -> Self {
     Self::with_status(location, StatusCode::PERMANENT_REDIRECT)
   }

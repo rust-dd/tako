@@ -63,8 +63,9 @@ pub struct Form<T>(pub T);
 /// Error type for Form extraction.
 ///
 /// Represents various failure modes that can occur when extracting and parsing
-/// form data from HTTP request bodies.
-#[derive(Debug)]
+/// form data from HTTP request bodies. This error type implements
+/// `std::error::Error` for integration with error handling libraries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormError {
   /// Request content type is not `application/x-www-form-urlencoded`.
   InvalidContentType,
@@ -77,6 +78,22 @@ pub enum FormError {
   /// Failed to deserialize form data into the target type.
   DeserializationError(String),
 }
+
+impl std::fmt::Display for FormError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::InvalidContentType => {
+        write!(f, "invalid content type; expected application/x-www-form-urlencoded")
+      }
+      Self::BodyReadError(err) => write!(f, "failed to read request body: {err}"),
+      Self::InvalidUtf8 => write!(f, "request body contains invalid UTF-8"),
+      Self::ParseError(err) => write!(f, "failed to parse form data: {err}"),
+      Self::DeserializationError(err) => write!(f, "failed to deserialize form data: {err}"),
+    }
+  }
+}
+
+impl std::error::Error for FormError {}
 
 impl Responder for FormError {
   /// Converts the error into an HTTP response.

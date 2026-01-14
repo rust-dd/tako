@@ -50,6 +50,7 @@ pub struct ServeDir {
 }
 
 /// Builder for configuring a `ServeDir` instance.
+#[must_use]
 pub struct ServeDirBuilder {
   base_dir: PathBuf,
   fallback: Option<PathBuf>,
@@ -57,6 +58,8 @@ pub struct ServeDirBuilder {
 
 impl ServeDirBuilder {
   /// Creates a new builder with the specified base directory.
+  #[inline]
+  #[must_use]
   pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
     Self {
       base_dir: base_dir.into(),
@@ -65,12 +68,16 @@ impl ServeDirBuilder {
   }
 
   /// Sets a fallback file to serve when requested files are not found.
+  #[inline]
+  #[must_use]
   pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
     self.fallback = Some(fallback.into());
     self
   }
 
   /// Builds and returns the configured `ServeDir` instance.
+  #[inline]
+  #[must_use]
   pub fn build(self) -> ServeDir {
     ServeDir {
       base_dir: self.base_dir,
@@ -144,17 +151,22 @@ pub struct ServeFile {
 }
 
 /// Builder for configuring a `ServeFile` instance.
+#[must_use]
 pub struct ServeFileBuilder {
   path: PathBuf,
 }
 
 impl ServeFileBuilder {
   /// Creates a new builder with the specified file path.
+  #[inline]
+  #[must_use]
   pub fn new<P: Into<PathBuf>>(path: P) -> Self {
     Self { path: path.into() }
   }
 
   /// Builds and returns the configured `ServeFile` instance.
+  #[inline]
+  #[must_use]
   pub fn build(self) -> ServeFile {
     ServeFile { path: self.path }
   }
