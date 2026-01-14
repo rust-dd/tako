@@ -83,7 +83,10 @@ impl std::fmt::Display for FormError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::InvalidContentType => {
-        write!(f, "invalid content type; expected application/x-www-form-urlencoded")
+        write!(
+          f,
+          "invalid content type; expected application/x-www-form-urlencoded"
+        )
       }
       Self::BodyReadError(err) => write!(f, "failed to read request body: {err}"),
       Self::InvalidUtf8 => write!(f, "request body contains invalid UTF-8"),

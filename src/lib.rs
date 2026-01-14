@@ -129,6 +129,11 @@ pub mod types;
 #[cfg(not(feature = "compio"))]
 pub mod ws;
 
+/// WebSocket connection handling for compio runtime.
+#[cfg(feature = "compio-ws")]
+#[cfg_attr(docsrs, doc(cfg(feature = "compio-ws")))]
+pub mod ws_compio;
+
 /// GraphQL support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
