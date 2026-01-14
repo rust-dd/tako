@@ -2,7 +2,7 @@
 [![Crates.io](https://img.shields.io/crates/v/tako-rs?style=flat-square)](https://crates.io/crates/tako-rs)
 ![License](https://img.shields.io/crates/l/tako-rs?style=flat-square)
 
-# 🐙 Tako — Lightweight Async Web Framework in Rust
+# 🐙 Tako — Lightweight Async Web Framework in Rust
 
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible async web framework for Rust.
 > It aims to keep the mental model small while giving you first‑class performance and modern conveniences out‑of‑the‑box.
@@ -10,7 +10,10 @@
 > **⚠️ ~~Early-stage software~~**
 > **⚠️ Beta software:** Tako is still under active development; use with caution and expect breaking changes.
 
-> [**Blog**: Tako in detail](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
+> **Blog posts:**
+> - [Tako: A Lightweight Async Web Framework on Tokio and Hyper](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
+> - [Tako v.0.5.0 road to v.1.0.0](https://rust-dd.com/post/tako-v-0-5-0-road-to-v-1-0-0)
+> - [Tako v0.5.0 → v0.7.1-2: from "nice router" to "mini platform"](https://rust-dd.com/post/tako-v0-5-0-to-v0-7-1-2-from-nice-router-to-mini-platform)
 
 
 ## ✨ Highlights
@@ -21,14 +24,17 @@
 * **Middleware** — Compose synchronous or async middleware functions with minimal boilerplate.
 * **Shared State** — Application‑wide state injection without `unsafe` globals.
 * **Plugin system** — Opt‑in extensions let you add functionality without cluttering the core API.
-* **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2 & TLS** support.
+* **Hyper‑powered** — Built on `hyper` & `tokio` for minimal overhead and async performance with **native HTTP/2, HTTP/3 & TLS** support.
+* **Compio runtime** — Optional support for compio async runtime as an alternative to tokio.
 * **GraphQL integration** — Async-GraphQL integration for Tako: extractors, responses, and subscriptions.
+* **OpenAPI support** — Integration with utoipa and vespera for automatic API documentation generation.
+* **Compression** — Built-in support for brotli, gzip (flate2), and zstd compression.
 
 ## Documentation
 
-[API Documentation](https://docs.rs/tako-rs/latest/tako/) is mostly generated using AI from the source code. Please note that the documentation is still a work in progress and may contain errors or inaccuracies.
+[API Documentation](https://docs.rs/tako-rs/latest/tako/)
 
-MSRV 1.87.0
+MSRV 1.87.0 | Edition 2024
 
 ## Tako in Production
 
