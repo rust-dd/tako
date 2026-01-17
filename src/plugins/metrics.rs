@@ -313,10 +313,10 @@ pub mod opentelemetry_backend {
 
   impl OtelMetricsBackend {
     pub fn new(meter: Meter) -> Self {
-      let http_requests_total = meter.u64_counter("tako_http_requests_total").init();
-      let http_route_requests_total = meter.u64_counter("tako_route_requests_total").init();
-      let connections_opened_total = meter.u64_counter("tako_connections_opened_total").init();
-      let connections_closed_total = meter.u64_counter("tako_connections_closed_total").init();
+      let http_requests_total = meter.u64_counter("tako_http_requests_total").build();
+      let http_route_requests_total = meter.u64_counter("tako_route_requests_total").build();
+      let connections_opened_total = meter.u64_counter("tako_connections_opened_total").build();
+      let connections_closed_total = meter.u64_counter("tako_connections_closed_total").build();
 
       Self {
         http_requests_total,
@@ -432,25 +432,63 @@ async fn prometheus_metrics_handler(State(registry): State<Arc<Registry>>) -> im
 pub struct OtelMetricsConfig {
   /// Name for the OpenTelemetry meter used by Tako.
   pub meter_name: &'static str,
+  /// OTLP endpoint URL for metrics export.
+  pub endpoint: String,
 }
 
 #[cfg(feature = "metrics-opentelemetry")]
 impl Default for OtelMetricsConfig {
   fn default() -> Self {
-    Self { meter_name: "tako" }
+    Self {
+      meter_name: "tako",
+      endpoint: "http://localhost:4318/v1/metrics".to_string(),
+    }
   }
 }
 
 #[cfg(feature = "metrics-opentelemetry")]
 impl OtelMetricsConfig {
-  /// Installs an OpenTelemetry metrics backend using the global meter provider.
-  pub fn install(self, router: &mut Router) {
+  /// Sets the OTLP endpoint URL.
+  pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+    self.endpoint = endpoint.into();
+    self
+  }
+
+  /// Sets the meter name.
+  pub fn with_meter_name(mut self, name: &'static str) -> Self {
+    self.meter_name = name;
+    self
+  }
+
+  /// Installs an OpenTelemetry metrics backend with OTLP exporter.
+  ///
+  /// Returns the `SdkMeterProvider` which should be kept alive for the
+  /// application lifetime. Call `shutdown()` on it during graceful shutdown.
+  pub fn install(
+    self,
+    router: &mut Router,
+  ) -> Result<opentelemetry_sdk::metrics::SdkMeterProvider> {
     use opentelemetry::global;
+    use opentelemetry_otlp::WithExportConfig;
+
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+      .with_http()
+      .with_endpoint(&self.endpoint)
+      .build()
+      .map_err(|e| anyhow::anyhow!("failed to create OTLP metric exporter: {}", e))?;
+
+    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+      .with_periodic_exporter(exporter)
+      .build();
+
+    global::set_meter_provider(meter_provider.clone());
 
     let meter = global::meter(self.meter_name);
     let backend = opentelemetry_backend::OtelMetricsBackend::new(meter);
     let plugin = MetricsPlugin::new(backend);
 
     router.plugin(plugin);
+
+    Ok(meter_provider)
   }
 }
