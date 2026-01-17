@@ -32,6 +32,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::time::Duration;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
 
@@ -105,6 +106,10 @@ pub struct Router {
   /// Signal arbiter for in-process event emission and handling.
   #[cfg(feature = "signals")]
   signals: SignalArbiter,
+  /// Default timeout for all routes.
+  pub(crate) timeout: Option<Duration>,
+  /// Fallback handler executed when a request times out.
+  timeout_fallback: Option<BoxHandler>,
 }
 
 impl Default for Router {
@@ -129,6 +134,8 @@ impl Router {
       plugins_initialized: AtomicBool::new(false),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
+      timeout: None,
+      timeout_fallback: None,
     };
 
     #[cfg(feature = "signals")]
@@ -274,6 +281,39 @@ impl Router {
     next.run(req).await
   }
 
+  /// Executes the middleware chain with an optional timeout.
+  ///
+  /// If a timeout is specified and exceeded, the timeout fallback handler
+  /// is invoked or a default 408 Request Timeout response is returned.
+  async fn run_with_timeout(
+    &self,
+    req: Request,
+    next: Next,
+    timeout_duration: Option<Duration>,
+  ) -> Response {
+    match timeout_duration {
+      Some(duration) => {
+        match tokio::time::timeout(duration, next.run(req)).await {
+          Ok(response) => response,
+          Err(_elapsed) => self.handle_timeout().await,
+        }
+      }
+      None => next.run(req).await,
+    }
+  }
+
+  /// Returns the timeout response using the fallback handler or a default 408.
+  async fn handle_timeout(&self) -> Response {
+    if let Some(handler) = &self.timeout_fallback {
+      handler.call(Request::default()).await
+    } else {
+      http::Response::builder()
+        .status(StatusCode::REQUEST_TIMEOUT)
+        .body(TakoBody::empty())
+        .expect("valid 408 response")
+    }
+  }
+
   /// Dispatches an incoming request to the appropriate route handler.
   pub async fn dispatch(&self, mut req: Request) -> Response {
     let method = req.method().clone();
@@ -315,6 +355,9 @@ impl Router {
         endpoint: Arc::new(route.handler.clone()),
       };
 
+      // Determine effective timeout: route-level overrides router-level
+      let effective_timeout = route.get_timeout().or(self.timeout);
+
       #[cfg(feature = "signals")]
       {
         let method_str = method.to_string();
@@ -331,7 +374,7 @@ impl Router {
           ))
           .await;
 
-        let response = next.run(req).await;
+        let response = self.run_with_timeout(req, next, effective_timeout).await;
 
         let mut done_meta: HashMap<String, String, BuildHasher> =
           HashMap::with_hasher(BuildHasher::default());
@@ -350,7 +393,7 @@ impl Router {
 
       #[cfg(not(feature = "signals"))]
       {
-        return next.run(req).await;
+        return self.run_with_timeout(req, next, effective_timeout).await;
       }
     }
 
@@ -549,6 +592,54 @@ impl Router {
     H: Handler<T> + Clone + 'static,
   {
     self.fallback = Some(BoxHandler::new::<H, T>(handler));
+    self
+  }
+
+  /// Sets a default timeout for all routes.
+  ///
+  /// This timeout can be overridden on individual routes using `Route::timeout`.
+  /// When a request exceeds the timeout duration, the timeout fallback handler
+  /// is invoked (if configured) or a 408 Request Timeout response is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  /// use std::time::Duration;
+  ///
+  /// let mut router = Router::new();
+  /// router.timeout(Duration::from_secs(30));
+  /// ```
+  pub fn timeout(&mut self, duration: Duration) -> &mut Self {
+    self.timeout = Some(duration);
+    self
+  }
+
+  /// Sets a fallback handler that will be executed when a request times out.
+  ///
+  /// If no timeout fallback is set, a default 408 Request Timeout response is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::{router::Router, responder::Responder, types::Request};
+  /// use std::time::Duration;
+  ///
+  /// async fn timeout_handler(_req: Request) -> impl Responder {
+  ///     "Request took too long"
+  /// }
+  ///
+  /// let mut router = Router::new();
+  /// router.timeout(Duration::from_secs(30));
+  /// router.timeout_fallback(timeout_handler);
+  /// ```
+  pub fn timeout_fallback<F, Fut, R>(&mut self, handler: F) -> &mut Self
+  where
+    F: Fn(Request) -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+    R: Responder + Send + 'static,
+  {
+    self.timeout_fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
     self
   }
 

@@ -30,6 +30,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Duration;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
 #[cfg(feature = "plugins")]
@@ -79,6 +80,8 @@ pub struct Route {
   /// OpenAPI metadata for this route.
   #[cfg(any(feature = "utoipa", feature = "vespera"))]
   pub(crate) openapi: RwLock<Option<RouteOpenApi>>,
+  /// Route-specific timeout override.
+  pub(crate) timeout: RwLock<Option<Duration>>,
 }
 
 impl Route {
@@ -99,6 +102,7 @@ impl Route {
       signals: SignalArbiter::new(),
       #[cfg(any(feature = "utoipa", feature = "vespera"))]
       openapi: RwLock::new(None),
+      timeout: RwLock::new(None),
     }
   }
 
@@ -420,5 +424,29 @@ impl Route {
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn openapi_metadata(&self) -> Option<RouteOpenApi> {
     self.openapi.read().clone()
+  }
+  
+  /// Sets a timeout for this route, overriding the router-level timeout.
+  ///
+  /// When a request exceeds the timeout duration, the timeout fallback handler
+  /// is invoked (if configured on the router) or a 408 Request Timeout response
+  /// is returned.
+  ///
+  /// # Examples
+  ///
+  /// ```rust,ignore
+  /// use std::time::Duration;
+  ///
+  /// router.route(Method::POST, "/upload", upload_handler)
+  ///     .timeout(Duration::from_secs(60));
+  /// ```
+  pub fn timeout(&self, duration: Duration) -> &Self {
+    *self.timeout.write() = Some(duration);
+    self
+  }
+
+  /// Returns the configured timeout for this route, if any.
+  pub(crate) fn get_timeout(&self) -> Option<Duration> {
+    *self.timeout.read()
   }
 }
