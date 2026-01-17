@@ -26,6 +26,7 @@ use crate::types::BoxMiddleware;
 use crate::types::Request;
 use crate::types::Response;
 
+pub mod api_key_auth;
 pub mod basic_auth;
 pub mod bearer_auth;
 pub mod body_limit;
