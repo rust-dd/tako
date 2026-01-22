@@ -319,7 +319,7 @@ impl Router {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    if let Some(method_router) = self.inner.get_sync(&method)
+    if let Some(method_router) = self.inner.get_async(&method).await
       && let Ok(matched) = method_router.at(&path)
     {
       let route = matched.value;
@@ -403,7 +403,7 @@ impl Router {
       format!("{path}/")
     };
 
-    if let Some(method_router) = self.inner.get_sync(&method)
+    if let Some(method_router) = self.inner.get_async(&method).await
       && let Ok(matched) = method_router.at(&tsr_path)
       && matched.value.tsr
     {

@@ -334,10 +334,12 @@ impl TakoPlugin for RateLimiterPlugin {
         loop {
           tick.tick().await;
           let now = Instant::now();
-          store.retain_sync(|_, b| {
-            b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
-            now.duration_since(b.last_seen) < purge_after
-          });
+          store
+            .retain_async(|_, b| {
+              b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
+              now.duration_since(b.last_seen) < purge_after
+            })
+            .await;
         }
       });
 
@@ -349,10 +351,12 @@ impl TakoPlugin for RateLimiterPlugin {
         loop {
           compio::time::sleep(interval).await;
           let now = Instant::now();
-          store.retain_sync(|_, b| {
-            b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
-            now.duration_since(b.last_seen) < purge_after
-          });
+          store
+            .retain_async(|_, b| {
+              b.available = (b.available + requests_to_add).min(cfg.max_requests as f64);
+              now.duration_since(b.last_seen) < purge_after
+            })
+            .await;
         }
       })
       .detach();
@@ -398,7 +402,7 @@ async fn retain(
     .map(|sa| sa.ip())
     .unwrap_or(IpAddr::from([0, 0, 0, 0]));
 
-  let mut entry = store.entry_sync(ip).or_insert_with(|| Bucket {
+  let mut entry = store.entry_async(ip).await.or_insert_with(|| Bucket {
     available: cfg.max_requests as f64,
     last_seen: Instant::now(),
   });

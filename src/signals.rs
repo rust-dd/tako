@@ -396,7 +396,7 @@ impl SignalArbiter {
     Res: Send + Sync + 'static,
   {
     let id_str = id.as_ref();
-    let entry = self.inner.rpc.get_sync(id_str)?;
+    let entry = self.inner.rpc.get_async(id_str).await?;
     let handler = entry.clone();
     drop(entry);
 
@@ -416,7 +416,7 @@ impl SignalArbiter {
     Res: Send + Sync + Clone + 'static,
   {
     let id_str = id.as_ref();
-    let entry = self.inner.rpc.get_sync(id_str);
+    let entry = self.inner.rpc.get_async(id_str).await;
     let entry = match entry {
       Some(e) => e,
       None => return Err(RpcError::NoHandler),
@@ -468,13 +468,17 @@ impl SignalArbiter {
     // First, broadcast to any subscribers.
     self.broadcast(signal.clone());
 
-    // Call exporters (non-blocking from the perspective of handlers).
-    self.inner.exporters.iter_sync(|_, v| {
-      v(&signal);
-      true
-    });
+    // Call exporters asynchronously.
+    self
+      .inner
+      .exporters
+      .iter_async(|_, v| {
+        v(&signal);
+        true
+      })
+      .await;
 
-    if let Some(entry) = self.inner.handlers.get_sync(&signal.id) {
+    if let Some(entry) = self.inner.handlers.get_async(&signal.id).await {
       let handlers = entry.clone();
       drop(entry);
 
