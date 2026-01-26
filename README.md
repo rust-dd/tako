@@ -40,7 +40,7 @@ MSRV 1.87.0 | Edition 2024
 
 Tako already powers real-world services in production:
 
-- `stochastic-api`: https://stochastic-api-production.up.railway.app/
+- `stochastic-api`: https://stochasticlab.cloud/
 - `shrtn.ink`: https://app.shrtn.ink/
 
 ## 🔥 Benchmarking the Hello World
