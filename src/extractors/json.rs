@@ -113,18 +113,7 @@ impl Responder for JsonError {
   }
 }
 
-/// Checks if the Content-Type header indicates JSON content.
-fn is_json_content_type(headers: &http::HeaderMap) -> bool {
-  headers
-    .get(http::header::CONTENT_TYPE)
-    .and_then(|v| v.to_str().ok())
-    .and_then(|ct| ct.parse::<mime_guess::Mime>().ok())
-    .map(|mime| {
-      mime.type_() == "application"
-        && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
-    })
-    .unwrap_or(false)
-}
+use crate::extractors::is_json_content_type;
 
 impl<'a, T> FromRequest<'a> for Json<T>
 where
@@ -157,7 +146,20 @@ where
         .map_err(|e| JsonError::BodyReadError(e.to_string()))?
         .to_bytes();
 
-      // Deserialize JSON using serde into the target type
+      // Deserialize JSON — use SIMD parser for large payloads when the simd feature is enabled
+      #[cfg(feature = "simd")]
+      let data = {
+        const SIMD_THRESHOLD: usize = 1024;
+        if body_bytes.len() >= SIMD_THRESHOLD {
+          let mut owned = body_bytes.to_vec();
+          sonic_rs::from_slice::<T>(&mut owned)
+            .map_err(|e| JsonError::DeserializationError(e.to_string()))?
+        } else {
+          serde_json::from_slice(&body_bytes)
+            .map_err(|e| JsonError::DeserializationError(e.to_string()))?
+        }
+      };
+      #[cfg(not(feature = "simd"))]
       let data = serde_json::from_slice(&body_bytes)
         .map_err(|e| JsonError::DeserializationError(e.to_string()))?;
 

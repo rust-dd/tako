@@ -50,7 +50,6 @@
 //! }
 //! ```
 
-use http::HeaderMap;
 use http::StatusCode;
 use http::header::HeaderValue;
 use http::header::{self};
@@ -138,18 +137,7 @@ impl Responder for SimdJsonError {
   }
 }
 
-/// Returns `true` when the `Content-Type` header denotes JSON.
-fn is_json_content_type(headers: &HeaderMap) -> bool {
-  headers
-    .get(header::CONTENT_TYPE)
-    .and_then(|v| v.to_str().ok())
-    .and_then(|ct| ct.parse::<mime_guess::Mime>().ok())
-    .map(|mime| {
-      mime.type_() == "application"
-        && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
-    })
-    .unwrap_or(false)
-}
+use crate::extractors::is_json_content_type;
 
 impl<'a, T> FromRequest<'a> for SimdJson<T>
 where

@@ -88,6 +88,13 @@ use crate::types::Response;
 /// router.state("app_name", "MyApp".to_string());
 /// ```
 #[doc(alias = "router")]
+/// Type alias for a global error handler function.
+///
+/// Called when a response has a server error status (5xx). Receives the original
+/// response and can transform it (e.g., to return JSON errors instead of plain text).
+pub type ErrorHandler =
+  Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
+
 pub struct Router {
   /// Map of registered routes keyed by method.
   inner: SccHashMap<Method, matchit::Router<Arc<Route>>>,
@@ -110,6 +117,8 @@ pub struct Router {
   pub(crate) timeout: Option<Duration>,
   /// Fallback handler executed when a request times out.
   timeout_fallback: Option<BoxHandler>,
+  /// Global error handler for 5xx responses.
+  error_handler: Option<ErrorHandler>,
 }
 
 impl Default for Router {
@@ -136,6 +145,7 @@ impl Router {
       signals: SignalArbiter::new(),
       timeout: None,
       timeout_fallback: None,
+      error_handler: None,
     };
 
     #[cfg(feature = "signals")]
@@ -331,14 +341,14 @@ impl Router {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    if let Some(method_router) = self.inner.get_async(&method).await
+    let response = if let Some(method_router) = self.inner.get_async(&method).await
       && let Ok(matched) = method_router.at(&path)
     {
       let route = matched.value;
 
       // Protocol guard: early-return if request version does not satisfy route guard
       if let Some(res) = Self::enforce_protocol_guard(route, &req) {
-        return res;
+        return self.maybe_apply_error_handler(res);
       }
 
       #[cfg(feature = "signals")]
@@ -400,56 +410,70 @@ impl Router {
           ))
           .await;
 
-        return response;
+        response
       }
 
       #[cfg(not(feature = "signals"))]
       {
-        return self.run_with_timeout(req, next, effective_timeout).await;
+        self.run_with_timeout(req, next, effective_timeout).await
       }
-    }
-
-    let tsr_path = if path.ends_with('/') {
-      path.trim_end_matches('/').to_string()
     } else {
-      format!("{path}/")
-    };
-
-    if let Some(method_router) = self.inner.get_async(&method).await
-      && let Ok(matched) = method_router.at(&tsr_path)
-      && matched.value.tsr
-    {
-      let handler = move |_req: Request| async move {
-        http::Response::builder()
-          .status(StatusCode::TEMPORARY_REDIRECT)
-          .header("Location", tsr_path.clone())
-          .body(TakoBody::empty())
-          .expect("valid redirect response")
+      let tsr_path = if path.ends_with('/') {
+        path.trim_end_matches('/').to_string()
+      } else {
+        format!("{path}/")
       };
 
-      return self
-        .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
-        .await;
-    }
+      if let Some(method_router) = self.inner.get_async(&method).await
+        && let Ok(matched) = method_router.at(&tsr_path)
+        && matched.value.tsr
+      {
+        let handler = move |_req: Request| async move {
+          http::Response::builder()
+            .status(StatusCode::TEMPORARY_REDIRECT)
+            .header("Location", tsr_path.clone())
+            .body(TakoBody::empty())
+            .expect("valid redirect response")
+        };
 
-    // No match: use fallback handler if configured
-    if let Some(handler) = &self.fallback {
-      return self
-        .run_with_global_middlewares_for_endpoint(req, handler.clone())
-        .await;
-    }
+        self
+          .run_with_global_middlewares_for_endpoint(
+            req,
+            BoxHandler::new::<_, (Request,)>(handler),
+          )
+          .await
+      } else if let Some(handler) = &self.fallback {
+        self
+          .run_with_global_middlewares_for_endpoint(req, handler.clone())
+          .await
+      } else {
+        let handler = |_req: Request| async {
+          http::Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(TakoBody::empty())
+            .expect("valid 404 response")
+        };
 
-    // No fallback: run global middlewares (if any) around a default 404 response
-    let handler = |_req: Request| async {
-      http::Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(TakoBody::empty())
-        .expect("valid 404 response")
+        self
+          .run_with_global_middlewares_for_endpoint(
+            req,
+            BoxHandler::new::<_, (Request,)>(handler),
+          )
+          .await
+      }
     };
 
-    self
-      .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
-      .await
+    self.maybe_apply_error_handler(response)
+  }
+
+  /// Applies the global error handler if one is set and the response is a server error.
+  fn maybe_apply_error_handler(&self, response: Response) -> Response {
+    if response.status().is_server_error() {
+      if let Some(handler) = &self.error_handler {
+        return handler(response);
+      }
+    }
+    response
   }
 
   /// Adds a value to the global type-based state accessible by all handlers.
@@ -652,6 +676,38 @@ impl Router {
     R: Responder + Send + 'static,
   {
     self.timeout_fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
+    self
+  }
+
+  /// Sets a global error handler for 5xx responses.
+  ///
+  /// The error handler receives any response with a server error status and can
+  /// transform it (e.g., to return JSON-formatted errors instead of plain text).
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  /// use tako::body::TakoBody;
+  ///
+  /// let mut router = Router::new();
+  /// router.error_handler(|resp| {
+  ///     let status = resp.status();
+  ///     let body = format!(r#"{{"error": "{}"}}"#, status.canonical_reason().unwrap_or("Unknown"));
+  ///     let mut res = http::Response::new(TakoBody::from(body));
+  ///     *res.status_mut() = status;
+  ///     res.headers_mut().insert(
+  ///         http::header::CONTENT_TYPE,
+  ///         http::HeaderValue::from_static("application/json"),
+  ///     );
+  ///     res
+  /// });
+  /// ```
+  pub fn error_handler(
+    &mut self,
+    handler: impl Fn(Response) -> Response + Send + Sync + 'static,
+  ) -> &mut Self {
+    self.error_handler = Some(Arc::new(handler));
     self
   }
 

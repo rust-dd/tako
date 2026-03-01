@@ -69,6 +69,9 @@ pub mod body;
 #[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod client;
 
+/// Configuration loading from environment variables.
+pub mod config;
+
 /// Request data extraction utilities for parsing query params, JSON, and more.
 pub mod extractors;
 
@@ -180,8 +183,12 @@ pub use responder::NOT_FOUND;
 /// ```
 #[cfg(not(feature = "compio"))]
 pub use server::serve;
+#[cfg(not(feature = "compio"))]
+pub use server::serve_with_shutdown;
 #[cfg(feature = "compio")]
 pub use server_compio::serve;
+#[cfg(feature = "compio")]
+pub use server_compio::serve_with_shutdown;
 
 /// Bind a TCP listener for `addr`, asking interactively to increment the port
 /// if it is already in use.
@@ -334,6 +341,9 @@ pub mod server_h3;
 #[cfg(feature = "http3")]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use server_h3::serve_h3;
+#[cfg(feature = "http3")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+pub use server_h3::serve_h3_with_shutdown;
 /// Starts the HTTPS server with TLS encryption support.
 ///
 /// Similar to `serve` but enables TLS encryption for secure connections. Requires
@@ -358,9 +368,15 @@ pub use server_h3::serve_h3;
 #[cfg(all(not(feature = "compio"), feature = "tls"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls::serve_tls;
+#[cfg(all(not(feature = "compio"), feature = "tls"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub use server_tls::serve_tls_with_shutdown;
 #[cfg(feature = "compio-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use server_tls_compio::serve_tls;
+#[cfg(feature = "compio-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub use server_tls_compio::serve_tls_with_shutdown;
 
 /// Global memory allocator using jemalloc for improved performance.
 #[cfg(feature = "jemalloc")]

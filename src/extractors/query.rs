@@ -46,17 +46,13 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
-
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use url::form_urlencoded;
 
 use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::responder::Responder;
-use crate::types::BuildHasher;
 use crate::types::Request;
 
 /// Query parameter extractor with automatic deserialization to typed structures.
@@ -122,17 +118,7 @@ where
   fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
     let query = query_string.unwrap_or_default();
 
-    // Parse query parameters into a HashMap
-    let params: HashMap<String, String, BuildHasher> = form_urlencoded::parse(query.as_bytes())
-      .into_owned()
-      .collect();
-
-    // Convert to JSON value for deserialization
-    let json_value =
-      serde_json::to_value(params).map_err(|e| QueryError::ParseError(e.to_string()))?;
-
-    // Deserialize to target type
-    let query_data = serde_json::from_value::<T>(json_value)
+    let query_data = serde_urlencoded::from_str::<T>(query)
       .map_err(|e| QueryError::DeserializationError(e.to_string()))?;
 
     Ok(Query(query_data))

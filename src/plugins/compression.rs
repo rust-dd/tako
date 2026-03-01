@@ -415,7 +415,14 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   }
 
   // Collect the response body and check its size.
-  let body_bytes = resp.body_mut().collect().await.unwrap().to_bytes();
+  let body_bytes = match resp.body_mut().collect().await {
+    Ok(c) => c.to_bytes(),
+    Err(_) => {
+      *resp.status_mut() = StatusCode::BAD_GATEWAY;
+      *resp.body_mut() = TakoBody::empty();
+      return resp.into_response();
+    }
+  };
   if body_bytes.len() < cfg.min_size {
     *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
     return resp.into_response();

@@ -40,9 +40,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use bytes::Bytes;
 use http::StatusCode;
 use http::header::CONTENT_LENGTH;
+use http_body_util::BodyExt;
 
+use crate::body::TakoBody;
 use crate::middleware::IntoMiddleware;
 use crate::middleware::Next;
 use crate::responder::Responder;
@@ -155,7 +158,19 @@ where
           return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
         }
 
-        // TODO: add run-time stream truncation if your Body supports it.
+        // Runtime body size enforcement: collect body and check actual size.
+        // This catches chunked/streaming bodies that bypass Content-Length checks.
+        let (parts, body) = req.into_parts();
+        let collected = match body.collect().await {
+          Ok(c) => c.to_bytes(),
+          Err(_) => {
+            return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
+          }
+        };
+        if collected.len() > limit {
+          return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
+        }
+        let req = http::Request::from_parts(parts, TakoBody::from(Bytes::from(collected)));
         next.run(req).await.into_response()
       })
     }

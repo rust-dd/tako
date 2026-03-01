@@ -33,6 +33,19 @@
 
 use http::request::Parts;
 
+/// Checks if the Content-Type header indicates JSON content.
+pub(crate) fn is_json_content_type(headers: &http::HeaderMap) -> bool {
+  headers
+    .get(http::header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|ct| ct.parse::<mime_guess::Mime>().ok())
+    .map(|mime| {
+      mime.type_() == "application"
+        && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
+    })
+    .unwrap_or(false)
+}
+
 /// Accept-Language header parsing and locale extraction.
 pub mod acc_lang;
 
@@ -94,6 +107,9 @@ pub mod multipart;
 /// Protobuf request body parsing and deserialization.
 #[cfg(feature = "protobuf")]
 pub mod protobuf;
+
+/// Content negotiation via Accept header parsing.
+pub mod accept;
 
 /// High-performance JSON parsing using SIMD acceleration.
 #[cfg(feature = "simd")]

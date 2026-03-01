@@ -31,9 +31,11 @@
 #[cfg(feature = "signals")]
 use std::collections::HashMap;
 use std::fs::File;
+use std::future::Future;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Buf;
 use bytes::Bytes;
@@ -70,8 +72,26 @@ use crate::types::BuildHasher;
 /// * `addr` - The socket address to bind to (e.g., "[::]:4433")
 /// * `certs` - Optional path to the TLS certificate file (defaults to "cert.pem")
 /// * `key` - Optional path to the TLS private key file (defaults to "key.pem")
+/// Default drain timeout for graceful shutdown (30 seconds).
+const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub async fn serve_h3(router: Router, addr: &str, certs: Option<&str>, key: Option<&str>) {
-  run(router, addr, certs, key).await.unwrap();
+  if let Err(e) = run(router, addr, certs, key, None::<std::future::Pending<()>>).await {
+    tracing::error!("HTTP/3 server error: {e}");
+  }
+}
+
+/// Starts an HTTP/3 server with graceful shutdown support.
+pub async fn serve_h3_with_shutdown(
+  router: Router,
+  addr: &str,
+  certs: Option<&str>,
+  key: Option<&str>,
+  signal: impl Future<Output = ()>,
+) {
+  if let Err(e) = run(router, addr, certs, key, Some(signal)).await {
+    tracing::error!("HTTP/3 server error: {e}");
+  }
 }
 
 /// Runs the HTTP/3 server loop.
@@ -80,6 +100,7 @@ async fn run(
   addr: &str,
   certs: Option<&str>,
   key: Option<&str>,
+  signal: Option<impl Future<Output = ()>>,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   crate::tracing::init_tracing();
@@ -87,8 +108,8 @@ async fn run(
   // Install default crypto provider for rustls (required for QUIC/TLS)
   let _ = rustls::crypto::ring::default_provider().install_default();
 
-  let certs_vec = load_certs(certs.unwrap_or("cert.pem"));
-  let key = load_key(key.unwrap_or("key.pem"));
+  let certs_vec = load_certs(certs.unwrap_or("cert.pem"))?;
+  let key = load_key(key.unwrap_or("key.pem"))?;
 
   let mut tls_config = rustls::ServerConfig::builder()
     .with_no_client_auth()
@@ -122,52 +143,91 @@ async fn run(
 
   tracing::info!("Tako HTTP/3 listening on {}", addr_str);
 
-  while let Some(new_conn) = endpoint.accept().await {
-    let router = router.clone();
+  let mut join_set = tokio::task::JoinSet::new();
 
-    tokio::spawn(async move {
-      match new_conn.await {
-        Ok(conn) => {
-          let remote_addr = conn.remote_address();
+  let signal = signal.map(|s| Box::pin(s));
+  let signal_fused = async {
+    if let Some(s) = signal {
+      s.await;
+    } else {
+      std::future::pending::<()>().await;
+    }
+  };
+  tokio::pin!(signal_fused);
 
-          #[cfg(feature = "signals")]
-          {
-            let mut conn_open_meta: HashMap<String, String, BuildHasher> =
-              HashMap::with_hasher(BuildHasher::default());
-            conn_open_meta.insert("remote_addr".to_string(), remote_addr.to_string());
-            conn_open_meta.insert("protocol".to_string(), "h3".to_string());
-            SignalArbiter::emit_app(Signal::with_metadata(
-              ids::CONNECTION_OPENED,
-              conn_open_meta,
-            ))
-            .await;
+  loop {
+    tokio::select! {
+      maybe_conn = endpoint.accept() => {
+        let Some(new_conn) = maybe_conn else { break };
+        let router = router.clone();
+
+        join_set.spawn(async move {
+          match new_conn.await {
+            Ok(conn) => {
+              let remote_addr = conn.remote_address();
+
+              #[cfg(feature = "signals")]
+              {
+                let mut conn_open_meta: HashMap<String, String, BuildHasher> =
+                  HashMap::with_hasher(BuildHasher::default());
+                conn_open_meta.insert("remote_addr".to_string(), remote_addr.to_string());
+                conn_open_meta.insert("protocol".to_string(), "h3".to_string());
+                SignalArbiter::emit_app(Signal::with_metadata(
+                  ids::CONNECTION_OPENED,
+                  conn_open_meta,
+                ))
+                .await;
+              }
+
+              if let Err(e) = handle_connection(conn, router, remote_addr).await {
+                tracing::error!("HTTP/3 connection error: {e}");
+              }
+
+              #[cfg(feature = "signals")]
+              {
+                let mut conn_close_meta: HashMap<String, String, BuildHasher> =
+                  HashMap::with_hasher(BuildHasher::default());
+                conn_close_meta.insert("remote_addr".to_string(), remote_addr.to_string());
+                conn_close_meta.insert("protocol".to_string(), "h3".to_string());
+                SignalArbiter::emit_app(Signal::with_metadata(
+                  ids::CONNECTION_CLOSED,
+                  conn_close_meta,
+                ))
+                .await;
+              }
+            }
+            Err(e) => {
+              tracing::error!("QUIC connection failed: {e}");
+            }
           }
-
-          if let Err(e) = handle_connection(conn, router, remote_addr).await {
-            tracing::error!("HTTP/3 connection error: {e}");
-          }
-
-          #[cfg(feature = "signals")]
-          {
-            let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-              HashMap::with_hasher(BuildHasher::default());
-            conn_close_meta.insert("remote_addr".to_string(), remote_addr.to_string());
-            conn_close_meta.insert("protocol".to_string(), "h3".to_string());
-            SignalArbiter::emit_app(Signal::with_metadata(
-              ids::CONNECTION_CLOSED,
-              conn_close_meta,
-            ))
-            .await;
-          }
-        }
-        Err(e) => {
-          tracing::error!("QUIC connection failed: {e}");
-        }
+        });
       }
-    });
+      () = &mut signal_fused => {
+        tracing::info!("Shutdown signal received, draining HTTP/3 connections...");
+        break;
+      }
+    }
+  }
+
+  // Close the endpoint to stop accepting new connections
+  endpoint.close(0u32.into(), b"server shutting down");
+
+  // Drain in-flight connections
+  let drain = tokio::time::timeout(DEFAULT_DRAIN_TIMEOUT, async {
+    while join_set.join_next().await.is_some() {}
+  });
+
+  if drain.await.is_err() {
+    tracing::warn!(
+      "Drain timeout ({:?}) exceeded, aborting {} remaining HTTP/3 connections",
+      DEFAULT_DRAIN_TIMEOUT,
+      join_set.len()
+    );
+    join_set.abort_all();
   }
 
   endpoint.wait_idle().await;
+  tracing::info!("HTTP/3 server shut down gracefully");
   Ok(())
 }
 
@@ -292,17 +352,23 @@ where
 }
 
 /// Loads TLS certificates from a PEM-encoded file.
-pub fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
-  let mut rd = BufReader::new(File::open(path).unwrap());
-  certs(&mut rd).map(|r| r.expect("bad cert")).collect()
+pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+  let mut rd = BufReader::new(
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{}': {}", path, e))?,
+  );
+  certs(&mut rd)
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{}': {}", path, e))
 }
 
 /// Loads a private key from a PEM-encoded file.
-pub fn load_key(path: &str) -> PrivateKeyDer<'static> {
-  let mut rd = BufReader::new(File::open(path).unwrap());
+pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
+  let mut rd = BufReader::new(
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
+  );
   pkcs8_private_keys(&mut rd)
     .next()
-    .expect("no private key found")
-    .expect("bad private key")
-    .into()
+    .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
+    .map(|k| k.into())
+    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
 }

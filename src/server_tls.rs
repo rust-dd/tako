@@ -35,8 +35,10 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
+use std::future::Future;
 use std::io::BufReader;
 use std::sync::Arc;
+use std::time::Duration;
 
 use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
@@ -50,6 +52,7 @@ use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::certs;
 use rustls_pemfile::pkcs8_private_keys;
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
 
@@ -65,6 +68,9 @@ use crate::types::BoxError;
 #[cfg(feature = "signals")]
 use crate::types::BuildHasher;
 
+/// Default drain timeout for graceful shutdown (30 seconds).
+const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
   listener: TcpListener,
@@ -72,7 +78,22 @@ pub async fn serve_tls(
   certs: Option<&str>,
   key: Option<&str>,
 ) {
-  run(listener, router, certs, key).await.unwrap();
+  if let Err(e) = run(listener, router, certs, key, None::<std::future::Pending<()>>).await {
+    tracing::error!("TLS server error: {e}");
+  }
+}
+
+/// Starts a TLS-enabled HTTP server with graceful shutdown support.
+pub async fn serve_tls_with_shutdown(
+  listener: TcpListener,
+  router: Router,
+  certs: Option<&str>,
+  key: Option<&str>,
+  signal: impl Future<Output = ()>,
+) {
+  if let Err(e) = run(listener, router, certs, key, Some(signal)).await {
+    tracing::error!("TLS server error: {e}");
+  }
 }
 
 /// Runs the TLS server loop, handling secure connections and request dispatch.
@@ -81,17 +102,17 @@ pub async fn run(
   router: Router,
   certs: Option<&str>,
   key: Option<&str>,
+  signal: Option<impl Future<Output = ()>>,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   crate::tracing::init_tracing();
 
-  let certs = load_certs(certs.unwrap_or("cert.pem"));
-  let key = load_key(key.unwrap_or("key.pem"));
+  let certs = load_certs(certs.unwrap_or("cert.pem"))?;
+  let key = load_key(key.unwrap_or("key.pem"))?;
 
   let mut config = ServerConfig::builder()
     .with_no_client_auth()
-    .with_single_cert(certs, key)
-    .unwrap();
+    .with_single_cert(certs, key)?;
 
   #[cfg(feature = "http2")]
   {
@@ -125,119 +146,152 @@ pub async fn run(
 
   tracing::info!("Tako TLS listening on {}", addr_str);
 
+  let mut join_set = JoinSet::new();
+  let signal = signal.map(|s| Box::pin(s));
+  let signal_fused = async {
+    if let Some(s) = signal {
+      s.await;
+    } else {
+      std::future::pending::<()>().await;
+    }
+  };
+  tokio::pin!(signal_fused);
+
   loop {
-    let (stream, addr) = listener.accept().await?;
-    let acceptor = acceptor.clone();
-    let router = router.clone();
+    tokio::select! {
+      result = listener.accept() => {
+        let (stream, addr) = result?;
+        let acceptor = acceptor.clone();
+        let router = router.clone();
 
-    tokio::spawn(async move {
-      let tls_stream = match acceptor.accept(stream).await {
-        Ok(s) => s,
-        Err(e) => {
-          tracing::error!("TLS error: {e}");
-          return;
-        }
-      };
-
-      #[cfg(feature = "signals")]
-      {
-        // Emit connection.opened (TLS)
-        let mut conn_open_meta: HashMap<String, String, BuildHasher> =
-          HashMap::with_hasher(BuildHasher::default());
-        conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
-        conn_open_meta.insert("tls".to_string(), "true".to_string());
-        SignalArbiter::emit_app(Signal::with_metadata(
-          ids::CONNECTION_OPENED,
-          conn_open_meta,
-        ))
-        .await;
-      }
-
-      #[cfg(feature = "http2")]
-      let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
-
-      let io = TokioIo::new(tls_stream);
-      let svc = service_fn(move |mut req| {
-        let r = router.clone();
-        async move {
-          #[cfg(feature = "signals")]
-          let path = req.uri().path().to_string();
-          #[cfg(feature = "signals")]
-          let method = req.method().to_string();
-
-          req.extensions_mut().insert(addr);
+        join_set.spawn(async move {
+          let tls_stream = match acceptor.accept(stream).await {
+            Ok(s) => s,
+            Err(e) => {
+              tracing::error!("TLS error: {e}");
+              return;
+            }
+          };
 
           #[cfg(feature = "signals")]
           {
-            let mut req_meta: HashMap<String, String, BuildHasher> =
+            let mut conn_open_meta: HashMap<String, String, BuildHasher> =
               HashMap::with_hasher(BuildHasher::default());
-            req_meta.insert("method".to_string(), method.clone());
-            req_meta.insert("path".to_string(), path.clone());
-            SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+            conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
+            conn_open_meta.insert("tls".to_string(), "true".to_string());
+            SignalArbiter::emit_app(Signal::with_metadata(
+              ids::CONNECTION_OPENED,
+              conn_open_meta,
+            ))
+            .await;
           }
 
-          let response = r.dispatch(req.map(TakoBody::new)).await;
+          #[cfg(feature = "http2")]
+          let proto = tls_stream.get_ref().1.alpn_protocol().map(|p| p.to_vec());
+
+          let io = TokioIo::new(tls_stream);
+          let svc = service_fn(move |mut req| {
+            let r = router.clone();
+            async move {
+              #[cfg(feature = "signals")]
+              let path = req.uri().path().to_string();
+              #[cfg(feature = "signals")]
+              let method = req.method().to_string();
+
+              req.extensions_mut().insert(addr);
+
+              #[cfg(feature = "signals")]
+              {
+                let mut req_meta: HashMap<String, String, BuildHasher> =
+                  HashMap::with_hasher(BuildHasher::default());
+                req_meta.insert("method".to_string(), method.clone());
+                req_meta.insert("path".to_string(), path.clone());
+                SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+              }
+
+              let response = r.dispatch(req.map(TakoBody::new)).await;
+
+              #[cfg(feature = "signals")]
+              {
+                let mut done_meta: HashMap<String, String, BuildHasher> =
+                  HashMap::with_hasher(BuildHasher::default());
+                done_meta.insert("method".to_string(), method);
+                done_meta.insert("path".to_string(), path);
+                done_meta.insert("status".to_string(), response.status().as_u16().to_string());
+                SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+              }
+
+              Ok::<_, Infallible>(response)
+            }
+          });
+
+          #[cfg(feature = "http2")]
+          if proto.as_deref() == Some(b"h2") {
+            let h2 = http2::Builder::new(TokioExecutor::new());
+
+            if let Err(e) = h2.serve_connection(io, svc).await {
+              tracing::error!("HTTP/2 error: {e}");
+            }
+
+            #[cfg(feature = "signals")]
+            {
+              let mut conn_close_meta: HashMap<String, String, BuildHasher> =
+                HashMap::with_hasher(BuildHasher::default());
+              conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+              conn_close_meta.insert("tls".to_string(), "true".to_string());
+              SignalArbiter::emit_app(Signal::with_metadata(
+                ids::CONNECTION_CLOSED,
+                conn_close_meta,
+              ))
+              .await;
+            }
+            return;
+          }
+
+          let mut h1 = http1::Builder::new();
+          h1.keep_alive(true);
+
+          if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
+            tracing::error!("HTTP/1.1 error: {e}");
+          }
 
           #[cfg(feature = "signals")]
           {
-            let mut done_meta: HashMap<String, String, BuildHasher> =
+            let mut conn_close_meta: HashMap<String, String, BuildHasher> =
               HashMap::with_hasher(BuildHasher::default());
-            done_meta.insert("method".to_string(), method);
-            done_meta.insert("path".to_string(), path);
-            done_meta.insert("status".to_string(), response.status().as_u16().to_string());
-            SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+            conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+            conn_close_meta.insert("tls".to_string(), "true".to_string());
+            SignalArbiter::emit_app(Signal::with_metadata(
+              ids::CONNECTION_CLOSED,
+              conn_close_meta,
+            ))
+            .await;
           }
-
-          Ok::<_, Infallible>(response)
-        }
-      });
-
-      #[cfg(feature = "http2")]
-      if proto.as_deref() == Some(b"h2") {
-        let h2 = http2::Builder::new(TokioExecutor::new());
-
-        if let Err(e) = h2.serve_connection(io, svc).await {
-          tracing::error!("HTTP/2 error: {e}");
-        }
-
-        #[cfg(feature = "signals")]
-        {
-          // Emit connection.closed (TLS, h2)
-          let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-            HashMap::with_hasher(BuildHasher::default());
-          conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-          conn_close_meta.insert("tls".to_string(), "true".to_string());
-          SignalArbiter::emit_app(Signal::with_metadata(
-            ids::CONNECTION_CLOSED,
-            conn_close_meta,
-          ))
-          .await;
-        }
-        return;
+        });
       }
-
-      let mut h1 = http1::Builder::new();
-      h1.keep_alive(true);
-
-      if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
-        tracing::error!("HTTP/1.1 error: {e}");
+      () = &mut signal_fused => {
+        tracing::info!("Shutdown signal received, draining TLS connections...");
+        break;
       }
-
-      #[cfg(feature = "signals")]
-      {
-        // Emit connection.closed (TLS, h1)
-        let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-          HashMap::with_hasher(BuildHasher::default());
-        conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-        conn_close_meta.insert("tls".to_string(), "true".to_string());
-        SignalArbiter::emit_app(Signal::with_metadata(
-          ids::CONNECTION_CLOSED,
-          conn_close_meta,
-        ))
-        .await;
-      }
-    });
+    }
   }
+
+  // Drain in-flight connections
+  let drain = tokio::time::timeout(DEFAULT_DRAIN_TIMEOUT, async {
+    while join_set.join_next().await.is_some() {}
+  });
+
+  if drain.await.is_err() {
+    tracing::warn!(
+      "Drain timeout ({:?}) exceeded, aborting {} remaining TLS connections",
+      DEFAULT_DRAIN_TIMEOUT,
+      join_set.len()
+    );
+    join_set.abort_all();
+  }
+
+  tracing::info!("TLS server shut down gracefully");
+  Ok(())
 }
 
 /// Loads TLS certificates from a PEM-encoded file.
@@ -266,9 +320,13 @@ pub async fn run(
 /// println!("Loaded {} certificates", certs.len());
 /// # }
 /// ```
-pub fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
-  let mut rd = BufReader::new(File::open(path).unwrap());
-  certs(&mut rd).map(|r| r.expect("bad cert")).collect()
+pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+  let mut rd = BufReader::new(
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{}': {}", path, e))?,
+  );
+  certs(&mut rd)
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{}': {}", path, e))
 }
 
 /// Loads a private key from a PEM-encoded file.
@@ -297,11 +355,13 @@ pub fn load_certs(path: &str) -> Vec<CertificateDer<'static>> {
 /// println!("Loaded private key successfully");
 /// # }
 /// ```
-pub fn load_key(path: &str) -> PrivateKeyDer<'static> {
-  let mut rd = BufReader::new(File::open(path).unwrap());
+pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
+  let mut rd = BufReader::new(
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
+  );
   pkcs8_private_keys(&mut rd)
     .next()
-    .expect("no private key found")
-    .expect("bad private key")
-    .into()
+    .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
+    .map(|k| k.into())
+    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
 }

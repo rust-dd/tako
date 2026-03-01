@@ -22,15 +22,12 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
-
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
 
 use crate::extractors::FromRequest;
 use crate::responder::Responder;
-use crate::types::BuildHasher;
 use crate::types::Request;
 
 /// Represents a form extracted from an HTTP request body.
@@ -182,20 +179,8 @@ where
       // Convert to string
       let body_str = std::str::from_utf8(&body_bytes).map_err(|_| FormError::InvalidUtf8)?;
 
-      // Parse form data
-      let form_data = url::form_urlencoded::parse(body_str.as_bytes())
-        .into_owned()
-        .collect::<Vec<(String, String)>>();
-
-      // Convert to HashMap
-      let form_map = HashMap::<String, String, BuildHasher>::from_iter(form_data);
-
-      // Convert to JSON value for deserialization
-      let json_value =
-        serde_json::to_value(form_map).map_err(|e| FormError::ParseError(e.to_string()))?;
-
-      // Deserialize to target type
-      let form_data = serde_json::from_value::<T>(json_value)
+      // Deserialize directly from URL-encoded form data
+      let form_data = serde_urlencoded::from_str::<T>(body_str)
         .map_err(|e| FormError::DeserializationError(e.to_string()))?;
 
       Ok(Form(form_data))
