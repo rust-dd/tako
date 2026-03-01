@@ -31,8 +31,8 @@ use bytes::BytesMut;
 use http::StatusCode;
 use http::header;
 use http_body_util::StreamBody;
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
+use futures_util::Stream;
+use futures_util::StreamExt;
 
 use crate::body::TakoBody;
 use crate::responder::Responder;

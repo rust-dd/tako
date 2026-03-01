@@ -236,3 +236,13 @@ required-features = ["utoipa"]
 name = "metrics-opentelemetry"
 path = "examples/metrics-opentelemetry/src/main.rs"
 required-features = ["metrics-opentelemetry"]
+
+[[example]]
+name = "streams-compio"
+path = "examples/streams-compio/src/main.rs"
+required-features = ["compio"]
+
+[[example]]
+name = "tls-compio"
+path = "examples/tls-compio/src/main.rs"
+required-features = ["compio-tls"]

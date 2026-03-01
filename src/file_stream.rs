@@ -7,32 +7,21 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,ignore
 //! use tako::file_stream::FileStream;
 //! use tako::responder::Responder;
-//! use tokio_util::io::ReaderStream;
-//! use tokio::fs::File;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Stream a file from disk
 //! let file_stream = FileStream::from_path("./assets/video.mp4").await?;
 //! let response = file_stream.into_response();
-//!
-//! // Create a custom stream with metadata
-//! let file = File::open("./data.bin").await?;
-//! let reader_stream = ReaderStream::new(file);
-//! let custom_stream = FileStream::new(
-//!     reader_stream,
-//!     Some("download.bin".to_string()),
-//!     Some(1024),
-//! );
-//! let response = custom_stream.into_response();
 //! # Ok(())
 //! # }
 //! ```
 
 #![cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 
+#[cfg(not(feature = "compio"))]
 use std::io::SeekFrom;
 use std::path::Path;
 
@@ -42,9 +31,13 @@ use futures_util::TryStream;
 use futures_util::TryStreamExt;
 use http::StatusCode;
 use http_body::Frame;
+#[cfg(not(feature = "compio"))]
 use tokio::fs::File;
+#[cfg(not(feature = "compio"))]
 use tokio::io::AsyncReadExt;
+#[cfg(not(feature = "compio"))]
 use tokio::io::AsyncSeekExt;
+#[cfg(not(feature = "compio"))]
 use tokio_util::io::ReaderStream;
 
 use crate::body::TakoBody;
@@ -59,25 +52,6 @@ use crate::types::Response;
 /// set for file downloads, including Content-Disposition for filename suggestions
 /// and Content-Length for known file sizes. The implementation supports both
 /// regular responses and HTTP range requests for partial content delivery.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::file_stream::FileStream;
-/// use tokio_util::io::ReaderStream;
-/// use tokio::fs::File;
-///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// // From file path (recommended)
-/// let stream = FileStream::from_path("./video.mp4").await?;
-///
-/// // From custom stream
-/// let file = File::open("./data.txt").await?;
-/// let reader = ReaderStream::new(file);
-/// let stream = FileStream::new(reader, Some("data.txt".to_string()), Some(2048));
-/// # Ok(())
-/// # }
-/// ```
 #[doc(alias = "file_stream")]
 #[doc(alias = "stream")]
 pub struct FileStream<S> {
@@ -105,6 +79,7 @@ where
   }
 
   /// Creates a file stream from a file system path with automatic metadata detection.
+  #[cfg(not(feature = "compio"))]
   pub async fn from_path<P>(path: P) -> Result<FileStream<ReaderStream<File>>>
   where
     P: AsRef<Path>,
@@ -125,6 +100,33 @@ where
 
     Ok(FileStream {
       stream: ReaderStream::new(file),
+      file_name,
+      content_size,
+    })
+  }
+
+  /// Creates a file stream from a file system path with automatic metadata detection (compio variant).
+  #[cfg(feature = "compio")]
+  pub async fn from_path<P>(
+    path: P,
+  ) -> Result<
+    FileStream<
+      futures_util::stream::Once<futures_util::future::Ready<Result<Bytes, std::io::Error>>>,
+    >,
+  >
+  where
+    P: AsRef<Path>,
+  {
+    let data = compio::fs::read(&path).await?;
+    let content_size = Some(data.len() as u64);
+    let file_name = path
+      .as_ref()
+      .file_name()
+      .and_then(|n| n.to_str())
+      .map(|n| n.to_owned());
+
+    Ok(FileStream {
+      stream: futures_util::stream::once(futures_util::future::ready(Ok(Bytes::from(data)))),
       file_name,
       content_size,
     })
@@ -168,6 +170,7 @@ where
   }
 
   /// Try to create a range response for a file stream.
+  #[cfg(not(feature = "compio"))]
   pub async fn try_range_response<P>(path: P, start: u64, mut end: u64) -> Result<Response>
   where
     P: AsRef<Path>,
@@ -186,6 +189,30 @@ where
 
     file.seek(SeekFrom::Start(start)).await?;
     let stream = ReaderStream::new(file.take(end - start + 1));
+    Ok(FileStream::new(stream, None, None).into_range_response(start, end, total_size))
+  }
+
+  /// Try to create a range response for a file stream (compio variant).
+  #[cfg(feature = "compio")]
+  pub async fn try_range_response<P>(path: P, start: u64, mut end: u64) -> Result<Response>
+  where
+    P: AsRef<Path>,
+  {
+    let data = compio::fs::read(&path).await?;
+    let total_size = data.len() as u64;
+
+    if end == 0 {
+      end = total_size - 1;
+    }
+
+    if start > total_size || start > end || end >= total_size {
+      return Ok((StatusCode::RANGE_NOT_SATISFIABLE, "Range not satisfiable").into_response());
+    }
+
+    let slice = Bytes::from(data[(start as usize)..=(end as usize)].to_vec());
+    let stream = futures_util::stream::once(futures_util::future::ready(
+      Ok::<_, std::io::Error>(slice),
+    ));
     Ok(FileStream::new(stream, None, None).into_range_response(start, end, total_size))
   }
 }

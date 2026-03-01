@@ -38,6 +38,7 @@ use scc::HashMap as SccHashMap;
 use sha1::Digest;
 use sha1::Sha1;
 use tokio::sync::Notify;
+#[cfg(not(feature = "compio"))]
 use tokio::time::timeout;
 
 use crate::body::TakoBody;
@@ -368,8 +369,18 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
           return conflict();
         }
         // Wait for completion
-        if let Some(ms) = cfg.inflight_wait_timeout_ms {
-          let _ = timeout(Duration::from_millis(ms), notify.notified()).await;
+        if let Some(_ms) = cfg.inflight_wait_timeout_ms {
+          #[cfg(not(feature = "compio"))]
+          {
+            let _ = timeout(Duration::from_millis(_ms), notify.notified()).await;
+          }
+          // compio::time::sleep is !Send, so we cannot use it inside a
+          // middleware handler (BoxMiddleware requires Send futures).
+          // Fall through to the unconditional wait below.
+          #[cfg(feature = "compio")]
+          {
+            notify.notified().await;
+          }
         } else {
           notify.notified().await;
         }

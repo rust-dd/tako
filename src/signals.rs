@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-#[cfg(not(feature = "compio"))]
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
@@ -458,6 +457,27 @@ impl SignalArbiter {
       Ok(Ok(res)) => Ok(res),
       Ok(Err(e)) => Err(RpcTimeoutError::Rpc(e)),
       Err(_) => Err(RpcTimeoutError::Timeout),
+    }
+  }
+
+  /// Calls a typed RPC handler with a timeout (compio variant).
+  #[cfg(feature = "compio")]
+  pub async fn call_rpc_timeout<Req, Res>(
+    &self,
+    id: impl AsRef<str>,
+    req: Req,
+    dur: Duration,
+  ) -> Result<Res, RpcTimeoutError>
+  where
+    Req: Send + Sync + 'static,
+    Res: Send + Sync + Clone + 'static,
+  {
+    let sleep = std::pin::pin!(compio::time::sleep(dur));
+    let work = std::pin::pin!(self.call_rpc_result::<Req, Res>(id, req));
+    match futures_util::future::select(work, sleep).await {
+      futures_util::future::Either::Left((Ok(res), _)) => Ok(res),
+      futures_util::future::Either::Left((Err(e), _)) => Err(RpcTimeoutError::Rpc(e)),
+      futures_util::future::Either::Right((_, _)) => Err(RpcTimeoutError::Timeout),
     }
   }
 

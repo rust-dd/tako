@@ -293,9 +293,21 @@ impl Router {
   ) -> Response {
     match timeout_duration {
       Some(duration) => {
-        match tokio::time::timeout(duration, next.run(req)).await {
-          Ok(response) => response,
-          Err(_elapsed) => self.handle_timeout().await,
+        #[cfg(not(feature = "compio"))]
+        {
+          match tokio::time::timeout(duration, next.run(req)).await {
+            Ok(response) => response,
+            Err(_elapsed) => self.handle_timeout().await,
+          }
+        }
+        #[cfg(feature = "compio")]
+        {
+          let sleep = std::pin::pin!(compio::time::sleep(duration));
+          let work = std::pin::pin!(next.run(req));
+          match futures_util::future::select(work, sleep).await {
+            futures_util::future::Either::Left((response, _)) => response,
+            futures_util::future::Either::Right((_, _)) => self.handle_timeout().await,
+          }
         }
       }
       None => next.run(req).await,

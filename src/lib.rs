@@ -65,7 +65,7 @@ use std::str::FromStr;
 pub mod body;
 
 /// HTTP client implementation for making outbound requests.
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "client")))]
 pub mod client;
 
