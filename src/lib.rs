@@ -316,7 +316,7 @@ pub mod server_compio;
 pub mod server_tls_compio;
 
 /// HTTP/3 server implementation using QUIC transport.
-#[cfg(feature = "http3")]
+#[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub mod server_h3;
 
@@ -325,6 +325,24 @@ pub mod server_tcp;
 
 /// UDP datagram server for handling raw UDP packets.
 pub mod server_udp;
+
+/// Unix Domain Socket server for local IPC and reverse proxy communication.
+#[cfg(all(unix, not(feature = "compio")))]
+pub mod server_unix;
+
+/// PROXY protocol v1/v2 parser for load balancer integration.
+#[cfg(not(feature = "compio"))]
+pub mod proxy_protocol;
+
+/// gRPC support for unary RPCs with protobuf serialization.
+#[cfg(feature = "grpc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
+pub mod grpc;
+
+/// WebTransport server support over QUIC.
+#[cfg(all(feature = "webtransport", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
+pub mod webtransport;
 
 /// Starts the HTTP/3 server with QUIC transport.
 ///
@@ -344,10 +362,10 @@ pub mod server_udp;
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "http3")]
+#[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use server_h3::serve_h3;
-#[cfg(feature = "http3")]
+#[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use server_h3::serve_h3_with_shutdown;
 /// Starts the HTTPS server with TLS encryption support.

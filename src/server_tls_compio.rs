@@ -18,11 +18,7 @@ use compio::tls::TlsAcceptor;
 use cyper_core::HyperStream;
 use futures_util::future::Either;
 use hyper::server::conn::http1;
-#[cfg(feature = "http2")]
-use hyper::server::conn::http2;
 use hyper::service::service_fn;
-#[cfg(feature = "http2")]
-use hyper_util::rt::TokioExecutor;
 use rustls::ServerConfig;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
@@ -167,9 +163,6 @@ pub async fn run(
             .await;
           }
 
-          #[cfg(feature = "http2")]
-          let proto = tls_stream.negotiated_alpn().map(|p| p.to_vec());
-
           let io = HyperStream::new(tls_stream);
           let svc = service_fn(move |mut req| {
             let r = router.clone();
@@ -211,33 +204,8 @@ pub async fn run(
             }
           });
 
-          #[cfg(feature = "http2")]
-          if proto.as_deref() == Some(b"h2") {
-            let h2 = http2::Builder::new(TokioExecutor::new());
-
-            if let Err(e) = h2.serve_connection(io, svc).await {
-              tracing::error!("HTTP/2 error: {e}");
-            }
-
-            #[cfg(feature = "signals")]
-            {
-              let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-                HashMap::with_hasher(BuildHasher::default());
-              conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-              conn_close_meta.insert("tls".to_string(), "true".to_string());
-              SignalArbiter::emit_app(Signal::with_metadata(
-                ids::CONNECTION_CLOSED,
-                conn_close_meta,
-              ))
-              .await;
-            }
-
-            if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-              drain_notify.notify_one();
-            }
-            return;
-          }
-
+          // Note: HTTP/2 is not supported with compio runtime due to Send requirements.
+          // Use the tokio TLS server (server_tls) for HTTP/2 support.
           let mut h1 = http1::Builder::new();
           h1.keep_alive(true);
 
