@@ -1,0 +1,11 @@
+[package]
+name = "job-queue"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+serde = { version = "1", features = ["derive"] }
+tako-rs = { path = "../.." }
+tokio = { version = "1.45.1", features = ["full"] }
+tracing-subscriber = "0.3"

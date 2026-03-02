@@ -65,8 +65,6 @@ pub struct UnixPeerAddr {
   pub path: Option<std::path::PathBuf>,
 }
 
-// ─── Raw Unix socket server ───
-
 /// Starts a raw Unix domain socket server.
 ///
 /// Each accepted connection is dispatched to the handler with the stream
@@ -158,8 +156,6 @@ where
 
   Ok(())
 }
-
-// ─── HTTP over Unix domain socket ───
 
 /// Starts an HTTP server over a Unix domain socket.
 ///

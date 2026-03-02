@@ -1,9 +1,8 @@
 //! Integration tests for UDP server, TCP server, and upload progress middleware.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
-// ─── ProgressState unit tests ───
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 #[test]
 fn progress_state_percent_normal() {
@@ -50,16 +49,14 @@ fn progress_state_percent_unknown_total() {
   assert_eq!(state.percent(), None);
 }
 
-// ─── Upload Progress middleware tests ───
-
 #[tokio::test]
 async fn upload_progress_callback_fires() {
-  use tako::middleware::upload_progress::UploadProgress;
+  use tako::Method;
   use tako::middleware::IntoMiddleware;
+  use tako::middleware::upload_progress::UploadProgress;
   use tako::responder::Responder;
   use tako::router::Router;
   use tako::types::Request;
-  use tako::Method;
 
   let callback_bytes = Arc::new(AtomicU64::new(0));
   let cb = callback_bytes.clone();
@@ -74,7 +71,9 @@ async fn upload_progress_callback_fires() {
   }
 
   let mut router = Router::new();
-  router.route(Method::POST, "/upload", handler).middleware(mw);
+  router
+    .route(Method::POST, "/upload", handler)
+    .middleware(mw);
 
   let payload = b"hello world upload test data";
   let req = http::Request::builder()
@@ -88,20 +87,18 @@ async fn upload_progress_callback_fires() {
   assert_eq!(resp.status(), 200);
 
   // Callback should have been called with the total bytes
-  assert_eq!(
-    callback_bytes.load(Ordering::Relaxed),
-    payload.len() as u64
-  );
+  assert_eq!(callback_bytes.load(Ordering::Relaxed), payload.len() as u64);
 }
 
 #[tokio::test]
 async fn upload_progress_tracker_in_extensions() {
-  use tako::middleware::upload_progress::{ProgressTracker, UploadProgress};
+  use tako::Method;
   use tako::middleware::IntoMiddleware;
+  use tako::middleware::upload_progress::ProgressTracker;
+  use tako::middleware::upload_progress::UploadProgress;
   use tako::responder::Responder;
   use tako::router::Router;
   use tako::types::Request;
-  use tako::Method;
 
   let progress = UploadProgress::new();
   let mw = progress.into_middleware();
@@ -116,7 +113,9 @@ async fn upload_progress_tracker_in_extensions() {
   }
 
   let mut router = Router::new();
-  router.route(Method::POST, "/upload", handler).middleware(mw);
+  router
+    .route(Method::POST, "/upload", handler)
+    .middleware(mw);
 
   let payload = b"test payload data 12345";
   let req = http::Request::builder()
@@ -137,12 +136,13 @@ async fn upload_progress_tracker_in_extensions() {
 
 #[tokio::test]
 async fn upload_progress_percent_via_tracker() {
-  use tako::middleware::upload_progress::{ProgressTracker, UploadProgress};
+  use tako::Method;
   use tako::middleware::IntoMiddleware;
+  use tako::middleware::upload_progress::ProgressTracker;
+  use tako::middleware::upload_progress::UploadProgress;
   use tako::responder::Responder;
   use tako::router::Router;
   use tako::types::Request;
-  use tako::Method;
 
   let progress = UploadProgress::new();
   let mw = progress.into_middleware();
@@ -157,7 +157,9 @@ async fn upload_progress_percent_via_tracker() {
   }
 
   let mut router = Router::new();
-  router.route(Method::POST, "/upload", handler).middleware(mw);
+  router
+    .route(Method::POST, "/upload", handler)
+    .middleware(mw);
 
   let payload = b"some bytes";
   let req = http::Request::builder()
@@ -179,12 +181,12 @@ async fn upload_progress_percent_via_tracker() {
 
 #[tokio::test]
 async fn upload_progress_min_notify_interval() {
-  use tako::middleware::upload_progress::UploadProgress;
+  use tako::Method;
   use tako::middleware::IntoMiddleware;
+  use tako::middleware::upload_progress::UploadProgress;
   use tako::responder::Responder;
   use tako::router::Router;
   use tako::types::Request;
-  use tako::Method;
 
   let call_count = Arc::new(AtomicU64::new(0));
   let cc = call_count.clone();
@@ -201,7 +203,9 @@ async fn upload_progress_min_notify_interval() {
   }
 
   let mut router = Router::new();
-  router.route(Method::POST, "/upload", handler).middleware(mw);
+  router
+    .route(Method::POST, "/upload", handler)
+    .middleware(mw);
 
   let payload = vec![0u8; 100]; // 100 bytes — well below 1MB interval
   let req = http::Request::builder()
@@ -219,12 +223,11 @@ async fn upload_progress_min_notify_interval() {
   assert!(count <= 1, "expected at most 1 callback, got {count}");
 }
 
-// ─── TCP server tests ───
-
 #[tokio::test]
 async fn tcp_echo_server() {
   use tako::server_tcp::serve_tcp_with_shutdown;
-  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::io::AsyncReadExt;
+  use tokio::io::AsyncWriteExt;
 
   let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -274,7 +277,8 @@ async fn tcp_echo_server() {
 #[tokio::test]
 async fn tcp_server_multiple_connections() {
   use tako::server_tcp::serve_tcp_with_shutdown;
-  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+  use tokio::io::AsyncReadExt;
+  use tokio::io::AsyncWriteExt;
 
   let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -328,8 +332,6 @@ async fn tcp_server_multiple_connections() {
   tx.send(()).unwrap();
   server.await.unwrap();
 }
-
-// ─── UDP server tests ───
 
 #[tokio::test]
 async fn udp_echo_server() {

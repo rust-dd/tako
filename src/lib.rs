@@ -110,6 +110,9 @@ mod server;
 /// Server-Sent Events (SSE) support for real-time communication.
 pub mod sse;
 
+/// In-memory background job queue with retry, delayed jobs, and dead letter support.
+pub mod queue;
+
 /// Application state management and dependency injection.
 pub mod state;
 

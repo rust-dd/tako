@@ -39,7 +39,10 @@
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -145,8 +148,12 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
   }
 
   // Parse: "PROXY TCP4 src dst srcport dstport\r\n"
-  let text = std::str::from_utf8(&line)
-    .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8 in PROXY v1 header"))?;
+  let text = std::str::from_utf8(&line).map_err(|_| {
+    std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      "invalid UTF-8 in PROXY v1 header",
+    )
+  })?;
   let text = text.trim_end_matches("\r\n");
 
   let parts: Vec<&str> = text.split(' ').collect();
@@ -173,16 +180,25 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
       }
 
       let src_ip: IpAddr = parts[2].parse().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("bad source IP: {e}"))
+        std::io::Error::new(
+          std::io::ErrorKind::InvalidData,
+          format!("bad source IP: {e}"),
+        )
       })?;
       let dst_ip: IpAddr = parts[3].parse().map_err(|e| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, format!("bad dest IP: {e}"))
       })?;
       let src_port: u16 = parts[4].parse().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("bad source port: {e}"))
+        std::io::Error::new(
+          std::io::ErrorKind::InvalidData,
+          format!("bad source port: {e}"),
+        )
       })?;
       let dst_port: u16 = parts[5].parse().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("bad dest port: {e}"))
+        std::io::Error::new(
+          std::io::ErrorKind::InvalidData,
+          format!("bad dest port: {e}"),
+        )
       })?;
 
       let transport = if proto.starts_with("TCP") {
@@ -291,8 +307,6 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
     }),
   }
 }
-
-// ─── HTTP server with PROXY protocol ───
 
 /// Starts an HTTP server that parses PROXY protocol headers on each connection.
 ///

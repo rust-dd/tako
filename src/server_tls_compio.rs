@@ -10,7 +10,8 @@ use std::fs::File;
 use std::future::Future;
 use std::io::BufReader;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use compio::net::TcpListener;
@@ -52,7 +53,15 @@ pub async fn serve_tls(
   certs: Option<&str>,
   key: Option<&str>,
 ) {
-  if let Err(e) = run(listener, router, certs, key, None::<std::future::Pending<()>>).await {
+  if let Err(e) = run(
+    listener,
+    router,
+    certs,
+    key,
+    None::<std::future::Pending<()>>,
+  )
+  .await
+  {
     tracing::error!("TLS server error: {e}");
   }
 }
@@ -200,11 +209,8 @@ pub async fn run(
                 done_meta.insert("method".to_string(), method);
                 done_meta.insert("path".to_string(), path);
                 done_meta.insert("status".to_string(), response.status().as_u16().to_string());
-                SignalArbiter::emit_app(Signal::with_metadata(
-                  ids::REQUEST_COMPLETED,
-                  done_meta,
-                ))
-                .await;
+                SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta))
+                  .await;
               }
 
               Ok::<_, Infallible>(response)
@@ -216,10 +222,7 @@ pub async fn run(
             let mut h2 = http2::Builder::new(CompioH2Executor);
             h2.timer(CompioH2Timer);
 
-            if let Err(e) = h2
-              .serve_connection(io, ServiceSendWrapper::new(svc))
-              .await
-            {
+            if let Err(e) = h2.serve_connection(io, ServiceSendWrapper::new(svc)).await {
               tracing::error!("HTTP/2 error: {e}");
             }
 
@@ -319,7 +322,6 @@ pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
     .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
 }
 
-// ─── HTTP/2 support for compio runtime ───
 //
 // compio is a single-threaded, thread-per-core runtime whose futures are `!Send`.
 // hyper's HTTP/2 builder needs an executor to spawn stream handlers and checks
@@ -419,10 +421,7 @@ impl hyper::rt::Timer for CompioH2Timer {
     Box::pin(CompioSleep(Box::pin(compio::time::sleep(duration))))
   }
 
-  fn sleep_until(
-    &self,
-    deadline: std::time::Instant,
-  ) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
+  fn sleep_until(&self, deadline: std::time::Instant) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
     Box::pin(CompioSleep(Box::pin(compio::time::sleep_until(deadline))))
   }
 }
