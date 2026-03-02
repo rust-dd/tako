@@ -357,6 +357,11 @@ impl Router {
       #[cfg(feature = "plugins")]
       route.setup_plugins_once();
 
+      // Inject route-level SIMD JSON config into request extensions
+      if let Some(mode) = route.get_simd_json_mode() {
+        req.extensions_mut().insert(mode);
+      }
+
       if !matched.params.iter().collect::<Vec<_>>().is_empty() {
         let mut params: HashMap<String, String, BuildHasher> =
           HashMap::with_hasher(BuildHasher::default());

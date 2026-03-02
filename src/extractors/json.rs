@@ -51,6 +51,49 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
+/// Controls when the SIMD JSON parser is used for `Json<T>` extraction.
+///
+/// When the `simd` feature is enabled, `Json<T>` can automatically dispatch to
+/// `sonic_rs` for large payloads. This enum lets you override that behavior
+/// per-route via [`Route::simd_json`](crate::route::Route::simd_json).
+///
+/// If no config is set on a route, the default is `Threshold(2 MB)`.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use tako::extractors::json::SimdJsonMode;
+///
+/// // Always use SIMD on a heavy-payload route
+/// router.route(Method::POST, "/api/ingest", ingest_handler)
+///     .simd_json(SimdJsonMode::Always);
+///
+/// // Never use SIMD where payloads are tiny
+/// router.route(Method::POST, "/api/ping", ping_handler)
+///     .simd_json(SimdJsonMode::Never);
+///
+/// // Custom threshold (SIMD above 4 KB)
+/// router.route(Method::POST, "/api/batch", batch_handler)
+///     .simd_json(SimdJsonMode::Threshold(4096));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdJsonMode {
+  /// Always use the SIMD JSON parser, regardless of payload size.
+  Always,
+  /// Never use the SIMD JSON parser — always fall back to `serde_json`.
+  Never,
+  /// Use the SIMD JSON parser only when the payload exceeds this many bytes.
+  ///
+  /// This is the default behavior with a threshold of 2 MB (2,097,152 bytes).
+  Threshold(usize),
+}
+
+impl Default for SimdJsonMode {
+  fn default() -> Self {
+    Self::Threshold(2 * 1024 * 1024) // 2 MB
+  }
+}
+
 /// JSON request body extractor with automatic deserialization.
 #[doc(alias = "json")]
 pub struct Json<T>(pub T);
@@ -146,11 +189,23 @@ where
         .map_err(|e| JsonError::BodyReadError(e.to_string()))?
         .to_bytes();
 
-      // Deserialize JSON — use SIMD parser for large payloads when the simd feature is enabled
+      // Deserialize JSON — use SIMD parser when the simd feature is enabled,
+      // respecting per-route SimdJsonMode configuration from extensions.
       #[cfg(feature = "simd")]
       let data = {
-        const SIMD_THRESHOLD: usize = 1024;
-        if body_bytes.len() >= SIMD_THRESHOLD {
+        let mode = req
+          .extensions()
+          .get::<SimdJsonMode>()
+          .copied()
+          .unwrap_or_default();
+
+        let use_simd = match mode {
+          SimdJsonMode::Always => true,
+          SimdJsonMode::Never => false,
+          SimdJsonMode::Threshold(threshold) => body_bytes.len() >= threshold,
+        };
+
+        if use_simd {
           let mut owned = body_bytes.to_vec();
           sonic_rs::from_slice::<T>(&mut owned)
             .map_err(|e| JsonError::DeserializationError(e.to_string()))?
