@@ -18,12 +18,16 @@ use compio::tls::TlsAcceptor;
 use cyper_core::HyperStream;
 use futures_util::future::Either;
 use hyper::server::conn::http1;
+#[cfg(feature = "http2")]
+use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use rustls::ServerConfig;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::certs;
 use rustls_pemfile::pkcs8_private_keys;
+#[cfg(feature = "http2")]
+use send_wrapper::SendWrapper;
 use tokio::sync::Notify;
 
 use crate::body::TakoBody;
@@ -163,6 +167,9 @@ pub async fn run(
             .await;
           }
 
+          #[cfg(feature = "http2")]
+          let proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
+
           let io = HyperStream::new(tls_stream);
           let svc = service_fn(move |mut req| {
             let r = router.clone();
@@ -204,8 +211,37 @@ pub async fn run(
             }
           });
 
-          // Note: HTTP/2 is not supported with compio runtime due to Send requirements.
-          // Use the tokio TLS server (server_tls) for HTTP/2 support.
+          #[cfg(feature = "http2")]
+          if proto.as_deref() == Some(b"h2") {
+            let mut h2 = http2::Builder::new(CompioH2Executor);
+            h2.timer(CompioH2Timer);
+
+            if let Err(e) = h2
+              .serve_connection(io, ServiceSendWrapper::new(svc))
+              .await
+            {
+              tracing::error!("HTTP/2 error: {e}");
+            }
+
+            #[cfg(feature = "signals")]
+            {
+              let mut conn_close_meta: HashMap<String, String, BuildHasher> =
+                HashMap::with_hasher(BuildHasher::default());
+              conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
+              conn_close_meta.insert("tls".to_string(), "true".to_string());
+              SignalArbiter::emit_app(Signal::with_metadata(
+                ids::CONNECTION_CLOSED,
+                conn_close_meta,
+              ))
+              .await;
+            }
+
+            if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
+              drain_notify.notify_one();
+            }
+            return;
+          }
+
           let mut h1 = http1::Builder::new();
           h1.keep_alive(true);
 
@@ -281,4 +317,112 @@ pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
     .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
     .map(|k| k.into())
     .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
+}
+
+// ─── HTTP/2 support for compio runtime ───
+//
+// compio is a single-threaded, thread-per-core runtime whose futures are `!Send`.
+// hyper's HTTP/2 builder needs an executor to spawn stream handlers and checks
+// `Send` at compile time.  Since all spawned futures run on the same thread,
+// wrapping them with `SendWrapper` is safe and satisfies the compiler.
+
+/// Wraps a hyper `Service` so its response future type is `Send` via `SendWrapper`.
+///
+/// This is safe because compio is single-threaded — futures never cross thread
+/// boundaries. The `Send` bound is purely a compile-time requirement from hyper's
+/// HTTP/2 executor trait, not an actual thread-safety need.
+#[cfg(feature = "http2")]
+struct ServiceSendWrapper<T>(SendWrapper<T>);
+
+#[cfg(feature = "http2")]
+impl<T> ServiceSendWrapper<T> {
+  fn new(inner: T) -> Self {
+    Self(SendWrapper::new(inner))
+  }
+}
+
+#[cfg(feature = "http2")]
+impl<R, T> hyper::service::Service<R> for ServiceSendWrapper<T>
+where
+  T: hyper::service::Service<R>,
+{
+  type Response = T::Response;
+  type Error = T::Error;
+  type Future = SendWrapper<T::Future>;
+
+  fn call(&self, req: R) -> Self::Future {
+    SendWrapper::new(self.0.call(req))
+  }
+}
+
+/// A hyper executor for compio that accepts `!Send` futures.
+///
+/// Unlike `cyper_core::CompioExecutor` which requires `F: Send`, this executor
+/// accepts any `F: 'static` — but we only use it with `SendWrapper`-wrapped
+/// futures, so the `Send` bound is satisfied through the wrapper.
+#[cfg(feature = "http2")]
+#[derive(Debug, Clone)]
+struct CompioH2Executor;
+
+#[cfg(feature = "http2")]
+impl<F: std::future::Future<Output = ()> + Send + 'static> hyper::rt::Executor<F>
+  for CompioH2Executor
+{
+  fn execute(&self, fut: F) {
+    compio::runtime::spawn(fut).detach();
+  }
+}
+
+/// A hyper `Timer` implementation backed by `compio::time`.
+///
+/// Required for HTTP/2 keep-alive pings, stream timeouts, etc.
+/// Wraps compio's `!Send` sleep futures in `SendWrapper` to satisfy hyper's bounds.
+#[cfg(feature = "http2")]
+#[derive(Debug, Clone)]
+struct CompioH2Timer;
+
+/// A sleep future that wraps a compio sleep, made `Send + Sync + Unpin` for hyper.
+///
+/// SAFETY: compio is a single-threaded runtime — the sleep future never crosses
+/// thread boundaries, so `Send`/`Sync` are safe to implement unconditionally.
+/// This is the same pattern used by `cyper-core::CompioTimer`.
+#[cfg(feature = "http2")]
+struct CompioSleep(std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>);
+
+#[cfg(feature = "http2")]
+impl std::future::Future for CompioSleep {
+  type Output = ();
+
+  fn poll(
+    mut self: std::pin::Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Self::Output> {
+    self.0.as_mut().poll(cx)
+  }
+}
+
+// SAFETY: compio is single-threaded — the sleep future never crosses threads.
+#[cfg(feature = "http2")]
+unsafe impl Send for CompioSleep {}
+#[cfg(feature = "http2")]
+unsafe impl Sync for CompioSleep {}
+
+#[cfg(feature = "http2")]
+impl Unpin for CompioSleep {}
+
+#[cfg(feature = "http2")]
+impl hyper::rt::Sleep for CompioSleep {}
+
+#[cfg(feature = "http2")]
+impl hyper::rt::Timer for CompioH2Timer {
+  fn sleep(&self, duration: std::time::Duration) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
+    Box::pin(CompioSleep(Box::pin(compio::time::sleep(duration))))
+  }
+
+  fn sleep_until(
+    &self,
+    deadline: std::time::Instant,
+  ) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
+    Box::pin(CompioSleep(Box::pin(compio::time::sleep_until(deadline))))
+  }
 }
