@@ -32,9 +32,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Weak;
-use std::time::Duration;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use http::Method;
 use http::StatusCode;
@@ -92,8 +92,7 @@ use crate::types::Response;
 ///
 /// Called when a response has a server error status (5xx). Receives the original
 /// response and can transform it (e.g., to return JSON errors instead of plain text).
-pub type ErrorHandler =
-  Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
+pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
 
 pub struct Router {
   /// Map of registered routes keyed by method.
@@ -437,10 +436,7 @@ impl Router {
         };
 
         self
-          .run_with_global_middlewares_for_endpoint(
-            req,
-            BoxHandler::new::<_, (Request,)>(handler),
-          )
+          .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
           .await
       } else if let Some(handler) = &self.fallback {
         self
@@ -455,10 +451,7 @@ impl Router {
         };
 
         self
-          .run_with_global_middlewares_for_endpoint(
-            req,
-            BoxHandler::new::<_, (Request,)>(handler),
-          )
+          .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
           .await
       }
     };
@@ -857,9 +850,7 @@ impl Router {
     None
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
   // OpenAPI route collection
-  // ─────────────────────────────────────────────────────────────────────────────
 
   /// Collects OpenAPI metadata from all registered routes.
   ///

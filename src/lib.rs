@@ -320,6 +320,12 @@ pub mod server_tls_compio;
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub mod server_h3;
 
+/// Raw TCP server for handling arbitrary TCP connections.
+pub mod server_tcp;
+
+/// UDP datagram server for handling raw UDP packets.
+pub mod server_udp;
+
 /// Starts the HTTP/3 server with QUIC transport.
 ///
 /// HTTP/3 provides improved performance through QUIC's features like reduced

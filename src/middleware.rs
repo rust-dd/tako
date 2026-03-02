@@ -35,6 +35,7 @@ pub mod jwt_auth;
 pub mod request_id;
 pub mod security_headers;
 pub mod session;
+pub mod upload_progress;
 
 /// Trait for converting types into middleware functions.
 ///

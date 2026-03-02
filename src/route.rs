@@ -30,11 +30,11 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use http::Method;
 use parking_lot::RwLock;
@@ -247,9 +247,7 @@ impl Route {
     self.signals.emit(signal).await;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
   // OpenAPI metadata methods
-  // ─────────────────────────────────────────────────────────────────────────────
 
   /// Sets a unique operation ID for this route in OpenAPI documentation.
   ///
@@ -425,7 +423,7 @@ impl Route {
   pub fn openapi_metadata(&self) -> Option<RouteOpenApi> {
     self.openapi.read().clone()
   }
-  
+
   /// Sets a timeout for this route, overriding the router-level timeout.
   ///
   /// When a request exceeds the timeout duration, the timeout fallback handler
