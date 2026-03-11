@@ -41,10 +41,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Bytes;
+use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-use http_body_util::Full;
 
 use crate::body::TakoBody;
 use crate::middleware::IntoMiddleware;
@@ -166,10 +165,12 @@ impl IntoMiddleware for BearerAuth {
   + 'static {
     let tokens = self.tokens.map(Arc::new);
     let verify = self.verify.map(Arc::new);
+    let bearer_authenticate = HeaderValue::from_static("Bearer");
 
     move |req: Request, next: Next| {
       let tokens = tokens.clone();
       let verify = verify.clone();
+      let bearer_authenticate = bearer_authenticate.clone();
 
       Box::pin(async move {
         // Extract Bearer token from Authorization header
@@ -185,8 +186,8 @@ impl IntoMiddleware for BearerAuth {
           None => {
             return http::Response::builder()
               .status(StatusCode::BAD_REQUEST)
-              .header(header::WWW_AUTHENTICATE, "Bearer")
-              .body(TakoBody::new(Full::from(Bytes::from("Token is missing"))))
+              .header(header::WWW_AUTHENTICATE, bearer_authenticate.clone())
+              .body(TakoBody::from("Token is missing"))
               .unwrap()
               .into_response();
           }
@@ -209,7 +210,7 @@ impl IntoMiddleware for BearerAuth {
         // Return 401 Unauthorized for invalid tokens
         http::Response::builder()
           .status(StatusCode::UNAUTHORIZED)
-          .header(header::WWW_AUTHENTICATE, "Bearer")
+          .header(header::WWW_AUTHENTICATE, bearer_authenticate)
           .body(TakoBody::empty())
           .unwrap()
           .into_response()

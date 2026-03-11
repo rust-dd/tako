@@ -31,15 +31,15 @@
 //! });
 //! ```
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Bytes;
+use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-use http_body_util::Full;
 
 use crate::body::TakoBody;
 use crate::middleware::IntoMiddleware;
@@ -177,13 +177,13 @@ impl ApiKeyAuth {
 }
 
 /// Extracts API key from request based on location configuration.
-fn extract_api_key(req: &Request, location: &ApiKeyLocation) -> Option<String> {
+fn extract_api_key<'a>(req: &'a Request, location: &ApiKeyLocation) -> Option<Cow<'a, str>> {
   match location {
     ApiKeyLocation::Header(name) => req
       .headers()
       .get(*name)
       .and_then(|v| v.to_str().ok())
-      .map(|s| s.trim().to_string()),
+      .map(|s| Cow::Borrowed(s.trim())),
 
     ApiKeyLocation::Query(name) => req
       .uri()
@@ -191,7 +191,7 @@ fn extract_api_key(req: &Request, location: &ApiKeyLocation) -> Option<String> {
       .and_then(|q| {
         url::form_urlencoded::parse(q.as_bytes())
           .find(|(k, _)| k == *name)
-          .map(|(_, v)| v.to_string())
+          .map(|(_, v)| v)
       }),
 
     ApiKeyLocation::HeaderOrQuery(header, query) => {
@@ -200,7 +200,7 @@ fn extract_api_key(req: &Request, location: &ApiKeyLocation) -> Option<String> {
         .headers()
         .get(*header)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim().to_string())
+        .map(|s| Cow::Borrowed(s.trim()))
       {
         return Some(key);
       }
@@ -208,7 +208,7 @@ fn extract_api_key(req: &Request, location: &ApiKeyLocation) -> Option<String> {
       req.uri().query().and_then(|q| {
         url::form_urlencoded::parse(q.as_bytes())
           .find(|(k, _)| k == *query)
-          .map(|(_, v)| v.to_string())
+          .map(|(_, v)| v)
       })
     }
   }
@@ -226,11 +226,13 @@ impl IntoMiddleware for ApiKeyAuth {
     let keys = self.keys.map(Arc::new);
     let verify = self.verify;
     let location = self.location;
+    let api_key_authenticate = HeaderValue::from_static("ApiKey");
 
     move |req: Request, next: Next| {
       let keys = keys.clone();
       let verify = verify.clone();
       let location = location.clone();
+      let api_key_authenticate = api_key_authenticate.clone();
 
       Box::pin(async move {
         // Extract API key from configured location
@@ -239,8 +241,8 @@ impl IntoMiddleware for ApiKeyAuth {
           None => {
             return http::Response::builder()
               .status(StatusCode::UNAUTHORIZED)
-              .header(header::WWW_AUTHENTICATE, "ApiKey")
-              .body(TakoBody::new(Full::from(Bytes::from("API key is missing"))))
+              .header(header::WWW_AUTHENTICATE, api_key_authenticate.clone())
+              .body(TakoBody::from("API key is missing"))
               .unwrap()
               .into_response();
           }
@@ -248,14 +250,14 @@ impl IntoMiddleware for ApiKeyAuth {
 
         // Validate against static keys
         if let Some(set) = &keys {
-          if set.contains(&api_key) {
+          if set.contains(api_key.as_ref()) {
             return next.run(req).await.into_response();
           }
         }
 
         // Validate using custom verification function
         if let Some(v) = verify.as_ref() {
-          if v(&api_key) {
+          if v(api_key.as_ref()) {
             return next.run(req).await.into_response();
           }
         }
@@ -263,8 +265,8 @@ impl IntoMiddleware for ApiKeyAuth {
         // Return 401 Unauthorized for invalid keys
         http::Response::builder()
           .status(StatusCode::UNAUTHORIZED)
-          .header(header::WWW_AUTHENTICATE, "ApiKey")
-          .body(TakoBody::new(Full::from(Bytes::from("Invalid API key"))))
+          .header(header::WWW_AUTHENTICATE, api_key_authenticate)
+          .body(TakoBody::from("Invalid API key"))
           .unwrap()
           .into_response()
       })

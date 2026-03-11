@@ -41,11 +41,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
-use bytes::Bytes;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-use http_body_util::Full;
 
 use crate::body::TakoBody;
 use crate::middleware::IntoMiddleware;
@@ -179,10 +177,13 @@ impl IntoMiddleware for BasicAuth {
     let users = self.users;
     let verify = self.verify;
     let realm = self.realm;
+    let www_authenticate =
+      HeaderValue::from_str(&format!("Basic realm=\"{realm}\"")).expect("valid realm header");
 
     move |req: Request, next: Next| {
       let users = users.clone();
       let verify = verify.clone();
+      let www_authenticate = www_authenticate.clone();
 
       Box::pin(async move {
         // Extract Basic credentials from Authorization header
@@ -191,17 +192,32 @@ impl IntoMiddleware for BasicAuth {
           .get(header::AUTHORIZATION)
           .and_then(|h| h.to_str().ok())
           .and_then(|h| h.strip_prefix("Basic "))
-          .and_then(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok())
-          .and_then(|raw| String::from_utf8(raw).ok())
-          .and_then(|s| s.split_once(':').map(|(u, p)| (u.to_owned(), p.to_owned())));
+          .and_then(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok());
 
         match creds {
-          Some((u, p)) => {
+          Some(raw) => {
+            let Some(decoded) = std::str::from_utf8(&raw).ok() else {
+              let mut res = Response::new(TakoBody::empty());
+              *res.status_mut() = StatusCode::UNAUTHORIZED;
+              res
+                .headers_mut()
+                .append(header::WWW_AUTHENTICATE, www_authenticate.clone());
+              return res;
+            };
+            let Some((u, p)) = decoded.split_once(':') else {
+              let mut res = Response::new(TakoBody::empty());
+              *res.status_mut() = StatusCode::UNAUTHORIZED;
+              res
+                .headers_mut()
+                .append(header::WWW_AUTHENTICATE, www_authenticate.clone());
+              return res;
+            };
+
             // Check static user credentials first
             if users
               .as_ref()
-              .and_then(|map| map.get(&u))
-              .map(|pw| pw == &p)
+              .and_then(|map| map.get(u))
+              .map(|pw| pw == p)
               .unwrap_or(false)
             {
               return next.run(req).await.into_response();
@@ -217,13 +233,8 @@ impl IntoMiddleware for BasicAuth {
           None => {
             return http::Response::builder()
               .status(StatusCode::UNAUTHORIZED)
-              .header(
-                header::WWW_AUTHENTICATE,
-                HeaderValue::from_str(&format!("Basic realm=\"{realm}\"")).unwrap(),
-              )
-              .body(TakoBody::new(Full::from(Bytes::from(
-                "Missing credentials",
-              ))))
+              .header(header::WWW_AUTHENTICATE, www_authenticate.clone())
+              .body(TakoBody::from("Missing credentials"))
               .unwrap()
               .into_response();
           }
@@ -234,7 +245,7 @@ impl IntoMiddleware for BasicAuth {
         *res.status_mut() = StatusCode::UNAUTHORIZED;
         res.headers_mut().append(
           header::WWW_AUTHENTICATE,
-          HeaderValue::from_str(&format!("Basic realm=\"{realm}\"")).unwrap(),
+          www_authenticate,
         );
         res
       })
