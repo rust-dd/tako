@@ -23,7 +23,6 @@ pub use vespera_core::ParameterLocation;
 pub use vespera_core::PathItem;
 pub use vespera_core::RequestBody;
 pub use vespera_core::Response as VesperaResponse;
-pub use vespera_core::RouteInfo;
 pub use vespera_core::Schema;
 pub use vespera_core::SchemaRef;
 pub use vespera_core::SchemaType;
@@ -190,6 +189,7 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
             any_of: None,
             one_of: None,
             not: None,
+            discriminator: None,
             nullable: None,
             read_only: None,
             write_only: None,
@@ -232,6 +232,7 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
         any_of: None,
         one_of: None,
         not: None,
+        discriminator: None,
         nullable: None,
         read_only: None,
         write_only: None,
