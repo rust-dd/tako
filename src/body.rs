@@ -52,13 +52,15 @@ use http_body_util::StreamBody;
 use crate::types::BoxBody;
 use crate::types::BoxError;
 
-/// Internal enum to avoid heap-boxing for the two most common body kinds
-/// (`Full<Bytes>` for content responses and `Empty<Bytes>` for no-content responses).
-/// Anything that doesn't fit these fast paths (streams, mapped bodies, etc.) goes
-/// through the boxed variant which preserves the original generic `new()` behaviour.
+/// Internal enum to avoid heap-boxing for the most common body kinds.
+/// `Full`, `Empty`, and `Incoming` are stored inline (zero allocations).
+/// Anything else (streams, mapped bodies, etc.) goes through the `Boxed` variant.
+#[allow(dead_code)]
 enum BodyInner {
   Full(Full<Bytes>),
   Empty(Empty<Bytes>),
+  /// Hyper's incoming request body — stored inline to avoid boxing on every request.
+  Incoming(hyper::body::Incoming),
   Boxed(BoxBody),
 }
 
@@ -117,6 +119,13 @@ impl TakoBody {
   #[inline]
   pub fn full(body: Full<Bytes>) -> Self {
     Self(BodyInner::Full(body))
+  }
+
+  /// Wraps a `hyper::body::Incoming` **without heap-boxing**.
+  #[inline]
+  #[allow(dead_code)]
+  pub(crate) fn incoming(body: hyper::body::Incoming) -> Self {
+    Self(BodyInner::Incoming(body))
   }
 
   /// Creates a body from a stream of byte results.
@@ -195,6 +204,14 @@ fn map_infallible_frame(
   poll.map(|opt| opt.map(|res| res.map_err(|e| match e {})))
 }
 
+/// Converts a `hyper::Error` poll result into a `BoxError` poll result.
+#[inline]
+fn map_hyper_frame(
+  poll: Poll<Option<core::result::Result<Frame<Bytes>, hyper::Error>>>,
+) -> Poll<Option<core::result::Result<Frame<Bytes>, BoxError>>> {
+  poll.map(|opt| opt.map(|res| res.map_err(Into::into)))
+}
+
 impl Body for TakoBody {
   type Data = Bytes;
   type Error = BoxError;
@@ -208,6 +225,7 @@ impl Body for TakoBody {
     match &mut self.get_mut().0 {
       BodyInner::Full(body) => map_infallible_frame(Pin::new(body).poll_frame(cx)),
       BodyInner::Empty(body) => map_infallible_frame(Pin::new(body).poll_frame(cx)),
+      BodyInner::Incoming(body) => map_hyper_frame(Pin::new(body).poll_frame(cx)),
       BodyInner::Boxed(body) => Pin::new(body).poll_frame(cx),
     }
   }
@@ -217,6 +235,7 @@ impl Body for TakoBody {
     match &self.0 {
       BodyInner::Full(body) => body.size_hint(),
       BodyInner::Empty(body) => body.size_hint(),
+      BodyInner::Incoming(body) => body.size_hint(),
       BodyInner::Boxed(body) => body.size_hint(),
     }
   }
@@ -226,6 +245,7 @@ impl Body for TakoBody {
     match &self.0 {
       BodyInner::Full(body) => body.is_end_stream(),
       BodyInner::Empty(body) => body.is_end_stream(),
+      BodyInner::Incoming(body) => body.is_end_stream(),
       BodyInner::Boxed(body) => body.is_end_stream(),
     }
   }

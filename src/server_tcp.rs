@@ -73,6 +73,7 @@ where
 
   loop {
     let (stream, peer_addr) = listener.accept().await?;
+    let _ = stream.set_nodelay(true);
     let handler = Arc::clone(&handler);
 
     tokio::spawn(async move {
@@ -111,6 +112,7 @@ where
     tokio::select! {
       result = listener.accept() => {
         let (stream, peer_addr) = result?;
+        let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
 
         join_set.spawn(async move {
@@ -155,6 +157,7 @@ where
 
   loop {
     let (stream, peer_addr) = listener.accept().await?;
+    let _ = stream.set_nodelay(true);
     let handler = Arc::clone(&handler);
 
     compio::runtime::spawn(async move {
@@ -198,6 +201,7 @@ where
     match futures_util::future::select(accept_fut, &mut signal).await {
       futures_util::future::Either::Left((result, _)) => {
         let (stream, peer_addr) = result?;
+        let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
         let inflight = Arc::clone(&inflight);
         let drain_notify = Arc::clone(&drain_notify);

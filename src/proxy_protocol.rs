@@ -360,6 +360,7 @@ async fn run_proxy_http(
     tokio::select! {
       result = listener.accept() => {
         let (mut stream, _tcp_addr) = result?;
+        let _ = stream.set_nodelay(true);
         let router = router.clone();
 
         join_set.spawn(async move {
@@ -385,7 +386,7 @@ async fn run_proxy_http(
                 req.extensions_mut().insert(addr);
               }
               req.extensions_mut().insert(proxy_header);
-              let response = router.dispatch(req.map(TakoBody::new)).await;
+              let response = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(response)
             }
           });

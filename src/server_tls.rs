@@ -158,6 +158,7 @@ pub async fn run(
     tokio::select! {
       result = listener.accept() => {
         let (stream, addr) = result?;
+        let _ = stream.set_nodelay(true);
         let acceptor = acceptor.clone();
         let router = router.clone();
 
@@ -204,7 +205,7 @@ pub async fn run(
                 .await;
               }
 
-              let response = r.dispatch(req.map(TakoBody::new)).await;
+              let response = r.dispatch(req.map(TakoBody::incoming)).await;
 
               #[cfg(feature = "signals")]
               {

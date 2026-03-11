@@ -156,10 +156,10 @@ Hello world throughput is not the whole story, but the current branch lands in t
 
 | Framework | Requests/sec | Avg Latency | Note |
 | --- | ---: | ---: | --- |
-| Tako | ~177,871 | ~536 us | current local baseline |
-| Tako + `jemalloc` | ~181,218 | ~520 us | current local baseline |
-| Axum | ~139,543 | ~2.28 ms | current local comparison |
-| Actix | ~143,866 | ~2.50 ms | current local comparison |
+| Tako | ~187,288 | ~505 us | latest local `30s` rerun |
+| Tako + `jemalloc` | ~187,638 | ~502 us | latest local `30s` rerun |
+| Axum | ~186,194 | ~498 us | latest local `30s` rerun |
+| Actix | ~155,307 | ~635 us | latest local `30s` rerun |
 
 Command used: `wrk -t4 -c100 -d30s http://127.0.0.1:8080/`
 

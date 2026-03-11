@@ -221,7 +221,7 @@ async fn run_http(
             let peer_addr = peer_addr.clone();
             async move {
               req.extensions_mut().insert(peer_addr);
-              let response = router.dispatch(req.map(TakoBody::new)).await;
+              let response = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(response)
             }
           });
