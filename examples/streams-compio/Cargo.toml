@@ -1,0 +1,13 @@
+[package]
+name = "streams-compio"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+bytes = "1"
+compio = { version = "0.17.0", features = ["macros"] }
+futures-util = "0.3"
+http = "1"
+http-body = "1"
+tako-rs = { path = "../..", features = ["compio"] }
