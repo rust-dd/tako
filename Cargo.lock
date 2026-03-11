@@ -4118,9 +4118,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vespera_core"
-version = "0.1.20"
+version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5382304ec7d6533427e48f2c363bfc3b75dd2c2da83e9a795c41243c645d2c"
+checksum = "48f6782ea90a8c9acd3817529f0e5e1805357f1e29d2adb4276a59564813f670"
 dependencies = [
  "serde",
  "serde_json",
