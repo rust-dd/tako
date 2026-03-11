@@ -38,7 +38,6 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use http::Method;
 use http::StatusCode;
-use scc::HashMap as SccHashMap;
 use smallvec::SmallVec;
 
 use crate::body::TakoBody;
@@ -94,10 +93,10 @@ use crate::types::Response;
 pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
 
 pub struct Router {
-  /// Map of registered routes keyed by method.
-  inner: SccHashMap<Method, matchit::Router<Arc<Route>>>,
-  /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
-  routes: SccHashMap<Method, Vec<Weak<Route>>>,
+  /// Map of registered routes keyed by method (O(1) array lookup).
+  inner: MethodMap<matchit::Router<Arc<Route>>>,
+  /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values.
+  routes: MethodMap<Vec<Weak<Route>>>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Optional fallback handler executed when no route matches.
@@ -131,8 +130,8 @@ impl Router {
   #[must_use]
   pub fn new() -> Self {
     let router = Self {
-      inner: SccHashMap::default(),
-      routes: SccHashMap::default(),
+      inner: MethodMap::new(),
+      routes: MethodMap::new(),
       middlewares: ArcSwap::new(Arc::default()),
       fallback: None,
       #[cfg(feature = "plugins")]
@@ -196,10 +195,9 @@ impl Router {
       None,
     ));
 
-    let mut method_router = self.inner.entry_sync(method.clone()).or_default();
-
-    if let Err(err) = method_router
-      .get_mut()
+    if let Err(err) = self
+      .inner
+      .get_or_default_mut(&method)
       .insert(path.to_string(), route.clone())
     {
       panic!("Failed to register route: {err}");
@@ -207,8 +205,7 @@ impl Router {
 
     self
       .routes
-      .entry_sync(method)
-      .or_default()
+      .get_or_default_mut(&method)
       .push(Arc::downgrade(&route));
 
     route
@@ -253,10 +250,9 @@ impl Router {
       Some(true),
     ));
 
-    let mut method_router = self.inner.entry_sync(method.clone()).or_default();
-
-    if let Err(err) = method_router
-      .get_mut()
+    if let Err(err) = self
+      .inner
+      .get_or_default_mut(&method)
       .insert(path.to_string(), route.clone())
     {
       panic!("Failed to register route: {err}");
@@ -264,8 +260,7 @@ impl Router {
 
     self
       .routes
-      .entry_sync(method)
-      .or_default()
+      .get_or_default_mut(&method)
       .push(Arc::downgrade(&route));
 
     route
@@ -351,7 +346,7 @@ impl Router {
     // hot path. The block scope ensures all borrows on `req` are released before
     // we need to mutate it.
     let route_match = {
-      if let Some(method_router) = self.inner.get_sync(&method)
+      if let Some(method_router) = self.inner.get(&method)
         && let Ok(matched) = method_router.at(req.uri().path())
       {
         let route = Arc::clone(matched.value);
@@ -468,7 +463,7 @@ impl Router {
         }
       };
 
-      if let Some(method_router) = self.inner.get_sync(&method)
+      if let Some(method_router) = self.inner.get(&method)
         && let Ok(matched) = method_router.at(&tsr_path)
         && matched.value.tsr
       {
@@ -851,9 +846,7 @@ impl Router {
   pub fn merge(&mut self, other: Router) {
     let upstream_globals = other.middlewares.load_full();
 
-    other.routes.iter_sync(|method, weak_vec| {
-      let mut target_router = self.inner.entry_sync(method.clone()).or_default();
-
+    for (method, weak_vec) in other.routes.iter() {
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
           let existing = route.middlewares.load_full();
@@ -862,20 +855,18 @@ impl Router {
           merged.extend(existing.iter().cloned());
           route.middlewares.store(Arc::new(merged));
 
-          let _ = target_router
-            .get_mut()
+          let _ = self
+            .inner
+            .get_or_default_mut(&method)
             .insert(route.path.clone(), route.clone());
 
           self
             .routes
-            .entry_sync(method.clone())
-            .or_default()
+            .get_or_default_mut(&method)
             .push(Arc::downgrade(&route));
         }
       }
-
-      true
-    });
+    }
 
     #[cfg(feature = "signals")]
     self.signals.merge_from(&other.signals);
@@ -924,7 +915,7 @@ impl Router {
   pub fn collect_openapi_routes(&self) -> Vec<(Method, String, crate::openapi::RouteOpenApi)> {
     let mut result = Vec::new();
 
-    self.routes.iter_sync(|method, weak_vec| {
+    for (method, weak_vec) in self.routes.iter() {
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
           if let Some(openapi) = route.openapi_metadata() {
@@ -932,9 +923,104 @@ impl Router {
           }
         }
       }
-      true
-    });
+    }
 
     result
+  }
+}
+
+/// Maps the 9 standard HTTP methods to array indices.
+/// Returns `None` for non-standard / extension methods.
+#[inline]
+fn method_slot(method: &Method) -> Option<usize> {
+  Some(match *method {
+    Method::GET => 0,
+    Method::POST => 1,
+    Method::PUT => 2,
+    Method::DELETE => 3,
+    Method::PATCH => 4,
+    Method::HEAD => 5,
+    Method::OPTIONS => 6,
+    Method::CONNECT => 7,
+    Method::TRACE => 8,
+    _ => return None,
+  })
+}
+
+/// Reconstructs a `Method` from its slot index.
+#[inline]
+fn method_from_slot(idx: usize) -> Method {
+  match idx {
+    0 => Method::GET,
+    1 => Method::POST,
+    2 => Method::PUT,
+    3 => Method::DELETE,
+    4 => Method::PATCH,
+    5 => Method::HEAD,
+    6 => Method::OPTIONS,
+    7 => Method::CONNECT,
+    8 => Method::TRACE,
+    _ => unreachable!(),
+  }
+}
+
+/// A compact, cache-friendly map keyed by HTTP method.
+///
+/// Standard methods (GET, POST, PUT, …) use O(1) array indexing.
+/// Non-standard methods fall back to linear scan (extremely rare in practice).
+struct MethodMap<V> {
+  standard: [Option<V>; 9],
+  custom: Vec<(Method, V)>,
+}
+
+impl<V> MethodMap<V> {
+  fn new() -> Self {
+    Self {
+      standard: std::array::from_fn(|_| None),
+      custom: Vec::new(),
+    }
+  }
+
+  /// O(1) lookup for standard methods, linear scan for custom.
+  #[inline]
+  fn get(&self, method: &Method) -> Option<&V> {
+    if let Some(idx) = method_slot(method) {
+      self.standard[idx].as_ref()
+    } else {
+      self
+        .custom
+        .iter()
+        .find(|(m, _)| m == method)
+        .map(|(_, v)| v)
+    }
+  }
+
+  /// Returns a mutable reference, inserting `V::default()` if absent.
+  fn get_or_default_mut(&mut self, method: &Method) -> &mut V
+  where
+    V: Default,
+  {
+    if let Some(idx) = method_slot(method) {
+      self.standard[idx].get_or_insert_with(V::default)
+    } else {
+      let pos = self.custom.iter().position(|(m, _)| m == method);
+      match pos {
+        Some(pos) => &mut self.custom[pos].1,
+        None => {
+          self.custom.push((method.clone(), V::default()));
+          &mut self.custom.last_mut().unwrap().1
+        }
+      }
+    }
+  }
+
+  /// Iterates over all `(Method, &V)` pairs (standard then custom).
+  fn iter(&self) -> impl Iterator<Item = (Method, &V)> {
+    self
+      .standard
+      .iter()
+      .enumerate()
+      .filter_map(|(idx, slot)| slot.as_ref().map(|v| (method_from_slot(idx), v)))
+      .chain(self.custom.iter().map(|(m, v)| (m.clone(), v)))
   }
 }
