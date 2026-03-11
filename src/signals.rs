@@ -63,6 +63,23 @@ impl Signal {
     }
   }
 
+  /// Creates a signal with pre-allocated capacity for the given number of metadata entries.
+  #[inline]
+  #[must_use]
+  pub fn with_capacity(id: impl Into<String>, capacity: usize) -> Self {
+    Self {
+      id: id.into(),
+      metadata: HashMap::with_capacity_and_hasher(capacity, BuildHasher::default()),
+    }
+  }
+
+  /// Adds a metadata entry, returning self for chaining.
+  #[inline]
+  pub fn meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+    self.metadata.insert(key.into(), value.into());
+    self
+  }
+
   /// Creates a new signal with initial metadata.
   #[inline]
   #[must_use]

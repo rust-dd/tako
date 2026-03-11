@@ -29,17 +29,17 @@
 //! });
 //! ```
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Weak;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use http::Method;
 use http::StatusCode;
-use parking_lot::RwLock;
 use scc::HashMap as SccHashMap;
+use smallvec::SmallVec;
 
 use crate::body::TakoBody;
 use crate::extractors::params::PathParams;
@@ -58,7 +58,6 @@ use crate::signals::SignalArbiter;
 use crate::signals::ids;
 use crate::state::set_state;
 use crate::types::BoxMiddleware;
-use crate::types::BuildHasher;
 use crate::types::Request;
 use crate::types::Response;
 
@@ -100,7 +99,7 @@ pub struct Router {
   /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
   routes: SccHashMap<Method, Vec<Weak<Route>>>,
   /// Global middleware chain applied to all routes.
-  pub(crate) middlewares: RwLock<Arc<[BoxMiddleware]>>,
+  pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Optional fallback handler executed when no route matches.
   fallback: Option<BoxHandler>,
   /// Registered plugins for extending functionality.
@@ -134,7 +133,7 @@ impl Router {
     let router = Self {
       inner: SccHashMap::default(),
       routes: SccHashMap::default(),
-      middlewares: RwLock::new(Arc::default()),
+      middlewares: ArcSwap::new(Arc::default()),
       fallback: None,
       #[cfg(feature = "plugins")]
       plugins: Vec::new(),
@@ -281,12 +280,15 @@ impl Router {
     req: Request,
     endpoint: BoxHandler,
   ) -> Response {
-    let global_middlewares = self.global_middlewares();
-    if global_middlewares.is_empty() {
+    // Use load() guard (no Arc refcount bump) for the emptiness check.
+    let guard = self.middlewares.load();
+    if guard.is_empty() {
+      drop(guard);
       endpoint.call(req).await
     } else {
+      drop(guard);
       Next {
-        global_middlewares,
+        global_middlewares: self.middlewares.load_full(),
         route_middlewares: Arc::default(),
         index: 0,
         endpoint,
@@ -294,10 +296,6 @@ impl Router {
       .run(req)
       .await
     }
-  }
-
-  fn global_middlewares(&self) -> Arc<[BoxMiddleware]> {
-    self.middlewares.read().clone()
   }
 
   /// Executes the middleware chain with an optional timeout.
@@ -348,15 +346,35 @@ impl Router {
   /// Dispatches an incoming request to the appropriate route handler.
   pub async fn dispatch(&self, mut req: Request) -> Response {
     let method = req.method().clone();
-    let path = req.uri().path().to_string();
 
-    let response = if let Some(method_router) = self.inner.get_sync(&method)
-      && let Ok(matched) = method_router.at(&path)
-    {
-      let route = matched.value;
+    // Phase 1: Route lookup using a borrowed path — no String allocation on the
+    // hot path. The block scope ensures all borrows on `req` are released before
+    // we need to mutate it.
+    let route_match = {
+      if let Some(method_router) = self.inner.get_sync(&method)
+        && let Ok(matched) = method_router.at(req.uri().path())
+      {
+        let route = Arc::clone(matched.value);
+        let mut it = matched.params.iter();
+        let first = it.next();
+        let params = first.map(|(fk, fv)| {
+          let mut p = SmallVec::<[(String, String); 4]>::new();
+          p.push((fk.to_string(), fv.to_string()));
+          for (k, v) in it {
+            p.push((k.to_string(), v.to_string()));
+          }
+          PathParams(p)
+        });
+        Some((route, params))
+      } else {
+        None
+      }
+    };
 
+    // Phase 2: Dispatch — `req` is no longer borrowed, safe to mutate.
+    let response = if let Some((route, params)) = route_match {
       // Protocol guard: early-return if request version does not satisfy route guard
-      if let Some(res) = Self::enforce_protocol_guard(route, &req) {
+      if let Some(res) = Self::enforce_protocol_guard(&route, &req) {
         return self.maybe_apply_error_handler(res);
       }
 
@@ -372,61 +390,53 @@ impl Router {
         req.extensions_mut().insert(mode);
       }
 
-      let mut params_iter = matched.params.iter();
-      if let Some((first_key, first_value)) = params_iter.next() {
-        let mut params: HashMap<String, String, BuildHasher> =
-          HashMap::with_hasher(BuildHasher::default());
-        params.insert(first_key.to_string(), first_value.to_string());
-        for (k, v) in params_iter {
-          params.insert(k.to_string(), v.to_string());
-        }
-        req.extensions_mut().insert(PathParams(params));
+      if let Some(params) = params {
+        req.extensions_mut().insert(params);
       }
 
       // Determine effective timeout: route-level overrides router-level
       let effective_timeout = route.get_timeout().or(self.timeout);
-      let global_middlewares = self.global_middlewares();
-      let route_middlewares = route.middlewares.read().clone();
-      let needs_chain = !global_middlewares.is_empty() || !route_middlewares.is_empty();
+
+      // Use load() guards (no Arc refcount bump) to check middleware emptiness.
+      // Only call load_full() if we actually need the Arc for the Next chain.
+      let g = self.middlewares.load();
+      let r = route.middlewares.load();
+      let needs_chain = !g.is_empty() || !r.is_empty();
+      drop(g);
+      drop(r);
 
       #[cfg(feature = "signals")]
       {
         let method_str = method.to_string();
-        let path_str = path.to_string();
+        let path_str = req.uri().path().to_string();
 
-        let mut start_meta: HashMap<String, String, BuildHasher> =
-          HashMap::with_hasher(BuildHasher::default());
-        start_meta.insert("method".to_string(), method_str.clone());
-        start_meta.insert("path".to_string(), path_str.clone());
         route_signals
-          .emit(Signal::with_metadata(
-            ids::ROUTE_REQUEST_STARTED,
-            start_meta,
-          ))
+          .emit(
+            Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 2)
+              .meta("method", method_str.clone())
+              .meta("path", path_str.clone()),
+          )
           .await;
 
         let response = if !needs_chain && effective_timeout.is_none() {
           route.handler.call(req).await
         } else {
           let next = Next {
-            global_middlewares: global_middlewares.clone(),
-            route_middlewares: route_middlewares.clone(),
+            global_middlewares: self.middlewares.load_full(),
+            route_middlewares: route.middlewares.load_full(),
             index: 0,
             endpoint: route.handler.clone(),
           };
           self.run_with_timeout(req, next, effective_timeout).await
         };
 
-        let mut done_meta: HashMap<String, String, BuildHasher> =
-          HashMap::with_hasher(BuildHasher::default());
-        done_meta.insert("method".to_string(), method_str);
-        done_meta.insert("path".to_string(), path_str);
-        done_meta.insert("status".to_string(), response.status().as_u16().to_string());
         route_signals
-          .emit(Signal::with_metadata(
-            ids::ROUTE_REQUEST_COMPLETED,
-            done_meta,
-          ))
+          .emit(
+            Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 3)
+              .meta("method", method_str)
+              .meta("path", path_str)
+              .meta("status", response.status().as_u16().to_string()),
+          )
           .await;
 
         response
@@ -438,8 +448,8 @@ impl Router {
           route.handler.call(req).await
         } else {
           let next = Next {
-            global_middlewares,
-            route_middlewares,
+            global_middlewares: self.middlewares.load_full(),
+            route_middlewares: route.middlewares.load_full(),
             index: 0,
             endpoint: route.handler.clone(),
           };
@@ -447,10 +457,15 @@ impl Router {
         }
       }
     } else {
-      let tsr_path = if path.ends_with('/') {
-        path.trim_end_matches('/').to_string()
-      } else {
-        format!("{path}/")
+      // Cold path: no direct match — try TSR redirect / fallback.
+      // String allocation is acceptable here.
+      let tsr_path = {
+        let p = req.uri().path();
+        if p.ends_with('/') {
+          p.trim_end_matches('/').to_string()
+        } else {
+          format!("{p}/")
+        }
       };
 
       if let Some(method_router) = self.inner.get_sync(&method)
@@ -595,9 +610,9 @@ impl Router {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    let mut middlewares = self.middlewares.read().iter().cloned().collect::<Vec<_>>();
+    let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
     middlewares.push(mw);
-    *self.middlewares.write() = middlewares.into();
+    self.middlewares.store(Arc::new(middlewares));
     self
   }
 
@@ -834,18 +849,18 @@ impl Router {
   /// main_router.merge(api_router);
   /// ```
   pub fn merge(&mut self, other: Router) {
-    let upstream_globals = other.middlewares.read().clone();
+    let upstream_globals = other.middlewares.load_full();
 
     other.routes.iter_sync(|method, weak_vec| {
       let mut target_router = self.inner.entry_sync(method.clone()).or_default();
 
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
-          let existing = route.middlewares.read().clone();
+          let existing = route.middlewares.load_full();
           let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
           merged.extend(upstream_globals.iter().cloned());
           merged.extend(existing.iter().cloned());
-          *route.middlewares.write() = merged.into();
+          route.middlewares.store(Arc::new(merged));
 
           let _ = target_router
             .get_mut()

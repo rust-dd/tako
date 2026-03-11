@@ -35,6 +35,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use http::Method;
 use parking_lot::RwLock;
 
@@ -63,7 +64,7 @@ pub struct Route {
   /// Handler function to execute when route is matched.
   pub handler: BoxHandler,
   /// Route-specific middleware chain.
-  pub middlewares: RwLock<Arc<[BoxMiddleware]>>,
+  pub middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Whether trailing slash redirection is enabled.
   pub tsr: bool,
   /// Route-specific plugins.
@@ -93,7 +94,7 @@ impl Route {
       path,
       method,
       handler,
-      middlewares: RwLock::new(Arc::default()),
+      middlewares: ArcSwap::new(Arc::default()),
       tsr: tsr.unwrap_or(false),
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
@@ -122,9 +123,9 @@ impl Route {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    let mut middlewares = self.middlewares.read().iter().cloned().collect::<Vec<_>>();
+    let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
     middlewares.push(mw);
-    *self.middlewares.write() = middlewares.into();
+    self.middlewares.store(Arc::new(middlewares));
     self
   }
 
@@ -188,12 +189,12 @@ impl Route {
       }
 
       // Transfer middleware from mini-router to this route
-      let plugin_middlewares = mini_router.middlewares.read();
-      let existing = self.middlewares.read().clone();
+      let plugin_middlewares = mini_router.middlewares.load();
+      let existing = self.middlewares.load_full();
       let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
       merged.extend(plugin_middlewares.iter().cloned());
       merged.extend(existing.iter().cloned());
-      *self.middlewares.write() = merged.into();
+      self.middlewares.store(Arc::new(merged));
     }
   }
 

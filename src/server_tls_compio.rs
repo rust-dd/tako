@@ -3,8 +3,6 @@
 
 //! TLS-enabled HTTP server implementation for secure connections (compio runtime).
 
-#[cfg(feature = "signals")]
-use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fs::File;
 use std::future::Future;
@@ -40,8 +38,6 @@ use crate::signals::SignalArbiter;
 #[cfg(feature = "signals")]
 use crate::signals::ids;
 use crate::types::BoxError;
-#[cfg(feature = "signals")]
-use crate::types::BuildHasher;
 
 /// Default drain timeout for graceful shutdown (30 seconds).
 const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -117,12 +113,13 @@ pub async fn run(
 
   #[cfg(feature = "signals")]
   {
-    let mut server_meta: HashMap<String, String, BuildHasher> =
-      HashMap::with_hasher(BuildHasher::default());
-    server_meta.insert("addr".to_string(), addr_str.clone());
-    server_meta.insert("transport".to_string(), "tcp".to_string());
-    server_meta.insert("tls".to_string(), "true".to_string());
-    SignalArbiter::emit_app(Signal::with_metadata(ids::SERVER_STARTED, server_meta)).await;
+    SignalArbiter::emit_app(
+      Signal::with_capacity(ids::SERVER_STARTED, 3)
+        .meta("addr", addr_str.clone())
+        .meta("transport", "tcp")
+        .meta("tls", "true"),
+    )
+    .await;
   }
 
   tracing::info!("Tako TLS listening on {}", addr_str);
@@ -165,14 +162,11 @@ pub async fn run(
 
           #[cfg(feature = "signals")]
           {
-            let mut conn_open_meta: HashMap<String, String, BuildHasher> =
-              HashMap::with_hasher(BuildHasher::default());
-            conn_open_meta.insert("remote_addr".to_string(), addr.to_string());
-            conn_open_meta.insert("tls".to_string(), "true".to_string());
-            SignalArbiter::emit_app(Signal::with_metadata(
-              ids::CONNECTION_OPENED,
-              conn_open_meta,
-            ))
+            SignalArbiter::emit_app(
+              Signal::with_capacity(ids::CONNECTION_OPENED, 2)
+                .meta("remote_addr", addr.to_string())
+                .meta("tls", "true"),
+            )
             .await;
           }
 
@@ -192,25 +186,25 @@ pub async fn run(
 
               #[cfg(feature = "signals")]
               {
-                let mut req_meta: HashMap<String, String, BuildHasher> =
-                  HashMap::with_hasher(BuildHasher::default());
-                req_meta.insert("method".to_string(), method.clone());
-                req_meta.insert("path".to_string(), path.clone());
-                SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta))
-                  .await;
+                SignalArbiter::emit_app(
+                  Signal::with_capacity(ids::REQUEST_STARTED, 2)
+                    .meta("method", method.clone())
+                    .meta("path", path.clone()),
+                )
+                .await;
               }
 
               let response = r.dispatch(req.map(TakoBody::new)).await;
 
               #[cfg(feature = "signals")]
               {
-                let mut done_meta: HashMap<String, String, BuildHasher> =
-                  HashMap::with_hasher(BuildHasher::default());
-                done_meta.insert("method".to_string(), method);
-                done_meta.insert("path".to_string(), path);
-                done_meta.insert("status".to_string(), response.status().as_u16().to_string());
-                SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta))
-                  .await;
+                SignalArbiter::emit_app(
+                  Signal::with_capacity(ids::REQUEST_COMPLETED, 3)
+                    .meta("method", method)
+                    .meta("path", path)
+                    .meta("status", response.status().as_u16().to_string()),
+                )
+                .await;
               }
 
               Ok::<_, Infallible>(response)
@@ -228,14 +222,11 @@ pub async fn run(
 
             #[cfg(feature = "signals")]
             {
-              let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-                HashMap::with_hasher(BuildHasher::default());
-              conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-              conn_close_meta.insert("tls".to_string(), "true".to_string());
-              SignalArbiter::emit_app(Signal::with_metadata(
-                ids::CONNECTION_CLOSED,
-                conn_close_meta,
-              ))
+              SignalArbiter::emit_app(
+                Signal::with_capacity(ids::CONNECTION_CLOSED, 2)
+                  .meta("remote_addr", addr.to_string())
+                  .meta("tls", "true"),
+              )
               .await;
             }
 
@@ -254,14 +245,11 @@ pub async fn run(
 
           #[cfg(feature = "signals")]
           {
-            let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-              HashMap::with_hasher(BuildHasher::default());
-            conn_close_meta.insert("remote_addr".to_string(), addr.to_string());
-            conn_close_meta.insert("tls".to_string(), "true".to_string());
-            SignalArbiter::emit_app(Signal::with_metadata(
-              ids::CONNECTION_CLOSED,
-              conn_close_meta,
-            ))
+            SignalArbiter::emit_app(
+              Signal::with_capacity(ids::CONNECTION_CLOSED, 2)
+                .meta("remote_addr", addr.to_string())
+                .meta("tls", "true"),
+            )
             .await;
           }
 

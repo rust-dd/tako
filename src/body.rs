@@ -30,6 +30,7 @@
 //! let stream_body = TakoBody::from_stream(stream_data);
 //! ```
 
+use std::convert::Infallible;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::Context;
@@ -45,10 +46,21 @@ use http_body::Frame;
 use http_body::SizeHint;
 use http_body_util::BodyExt;
 use http_body_util::Empty;
+use http_body_util::Full;
 use http_body_util::StreamBody;
 
 use crate::types::BoxBody;
 use crate::types::BoxError;
+
+/// Internal enum to avoid heap-boxing for the two most common body kinds
+/// (`Full<Bytes>` for content responses and `Empty<Bytes>` for no-content responses).
+/// Anything that doesn't fit these fast paths (streams, mapped bodies, etc.) goes
+/// through the boxed variant which preserves the original generic `new()` behaviour.
+enum BodyInner {
+  Full(Full<Bytes>),
+  Empty(Empty<Bytes>),
+  Boxed(BoxBody),
+}
 
 /// HTTP body wrapper with streaming and conversion support.
 ///
@@ -79,7 +91,7 @@ use crate::types::BoxError;
 /// // Empty response
 /// let empty_body = TakoBody::empty();
 /// ```
-pub struct TakoBody(BoxBody);
+pub struct TakoBody(BodyInner);
 
 impl std::fmt::Debug for TakoBody {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -89,13 +101,22 @@ impl std::fmt::Debug for TakoBody {
 
 impl TakoBody {
   /// Creates a new body from any type implementing the `Body` trait.
+  ///
+  /// This is the generic (boxing) path — prefer [`full`](Self::full) or
+  /// [`empty`](Self::empty) when the concrete type is known.
   #[inline]
   pub fn new<B>(body: B) -> Self
   where
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: Into<BoxError>,
   {
-    Self(body.map_err(|e| e.into()).boxed_unsync())
+    Self(BodyInner::Boxed(body.map_err(|e| e.into()).boxed_unsync()))
+  }
+
+  /// Creates a body from a `Full<Bytes>` **without heap-boxing**.
+  #[inline]
+  pub fn full(body: Full<Bytes>) -> Self {
+    Self(BodyInner::Full(body))
   }
 
   /// Creates a body from a stream of byte results.
@@ -107,7 +128,7 @@ impl TakoBody {
   {
     let stream = stream.map_err(Into::into).map_ok(http_body::Frame::data);
     let body = StreamBody::new(stream).boxed_unsync();
-    Self(body)
+    Self(BodyInner::Boxed(body))
   }
 
   /// Creates a body from a stream of HTTP frames.
@@ -118,14 +139,14 @@ impl TakoBody {
     E: Into<BoxError> + 'static,
   {
     let body = StreamBody::new(stream.map_err(Into::into)).boxed_unsync();
-    Self(body)
+    Self(BodyInner::Boxed(body))
   }
 
-  /// Creates an empty body with no content.
+  /// Creates an empty body with no content **without heap-boxing**.
   #[inline]
   #[must_use]
   pub fn empty() -> Self {
-    Self::new(Empty::new())
+    Self(BodyInner::Empty(Empty::new()))
   }
 }
 
@@ -144,65 +165,68 @@ impl From<()> for TakoBody {
 
 impl From<&str> for TakoBody {
   fn from(buf: &str) -> Self {
-    let owned = buf.to_owned();
-    Self::new(http_body_util::Full::from(owned))
+    Self::full(Full::from(Bytes::from(buf.to_owned())))
   }
 }
 
-/// Macro for implementing `From` conversions for various types.
-macro_rules! body_from_impl {
-  ($ty:ty) => {
-    impl From<$ty> for TakoBody {
-      fn from(buf: $ty) -> Self {
-        Self::new(http_body_util::Full::from(buf))
-      }
-    }
-  };
+impl From<String> for TakoBody {
+  fn from(buf: String) -> Self {
+    Self::full(Full::from(Bytes::from(buf)))
+  }
 }
 
-body_from_impl!(String);
-body_from_impl!(Vec<u8>);
-body_from_impl!(Bytes);
+impl From<Vec<u8>> for TakoBody {
+  fn from(buf: Vec<u8>) -> Self {
+    Self::full(Full::from(Bytes::from(buf)))
+  }
+}
 
-/// Implements the HTTP `Body` trait for streaming and polling operations.
-///
-/// This implementation enables `TakoBody` to be used as an HTTP body in Hyper
-/// and other HTTP libraries. It delegates all operations to the inner boxed
-/// body while providing the required type information and polling behavior.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use tako::body::TakoBody;
-/// use http_body::Body;
-/// use std::pin::Pin;
-/// use std::task::{Context, Poll};
-///
-/// async fn consume_body(mut body: TakoBody) {
-///     // Body can be polled for frames
-///     let size_hint = body.size_hint();
-///     let is_empty = body.is_end_stream();
-/// }
-/// ```
+impl From<Bytes> for TakoBody {
+  fn from(buf: Bytes) -> Self {
+    Self::full(Full::from(buf))
+  }
+}
+
+/// Converts an `Infallible` poll result into a `BoxError` poll result at zero cost.
+#[inline]
+fn map_infallible_frame(
+  poll: Poll<Option<core::result::Result<Frame<Bytes>, Infallible>>>,
+) -> Poll<Option<core::result::Result<Frame<Bytes>, BoxError>>> {
+  poll.map(|opt| opt.map(|res| res.map_err(|e| match e {})))
+}
+
 impl Body for TakoBody {
   type Data = Bytes;
   type Error = BoxError;
 
   #[inline]
   fn poll_frame(
-    mut self: Pin<&mut Self>,
+    self: Pin<&mut Self>,
     cx: &mut Context<'_>,
-  ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-    Pin::new(&mut self.0).poll_frame(cx)
+  ) -> Poll<Option<core::result::Result<Frame<Self::Data>, Self::Error>>> {
+    // All variants are Unpin, so get_mut is safe.
+    match &mut self.get_mut().0 {
+      BodyInner::Full(body) => map_infallible_frame(Pin::new(body).poll_frame(cx)),
+      BodyInner::Empty(body) => map_infallible_frame(Pin::new(body).poll_frame(cx)),
+      BodyInner::Boxed(body) => Pin::new(body).poll_frame(cx),
+    }
   }
 
   #[inline]
   fn size_hint(&self) -> SizeHint {
-    self.0.size_hint()
+    match &self.0 {
+      BodyInner::Full(body) => body.size_hint(),
+      BodyInner::Empty(body) => body.size_hint(),
+      BodyInner::Boxed(body) => body.size_hint(),
+    }
   }
 
   #[inline]
   fn is_end_stream(&self) -> bool {
-    self.0.is_end_stream()
+    match &self.0 {
+      BodyInner::Full(body) => body.is_end_stream(),
+      BodyInner::Empty(body) => body.is_end_stream(),
+      BodyInner::Boxed(body) => body.is_end_stream(),
+    }
   }
 }

@@ -152,20 +152,18 @@ Tako already powers real-world services in production:
 
 ## Baseline Hello World Benchmark
 
-Hello world throughput is not the whole story, but Tako is competitive even in the most reductionist comparison:
+Hello world throughput is not the whole story, but the current branch lands in this range on a clean local run:
 
-```
-+---------------------------+------------------+------------------+---------------+
-| Framework 🦀              |   Requests/sec   |   Avg Latency    | Transfer/sec  |
-+---------------------------+------------------+------------------+---------------+
-| Tako (not taco! 🌮)       |    ~148,800      |    ~649 µs       |   ~12.6 MB/s  |
-| Tako Jemalloc             |    ~158,059      |    ~592 µs       |   ~13.3 MB/s  |
-| Axum                      |    ~153,500      |    ~607 µs       |   ~19 MB/s    |
-| Actix                     |    ~126,300      |    ~860 µs       |   ~15.7 MB/s  |
-+---------------------------+------------------+------------------+---------------+
+| Framework | Requests/sec | Avg Latency | Note |
+| --- | ---: | ---: | --- |
+| Tako | ~177,871 | ~536 us | current local baseline |
+| Tako + `jemalloc` | ~181,218 | ~520 us | current local baseline |
+| Axum | ~139,543 | ~2.28 ms | current local comparison |
+| Actix | ~143,866 | ~2.50 ms | current local comparison |
 
-👉 Command used: `wrk -t4 -c100 -d30s http://127.0.0.1:8080/`
-```
+Command used: `wrk -t4 -c100 -d30s http://127.0.0.1:8080/`
+
+Benchmarks are machine- and thermal-state-dependent, so treat these as local baselines, not universal claims. Axum and Actix were rerun with minimal temporary hello-world servers using the same `wrk` command.
 
 
 ## 📦 Installation

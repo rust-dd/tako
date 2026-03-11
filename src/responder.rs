@@ -22,7 +22,6 @@
 //! ```
 
 use std::convert::Infallible;
-use std::fmt::Display;
 
 use bytes::Bytes;
 use http::StatusCode;
@@ -89,7 +88,7 @@ impl Responder for TakoBody {
 
 impl Responder for &'static str {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::new(Full::from(Bytes::from_static(
+    Response::new(TakoBody::full(Full::from(Bytes::from_static(
       self.as_bytes(),
     ))))
   }
@@ -97,7 +96,7 @@ impl Responder for &'static str {
 
 impl Responder for String {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::new(Full::from(Bytes::from(self))))
+    Response::new(TakoBody::full(Full::from(Bytes::from(self))))
   }
 }
 
@@ -113,13 +112,30 @@ impl Responder for Infallible {
   }
 }
 
-impl<R> Responder for (StatusCode, R)
-where
-  R: Display,
-{
+impl Responder for (StatusCode, &'static str) {
   fn into_response(self) -> Response {
     let (status, body) = self;
-    let mut res = Response::new(TakoBody::new(Full::from(Bytes::from(body.to_string()))));
+    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from_static(
+      body.as_bytes(),
+    ))));
+    *res.status_mut() = status;
+    res
+  }
+}
+
+impl Responder for (StatusCode, String) {
+  fn into_response(self) -> Response {
+    let (status, body) = self;
+    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from(body))));
+    *res.status_mut() = status;
+    res
+  }
+}
+
+impl Responder for (StatusCode, Vec<u8>) {
+  fn into_response(self) -> Response {
+    let (status, body) = self;
+    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from(body))));
     *res.status_mut() = status;
     res
   }

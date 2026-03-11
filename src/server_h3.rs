@@ -28,8 +28,6 @@
 //! # }
 //! ```
 
-#[cfg(feature = "signals")]
-use std::collections::HashMap;
 use std::fs::File;
 use std::future::Future;
 use std::io::BufReader;
@@ -58,8 +56,6 @@ use crate::signals::SignalArbiter;
 #[cfg(feature = "signals")]
 use crate::signals::ids;
 use crate::types::BoxError;
-#[cfg(feature = "signals")]
-use crate::types::BuildHasher;
 
 /// Starts an HTTP/3 server with the given router and certificates.
 ///
@@ -133,12 +129,13 @@ async fn run(
 
   #[cfg(feature = "signals")]
   {
-    let mut server_meta: HashMap<String, String, BuildHasher> =
-      HashMap::with_hasher(BuildHasher::default());
-    server_meta.insert("addr".to_string(), addr_str.clone());
-    server_meta.insert("transport".to_string(), "quic".to_string());
-    server_meta.insert("protocol".to_string(), "h3".to_string());
-    SignalArbiter::emit_app(Signal::with_metadata(ids::SERVER_STARTED, server_meta)).await;
+    SignalArbiter::emit_app(
+      Signal::with_capacity(ids::SERVER_STARTED, 3)
+        .meta("addr", addr_str.clone())
+        .meta("transport", "quic")
+        .meta("protocol", "h3"),
+    )
+    .await;
   }
 
   tracing::info!("Tako HTTP/3 listening on {}", addr_str);
@@ -168,14 +165,11 @@ async fn run(
 
               #[cfg(feature = "signals")]
               {
-                let mut conn_open_meta: HashMap<String, String, BuildHasher> =
-                  HashMap::with_hasher(BuildHasher::default());
-                conn_open_meta.insert("remote_addr".to_string(), remote_addr.to_string());
-                conn_open_meta.insert("protocol".to_string(), "h3".to_string());
-                SignalArbiter::emit_app(Signal::with_metadata(
-                  ids::CONNECTION_OPENED,
-                  conn_open_meta,
-                ))
+                SignalArbiter::emit_app(
+                  Signal::with_capacity(ids::CONNECTION_OPENED, 2)
+                    .meta("remote_addr", remote_addr.to_string())
+                    .meta("protocol", "h3"),
+                )
                 .await;
               }
 
@@ -185,14 +179,11 @@ async fn run(
 
               #[cfg(feature = "signals")]
               {
-                let mut conn_close_meta: HashMap<String, String, BuildHasher> =
-                  HashMap::with_hasher(BuildHasher::default());
-                conn_close_meta.insert("remote_addr".to_string(), remote_addr.to_string());
-                conn_close_meta.insert("protocol".to_string(), "h3".to_string());
-                SignalArbiter::emit_app(Signal::with_metadata(
-                  ids::CONNECTION_CLOSED,
-                  conn_close_meta,
-                ))
+                SignalArbiter::emit_app(
+                  Signal::with_capacity(ids::CONNECTION_CLOSED, 2)
+                    .meta("remote_addr", remote_addr.to_string())
+                    .meta("protocol", "h3"),
+                )
                 .await;
               }
             }
@@ -286,12 +277,13 @@ where
 
   #[cfg(feature = "signals")]
   {
-    let mut req_meta: HashMap<String, String, BuildHasher> =
-      HashMap::with_hasher(BuildHasher::default());
-    req_meta.insert("method".to_string(), method.clone());
-    req_meta.insert("path".to_string(), path.clone());
-    req_meta.insert("protocol".to_string(), "h3".to_string());
-    SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_STARTED, req_meta)).await;
+    SignalArbiter::emit_app(
+      Signal::with_capacity(ids::REQUEST_STARTED, 3)
+        .meta("method", method.clone())
+        .meta("path", path.clone())
+        .meta("protocol", "h3"),
+    )
+    .await;
   }
 
   // Collect request body
@@ -315,13 +307,14 @@ where
 
   #[cfg(feature = "signals")]
   {
-    let mut done_meta: HashMap<String, String, BuildHasher> =
-      HashMap::with_hasher(BuildHasher::default());
-    done_meta.insert("method".to_string(), method);
-    done_meta.insert("path".to_string(), path);
-    done_meta.insert("status".to_string(), response.status().as_u16().to_string());
-    done_meta.insert("protocol".to_string(), "h3".to_string());
-    SignalArbiter::emit_app(Signal::with_metadata(ids::REQUEST_COMPLETED, done_meta)).await;
+    SignalArbiter::emit_app(
+      Signal::with_capacity(ids::REQUEST_COMPLETED, 4)
+        .meta("method", method)
+        .meta("path", path)
+        .meta("status", response.status().as_u16().to_string())
+        .meta("protocol", "h3"),
+    )
+    .await;
   }
 
   // Send response

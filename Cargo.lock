@@ -121,6 +121,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
+name = "arc-swap"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3488,6 +3497,7 @@ version = "1.0.0"
 dependencies = [
  "ahash",
  "anyhow",
+ "arc-swap",
  "async-graphql",
  "async-trait",
  "base64",
@@ -3532,6 +3542,7 @@ dependencies = [
  "serde_urlencoded",
  "sha1",
  "simd-json",
+ "smallvec",
  "sonic-rs",
  "tikv-jemallocator",
  "tokio",
