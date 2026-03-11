@@ -100,7 +100,7 @@ pub struct Router {
   /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values
   routes: SccHashMap<Method, Vec<Weak<Route>>>,
   /// Global middleware chain applied to all routes.
-  pub(crate) middlewares: RwLock<Vec<BoxMiddleware>>,
+  pub(crate) middlewares: RwLock<Arc<[BoxMiddleware]>>,
   /// Optional fallback handler executed when no route matches.
   fallback: Option<BoxHandler>,
   /// Registered plugins for extending functionality.
@@ -134,7 +134,7 @@ impl Router {
     let router = Self {
       inner: SccHashMap::default(),
       routes: SccHashMap::default(),
-      middlewares: RwLock::new(Vec::new()),
+      middlewares: RwLock::new(Arc::default()),
       fallback: None,
       #[cfg(feature = "plugins")]
       plugins: Vec::new(),
@@ -281,13 +281,23 @@ impl Router {
     req: Request,
     endpoint: BoxHandler,
   ) -> Response {
-    let g_mws = self.middlewares.read().clone();
-    let next = Next {
-      middlewares: Arc::new(g_mws),
-      endpoint: Arc::new(endpoint),
-    };
+    let global_middlewares = self.global_middlewares();
+    if global_middlewares.is_empty() {
+      endpoint.call(req).await
+    } else {
+      Next {
+        global_middlewares,
+        route_middlewares: Arc::default(),
+        index: 0,
+        endpoint,
+      }
+      .run(req)
+      .await
+    }
+  }
 
-    next.run(req).await
+  fn global_middlewares(&self) -> Arc<[BoxMiddleware]> {
+    self.middlewares.read().clone()
   }
 
   /// Executes the middleware chain with an optional timeout.
@@ -340,7 +350,7 @@ impl Router {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    let response = if let Some(method_router) = self.inner.get_async(&method).await
+    let response = if let Some(method_router) = self.inner.get_sync(&method)
       && let Ok(matched) = method_router.at(&path)
     {
       let route = matched.value;
@@ -362,32 +372,27 @@ impl Router {
         req.extensions_mut().insert(mode);
       }
 
-      if !matched.params.iter().collect::<Vec<_>>().is_empty() {
+      let mut params_iter = matched.params.iter();
+      if let Some((first_key, first_value)) = params_iter.next() {
         let mut params: HashMap<String, String, BuildHasher> =
           HashMap::with_hasher(BuildHasher::default());
-        for (k, v) in matched.params.iter() {
+        params.insert(first_key.to_string(), first_value.to_string());
+        for (k, v) in params_iter {
           params.insert(k.to_string(), v.to_string());
         }
         req.extensions_mut().insert(PathParams(params));
       }
-      let g_mws = self.middlewares.read().clone();
-      let r_mws = route.middlewares.read().clone();
-      let mut chain = Vec::new();
-      chain.extend(g_mws.into_iter());
-      chain.extend(r_mws.into_iter());
-
-      let next = Next {
-        middlewares: Arc::new(chain),
-        endpoint: Arc::new(route.handler.clone()),
-      };
 
       // Determine effective timeout: route-level overrides router-level
       let effective_timeout = route.get_timeout().or(self.timeout);
+      let global_middlewares = self.global_middlewares();
+      let route_middlewares = route.middlewares.read().clone();
+      let needs_chain = !global_middlewares.is_empty() || !route_middlewares.is_empty();
 
       #[cfg(feature = "signals")]
       {
         let method_str = method.to_string();
-        let path_str = path.clone();
+        let path_str = path.to_string();
 
         let mut start_meta: HashMap<String, String, BuildHasher> =
           HashMap::with_hasher(BuildHasher::default());
@@ -400,7 +405,17 @@ impl Router {
           ))
           .await;
 
-        let response = self.run_with_timeout(req, next, effective_timeout).await;
+        let response = if !needs_chain && effective_timeout.is_none() {
+          route.handler.call(req).await
+        } else {
+          let next = Next {
+            global_middlewares: global_middlewares.clone(),
+            route_middlewares: route_middlewares.clone(),
+            index: 0,
+            endpoint: route.handler.clone(),
+          };
+          self.run_with_timeout(req, next, effective_timeout).await
+        };
 
         let mut done_meta: HashMap<String, String, BuildHasher> =
           HashMap::with_hasher(BuildHasher::default());
@@ -419,7 +434,17 @@ impl Router {
 
       #[cfg(not(feature = "signals"))]
       {
-        self.run_with_timeout(req, next, effective_timeout).await
+        if !needs_chain && effective_timeout.is_none() {
+          route.handler.call(req).await
+        } else {
+          let next = Next {
+            global_middlewares,
+            route_middlewares,
+            index: 0,
+            endpoint: route.handler.clone(),
+          };
+          self.run_with_timeout(req, next, effective_timeout).await
+        }
       }
     } else {
       let tsr_path = if path.ends_with('/') {
@@ -428,7 +453,7 @@ impl Router {
         format!("{path}/")
       };
 
-      if let Some(method_router) = self.inner.get_async(&method).await
+      if let Some(method_router) = self.inner.get_sync(&method)
         && let Ok(matched) = method_router.at(&tsr_path)
         && matched.value.tsr
       {
@@ -570,7 +595,9 @@ impl Router {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    self.middlewares.write().push(mw);
+    let mut middlewares = self.middlewares.read().iter().cloned().collect::<Vec<_>>();
+    middlewares.push(mw);
+    *self.middlewares.write() = middlewares.into();
     self
   }
 
@@ -814,10 +841,11 @@ impl Router {
 
       for weak in weak_vec {
         if let Some(route) = weak.upgrade() {
-          let mut rmw = route.middlewares.write();
-          for mw in upstream_globals.iter().rev() {
-            rmw.push_front(mw.clone());
-          }
+          let existing = route.middlewares.read().clone();
+          let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
+          merged.extend(upstream_globals.iter().cloned());
+          merged.extend(existing.iter().cloned());
+          *route.middlewares.write() = merged.into();
 
           let _ = target_router
             .get_mut()

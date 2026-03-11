@@ -384,7 +384,14 @@ impl TakoPlugin for RateLimiterPlugin {
 ///
 /// # async fn example() {
 /// # let req = Request::builder().body(tako::body::TakoBody::empty()).unwrap();
-/// # let next = Next { middlewares: Arc::new(vec![]), endpoint: Arc::new(|_| Box::pin(async { tako::types::Response::new(tako::body::TakoBody::empty()) })) };
+/// # let next = Next {
+/// #   global_middlewares: Arc::default(),
+/// #   route_middlewares: Arc::default(),
+/// #   index: 0,
+/// #   endpoint: tako::handler::BoxHandler::new(|_req: tako::types::Request| async {
+/// #     tako::types::Response::new(tako::body::TakoBody::empty())
+/// #   }),
+/// # };
 /// let config = Config::default();
 /// let store = Arc::new(SccHashMap::new());
 /// let response = retain(req, next, config, store).await;

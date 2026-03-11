@@ -28,7 +28,6 @@
 //! assert_eq!(params.get("id"), Some(&"123".to_string()));
 //! ```
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 #[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
@@ -64,7 +63,7 @@ pub struct Route {
   /// Handler function to execute when route is matched.
   pub handler: BoxHandler,
   /// Route-specific middleware chain.
-  pub middlewares: RwLock<VecDeque<BoxMiddleware>>,
+  pub middlewares: RwLock<Arc<[BoxMiddleware]>>,
   /// Whether trailing slash redirection is enabled.
   pub tsr: bool,
   /// Route-specific plugins.
@@ -94,7 +93,7 @@ impl Route {
       path,
       method,
       handler,
-      middlewares: RwLock::new(VecDeque::new()),
+      middlewares: RwLock::new(Arc::default()),
       tsr: tsr.unwrap_or(false),
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
@@ -123,7 +122,9 @@ impl Route {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    self.middlewares.write().push_back(mw);
+    let mut middlewares = self.middlewares.read().iter().cloned().collect::<Vec<_>>();
+    middlewares.push(mw);
+    *self.middlewares.write() = middlewares.into();
     self
   }
 
@@ -188,12 +189,11 @@ impl Route {
 
       // Transfer middleware from mini-router to this route
       let plugin_middlewares = mini_router.middlewares.read();
-      let mut route_middlewares = self.middlewares.write();
-
-      // Prepend plugin middlewares to route middlewares
-      for mw in plugin_middlewares.iter().rev() {
-        route_middlewares.push_front(mw.clone());
-      }
+      let existing = self.middlewares.read().clone();
+      let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
+      merged.extend(plugin_middlewares.iter().cloned());
+      merged.extend(existing.iter().cloned());
+      *self.middlewares.write() = merged.into();
     }
   }
 

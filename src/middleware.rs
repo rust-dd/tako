@@ -84,16 +84,23 @@ pub trait IntoMiddleware {
 /// the remaining middleware and eventually the endpoint handler.
 #[doc(alias = "next")]
 pub struct Next {
-  /// Remaining middlewares to be executed in the chain.
-  pub middlewares: Arc<Vec<BoxMiddleware>>,
+  /// Global middlewares to be executed before route-specific ones.
+  pub global_middlewares: Arc<[BoxMiddleware]>,
+  /// Route-specific middlewares executed after global ones.
+  pub route_middlewares: Arc<[BoxMiddleware]>,
+  /// Current position within the middleware chain.
+  pub index: usize,
   /// Final endpoint handler to be called after all middlewares.
-  pub endpoint: Arc<BoxHandler>,
+  pub endpoint: BoxHandler,
 }
 
 impl std::fmt::Debug for Next {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     f.debug_struct("Next")
-      .field("middlewares_remaining", &self.middlewares.len())
+      .field(
+        "middlewares_remaining",
+        &(self.global_middlewares.len() + self.route_middlewares.len()).saturating_sub(self.index),
+      )
       .finish_non_exhaustive()
   }
 }
@@ -101,25 +108,29 @@ impl std::fmt::Debug for Next {
 impl Clone for Next {
   fn clone(&self) -> Self {
     Self {
-      middlewares: Arc::clone(&self.middlewares),
-      endpoint: Arc::clone(&self.endpoint),
+      global_middlewares: Arc::clone(&self.global_middlewares),
+      route_middlewares: Arc::clone(&self.route_middlewares),
+      index: self.index,
+      endpoint: self.endpoint.clone(),
     }
   }
 }
 
 impl Next {
   /// Executes the next middleware or endpoint in the chain.
-  pub async fn run(self, req: Request) -> Response {
-    if let Some((mw, rest)) = self.middlewares.split_first() {
-      let rest = Arc::new(rest.to_vec());
-      mw(
-        req,
-        Next {
-          middlewares: rest,
-          endpoint: self.endpoint.clone(),
-        },
-      )
-      .await
+  pub async fn run(mut self, req: Request) -> Response {
+    let mw = if let Some(mw) = self.global_middlewares.get(self.index) {
+      Some(mw.clone())
+    } else {
+      self
+        .route_middlewares
+        .get(self.index.saturating_sub(self.global_middlewares.len()))
+        .cloned()
+    };
+
+    if let Some(mw) = mw {
+      self.index += 1;
+      mw(req, self).await
     } else {
       self.endpoint.call(req).await
     }
