@@ -1,24 +1,46 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! A lightweight, modular web framework for async applications.
+//! A multi-transport Rust framework for modern network services.
 //!
-//! Tako focuses on ergonomics and composability. It provides routing, extractors,
-//! responses, middleware, streaming, WebSockets/SSE, optional TLS, and integrations
-//! like GraphQL — in a small, pragmatic package.
+//! Tako is built for services that go beyond plain HTTP. It gives you one
+//! cohesive model for routing, extraction, middleware, streaming, observability,
+//! and graceful shutdown across several protocols and transport layers.
+//!
+//! # Why Tako
+//! - One application can expose HTTP APIs, realtime channels, and raw transports
+//!   without switching frameworks.
+//! - The same ergonomic handler and extractor model applies across higher-level
+//!   web routes and lower-level network services.
+//! - Platform primitives such as middleware, queues, signals, streaming, metrics,
+//!   and file serving are part of the framework story.
+//! - You can stay on the default `tokio` runtime or opt into `compio` where it
+//!   is a better fit.
 //!
 //! # High-level features
+//! - Multi-transport support: HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC,
+//!   TCP, UDP, Unix sockets, PROXY protocol, and WebTransport
+//! - Dual runtime support with `tokio` by default and optional `compio`
 //! - Macro-free routing with dynamic path params and TSR support
-//! - Type-safe handlers with extractor-based arguments (Axum-like ergonomics)
+//! - Type-safe handlers with extractor-based arguments
 //! - Simple `Responder` trait to return strings, tuples, or full responses
-//! - Middleware pipeline (auth, body limits, etc.) and optional plugins (CORS, compression, rate limits)
-//! - Streaming bodies, file serving, range requests, and SSE
-//! - WebSocket upgrades and helpers
-//! - Optional TLS (rustls) and HTTP/2 (feature)
-//! - Optional GraphQL support (async-graphql) and GraphiQL UI
+//! - Middleware pipeline plus optional plugins for CORS, compression, rate
+//!   limiting, and metrics
+//! - Streaming bodies, file serving, range requests, and SSE helpers
+//! - Built-in background queue and in-process signals for application workflows
+//! - Optional GraphQL support, GraphiQL UI, and OpenAPI integrations
 //!
-//! # Compatibility
-//! - Runtime: `tokio`
-//! - HTTP: `hyper` 1.x
+//! # Runtime support
+//! - `tokio` is the default runtime and powers the standard server path
+//! - `compio` is available behind feature flags for teams that want an
+//!   alternative async runtime model
+//! - `hyper` 1.x remains the core HTTP engine for the default runtime path
+//!
+//! # Best fit
+//! Tako is a strong fit when your service needs more than REST:
+//! - HTTP APIs plus WebSockets, SSE, gRPC, or QUIC-based transports
+//! - Realtime coordination with built-in signals and queue primitives
+//! - Protocol gateways, telemetry collectors, internal platforms, or edge-facing
+//!   services
 //!
 //! # Quickstart
 //!
@@ -39,20 +61,28 @@
 //!
 //! - Static file serving (module `static`) and [file_stream] provide static and streaming file responses.
 //! - [ws] and [sse] enable real-time communication.
+//! - [queue] and [signals] provide built-in application coordination primitives.
 //! - [plugins] add CORS, compression, and rate limiting (feature: `plugins`).
 //! - [graphql] and [graphiql] add GraphQL support (feature: `async-graphql` / `graphiql`).
 //!
 //! # Feature flags
 //! - `client` — outbound HTTP clients over TCP/TLS
+//! - `compio` — alternate runtime support
+//! - `compio-tls` / `compio-ws` — TLS and WebSocket support on compio
 //! - `file-stream` — file streaming utilities
 //! - `http2` — enable ALPN h2 in TLS server
+//! - `http3` — HTTP/3 over QUIC
 //! - `jemalloc` — use jemalloc as global allocator
 //! - `multipart` — multipart form-data extractors
 //! - `plugins` — CORS, compression, rate limiting
 //! - `protobuf` — protobuf extractors (prost)
 //! - `simd` — SIMD JSON extractor (simd-json)
+//! - `signals` — in-process pub/sub and RPC-style signaling
 //! - `tls` — TLS server (rustls)
 //! - `tako-tracing` — structured tracing subscriber
+//! - `utoipa` / `vespera` — OpenAPI integrations
+//! - `webtransport` — QUIC-based WebTransport sessions
+//! - `zero-copy-extractors` — zero-copy extraction helpers
 //! - `zstd` — Zstandard compression option within plugins::compression
 
 use std::io::ErrorKind;

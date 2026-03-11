@@ -2,33 +2,45 @@
 [![Crates.io](https://img.shields.io/crates/v/tako-rs?style=flat-square)](https://crates.io/crates/tako-rs)
 ![License](https://img.shields.io/crates/l/tako-rs?style=flat-square)
 
-# 🐙 Tako — Lightweight Async Web Framework in Rust
+# 🐙 Tako — Multi-Transport Rust Framework for Modern Network Services
 
-> **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible async web framework for Rust.
-> It aims to keep the mental model small while giving you first‑class performance and modern conveniences out‑of‑the‑box.
+> **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible Rust framework for services that go beyond plain HTTP.
+> Build one cohesive application across HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP, Unix sockets, and WebTransport with a single routing, middleware, and observability model.
 
 > **Blog posts:**
 > - [Tako: A Lightweight Async Web Framework on Tokio and Hyper](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
 > - [Tako v.0.5.0 road to v.1.0.0](https://rust-dd.com/post/tako-v-0-5-0-road-to-v-1-0-0)
 > - [Tako v0.5.0 → v0.7.1-2: from "nice router" to "mini platform"](https://rust-dd.com/post/tako-v0-5-0-to-v0-7-1-2-from-nice-router-to-mini-platform)
 
+## Why Tako
+
+Tako is built for teams that want fewer moving parts in production:
+
+* **One service, many transports** — Serve REST, WebSockets, SSE, gRPC, raw TCP/UDP, Unix sockets, and QUIC-based workloads without switching frameworks.
+* **One mental model, two runtimes** — Use the same framework style on **Tokio** or **Compio** depending on the deployment constraints.
+* **Application primitives included** — Middleware, auth, metrics, signals, queues, graceful shutdown, and streaming are part of the framework story, not an afterthought.
+* **Performance knobs when they matter** — SIMD JSON, optional zero-copy extractors, compression, jemalloc, and HTTP/3 support are available without fragmenting the API.
+* **Strong fit for real systems** — API backends, realtime apps, protocol gateways, internal platforms, and edge-facing services.
 
 ## ✨ Highlights
 
-* **Multi-protocol** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), WebSocket, WebTransport, SSE, gRPC, TCP, UDP, Unix sockets, PROXY protocol.
-* **Dual runtime** — First-class support for both **Tokio** and **Compio** async runtimes (including TLS + HTTP/2 on both).
-* **22+ extractors** — Strongly-typed request extractors: JSON, form, query, path, headers, cookies (signed/private), JWT, Basic/Bearer auth, API key, Accept, Range, protobuf, and more.
-* **Rich middleware** — Auth (JWT, Basic, Bearer, API key), CSRF, sessions, body limits, request IDs, security headers, upload progress, compression, rate limiting, CORS, idempotency, metrics.
-* **SIMD JSON** — Route-level configurable SIMD-accelerated JSON parsing (sonic-rs / simd-json) with automatic size-based dispatch.
-* **Background job queue** — In-memory task queue with named handlers, retry policies (fixed / exponential backoff), delayed jobs, dead letter queue, and graceful shutdown.
-* **Streaming & SSE** — Built-in helpers for Server-Sent Events and arbitrary `Stream` responses.
-* **GraphQL** — Async-GraphQL integration with extractors, responses, and WebSocket subscriptions.
-* **OpenAPI** — Automatic API documentation via utoipa or vespera integration.
-* **TLS** — Native rustls-based HTTPS with ALPN negotiation.
-* **Compression** — Brotli, gzip, deflate, and zstd response compression.
-* **Signals** — In-process pub/sub signal system for decoupled event-driven architectures.
-* **Static files & file streaming** — Serve directories and stream files with range request support.
-* **Graceful shutdown** — Drain in-flight connections before exit across all server variants.
+* **Multi-transport by design** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), WebSocket, WebTransport, SSE, gRPC, TCP, UDP, Unix sockets, and PROXY protocol.
+* **Dual runtime support** — First-class support for both **Tokio** and **Compio**, including TLS and HTTP/2 on both sides where supported.
+* **Built-in platform primitives** — Background job queue, in-process signals, metrics hooks, graceful shutdown, static files, and stream helpers.
+* **Rich middleware and auth** — JWT, Basic, Bearer, API key, CSRF, sessions, body limits, request IDs, security headers, upload progress, rate limiting, CORS, idempotency, and compression.
+* **Strongly typed extraction** — 22+ extractors for JSON, form, query, path, headers, cookies, JWT claims, API keys, Accept, Range, protobuf, multipart, and more.
+* **Performance paths included** — SIMD JSON (`sonic-rs` / `simd-json`), optional zero-copy extractors, brotli/gzip/deflate/zstd, and jemalloc support.
+* **Realtime-ready** — Streaming responses, SSE, WebSockets, GraphQL subscriptions, HTTP/3, and WebTransport under one crate.
+* **Docs and API surface included** — OpenAPI via `utoipa` or `vespera`, GraphiQL support, and a growing example suite for common deployment patterns.
+
+## Best Fit
+
+Choose Tako when your service needs one or more of these:
+
+* **More than REST** — You need HTTP APIs plus WebSockets, SSE, gRPC, TCP, UDP, or QUIC in the same application.
+* **Realtime coordination** — You want built-in signals, queues, and streaming primitives instead of composing everything manually.
+* **Framework consolidation** — You would rather depend on one coherent crate than glue together several partially overlapping libraries.
+* **Protocol-heavy infrastructure** — Gateways, internal platforms, telemetry collectors, control planes, or edge services are a particularly strong fit.
 
 ## Feature Matrix
 
@@ -138,7 +150,9 @@ Tako already powers real-world services in production:
 - `stochastic-api`: https://stochasticlab.cloud/
 - `shrtn.ink`: https://app.shrtn.ink/
 
-## 🔥 Benchmarking the Hello World
+## Baseline Hello World Benchmark
+
+Hello world throughput is not the whole story, but Tako is competitive even in the most reductionist comparison:
 
 ```
 +---------------------------+------------------+------------------+---------------+
@@ -160,7 +174,7 @@ Add **Tako** to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "*"
+tako-rs = "1"
 ```
 
 

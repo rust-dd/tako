@@ -2,11 +2,11 @@
 name = "tako-rs"
 version = "1.0.0"
 edition = "2024"
-description = "Tako is a lightweight async web framework for Rust."
+description = "Multi-transport Rust framework for modern network services."
 license = "MIT"
 repository = "https://github.com/rust-dd/tako"
 authors = ["Daniel Boros <dancixx@gmail.com>"]
-keywords = ["web", "framework", "async", "http"]
+keywords = ["web", "framework", "realtime", "network", "http3"]
 readme = "README.md"
 documentation = "https://docs.rs/tako-rs"
 homepage = "https://github.com/rust-dd/tako"
