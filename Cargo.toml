@@ -77,10 +77,10 @@ h3-quinn = { version = "0.0.10", optional = true }
 quinn = { version = "0.11.9", optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
-jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"] }
+jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
 
 [target.'cfg(not(target_os = "freebsd"))'.dependencies]
-jwt-simple = { version = "0.12.12" }
+jwt-simple = { version = "0.12.12", optional = true }
 
 [features]
 async-graphql = ["dep:async-graphql"]
@@ -110,6 +110,7 @@ utoipa = ["dep:utoipa"]
 utoipa-yaml = ["utoipa", "utoipa/yaml"]
 vespera = ["dep:vespera_core"]
 zero-copy-extractors = []
+jwt-simple = ["dep:jwt-simple"]
 zstd = ["dep:zstd", "plugins"]
 
 [dev-dependencies]
