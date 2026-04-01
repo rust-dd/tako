@@ -1,6 +1,6 @@
 [package]
 name = "tako-rs"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 description = "Multi-transport Rust framework for modern network services."
 license = "MIT"
