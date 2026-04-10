@@ -31,8 +31,8 @@
 
 use std::sync::Arc;
 use std::sync::Weak;
-#[cfg(feature = "plugins")]
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
@@ -99,6 +99,8 @@ pub struct Router {
   routes: MethodMap<Vec<Weak<Route>>>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
+  /// Fast check: true when global middleware is registered (avoids ArcSwap load on hot path).
+  has_global_middleware: AtomicBool,
   /// Optional fallback handler executed when no route matches.
   fallback: Option<BoxHandler>,
   /// Registered plugins for extending functionality.
@@ -133,6 +135,7 @@ impl Router {
       inner: MethodMap::new(),
       routes: MethodMap::new(),
       middlewares: ArcSwap::new(Arc::default()),
+      has_global_middleware: AtomicBool::new(false),
       fallback: None,
       #[cfg(feature = "plugins")]
       plugins: Vec::new(),
@@ -275,13 +278,9 @@ impl Router {
     req: Request,
     endpoint: BoxHandler,
   ) -> Response {
-    // Use load() guard (no Arc refcount bump) for the emptiness check.
-    let guard = self.middlewares.load();
-    if guard.is_empty() {
-      drop(guard);
+    if !self.has_global_middleware.load(Ordering::Acquire) {
       endpoint.call(req).await
     } else {
-      drop(guard);
       Next {
         global_middlewares: self.middlewares.load_full(),
         route_middlewares: Arc::default(),
@@ -339,14 +338,13 @@ impl Router {
   }
 
   /// Dispatches an incoming request to the appropriate route handler.
+  #[inline]
   pub async fn dispatch(&self, mut req: Request) -> Response {
-    let method = req.method().clone();
-
     // Phase 1: Route lookup using a borrowed path — no String allocation on the
     // hot path. The block scope ensures all borrows on `req` are released before
     // we need to mutate it.
     let route_match = {
-      if let Some(method_router) = self.inner.get(&method)
+      if let Some(method_router) = self.inner.get(req.method())
         && let Ok(matched) = method_router.at(req.uri().path())
       {
         let route = Arc::clone(matched.value);
@@ -392,17 +390,13 @@ impl Router {
       // Determine effective timeout: route-level overrides router-level
       let effective_timeout = route.get_timeout().or(self.timeout);
 
-      // Use load() guards (no Arc refcount bump) to check middleware emptiness.
-      // Only call load_full() if we actually need the Arc for the Next chain.
-      let g = self.middlewares.load();
-      let r = route.middlewares.load();
-      let needs_chain = !g.is_empty() || !r.is_empty();
-      drop(g);
-      drop(r);
+      // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
+      let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
+        || route.has_middleware.load(Ordering::Acquire);
 
       #[cfg(feature = "signals")]
       {
-        let method_str = method.to_string();
+        let method_str = req.method().to_string();
         let path_str = req.uri().path().to_string();
 
         route_signals
@@ -463,7 +457,7 @@ impl Router {
         }
       };
 
-      if let Some(method_router) = self.inner.get(&method)
+      if let Some(method_router) = self.inner.get(req.method())
         && let Ok(matched) = method_router.at(&tsr_path)
         && matched.value.tsr
       {
@@ -608,6 +602,7 @@ impl Router {
     let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
     middlewares.push(mw);
     self.middlewares.store(Arc::new(middlewares));
+    self.has_global_middleware.store(true, Ordering::Release);
     self
   }
 
@@ -853,6 +848,9 @@ impl Router {
           let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
           merged.extend(upstream_globals.iter().cloned());
           merged.extend(existing.iter().cloned());
+          if !merged.is_empty() {
+            route.has_middleware.store(true, Ordering::Release);
+          }
           route.middlewares.store(Arc::new(merged));
 
           let _ = self

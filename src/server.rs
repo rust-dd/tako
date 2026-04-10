@@ -26,7 +26,6 @@
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 
 use hyper::server::conn::http1;
@@ -77,7 +76,11 @@ async fn run(
   #[cfg(feature = "tako-tracing")]
   crate::tracing::init_tracing();
 
-  let router = Arc::new(router);
+  // Leak the router into a `&'static` reference to eliminate all Arc
+  // refcount bumps on the per-connection and per-request hot paths.
+  // The allocation is reclaimed when the process exits.
+  let router: &'static Router = Box::leak(Box::new(router));
+
   // Setup plugins
   #[cfg(feature = "plugins")]
   router.setup_plugins_once();
@@ -115,7 +118,6 @@ async fn run(
         let (stream, addr) = result?;
         let _ = stream.set_nodelay(true);
         let io = hyper_util::rt::TokioIo::new(stream);
-        let router = router.clone();
 
         join_set.spawn(async move {
           #[cfg(feature = "signals")]
@@ -127,9 +129,8 @@ async fn run(
             .await;
           }
 
-          let svc = service_fn(move |mut req| {
-            let router = router.clone();
-            async move {
+          // `router` is `&'static Router` — no Arc clone per connection or request.
+          let svc = service_fn(move |mut req| async move {
               #[cfg(feature = "signals")]
               let path = req.uri().path().to_string();
               #[cfg(feature = "signals")]
@@ -161,11 +162,11 @@ async fn run(
               }
 
               Ok::<_, Infallible>(response)
-            }
           });
 
           let mut http = http1::Builder::new();
           http.keep_alive(true);
+          http.pipeline_flush(true);
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {

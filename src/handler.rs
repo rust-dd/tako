@@ -71,11 +71,11 @@ use crate::types::Response;
 /// }
 /// ```
 pub trait Handler<T>: Send + Sync + 'static {
-  /// Future type returned by the handler.
-  type Future: Future<Output = Response> + Send + 'static;
-
   /// Calls the handler with the given request.
-  fn call(self, req: Request) -> Self::Future;
+  ///
+  /// Returns an unboxed future — `BoxHandler` is the single boxing point
+  /// for type erasure, eliminating per-handler heap allocation.
+  fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static;
 }
 
 /// Implements `Handler` for functions returning responder types using extractor arguments.
@@ -93,13 +93,15 @@ pub struct BoxHandler {
 
 impl BoxHandler {
   /// Creates a new boxed handler from any handler implementation.
+  ///
+  /// This is the single boxing point — `Handler::call` returns an unboxed future
+  /// and `Box::pin` is applied only here for type erasure.
   pub(crate) fn new<H, T>(h: H) -> Self
   where
     H: Handler<T> + Clone,
   {
-    let inner = Arc::new(move |req: Request| {
-      let handler = h.clone();
-      Box::pin(async move { handler.call(req).await }) as BoxFuture<'_, Response>
+    let inner = Arc::new(move |req: Request| -> BoxFuture<'static, Response> {
+      Box::pin(h.clone().call(req))
     });
 
     Self { inner }
@@ -118,10 +120,8 @@ where
   Fut: Future<Output = R> + Send + 'static,
   R: Responder,
 {
-  type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
-
-  fn call(self, _req: Request) -> Self::Future {
-    Box::pin(async move { (self)().await.into_response() })
+  fn call(self, _req: Request) -> impl Future<Output = Response> + Send + 'static {
+    async move { (self)().await.into_response() }
   }
 }
 
@@ -132,10 +132,8 @@ where
   Fut: Future<Output = R> + Send + 'static,
   R: Responder,
 {
-  type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
-
-  fn call(self, req: Request) -> Self::Future {
-    Box::pin(async move { (self)(req).await.into_response() })
+  fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static {
+    async move { (self)(req).await.into_response() }
   }
 }
 
@@ -172,10 +170,8 @@ macro_rules! impl_handler {
             R: Responder,
             $( $T: Extract + Send, )*
         {
-            type Future = Pin<Box<dyn Future<Output = Response> + Send>>;
-
-            fn call(self, mut req: Request) -> Self::Future {
-                Box::pin(async move {
+            fn call(self, mut req: Request) -> impl Future<Output = Response> + Send + 'static {
+                async move {
                     $(
                         let $T = match <$T as Extract>::extract(&mut req).await {
                             Ok(value) => value,
@@ -185,7 +181,7 @@ macro_rules! impl_handler {
                         };
                     )*
                     (self)($($T),*).await.into_response()
-                })
+                }
             }
         }
     };

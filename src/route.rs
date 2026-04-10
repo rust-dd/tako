@@ -29,14 +29,14 @@
 //! ```
 
 use std::sync::Arc;
-#[cfg(feature = "plugins")]
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
-#[cfg(feature = "plugins")]
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use http::Method;
+#[cfg(any(feature = "plugins", feature = "utoipa", feature = "vespera"))]
 use parking_lot::RwLock;
 
 use crate::extractors::json::SimdJsonMode;
@@ -65,6 +65,8 @@ pub struct Route {
   pub handler: BoxHandler,
   /// Route-specific middleware chain.
   pub middlewares: ArcSwap<Vec<BoxMiddleware>>,
+  /// Fast check: true when route middleware is registered (avoids ArcSwap load on hot path).
+  pub(crate) has_middleware: AtomicBool,
   /// Whether trailing slash redirection is enabled.
   pub tsr: bool,
   /// Route-specific plugins.
@@ -81,10 +83,10 @@ pub struct Route {
   /// OpenAPI metadata for this route.
   #[cfg(any(feature = "utoipa", feature = "vespera"))]
   pub(crate) openapi: RwLock<Option<RouteOpenApi>>,
-  /// Route-specific timeout override.
-  pub(crate) timeout: RwLock<Option<Duration>>,
-  /// Route-level SIMD JSON dispatch mode.
-  pub(crate) simd_json_mode: RwLock<Option<SimdJsonMode>>,
+  /// Route-specific timeout override (set once at registration, lock-free reads).
+  pub(crate) timeout: OnceLock<Duration>,
+  /// Route-level SIMD JSON dispatch mode (set once at registration, lock-free reads).
+  pub(crate) simd_json_mode: OnceLock<SimdJsonMode>,
 }
 
 impl Route {
@@ -95,6 +97,7 @@ impl Route {
       method,
       handler,
       middlewares: ArcSwap::new(Arc::default()),
+      has_middleware: AtomicBool::new(false),
       tsr: tsr.unwrap_or(false),
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
@@ -105,8 +108,8 @@ impl Route {
       signals: SignalArbiter::new(),
       #[cfg(any(feature = "utoipa", feature = "vespera"))]
       openapi: RwLock::new(None),
-      timeout: RwLock::new(None),
-      simd_json_mode: RwLock::new(None),
+      timeout: OnceLock::new(),
+      simd_json_mode: OnceLock::new(),
     }
   }
 
@@ -126,6 +129,7 @@ impl Route {
     let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
     middlewares.push(mw);
     self.middlewares.store(Arc::new(middlewares));
+    self.has_middleware.store(true, Ordering::Release);
     self
   }
 
@@ -194,6 +198,9 @@ impl Route {
       let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
       merged.extend(plugin_middlewares.iter().cloned());
       merged.extend(existing.iter().cloned());
+      if !merged.is_empty() {
+        self.has_middleware.store(true, Ordering::Release);
+      }
       self.middlewares.store(Arc::new(merged));
     }
   }
@@ -444,13 +451,14 @@ impl Route {
   ///     .timeout(Duration::from_secs(60));
   /// ```
   pub fn timeout(&self, duration: Duration) -> &Self {
-    *self.timeout.write() = Some(duration);
+    let _ = self.timeout.set(duration);
     self
   }
 
   /// Returns the configured timeout for this route, if any.
+  #[inline]
   pub(crate) fn get_timeout(&self) -> Option<Duration> {
-    *self.timeout.read()
+    self.timeout.get().copied()
   }
 
   /// Configures the SIMD JSON dispatch behavior for this route.
@@ -480,12 +488,13 @@ impl Route {
   ///     .simd_json(SimdJsonMode::Never);
   /// ```
   pub fn simd_json(&self, mode: SimdJsonMode) -> &Self {
-    *self.simd_json_mode.write() = Some(mode);
+    let _ = self.simd_json_mode.set(mode);
     self
   }
 
   /// Returns the configured SIMD JSON mode for this route, if any.
+  #[inline]
   pub(crate) fn get_simd_json_mode(&self) -> Option<SimdJsonMode> {
-    *self.simd_json_mode.read()
+    self.simd_json_mode.get().copied()
   }
 }
