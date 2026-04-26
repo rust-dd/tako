@@ -1,4 +1,5 @@
 target
 *.pem
 .zed
-.claude
+.claude/worktrees
+settings.local.json

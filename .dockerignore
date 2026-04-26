@@ -1,0 +1,10 @@
+target
+**/target
+.git
+**/.git
+*.log
+**/*.log
+.idea
+.vscode
+node_modules
+**/node_modules

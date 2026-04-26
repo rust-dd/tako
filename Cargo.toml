@@ -1,8 +1,10 @@
 [workspace]
 members = [
   "tako-core",
+  "tako-core-local",
   "tako-extractors",
   "tako-server",
+  "tako-server-pt",
   "tako-streams",
   "tako-plugins",
   "tako-rs",

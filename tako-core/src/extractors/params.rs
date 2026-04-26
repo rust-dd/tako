@@ -54,7 +54,8 @@ use crate::types::Request;
 
 /// Internal helper struct for storing path parameters extracted from routes.
 #[derive(Clone, Default)]
-pub(crate) struct PathParams(pub SmallVec<[(String, String); 4]>);
+#[doc(hidden)]
+pub struct PathParams(pub SmallVec<[(String, String); 4]>);
 
 /// Path parameter extractor with automatic deserialization to typed structures.
 #[doc(alias = "params")]
