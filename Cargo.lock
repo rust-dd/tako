@@ -3492,7 +3492,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-rs"
+name = "tako-core"
 version = "1.1.2"
 dependencies = [
  "ahash",
@@ -3559,6 +3559,174 @@ dependencies = [
  "vespera_core",
  "webpki-roots",
  "zstd",
+]
+
+[[package]]
+name = "tako-extractors"
+version = "1.1.2"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "cookie",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "jwt-simple",
+ "mime",
+ "mime_guess",
+ "multer",
+ "once_cell",
+ "parking_lot",
+ "prost",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_urlencoded",
+ "sha1",
+ "simd-json",
+ "smallvec",
+ "sonic-rs",
+ "tako-core",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "tako-plugins"
+version = "1.1.2"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "brotli",
+ "bytes",
+ "compio",
+ "cookie",
+ "flate2",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "jwt-simple",
+ "mime",
+ "multer",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "parking_lot",
+ "pin-project-lite",
+ "prometheus",
+ "scc",
+ "serde",
+ "serde_json",
+ "sha1",
+ "smallvec",
+ "tako-core",
+ "tako-extractors",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
+name = "tako-rs"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tako-core",
+ "tako-extractors",
+ "tako-plugins",
+ "tako-server",
+ "tako-streams",
+ "tikv-jemallocator",
+ "tokio",
+]
+
+[[package]]
+name = "tako-server"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "compio",
+ "cyper-core",
+ "futures-util",
+ "h3",
+ "h3-quinn",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-pemfile",
+ "send_wrapper",
+ "tako-core",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "tako-streams"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "compio",
+ "compio-buf",
+ "compio-io",
+ "compio-ws",
+ "futures-util",
+ "h3",
+ "h3-quinn",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mime",
+ "mime_guess",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-pemfile",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tako-core",
+ "tako-server",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]

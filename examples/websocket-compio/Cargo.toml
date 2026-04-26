@@ -8,3 +8,5 @@ compio = { version = "0.17.0", features = ["macros", "time"] }
 compio-ws = "0.2.0"
 tako-rs = { path = "../..", features = ["compio-ws"] }
 tracing = "0.1.41"
+
+[workspace]

@@ -8,3 +8,5 @@ anyhow = "1.0.98"
 tako-rs = { path = "../..", features = ["file-stream"] }
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-util = "0.7.15"
+
+[workspace]

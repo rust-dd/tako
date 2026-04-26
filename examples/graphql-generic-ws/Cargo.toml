@@ -15,3 +15,5 @@ sha1 = "0.10"
 tako-rs = { path = "../..", features = ["async-graphql", "graphiql"] }
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-tungstenite = "0.27"
+
+[workspace]

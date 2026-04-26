@@ -12,3 +12,5 @@ http-body = "1"
 hyper = "1.6.0"
 tako-rs = { path = "../.." }
 tokio = { version = "1.45.1", features = ["full"] }
+
+[workspace]

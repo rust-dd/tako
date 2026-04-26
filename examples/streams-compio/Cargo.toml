@@ -11,3 +11,5 @@ futures-util = "0.3"
 http = "1"
 http-body = "1"
 tako-rs = { path = "../..", features = ["compio"] }
+
+[workspace]

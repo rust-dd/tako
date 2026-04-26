@@ -1,0 +1,83 @@
+[package]
+name = "tako-rs"
+version = "1.1.2"
+edition = "2024"
+description = "Multi-transport Rust framework for modern network services."
+license = "MIT"
+repository = "https://github.com/rust-dd/tako"
+authors = ["Daniel Boros <dancixx@gmail.com>"]
+keywords = ["web", "framework", "realtime", "network", "http3"]
+readme = "../README.md"
+documentation = "https://docs.rs/tako-rs"
+homepage = "https://github.com/rust-dd/tako"
+
+[lib]
+name = "tako"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core = { path = "../tako-core" }
+tako-extractors = { path = "../tako-extractors" }
+tako-server = { path = "../tako-server" }
+tako-streams = { path = "../tako-streams" }
+tako-plugins = { path = "../tako-plugins" }
+tikv-jemallocator = { version = "0.6.0", optional = true }
+
+[features]
+default = []
+
+# Plugin / middleware ecosystem
+plugins = ["tako-core/plugins", "tako-plugins/plugins"]
+signals = ["tako-core/signals", "tako-server/signals", "tako-plugins/signals"]
+
+# Server transports
+tls = ["tako-server/tls", "tako-core/tls"]
+http2 = ["tako-server/http2", "tako-core/http2"]
+http3 = ["tako-server/http3", "tako-streams/http3", "tako-core/http3"]
+webtransport = ["tako-streams/webtransport", "tako-core/webtransport"]
+
+# Compio runtime
+compio = ["tako-core/compio", "tako-server/compio", "tako-streams/compio", "tako-plugins/compio"]
+compio-tls = ["tako-server/compio-tls", "tako-core/compio-tls"]
+compio-ws = ["tako-streams/compio-ws", "tako-core/compio-ws"]
+
+# Body/streaming features
+file-stream = ["tako-streams/file-stream", "tako-core/file-stream"]
+client = ["tako-core/client"]
+
+# Extractors
+multipart = ["tako-extractors/multipart", "tako-core/multipart"]
+protobuf = ["tako-extractors/protobuf", "tako-core/protobuf"]
+simd = ["tako-extractors/simd", "tako-core/simd"]
+zero-copy-extractors = ["tako-extractors/zero-copy-extractors", "tako-core/zero-copy-extractors"]
+ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
+jwt-simple = ["tako-extractors/jwt-simple", "tako-plugins/jwt-simple", "tako-core/jwt-simple"]
+
+# Metrics / OpenAPI / docs / GraphQL / gRPC
+metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus"]
+metrics-opentelemetry = ["tako-plugins/metrics-opentelemetry", "tako-core/metrics-opentelemetry"]
+async-graphql = ["tako-core/async-graphql"]
+graphiql = ["tako-core/graphiql"]
+grpc = ["tako-core/grpc"]
+utoipa = ["tako-core/utoipa"]
+utoipa-yaml = ["tako-core/utoipa-yaml"]
+vespera = ["tako-core/vespera"]
+tako-tracing = ["tako-core/tako-tracing"]
+zstd = ["tako-plugins/zstd", "tako-core/zstd"]
+jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+futures-util = "0.3"
+anyhow = "1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
