@@ -1,11 +1,11 @@
 [package]
 name = "tako-core"
-version = "1.1.2"
-edition = "2024"
 description = "Internal core for tako-rs (not published)."
-license = "MIT"
-repository = "https://github.com/rust-dd/tako"
-authors = ["Daniel Boros <dancixx@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 publish = false
 
 [lib]
@@ -14,69 +14,72 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-ahash = { version = "0.8.12", features = ["serde"], optional = true }
-anyhow = "1.0.98"
-async-graphql = { version = "7.0.17", optional = true }
-async-trait = "0.1.88"
-base64 = "0.22.1"
-brotli = { version = "8.0.1", optional = true }
-bytes = "1.10.1"
-compio = { version = "0.17.0", features = ["macros", "rustls"], optional = true }
-compio-ws = { version = "0.2.0", optional = true }
-compio-io = { version = "0.8.4", optional = true }
-compio-buf = { version = "0.7.1", optional = true }
-cookie = { version = "0.18.1", features = ["private", "signed"] }
-cyper-core = { version = "0.7.0", optional = true }
-flate2 = { version = "1.1.2", optional = true }
-futures-util = "0.3.31"
-http = "1.3.1"
-http-body = "1.0.1"
-http-body-util = "0.1.3"
-hyper = { version = "1.6.0", features = ["full"] }
-hyper-util = { version = "0.1.14", features = ["tokio"] }
-matchit = "0.9.1"
-mime = "0.3.17"
-mime_guess = "2.0.5"
-multer = { version = "3.1.0", optional = true }
-once_cell = "1.21.3"
-parking_lot = "0.12.5"
-pin-project-lite = "0.2.16"
-prost = { version = "0.14.1", optional = true }
-rustls = { version = "0.23.28", optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_urlencoded = "0.7"
-serde_bytes = "0.11.17"
-serde_json = "1.0.140"
-sha1 = "0.10.6"
-simd-json = { version = "0.15.1", optional = true }
-prometheus = { version = "0.13.4", optional = true }
-opentelemetry = { version = "0.31.0", optional = true }
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"], optional = true }
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cookie.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+matchit.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+pin-project-lite.workspace = true
+scc.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+sha1.workspace = true
+smallvec.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+
 arc-swap = "1"
-scc = "3.4.8"
-smallvec = "1"
-send_wrapper = { version = "0.6", optional = true }
-sonic-rs = { version = "0.5.6", optional = true }
-tikv-jemallocator = { version = "0.6.0", optional = true }
-tokio = { version = "1.48.0", features = ["full"] }
-tokio-rustls = { version = "0.26.2", optional = true }
-tokio-stream = "0.1.17"
-tokio-tungstenite = "0.27.0"
-tokio-util = { version = "0.7.15", features = ["compat"] }
-tracing = "0.1.41"
+
+# Optional / feature-gated
+ahash = { workspace = true, optional = true }
+async-graphql = { version = "7.0.17", optional = true }
+brotli = { workspace = true, optional = true }
+compio = { workspace = true, optional = true }
+compio-buf = { version = "0.7.1", optional = true }
+compio-io = { version = "0.8.4", optional = true }
+compio-ws = { version = "0.2.0", optional = true }
+cyper-core = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+multer = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+simd-json = { workspace = true, optional = true }
+sonic-rs = { workspace = true, optional = true }
+tikv-jemallocator = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
 tracing-subscriber = { version = "0.3.19", optional = true }
-url = "2.5.4"
-urlencoding = "2.1.3"
 utoipa = { version = "5.4", optional = true }
-uuid = { version = "1.17.0", optional = true, features = ["v4"] }
+uuid = { workspace = true, optional = true }
 vespera_core = { version = "0.1.43", optional = true }
 webpki-roots = { version = "1.0.1", optional = true }
-zstd = { version = "0.13.3", optional = true }
-h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11.9", optional = true }
+zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
 jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }

@@ -1,11 +1,11 @@
 [package]
 name = "tako-server-pt"
-version = "1.1.2"
-edition = "2024"
 description = "Internal thread-per-core server bootstrap for tako-rs (not published)."
-license = "MIT"
-repository = "https://github.com/rust-dd/tako"
-authors = ["Daniel Boros <dancixx@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 publish = false
 
 [lib]
@@ -14,23 +14,24 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core = { path = "../tako-core" }
-tako-core-local = { path = "../tako-core-local", optional = true }
+tako-core.workspace = true
+tako-core-local = { workspace = true, optional = true }
 
-futures-util = "0.3.31"
-hyper = { version = "1.6.0", features = ["full"] }
-hyper-util = { version = "0.1.14", features = ["tokio"] }
+futures-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
 socket2 = { version = "0.5", features = ["all"] }
-tokio = { version = "1.48.0", features = ["full"] }
-tracing = "0.1.41"
 
 # Optional CPU pinning
 core_affinity = { version = "0.8", optional = true }
 
 # Optional compio runtime (io_uring on Linux, IOCP on Windows, kqueue on macOS).
-compio = { version = "0.17.0", features = ["macros", "rustls"], optional = true }
-cyper-core = { version = "0.7.0", optional = true }
-send_wrapper = { version = "0.6", optional = true }
+compio = { workspace = true, optional = true }
+cyper-core = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
 
 [features]
 default = ["affinity"]

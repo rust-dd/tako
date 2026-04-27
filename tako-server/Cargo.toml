@@ -1,11 +1,11 @@
 [package]
 name = "tako-server"
-version = "1.1.2"
-edition = "2024"
 description = "Internal server bootstrap for tako-rs (not published)."
-license = "MIT"
-repository = "https://github.com/rust-dd/tako"
-authors = ["Daniel Boros <dancixx@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 publish = false
 
 [lib]
@@ -14,32 +14,32 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core = { path = "../tako-core" }
+tako-core.workspace = true
 
-anyhow = "1.0.98"
-bytes = "1.10.1"
-futures-util = "0.3.31"
-http = "1.3.1"
-http-body = "1.0.1"
-http-body-util = "0.1.3"
-hyper = { version = "1.6.0", features = ["full"] }
-hyper-util = { version = "0.1.14", features = ["tokio"] }
-pin-project-lite = "0.2.16"
-tokio = { version = "1.48.0", features = ["full"] }
-tokio-stream = "0.1.17"
-tokio-util = { version = "0.7.15", features = ["compat"] }
-tracing = "0.1.41"
+anyhow.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+pin-project-lite.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
 
 # Optional, feature-gated network/runtime backends
-compio = { version = "0.17.0", features = ["macros", "rustls"], optional = true }
-cyper-core = { version = "0.7.0", optional = true }
-send_wrapper = { version = "0.6", optional = true }
-rustls = { version = "0.23.28", optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
-tokio-rustls = { version = "0.26.2", optional = true }
-h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11.9", optional = true }
+compio = { workspace = true, optional = true }
+cyper-core = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
 
 [features]
 default = []

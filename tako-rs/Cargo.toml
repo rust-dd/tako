@@ -1,11 +1,11 @@
 [package]
 name = "tako-rs"
-version = "1.1.2"
-edition = "2024"
 description = "Multi-transport Rust framework for modern network services."
-license = "MIT"
-repository = "https://github.com/rust-dd/tako"
-authors = ["Daniel Boros <dancixx@gmail.com>"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
 keywords = ["web", "framework", "realtime", "network", "http3"]
 readme = "../README.md"
 documentation = "https://docs.rs/tako-rs"
@@ -17,14 +17,14 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core = { path = "../tako-core" }
-tako-extractors = { path = "../tako-extractors" }
-tako-server = { path = "../tako-server" }
-tako-streams = { path = "../tako-streams" }
-tako-plugins = { path = "../tako-plugins" }
-tako-server-pt = { path = "../tako-server-pt", optional = true }
-tako-core-local = { path = "../tako-core-local", optional = true }
-tikv-jemallocator = { version = "0.6.0", optional = true }
+tako-core.workspace = true
+tako-extractors.workspace = true
+tako-server.workspace = true
+tako-streams.workspace = true
+tako-plugins.workspace = true
+tako-server-pt = { workspace = true, optional = true }
+tako-core-local = { workspace = true, optional = true }
+tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -85,15 +85,15 @@ per-thread-compio = ["per-thread", "tako-server-pt/compio"]
 per-thread-compio-local = ["per-thread-compio", "per-thread-local", "tako-server-pt/compio-local"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full", "test-util"] }
-http = "1"
-http-body-util = "0.1"
-bytes = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
-futures-util = "0.3"
-anyhow = "1"
+tokio = { workspace = true, features = ["test-util"] }
+http.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+futures-util.workspace = true
+anyhow.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
