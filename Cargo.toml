@@ -103,6 +103,9 @@ urlencoding = "2.1.3"
 ahash = { version = "0.8.12", features = ["serde"] }
 brotli = "8.0.1"
 compio = { version = "0.17.0", features = ["macros", "rustls"] }
+compio-buf = "0.7.1"
+compio-io = "0.8.4"
+compio-ws = "0.2.0"
 cyper-core = "0.7.0"
 flate2 = "1.1.2"
 h3 = "0.0.8"
