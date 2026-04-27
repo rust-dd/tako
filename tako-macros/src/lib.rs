@@ -14,10 +14,13 @@
 //! `GetUserParams`. Override the default with `name = "..."` if you need a
 //! different identifier.
 //!
+//! Method-specific shortcuts ([`get`], [`post`], [`put`], [`delete`],
+//! [`patch`]) take only the path and an optional `name = "..."`.
+//!
 //! Usage:
 //!
 //! ```ignore
-//! use tako::route;
+//! use tako::{get, route};
 //! use tako::extractors::typed_params::TypedParams;
 //! use tako::responder::Responder;
 //!
@@ -26,8 +29,12 @@
 //!     format!("user {} post {}", p.id, p.post_id)
 //! }
 //!
+//! #[get("/health")]
+//! async fn health() -> impl Responder { "ok" }
+//!
 //! // …in build_router:
 //! // router.route(GetUserParams::METHOD, GetUserParams::PATH, get_user);
+//! // router.route(HealthParams::METHOD, HealthParams::PATH, health);
 //! ```
 //!
 //! The macro must be attached to a free async fn at module scope — Rust
@@ -35,7 +42,7 @@
 //! type wouldn't be reachable from the handler signature otherwise.
 
 use proc_macro::TokenStream;
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::{Ident, ItemFn, LitStr, Token, Type, parse_macro_input, parse_str};
@@ -51,24 +58,50 @@ impl Parse for RouteArgs {
     let method: Ident = input.parse()?;
     input.parse::<Token![,]>()?;
     let path: LitStr = input.parse()?;
-    let mut name_override = None;
-    if input.parse::<Token![,]>().is_ok() && !input.is_empty() {
-      let key: Ident = input.parse()?;
-      if key != "name" {
-        return Err(syn::Error::new(key.span(), "expected `name = \"...\"`"));
-      }
-      input.parse::<Token![=]>()?;
-      let lit: LitStr = input.parse()?;
-      let ident: Ident = parse_str(&lit.value())
-        .map_err(|e| syn::Error::new(lit.span(), format!("invalid struct name: {e}")))?;
-      name_override = Some(ident);
-    }
+    let name_override = parse_optional_name(input)?;
     Ok(Self {
       method,
       path,
       name_override,
     })
   }
+}
+
+struct ShortcutArgs {
+  path: LitStr,
+  name_override: Option<Ident>,
+}
+
+impl Parse for ShortcutArgs {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let path: LitStr = input.parse()?;
+    let name_override = parse_optional_name(input)?;
+    Ok(Self {
+      path,
+      name_override,
+    })
+  }
+}
+
+/// After the path literal there can optionally be `, name = "Foo"`. Returns
+/// `Ok(None)` if the comma/keyword is absent, `Err` only on a malformed key.
+fn parse_optional_name(input: ParseStream) -> syn::Result<Option<Ident>> {
+  if input.is_empty() {
+    return Ok(None);
+  }
+  input.parse::<Token![,]>()?;
+  if input.is_empty() {
+    return Ok(None);
+  }
+  let key: Ident = input.parse()?;
+  if key != "name" {
+    return Err(syn::Error::new(key.span(), "expected `name = \"...\"`"));
+  }
+  input.parse::<Token![=]>()?;
+  let lit: LitStr = input.parse()?;
+  let ident: Ident = parse_str(&lit.value())
+    .map_err(|e| syn::Error::new(lit.span(), format!("invalid struct name: {e}")))?;
+  Ok(Some(ident))
 }
 
 struct PathParam {
@@ -140,15 +173,14 @@ fn pascal_case(s: &str) -> String {
   out
 }
 
-#[proc_macro_attribute]
-pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
-  let RouteArgs {
-    method,
-    path,
-    name_override,
-  } = parse_macro_input!(attr as RouteArgs);
-  let func = parse_macro_input!(item as ItemFn);
-
+/// Shared expansion: given a method ident, a path literal, an optional struct
+/// name override, and the handler fn, produce the generated tokens.
+fn expand_route(
+  method: Ident,
+  path: LitStr,
+  name_override: Option<Ident>,
+  func: ItemFn,
+) -> TokenStream {
   let span = path.span();
   let path_str = path.value();
   let (stripped, params) = match parse_path(&path_str, span) {
@@ -169,7 +201,7 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
   let field_names_str: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
   let field_types: Vec<&Type> = params.iter().map(|p| &p.ty).collect();
 
-  let expanded = quote! {
+  let expanded: TokenStream2 = quote! {
     pub struct #struct_name {
       #(pub #field_idents: #field_types,)*
     }
@@ -210,4 +242,56 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
   };
 
   expanded.into()
+}
+
+/// Common driver for the method shortcuts (`#[get]`, `#[post]`, ...).
+fn shortcut(method_name: &'static str, attr: TokenStream, item: TokenStream) -> TokenStream {
+  let ShortcutArgs {
+    path,
+    name_override,
+  } = parse_macro_input!(attr as ShortcutArgs);
+  let func = parse_macro_input!(item as ItemFn);
+  let method = Ident::new(method_name, Span::call_site());
+  expand_route(method, path, name_override, func)
+}
+
+#[proc_macro_attribute]
+pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
+  let RouteArgs {
+    method,
+    path,
+    name_override,
+  } = parse_macro_input!(attr as RouteArgs);
+  let func = parse_macro_input!(item as ItemFn);
+  expand_route(method, path, name_override, func)
+}
+
+/// `#[get("/path", [name = "Foo"])]` — shorthand for `#[route(GET, ...)]`.
+#[proc_macro_attribute]
+pub fn get(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("GET", attr, item)
+}
+
+/// `#[post("/path", [name = "Foo"])]` — shorthand for `#[route(POST, ...)]`.
+#[proc_macro_attribute]
+pub fn post(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("POST", attr, item)
+}
+
+/// `#[put("/path", [name = "Foo"])]` — shorthand for `#[route(PUT, ...)]`.
+#[proc_macro_attribute]
+pub fn put(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("PUT", attr, item)
+}
+
+/// `#[delete("/path", [name = "Foo"])]` — shorthand for `#[route(DELETE, ...)]`.
+#[proc_macro_attribute]
+pub fn delete(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("DELETE", attr, item)
+}
+
+/// `#[patch("/path", [name = "Foo"])]` — shorthand for `#[route(PATCH, ...)]`.
+#[proc_macro_attribute]
+pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("PATCH", attr, item)
 }

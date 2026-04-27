@@ -1,9 +1,15 @@
 //! Integration tests for the `#[route]` proc macro + `TypedParams<T>` extractor.
 
-use http::{Method, StatusCode};
+use http::Method;
+use http::StatusCode;
 use http_body_util::BodyExt;
 use tako::body::TakoBody;
+use tako::delete;
 use tako::extractors::typed_params::TypedParams;
+use tako::get;
+use tako::patch;
+use tako::post;
+use tako::put;
 use tako::responder::Responder;
 use tako::route;
 use tako::router::Router;
@@ -19,7 +25,11 @@ async fn two(TypedParams(p): TypedParams<MultiPath>) -> impl Responder {
   format!("{} {}", p.id, p.post_id)
 }
 
-#[route(GET, "/items/{id: u64}/{name: String}/{ratio: f64}", name = "MixedPath")]
+#[route(
+  GET,
+  "/items/{id: u64}/{name: String}/{ratio: f64}",
+  name = "MixedPath"
+)]
 async fn mixed(TypedParams(p): TypedParams<MixedPath>) -> impl Responder {
   format!("{} {} {}", p.id, p.name, p.ratio)
 }
@@ -79,10 +89,7 @@ async fn typed_route_invalid_type_returns_400() {
   let resp = router.dispatch(make_req(Method::GET, "/users/abc")).await;
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
   let body = body_str(resp).await;
-  assert!(
-    body.contains("invalid path param 'id'"),
-    "body was: {body}"
-  );
+  assert!(body.contains("invalid path param 'id'"), "body was: {body}");
 }
 
 #[tokio::test]
@@ -128,4 +135,80 @@ async fn typed_route_router_route_chains_middleware() {
 
   let resp = router.dispatch(make_req(Method::GET, "/users/1")).await;
   assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[get("/sc/get/{id: u64}")]
+async fn sc_get(TypedParams(p): TypedParams<ScGetParams>) -> impl Responder {
+  format!("get={}", p.id)
+}
+
+#[post("/sc/post/{id: u64}")]
+async fn sc_post(TypedParams(p): TypedParams<ScPostParams>) -> impl Responder {
+  format!("post={}", p.id)
+}
+
+#[put("/sc/put/{id: u64}")]
+async fn sc_put(TypedParams(p): TypedParams<ScPutParams>) -> impl Responder {
+  format!("put={}", p.id)
+}
+
+#[delete("/sc/delete/{id: u64}")]
+async fn sc_delete(TypedParams(p): TypedParams<ScDeleteParams>) -> impl Responder {
+  format!("delete={}", p.id)
+}
+
+#[patch("/sc/patch/{id: u64}")]
+async fn sc_patch(TypedParams(p): TypedParams<ScPatchParams>) -> impl Responder {
+  format!("patch={}", p.id)
+}
+
+#[tokio::test]
+async fn shortcut_macros_set_method_correctly() {
+  assert_eq!(ScGetParams::METHOD, Method::GET);
+  assert_eq!(ScPostParams::METHOD, Method::POST);
+  assert_eq!(ScPutParams::METHOD, Method::PUT);
+  assert_eq!(ScDeleteParams::METHOD, Method::DELETE);
+  assert_eq!(ScPatchParams::METHOD, Method::PATCH);
+
+  assert_eq!(ScGetParams::PATH, "/sc/get/{id}");
+  assert_eq!(ScPostParams::PATH, "/sc/post/{id}");
+}
+
+#[tokio::test]
+async fn shortcut_macros_dispatch_each_method() {
+  let mut router = Router::new();
+  router.route(ScGetParams::METHOD, ScGetParams::PATH, sc_get);
+  router.route(ScPostParams::METHOD, ScPostParams::PATH, sc_post);
+  router.route(ScPutParams::METHOD, ScPutParams::PATH, sc_put);
+  router.route(ScDeleteParams::METHOD, ScDeleteParams::PATH, sc_delete);
+  router.route(ScPatchParams::METHOD, ScPatchParams::PATH, sc_patch);
+
+  for (method, uri, want_body) in [
+    (Method::GET, "/sc/get/1", "get=1"),
+    (Method::POST, "/sc/post/2", "post=2"),
+    (Method::PUT, "/sc/put/3", "put=3"),
+    (Method::DELETE, "/sc/delete/4", "delete=4"),
+    (Method::PATCH, "/sc/patch/5", "patch=5"),
+  ] {
+    let resp = router.dispatch(make_req(method.clone(), uri)).await;
+    assert_eq!(resp.status(), StatusCode::OK, "method {method} on {uri}");
+    assert_eq!(body_str(resp).await, want_body);
+  }
+}
+
+#[get("/sc/named", name = "HealthOk")]
+async fn sc_named() -> impl Responder {
+  "ok"
+}
+
+#[tokio::test]
+async fn shortcut_macros_accept_name_override() {
+  assert_eq!(HealthOk::METHOD, Method::GET);
+  assert_eq!(HealthOk::PATH, "/sc/named");
+
+  let mut router = Router::new();
+  router.route(HealthOk::METHOD, HealthOk::PATH, sc_named);
+  let resp = router.dispatch(make_req(Method::GET, "/sc/named")).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(body_str(resp).await, "ok");
 }

@@ -29,6 +29,11 @@ pub use tako_core::NOT_FOUND;
 pub use tako_core::StatusCode;
 pub use tako_core::header;
 
+pub use tako_macros::delete;
+pub use tako_macros::get;
+pub use tako_macros::patch;
+pub use tako_macros::post;
+pub use tako_macros::put;
 pub use tako_macros::route;
 
 pub use tako_core::body;
