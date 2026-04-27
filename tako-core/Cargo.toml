@@ -25,6 +25,7 @@ http-body.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
+linkme.workspace = true
 matchit.workspace = true
 mime.workspace = true
 mime_guess.workspace = true

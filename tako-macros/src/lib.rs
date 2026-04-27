@@ -196,6 +196,11 @@ fn expand_route(
       span = fn_name.span()
     )
   });
+  let registrar_ident = format_ident!(
+    "__TAKO_REGISTER_{}",
+    fn_name.to_string().to_uppercase(),
+    span = fn_name.span()
+  );
 
   let field_idents: Vec<&Ident> = params.iter().map(|p| &p.name).collect();
   let field_names_str: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
@@ -237,6 +242,12 @@ fn expand_route(
         })
       }
     }
+
+    #[::tako::__private::linkme::distributed_slice(::tako::router::TAKO_ROUTES)]
+    #[linkme(crate = ::tako::__private::linkme)]
+    static #registrar_ident: fn(&mut ::tako::router::Router) = |__router| {
+      __router.route(#struct_name::METHOD, #struct_name::PATH, #fn_name);
+    };
 
     #func
   };

@@ -214,6 +214,35 @@ impl Router {
     route
   }
 
+  /// Registers every route declared via the `#[tako::route]` / `#[tako::get]`
+  /// (and friends) attribute macros into this router.
+  ///
+  /// Each macro contributes a thunk into the global [`TAKO_ROUTES`] slice at
+  /// link time; this method walks the slice and invokes each thunk against
+  /// `self`, which calls [`Router::route`] under the hood. Routes are
+  /// registered in the order the linker emits them — typically the order they
+  /// appear within a translation unit, but unspecified across crates. If two
+  /// thunks register the same `(method, path)` pair, the second call will
+  /// panic, matching the behavior of [`Router::route`].
+  ///
+  /// # Examples
+  ///
+  /// ```ignore
+  /// use tako::{get, router::Router};
+  ///
+  /// #[get("/health")]
+  /// async fn health() -> impl tako::responder::Responder { "ok" }
+  ///
+  /// let mut router = Router::new();
+  /// router.mount_all();
+  /// ```
+  pub fn mount_all(&mut self) -> &mut Self {
+    for register in TAKO_ROUTES {
+      register(self);
+    }
+    self
+  }
+
   /// Registers a route with trailing slash redirection enabled.
   ///
   /// When TSR is enabled, requests to paths with or without trailing slashes
@@ -927,6 +956,16 @@ impl Router {
     result
   }
 }
+
+/// Distributed slice of route registration thunks.
+///
+/// Each `#[tako::route]` / `#[tako::get]` / etc. attribute contributes a
+/// `fn(&mut Router)` closure that calls [`Router::route`] with the
+/// generated `Params::METHOD` / `Params::PATH` and the handler. Iterating
+/// the slice — what [`Router::mount_all`] does — replays every contribution
+/// against the supplied router.
+#[linkme::distributed_slice]
+pub static TAKO_ROUTES: [fn(&mut Router)] = [..];
 
 /// Maps the 9 standard HTTP methods to array indices.
 /// Returns `None` for non-standard / extension methods.

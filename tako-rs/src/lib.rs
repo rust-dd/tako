@@ -36,6 +36,13 @@ pub use tako_macros::post;
 pub use tako_macros::put;
 pub use tako_macros::route;
 
+/// Implementation details for tako's proc macros. Not part of the stable
+/// API — relied on only by macro-generated code.
+#[doc(hidden)]
+pub mod __private {
+  pub use linkme;
+}
+
 pub use tako_core::body;
 pub use tako_core::config;
 pub use tako_core::queue;

@@ -31,11 +31,7 @@ async fn delete_user(TypedParams(p): TypedParams<DeleteUserParams>) -> impl Resp
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let mut router = Router::new();
-  router.route(GetUserParams::METHOD, GetUserParams::PATH, get_user);
-  router.route(GetPostParams::METHOD, GetPostParams::PATH, get_post);
-  router.route(GetItemParams::METHOD, GetItemParams::PATH, get_item);
-  router.route(CreatePostParams::METHOD, CreatePostParams::PATH, create_post);
-  router.route(DeleteUserParams::METHOD, DeleteUserParams::PATH, delete_user);
+  router.mount_all();
 
   let listener = tako::bind_with_port_fallback("127.0.0.1:3000").await?;
   println!("listening on {}", listener.local_addr()?);

@@ -23,6 +23,7 @@ tako-macros.workspace = true
 tako-server.workspace = true
 tako-streams.workspace = true
 tako-plugins.workspace = true
+linkme.workspace = true
 tako-server-pt = { workspace = true, optional = true }
 tako-core-local = { workspace = true, optional = true }
 tikv-jemallocator = { workspace = true, optional = true }
