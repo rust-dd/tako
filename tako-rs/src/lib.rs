@@ -29,11 +29,14 @@ pub use tako_core::NOT_FOUND;
 pub use tako_core::StatusCode;
 pub use tako_core::header;
 
+pub use tako_macros::route;
+
 pub use tako_core::body;
 pub use tako_core::config;
 pub use tako_core::queue;
 pub use tako_core::redirect;
 pub use tako_core::responder;
+pub use tako_core::route;
 pub use tako_core::router;
 pub use tako_core::state;
 pub use tako_core::types;
@@ -142,6 +145,7 @@ pub mod extractors {
   pub use tako_core::extractors::json;
   pub use tako_core::extractors::params;
   pub use tako_core::extractors::range;
+  pub use tako_core::extractors::typed_params;
 
   pub use tako_extractors::acc_lang;
   pub use tako_extractors::accept;

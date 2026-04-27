@@ -19,6 +19,7 @@ doctest = false
 [dependencies]
 tako-core.workspace = true
 tako-extractors.workspace = true
+tako-macros.workspace = true
 tako-server.workspace = true
 tako-streams.workspace = true
 tako-plugins.workspace = true

@@ -56,6 +56,9 @@ pub mod params;
 /// Range header parsing for partial content requests.
 pub mod range;
 
+/// Compile-time-shaped path parameter extractor (paired with `#[tako::route]`).
+pub mod typed_params;
+
 /// Trait for extracting data from complete HTTP requests.
 ///
 /// `FromRequest` enables types to extract and parse data from HTTP requests, including

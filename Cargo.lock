@@ -3620,6 +3620,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tako-macros"
+version = "1.1.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "tako-plugins"
 version = "1.1.2"
 dependencies = [
@@ -3677,6 +3686,7 @@ dependencies = [
  "tako-core",
  "tako-core-local",
  "tako-extractors",
+ "tako-macros",
  "tako-plugins",
  "tako-server",
  "tako-server-pt",
