@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
-tako-rs = { path = "../.." }
+tako-rs = { path = "../../tako-rs" }
 tokio = { version = "1.45.1", features = ["full"] }
 tracing-subscriber = "0.3"
 

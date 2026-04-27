@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.98"
 serde = { version = "1.0.219", features = ["derive"] }
-tako-rs = { path = "../.." }
+tako-rs = { path = "../../tako-rs" }
 tokio = "1.47.0"
 
 [workspace]

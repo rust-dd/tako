@@ -7,6 +7,6 @@ edition = "2024"
 anyhow = "1.0.98"
 compio = { version = "0.17.0", features = ["macros"] }
 http = "1"
-tako-rs = { path = "../..", features = ["compio-tls"] }
+tako-rs = { path = "../../tako-rs", features = ["compio-tls"] }
 
 [workspace]

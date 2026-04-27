@@ -73,7 +73,7 @@ pub use tako_streams::sse;
 #[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub use tako_streams::file_stream;
 
-#[cfg(not(feature = "compio"))]
+#[cfg(not(any(feature = "compio", feature = "compio-ws")))]
 pub use tako_streams::ws;
 
 #[cfg(feature = "compio-ws")]
@@ -87,10 +87,10 @@ pub use tako_streams::webtransport;
 pub use tako_server::server_tcp;
 pub use tako_server::server_udp;
 
-#[cfg(all(unix, not(feature = "compio")))]
+#[cfg(all(unix, not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))))]
 pub use tako_server::server_unix;
 
-#[cfg(not(feature = "compio"))]
+#[cfg(not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws")))]
 pub use tako_server::proxy_protocol;
 
 #[cfg(feature = "compio")]
@@ -120,11 +120,17 @@ pub use tako_server::serve_h3;
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_server::serve_h3_with_shutdown;
 
-#[cfg(all(not(feature = "compio"), feature = "tls"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+#[cfg(any(
+  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))),
+  feature = "compio-tls"
+))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
 pub use tako_server::serve_tls;
-#[cfg(all(not(feature = "compio"), feature = "tls"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+#[cfg(any(
+  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))),
+  feature = "compio-tls"
+))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
 pub use tako_server::serve_tls_with_shutdown;
 
 /// Request data extraction utilities.

@@ -57,16 +57,16 @@ ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
 jwt-simple = ["tako-extractors/jwt-simple", "tako-plugins/jwt-simple", "tako-core/jwt-simple"]
 
 # Metrics / OpenAPI / docs / GraphQL / gRPC
-metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus"]
-metrics-opentelemetry = ["tako-plugins/metrics-opentelemetry", "tako-core/metrics-opentelemetry"]
+metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-plugins/metrics-opentelemetry", "tako-core/metrics-opentelemetry", "plugins", "signals"]
 async-graphql = ["tako-core/async-graphql"]
 graphiql = ["tako-core/graphiql"]
 grpc = ["tako-core/grpc"]
 utoipa = ["tako-core/utoipa"]
 utoipa-yaml = ["tako-core/utoipa-yaml"]
 vespera = ["tako-core/vespera"]
-tako-tracing = ["tako-core/tako-tracing"]
-zstd = ["tako-plugins/zstd", "tako-core/zstd"]
+tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
+zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]
 jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
 
 # Thread-per-core runtime (Phase 1): existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
