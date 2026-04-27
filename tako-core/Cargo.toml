@@ -1,0 +1,124 @@
+[package]
+name = "tako-core"
+description = "Internal core for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_core"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cookie.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+linkme.workspace = true
+matchit.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+pin-project-lite.workspace = true
+scc.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+sha1.workspace = true
+smallvec.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+
+arc-swap = "1"
+
+# Optional / feature-gated
+ahash = { workspace = true, optional = true }
+async-graphql = { version = "7.0.17", optional = true }
+brotli = { workspace = true, optional = true }
+compio = { workspace = true, optional = true }
+compio-buf = { workspace = true, optional = true }
+compio-io = { workspace = true, optional = true }
+compio-ws = { workspace = true, optional = true }
+cyper-core = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+multer = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+simd-json = { workspace = true, optional = true }
+sonic-rs = { workspace = true, optional = true }
+tikv-jemallocator = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+tracing-subscriber = { version = "0.3.19", optional = true }
+utoipa = { version = "5.4", optional = true }
+uuid = { workspace = true, optional = true }
+vespera_core = { version = "0.1.43", optional = true }
+webpki-roots = { version = "1.0.1", optional = true }
+zstd = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
+
+[target.'cfg(not(target_os = "freebsd"))'.dependencies]
+jwt-simple = { version = "0.12.12", optional = true }
+
+[features]
+async-graphql = ["dep:async-graphql"]
+compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+compio-tls = ["compio", "tls", "dep:rustls", "dep:rustls-pemfile"]
+compio-ws = ["compio", "dep:compio-ws", "dep:compio-io", "dep:compio-buf"]
+metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
+graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
+client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
+default = []
+file-stream = []
+http2 = []
+jemalloc = ["dep:tikv-jemallocator"]
+multipart = ["dep:multer", "dep:uuid"]
+plugins = ["dep:brotli", "dep:flate2"]
+protobuf = ["dep:prost"]
+signals = []
+simd = ["dep:simd-json", "dep:sonic-rs", "jemalloc"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+grpc = ["protobuf"]
+http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
+webtransport = ["http3"]
+ahash = ["dep:ahash"]
+tako-tracing = ["dep:tracing-subscriber"]
+utoipa = ["dep:utoipa"]
+utoipa-yaml = ["utoipa", "utoipa/yaml"]
+vespera = ["dep:vespera_core"]
+zero-copy-extractors = []
+jwt-simple = ["dep:jwt-simple"]
+zstd = ["dep:zstd", "plugins"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

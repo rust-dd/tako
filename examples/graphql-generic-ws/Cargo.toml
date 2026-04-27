@@ -12,6 +12,8 @@ http = "1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 sha1 = "0.10"
-tako-rs = { path = "../..", features = ["async-graphql", "graphiql"] }
+tako-rs = { path = "../../tako-rs", features = ["async-graphql", "graphiql"] }
 tokio = { version = "1.45.1", features = ["full"] }
 tokio-tungstenite = "0.27"
+
+[workspace]

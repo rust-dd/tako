@@ -1,0 +1,54 @@
+[package]
+name = "tako-server"
+description = "Internal server bootstrap for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_server"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+
+anyhow.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+pin-project-lite.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+# Optional, feature-gated network/runtime backends
+compio = { workspace = true, optional = true }
+cyper-core = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+
+[features]
+default = []
+signals = ["tako-core/signals"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+http2 = []
+http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
+compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-core/compio"]
+compio-tls = ["compio", "tls"]
+# Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.
+plugins = []
+tako-tracing = ["tako-core/tako-tracing"]

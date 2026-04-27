@@ -568,7 +568,7 @@ dependencies = [
  "paste",
  "polling",
  "slab",
- "socket2",
+ "socket2 0.6.1",
  "windows-sys 0.61.2",
 ]
 
@@ -636,7 +636,7 @@ dependencies = [
  "either",
  "libc",
  "once_cell",
- "socket2",
+ "socket2 0.6.1",
  "widestring",
  "windows-sys 0.61.2",
 ]
@@ -682,7 +682,7 @@ dependencies = [
  "pin-project-lite",
  "scoped-tls",
  "slab",
- "socket2",
+ "socket2 0.6.1",
  "windows-sys 0.61.2",
 ]
 
@@ -1659,7 +1659,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2",
+ "socket2 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -1978,6 +1978,26 @@ name = "libm"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
+
+[[package]]
+name = "linkme"
+version = "0.3.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e83272d46373fb8decca684579ac3e7c8f3d71d4cc3aa693df8759e260ae41cf"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32d59e20403c7d08fe62b4376edfe5c7fb2ef1e6b1465379686d0f21c8df444b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -2638,7 +2658,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -2677,7 +2697,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2",
+ "socket2 0.6.1",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -3334,6 +3354,16 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "socket2"
+version = "0.5.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
+dependencies = [
+ "libc",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "socket2"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
@@ -3492,7 +3522,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-rs"
+name = "tako-core"
 version = "1.1.2"
 dependencies = [
  "ahash",
@@ -3519,6 +3549,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jwt-simple",
+ "linkme",
  "matchit",
  "mime",
  "mime_guess",
@@ -3559,6 +3590,217 @@ dependencies = [
  "vespera_core",
  "webpki-roots",
  "zstd",
+]
+
+[[package]]
+name = "tako-core-local"
+version = "1.1.2"
+dependencies = [
+ "futures-util",
+ "http",
+ "matchit",
+ "smallvec",
+ "tako-core",
+]
+
+[[package]]
+name = "tako-extractors"
+version = "1.1.2"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "cookie",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "jwt-simple",
+ "mime",
+ "mime_guess",
+ "multer",
+ "once_cell",
+ "parking_lot",
+ "prost",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_urlencoded",
+ "sha1",
+ "simd-json",
+ "smallvec",
+ "sonic-rs",
+ "tako-core",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
+name = "tako-macros"
+version = "1.1.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tako-plugins"
+version = "1.1.2"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "brotli",
+ "bytes",
+ "compio",
+ "cookie",
+ "flate2",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "jwt-simple",
+ "mime",
+ "multer",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "parking_lot",
+ "pin-project-lite",
+ "prometheus",
+ "scc",
+ "serde",
+ "serde_json",
+ "sha1",
+ "smallvec",
+ "tako-core",
+ "tako-extractors",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
+name = "tako-rs"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "linkme",
+ "serde",
+ "serde_json",
+ "tako-core",
+ "tako-core-local",
+ "tako-extractors",
+ "tako-macros",
+ "tako-plugins",
+ "tako-server",
+ "tako-server-pt",
+ "tako-streams",
+ "tikv-jemallocator",
+ "tokio",
+]
+
+[[package]]
+name = "tako-server"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "compio",
+ "cyper-core",
+ "futures-util",
+ "h3",
+ "h3-quinn",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-pemfile",
+ "send_wrapper",
+ "tako-core",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "tako-server-pt"
+version = "1.1.2"
+dependencies = [
+ "compio",
+ "core_affinity",
+ "cyper-core",
+ "futures-util",
+ "hyper",
+ "hyper-util",
+ "send_wrapper",
+ "socket2 0.5.10",
+ "tako-core",
+ "tako-core-local",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tako-streams"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "compio",
+ "compio-buf",
+ "compio-io",
+ "compio-ws",
+ "futures-util",
+ "h3",
+ "h3-quinn",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mime",
+ "mime_guess",
+ "pin-project-lite",
+ "quinn",
+ "rustls",
+ "rustls-pemfile",
+ "send_wrapper",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tako-core",
+ "tako-server",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3711,7 +3953,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2",
+ "socket2 0.6.1",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]

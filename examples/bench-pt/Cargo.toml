@@ -1,0 +1,18 @@
+[package]
+name = "bench-pt"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "bench-pt"
+path = "src/main.rs"
+
+[dependencies]
+tako-rs = { path = "../../tako-rs", features = ["per-thread", "per-thread-compio"] }
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[workspace]

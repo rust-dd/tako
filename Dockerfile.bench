@@ -1,0 +1,25 @@
+FROM rust:1.92-slim-bookworm AS builder
+
+WORKDIR /work
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev cmake build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+# Build only the bench-pt example (which transitively builds tako-rs with the
+# per-thread + per-thread-compio features).
+RUN cd examples/bench-pt && cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wrk curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /work/examples/bench-pt/target/release/bench-pt /usr/local/bin/bench-pt
+COPY Dockerfile.bench.runner /usr/local/bin/bench-runner.sh
+RUN chmod +x /usr/local/bin/bench-runner.sh
+
+ENTRYPOINT ["/usr/local/bin/bench-runner.sh"]

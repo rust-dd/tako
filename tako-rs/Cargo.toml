@@ -1,0 +1,102 @@
+[package]
+name = "tako-rs"
+description = "Multi-transport Rust framework for modern network services."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+keywords = ["web", "framework", "realtime", "network", "http3"]
+readme = "../README.md"
+documentation = "https://docs.rs/tako-rs"
+homepage = "https://github.com/rust-dd/tako"
+
+[lib]
+name = "tako"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+tako-extractors.workspace = true
+tako-macros.workspace = true
+tako-server.workspace = true
+tako-streams.workspace = true
+tako-plugins.workspace = true
+linkme.workspace = true
+tako-server-pt = { workspace = true, optional = true }
+tako-core-local = { workspace = true, optional = true }
+tikv-jemallocator = { workspace = true, optional = true }
+
+[features]
+default = []
+
+# Plugin / middleware ecosystem
+plugins = ["tako-core/plugins", "tako-plugins/plugins"]
+signals = ["tako-core/signals", "tako-server/signals", "tako-plugins/signals"]
+
+# Server transports
+tls = ["tako-server/tls", "tako-core/tls"]
+http2 = ["tako-server/http2", "tako-core/http2"]
+http3 = ["tako-server/http3", "tako-streams/http3", "tako-core/http3"]
+webtransport = ["tako-streams/webtransport", "tako-core/webtransport"]
+
+# Compio runtime
+compio = ["tako-core/compio", "tako-server/compio", "tako-streams/compio", "tako-plugins/compio"]
+compio-tls = ["tako-server/compio-tls", "tako-core/compio-tls"]
+compio-ws = ["tako-streams/compio-ws", "tako-core/compio-ws"]
+
+# Body/streaming features
+file-stream = ["tako-streams/file-stream", "tako-core/file-stream"]
+client = ["tako-core/client"]
+
+# Extractors
+multipart = ["tako-extractors/multipart", "tako-core/multipart"]
+protobuf = ["tako-extractors/protobuf", "tako-core/protobuf"]
+simd = ["tako-extractors/simd", "tako-core/simd"]
+zero-copy-extractors = ["tako-extractors/zero-copy-extractors", "tako-core/zero-copy-extractors"]
+ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
+jwt-simple = ["tako-extractors/jwt-simple", "tako-plugins/jwt-simple", "tako-core/jwt-simple"]
+
+# Metrics / OpenAPI / docs / GraphQL / gRPC
+metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-plugins/metrics-opentelemetry", "tako-core/metrics-opentelemetry", "plugins", "signals"]
+async-graphql = ["tako-core/async-graphql"]
+graphiql = ["tako-core/graphiql"]
+grpc = ["tako-core/grpc"]
+utoipa = ["tako-core/utoipa"]
+utoipa-yaml = ["tako-core/utoipa-yaml"]
+vespera = ["tako-core/vespera"]
+tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
+zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]
+jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
+
+# Thread-per-core runtime (Phase 1): existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
+per-thread = ["dep:tako-server-pt"]
+
+# Thread-per-core with `!Send` LocalRouter (Phase 2): handlers may capture Rc<RefCell<…>> per worker.
+per-thread-local = ["per-thread", "dep:tako-core-local", "tako-server-pt/local"]
+
+# Thread-per-core on the compio runtime (Phase 3): io_uring on Linux, IOCP on Windows, kqueue on macOS.
+# Does NOT enable `tako-core/compio` because that feature globally rewrites
+# signals/queue to compio spawn and conflicts with `serve()`. The per-thread
+# compio entry point pulls in the compio runtime directly.
+per-thread-compio = ["per-thread", "tako-server-pt/compio"]
+
+# Thread-per-core compio + LocalRouter.
+per-thread-compio-local = ["per-thread-compio", "per-thread-local", "tako-server-pt/compio-local"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+http.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+futures-util.workspace = true
+anyhow.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
