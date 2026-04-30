@@ -9,13 +9,13 @@ use std::io::ErrorKind;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use compio_io::compat::SyncStream;
-use compio_ws::tungstenite;
+use compio::io::compat::SyncStream;
+use compio::ws::tungstenite;
 // Re-export Message for convenience
-pub use compio_ws::tungstenite::Message;
-use compio_ws::tungstenite::protocol::CloseFrame;
-use compio_ws::tungstenite::protocol::Role;
-use compio_ws::tungstenite::protocol::WebSocketConfig;
+pub use compio::ws::tungstenite::Message;
+use compio::ws::tungstenite::protocol::CloseFrame;
+use compio::ws::tungstenite::protocol::Role;
+use compio::ws::tungstenite::protocol::WebSocketConfig;
 use futures_util::FutureExt;
 use http::StatusCode;
 use http::header;
@@ -43,15 +43,15 @@ impl UpgradedStream {
   }
 }
 
-impl compio_io::AsyncRead for UpgradedStream {
-  async fn read<B: compio_buf::IoBufMut>(&mut self, mut buf: B) -> compio_buf::BufResult<usize, B> {
+impl compio::io::AsyncRead for UpgradedStream {
+  async fn read<B: compio::buf::IoBufMut>(&mut self, mut buf: B) -> compio::buf::BufResult<usize, B> {
     use std::pin::Pin;
     use std::task::Context;
 
     use hyper::rt::Read;
 
-    let slice = buf.as_mut_slice();
-    let len = slice.len();
+    let len = buf.buf_capacity();
+    let dest_ptr = buf.buf_mut_ptr() as *mut u8;
 
     // Create a safe buffer for reading
     let mut temp_buf = vec![0u8; len];
@@ -70,11 +70,10 @@ impl compio_io::AsyncRead for UpgradedStream {
       Ok(filled_len) => {
         // Copy from temp buffer to the actual buffer
         if filled_len > 0 {
-          let dest =
-            unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut u8, filled_len) };
+          let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr, filled_len) };
           dest.copy_from_slice(&temp_buf[..filled_len]);
         }
-        unsafe { buf.set_buf_init(filled_len) };
+        unsafe { buf.set_len(filled_len) };
         (Ok(filled_len), buf).into()
       }
       Err(e) => (Err(e), buf).into(),
@@ -82,14 +81,14 @@ impl compio_io::AsyncRead for UpgradedStream {
   }
 }
 
-impl compio_io::AsyncWrite for UpgradedStream {
-  async fn write<T: compio_buf::IoBuf>(&mut self, buf: T) -> compio_buf::BufResult<usize, T> {
+impl compio::io::AsyncWrite for UpgradedStream {
+  async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::buf::BufResult<usize, T> {
     use std::pin::Pin;
     use std::task::Context;
 
     use hyper::rt::Write;
 
-    let slice = buf.as_slice();
+    let slice = buf.as_init();
 
     let result =
       std::future::poll_fn(|cx: &mut Context<'_>| Pin::new(&mut self.inner).poll_write(cx, slice))
@@ -130,7 +129,7 @@ pub struct CompioWebSocket<S> {
 
 impl<S> CompioWebSocket<S>
 where
-  S: compio_io::AsyncRead + compio_io::AsyncWrite,
+  S: compio::io::AsyncRead + compio::io::AsyncWrite,
 {
   /// Default buffer size (128 KiB).
   const DEFAULT_BUF_SIZE: usize = 128 * 1024;
@@ -260,7 +259,7 @@ where
 /// use tako::types::Request;
 /// use tako::body::TakoBody;
 /// use tako::responder::Responder;
-/// use compio_ws::tungstenite::Message;
+/// use compio::ws::tungstenite::Message;
 ///
 /// async fn echo_handler(mut ws: CompioWebSocket<UpgradedStream>) {
 ///     loop {

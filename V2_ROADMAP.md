@@ -16,54 +16,54 @@ File and line references throughout point to the `feat/thread-per-code` branch a
 
 ---
 
-## 1. Security patches (ship as `1.2.0` before v2)
+## ~~1. Security patches (ship as `1.2.0` before v2)~~ — Shipped in 1.2.0
 
-These are bugs and weaknesses that exist in the released `1.x` line and should not wait for the v2 cycle. They are reproducible against `tako-rs 1.1.2`.
+> **Status:** All items in this section were addressed in the `1.2.0` security release. Retained here as a historical record of the audit.
 
-### 1.1 Three independent insecure ID generators
+### ~~1.1 Three independent insecure ID generators~~
 
 | Location | What |
 |---|---|
-| `tako-plugins/src/middleware/session.rs:168` | `generate_session_id` — deterministic LCG seeded from `SystemTime::now().nanos`. UUID-shaped, but **predictable**. Enables session-fixation. |
-| `tako-plugins/src/middleware/csrf.rs:80` | `generate_csrf_token` — same LCG. Defeats the entire point of a CSRF token. |
-| `tako-plugins/src/middleware/request_id.rs:54` | `generate_request_id` — same LCG. Trace IDs leak collisions. |
+| ~~`tako-plugins/src/middleware/session.rs:168`~~ | ~~`generate_session_id` — deterministic LCG seeded from `SystemTime::now().nanos`. UUID-shaped, but **predictable**. Enables session-fixation.~~ |
+| ~~`tako-plugins/src/middleware/csrf.rs:80`~~ | ~~`generate_csrf_token` — same LCG. Defeats the entire point of a CSRF token.~~ |
+| ~~`tako-plugins/src/middleware/request_id.rs:54`~~ | ~~`generate_request_id` — same LCG. Trace IDs leak collisions.~~ |
 
-**Fix:** replace all three with `uuid::Uuid::new_v4()` (already in workspace deps) or `getrandom::getrandom`.
+~~**Fix:** replace all three with `uuid::Uuid::new_v4()` (already in workspace deps) or `getrandom::getrandom`.~~
 
-### 1.2 Timing-oracle string compares in auth middleware
+### ~~1.2 Timing-oracle string compares in auth middleware~~
 
-- `api_key_auth.rs` and `bearer_auth.rs` compare credentials with `==`. Use `subtle::ConstantTimeEq`.
+- ~~`api_key_auth.rs` and `bearer_auth.rs` compare credentials with `==`. Use `subtle::ConstantTimeEq`.~~
 
-### 1.3 CORS credentials/wildcard footgun
+### ~~1.3 CORS credentials/wildcard footgun~~
 
-- `tako-plugins/src/plugins/cors.rs:300` reflects `*` when the configured origin set is empty, while `Access-Control-Allow-Credentials: true` is permitted alongside it. Browsers reject this combination, but the framework should refuse the configuration at build time.
-- `Access-Control-Allow-Headers: *` written literally at `cors.rs:339` regardless of `allow_credentials`.
+- ~~`tako-plugins/src/plugins/cors.rs:300` reflects `*` when the configured origin set is empty, while `Access-Control-Allow-Credentials: true` is permitted alongside it. Browsers reject this combination, but the framework should refuse the configuration at build time.~~
+- ~~`Access-Control-Allow-Headers: *` written literally at `cors.rs:339` regardless of `allow_credentials`.~~
 
-### 1.4 HTTP/2 RST flood (CVE-2023-44487 class)
+### ~~1.4 HTTP/2 RST flood (CVE-2023-44487 class)~~
 
-- `tako-server/src/server_tls.rs:227` builds the H2 server with defaults: no `max_concurrent_streams`, no `max_header_list_size`, no `max_send_buf_size`. Add explicit caps and expose them in the public API.
+- ~~`tako-server/src/server_tls.rs:227` builds the H2 server with defaults: no `max_concurrent_streams`, no `max_header_list_size`, no `max_send_buf_size`. Add explicit caps and expose them in the public API.~~
 
-### 1.5 HTTP/3 buffer-the-whole-body and 0-RTT replay
+### ~~1.5 HTTP/3 buffer-the-whole-body and 0-RTT replay~~
 
-- `tako-server/src/server_h3.rs:289` collects the request body into a `Vec<u8>` before dispatch. Streaming uploads over H3 are impossible.
-- `server_h3.rs:114` sets `max_early_data_size = u32::MAX` without any replay-protection wiring on the request path. Either remove this line or build the early-data extractor with explicit guidance.
-- `server_h3.rs:328` only handles `frame.data_ref()`; trailers are silently dropped.
+- ~~`tako-server/src/server_h3.rs:289` collects the request body into a `Vec<u8>` before dispatch. Streaming uploads over H3 are impossible.~~
+- ~~`server_h3.rs:114` sets `max_early_data_size = u32::MAX` without any replay-protection wiring on the request path. Either remove this line or build the early-data extractor with explicit guidance.~~
+- ~~`server_h3.rs:328` only handles `frame.data_ref()`; trailers are silently dropped.~~
 
-### 1.6 PEM key formats
+### ~~1.6 PEM key formats~~
 
-- `load_key` is duplicated in `server_tls.rs:318`, `server_h3.rs:348`, `server_tls_compio.rs:296` and only accepts `pkcs8_private_keys`. RSA / SEC1 / EC keys silently fail to load. Accept all three formats and consolidate the function (see § 3).
+- ~~`load_key` is duplicated in `server_tls.rs:318`, `server_h3.rs:348`, `server_tls_compio.rs:296` and only accepts `pkcs8_private_keys`. RSA / SEC1 / EC keys silently fail to load. Accept all three formats and consolidate the function (see § 3).~~
 
-### 1.7 Metrics cardinality
+### ~~1.7 Metrics cardinality~~
 
-- `tako-plugins/src/plugins/metrics.rs:230,252` use the raw URI path as a label. `/users/:id` produces a new series per ID. Switch to the matched route template (requires `MatchedPath`, see § 5).
-- `remote_addr` label on the connections counter is also unbounded.
+- ~~`tako-plugins/src/plugins/metrics.rs:230,252` use the raw URI path as a label. `/users/:id` produces a new series per ID. Switch to the matched route template (requires `MatchedPath`, see § 5).~~
+- ~~`remote_addr` label on the connections counter is also unbounded.~~
 
-### 1.8 Other
+### ~~1.8 Other~~
 
-- `idempotency.rs:91` defaults TTL to 30s while the docstring at `:69` advertises 24h. Pick one.
-- `idempotency.rs:380-383` ignores the configured `inflight_wait_timeout_ms` on the compio path.
-- `body_limit.rs:163-172` and `upload_progress.rs:182-229` both call `body.collect()`, defeating streaming. Replace with a `Limited<Body>` adapter.
-- `compression.rs` does not write `Vary: Accept-Encoding` and does not parse `q=0`.
+- ~~`idempotency.rs:91` defaults TTL to 30s while the docstring at `:69` advertises 24h. Pick one.~~
+- ~~`idempotency.rs:380-383` ignores the configured `inflight_wait_timeout_ms` on the compio path.~~
+- ~~`body_limit.rs:163-172` and `upload_progress.rs:182-229` both call `body.collect()`, defeating streaming. Replace with a `Limited<Body>` adapter.~~
+- ~~`compression.rs` does not write `Vary: Accept-Encoding` and does not parse `q=0`.~~
 
 ---
 
@@ -431,7 +431,7 @@ steps:
 
 | Phase | Scope | Estimated effort (one engineer) |
 |---|---|---|
-| **`1.2.0` security release** | § 1 in full. Blog post documenting the audit. | 1 week |
+| ~~**`1.2.0` security release**~~ | ~~§ 1 in full. Blog post documenting the audit.~~ — **Shipped.** | ~~1 week~~ |
 | **v2 alpha — core** | § 2: `Router<S>`, `IntoResponse`, `Result<_, E>`, `nest`/`scope`, 405+`Allow`, RFC 7807, macro cleanup, `mount_all` redesign, `tako-core-local` parity decision. | 3-4 weeks |
 | **v2 alpha — server** | § 3: `Server::builder`, `tako-tls` crate, `Arc<Router>` (drop `Box::leak`), `Limits` + `HttpConfig`, unified `ConnInfo`, `tako-server-pt` merge, h2c, H3 streaming body, PROXY v2 TLV, mTLS hooks. | 3-4 weeks |
 | **v2 alpha — plugins** | § 4: backend traits, `RedisStore`, `timeout`, `traceparent`, `problem+json`, `healthcheck`, `ip_filter`, `etag`, fixes to existing plugins. | 2-3 weeks |
@@ -441,4 +441,4 @@ steps:
 
 Total: **~12-16 weeks for one engineer**, **~6-8 weeks for two**.
 
-The `1.2.0` security release should ship **before** any v2 work begins, both because the bugs are real and because a public audit blog post is an effective lead-in to a v2 announcement.
+~~The `1.2.0` security release should ship **before** any v2 work begins, both because the bugs are real and because a public audit blog post is an effective lead-in to a v2 announcement.~~ — **Done; v2 work can begin.**

@@ -41,9 +41,6 @@ url.workspace = true
 
 # Optional / feature-gated
 compio = { workspace = true, optional = true }
-compio-ws = { workspace = true, optional = true }
-compio-io = { workspace = true, optional = true }
-compio-buf = { workspace = true, optional = true }
 send_wrapper = { workspace = true, optional = true }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
@@ -57,6 +54,6 @@ file-stream = []
 plugins = []
 signals = ["tako-core/signals"]
 compio = ["dep:compio", "dep:send_wrapper", "tako-core/compio", "tako-server/compio"]
-compio-ws = ["compio", "dep:compio-ws", "dep:compio-io", "dep:compio-buf"]
+compio-ws = ["compio", "compio/io", "compio/ws"]
 http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile", "tako-server/http3"]
 webtransport = ["http3"]
