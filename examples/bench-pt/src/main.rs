@@ -67,6 +67,7 @@ fn main() {
         workers,
         pin_to_core: false,
         backlog: 1024,
+        ..Default::default()
       };
       tako::serve_per_thread(&addr, build_router(), cfg).expect("serve_per_thread");
     }
@@ -75,6 +76,7 @@ fn main() {
         workers,
         pin_to_core: false,
         backlog: 1024,
+        ..Default::default()
       };
       tako::serve_per_thread_compio(&addr, build_router(), cfg)
         .expect("serve_per_thread_compio");

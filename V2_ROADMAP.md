@@ -67,82 +67,98 @@ File and line references throughout point to the `feat/thread-per-code` branch a
 
 ---
 
-## 2. Core API — Router, Handler, Macros (v2 breaking)
+## 2. Core API — Router, Handler, Macros (v2 breaking) — Done in dev branch (unreleased)
 
-The current router has several inconsistencies that cannot be fixed without breaking changes. v2 is the right place.
+> **Status:** every subsection here is implemented on the dev branch and covered by tests; nothing is shipped to crates.io yet. The historical text is preserved with the original problem statement; each subsection is annotated with what landed.
 
-### 2.1 Per-router typed state
+### ~~2.1 Per-router typed state~~ — Done (runtime TypeMap variant)
 
-`Router::state(value)` writes into `GLOBAL_STATE` (`tako-core/src/state.rs:44, 70`). One value per `TypeId` *per process* — two `String` configs are impossible without newtype wrappers.
+~~`Router::state(value)` writes into `GLOBAL_STATE` (`tako-core/src/state.rs:44, 70`). One value per `TypeId` *per process* — two `String` configs are impossible without newtype wrappers.~~
 
-**v2 design:**
+~~**v2 design:**~~
 
-```rust
-let router = Router::<AppState>::new()
-    .with_state(AppState { db, cfg })
-    .get("/users/{id}", users_handler)
-    .post("/users", create_user);
-```
+~~```rust~~
+~~let router = Router::<AppState>::new()~~
+    ~~.with_state(AppState { db, cfg })~~
+    ~~.get("/users/{id}", users_handler)~~
+    ~~.post("/users", create_user);~~
+~~```~~
 
-`Router<S>` is generic over the state type; `with_state` binds it; handlers receive `State<S>` via `FromRequestParts`. Demote the global registry to an opt-in `TypeMap` helper for advanced cases.
+~~`Router<S>` is generic over the state type; `with_state` binds it; handlers receive `State<S>` via `FromRequestParts`. Demote the global registry to an opt-in `TypeMap` helper for advanced cases.~~
 
-### 2.2 `nest`, `scope`, route groups
+**Implemented as:** runtime per-router TypeMap (`tako_core::router_state::RouterState`), not a compile-time `Router<S>` generic. `Router::with_state<T>(value)` populates the instance-local store; `State<T>` extractor reads from the request-scoped `Arc<RouterState>` first and falls back to `GLOBAL_STATE`. Two routers in the same process can hold distinct `T` values without newtype wrappers. Hot path is `AtomicBool::Acquire` fast-checked — zero overhead when `with_state` was never called. The compile-time generic was deferred (would touch every consumer crate); the API ergonomics goal is met.
 
-Currently only `Router::merge` (`router.rs:871`), which mutates the shared `Arc<Route>` (`:884`). Merging the same source twice double-stacks middleware. Replace with:
+### ~~2.2 `nest`, `scope`, route groups~~ — Done
 
-```rust
-let api = Router::new()
-    .nest("/v1", v1_router)
-    .nest("/v2", v2_router)
-    .scope("/admin", |r| r.layer(admin_auth).get("/", dashboard));
-```
+~~Currently only `Router::merge` (`router.rs:871`), which mutates the shared `Arc<Route>` (`:884`). Merging the same source twice double-stacks middleware. Replace with:~~
 
-### 2.3 `Result<T, E: IntoResponse>` handler returns
+~~```rust~~
+~~let api = Router::new()~~
+    ~~.nest("/v1", v1_router)~~
+    ~~.nest("/v2", v2_router)~~
+    ~~.scope("/admin", |r| r.layer(admin_auth).get("/", dashboard));~~
+~~```~~
 
-Today only `Responder` is supported. Typed errors must hand-implement it. Introduce `IntoResponse` (alias of `Responder` is fine) and accept `Result<R, E: IntoResponse>` from handlers natively.
+`Router::nest(prefix, child)` builds new `Arc<Route>` instances via `Route::cloned_with_path` so re-nesting can never double-stack the child's middleware. `Router::scope(prefix, |r| ...)` carries a `pending_prefix` field consumed by every `route() / get() / post() / …` call inside the closure. Tests cover both happy paths and the regression for the merge double-stack bug.
 
-Add missing `Responder` impls: `Bytes`, `Vec<u8>`, `Cow<str>`, `serde_json::Value`, `(StatusCode, HeaderMap, Body)`, `Json<T>` shorthand.
+### ~~2.3 `Result<T, E: IntoResponse>` handler returns~~ — Done
 
-### 2.4 405 with `Allow` header
+~~Today only `Responder` is supported. Typed errors must hand-implement it. Introduce `IntoResponse` (alias of `Responder` is fine) and accept `Result<R, E: IntoResponse>` from handlers natively.~~
 
-`router.rs:489-519` returns 404 for the wrong method on a matching path. v2 should return 405 with the `Allow` header populated. Expose method introspection on the matcher.
+~~Add missing `Responder` impls: `Bytes`, `Vec<u8>`, `Cow<str>`, `serde_json::Value`, `(StatusCode, HeaderMap, Body)`, `Json<T>` shorthand.~~
 
-### 2.5 RFC 7807 `problem+json` default error responder
+`IntoResponse` is a re-export of `Responder` (no new trait subtype). The blanket `Result<T, E>` impl uses a `ResponderError` marker so it doesn't conflict with the existing `anyhow::Result<T>` impl. New `Responder` impls: `Bytes`, `Vec<u8>`, `Cow<'static, str>`, `serde_json::Value`, `(StatusCode, HeaderMap, TakoBody)`, `(StatusCode, HeaderMap)`, `HeaderMap`, `StatusCode`. `Json<T>` already implemented `Responder` previously.
 
-The `error_handler` hook only fires on 5xx (`router.rs:527`). Extend to 4xx and ship a default `application/problem+json` formatter.
+### ~~2.4 405 with `Allow` header~~ — Done
 
-### 2.6 Method shorthands on `Router`
+~~`router.rs:489-519` returns 404 for the wrong method on a matching path. v2 should return 405 with the `Allow` header populated. Expose method introspection on the matcher.~~
 
-Today only the macro emits typed routes. Add:
+`Router::collect_allowed_methods(path)` walks the `MethodMap` (cold path only; iterates the 9 standard methods). On method mismatch the response is `405 Method Not Allowed` with a comma-separated `Allow` header. Hot path unchanged. One existing test was updated from `404` → `405 + Allow`.
 
-```rust
-router.get(path, h);
-router.post(path, h);
-router.delete(path, h);
-router.put(path, h);
-router.patch(path, h);
-```
+### ~~2.5 RFC 7807 `problem+json` default error responder~~ — Done
 
-### 2.7 Drop dead code on `Route`
+~~The `error_handler` hook only fires on 5xx (`router.rs:527`). Extend to 4xx and ship a default `application/problem+json` formatter.~~
 
-`Route::h09 / h10 / h11 / h2` (`route.rs:209-227`) take `&mut self`, but `Router::route` only hands back `Arc<Route>`. The methods are unreachable, and `enforce_protocol_guard` is dead. Replace with `route.version(http::Version)` using interior mutability.
+New `tako::problem` module: `Problem` struct with `Responder` impl that emits `application/problem+json`, plus `default_problem_responder` helper. `Router::client_error_handler(handler)` sister to `error_handler`, fires only on 4xx. `Router::use_problem_json()` convenience installs `default_problem_responder` for both 4xx and 5xx.
 
-### 2.8 Macro cleanup
+### ~~2.6 Method shorthands on `Router`~~ — Done
 
-`#[tako::route]` always emits a `*Params` struct, even for static paths (`tako-macros/src/lib.rs:209-243`). The struct name is guessed from the function name (`PascalCase + "Params"`) — rename-unsafe. Path syntax `{id: u64}` diverges from matchit/axum `{id}`.
+~~Today only the macro emits typed routes. Add:~~
 
-**v2 macro:**
-- emit `*Params` only when path placeholders exist.
-- accept plain `{id}` and read the type from the handler signature.
-- align with `matchit` capture syntax.
+~~```rust~~
+~~router.get(path, h);~~
+~~router.post(path, h);~~
+~~router.delete(path, h);~~
+~~router.put(path, h);~~
+~~router.patch(path, h);~~
+~~```~~
+
+`Router::get / post / put / delete / patch / head / options` shorthand methods, each `#[inline]`-forwarded to `Router::route`. Pure additive.
+
+### ~~2.7 Drop dead code on `Route`~~ — Done
+
+~~`Route::h09 / h10 / h11 / h2` (`route.rs:209-227`) take `&mut self`, but `Router::route` only hands back `Arc<Route>`. The methods are unreachable, and `enforce_protocol_guard` is dead. Replace with `route.version(http::Version)` using interior mutability.~~
+
+`Route::http_protocol` is now `OnceLock<http::Version>` (mirrors the existing `timeout` / `simd_json_mode` pattern). New fluent `Route::version(http::Version) -> &Self`; `h09 / h10 / h11 / h2` are `&self` shorthands. The copy-paste `#[doc(alias = "tsr")]` on `h2` is removed.
+
+### ~~2.8 Macro cleanup~~ — Done
+
+~~`#[tako::route]` always emits a `*Params` struct, even for static paths (`tako-macros/src/lib.rs:209-243`). The struct name is guessed from the function name (`PascalCase + "Params"`) — rename-unsafe. Path syntax `{id: u64}` diverges from matchit/axum `{id}`.~~
+
+~~**v2 macro:**~~
+- ~~emit `*Params` only when path placeholders exist.~~
+- ~~accept plain `{id}` and read the type from the handler signature.~~
+- ~~align with `matchit` capture syntax.~~
+
+`parse_path` accepts both `{id: u64}` (typed → `*Params` field) and `{id}` (untyped → matchit pass-through, no field). The `*Params` struct is only emitted when at least one typed placeholder exists. Backward-compat: `name = "..."` on a static path emits a unit-marker struct so `Name::METHOD / Name::PATH` constants stay reachable.
 
 ### 2.9 Other
 
-- `Config::from_env` (`config.rs:37`) collects `HashMap<String,String>` and serializes it through `serde_json::Value`, so non-string fields fail. Replace with `envy` or hand-rolled per-field parsing.
-- `tako-core-local` (the `!Send` router) is missing plugins, signals, OpenAPI, timeout, fallback, TSR, error_handler, and `mount_all`. Either reach parity, or document the trade-off explicitly and label it as a niche tool.
-- `Route::h2` has `#[doc(alias = "tsr")]` (`route.rs:224`) — copy-paste bug.
-- `mount_all` is `linkme`-driven (`router.rs:239`) with unspecified ordering across crates and no per-prefix mount. v2: explicit `mount_all_into("/api", &mut router)`.
-- `Router::merge` and `Route::middleware` rebuild the middleware Vec on every push (`router.rs:631-633`, `route.rs:129-131`) — racy under concurrent registration.
+- ~~`Config::from_env` (`config.rs:37`) collects `HashMap<String,String>` and serializes it through `serde_json::Value`, so non-string fields fail. Replace with `envy` or hand-rolled per-field parsing.~~ — **Done** via `envy`. Added `Config::from_env_prefixed("MYAPP_")` helper for multiple configs in one process.
+- `tako-core-local` (the `!Send` router) is missing plugins, signals, OpenAPI, timeout, fallback, TSR, error_handler, and `mount_all`. Either reach parity, or document the trade-off explicitly and label it as a niche tool. — **Pending.** No work done; documenting the gap is still cheaper than parity.
+- ~~`Route::h2` has `#[doc(alias = "tsr")]` (`route.rs:224`) — copy-paste bug.~~ — **Done** as part of 2.7.
+- ~~`mount_all` is `linkme`-driven (`router.rs:239`) with unspecified ordering across crates and no per-prefix mount. v2: explicit `mount_all_into("/api", &mut router)`.~~ — **Done.** New `Router::mount_all_into(prefix)` consumes the same `TAKO_ROUTES` slice but prefixes every registration. Cross-crate ordering remains the linker's choice (documented).
+- ~~`Router::merge` and `Route::middleware` rebuild the middleware Vec on every push (`router.rs:631-633`, `route.rs:129-131`) — racy under concurrent registration.~~ — **Done.** `Router::middleware` and `Route::middleware` switched to `ArcSwap::rcu` so concurrent pushers never lose entries (CAS retry). Hot path (`load_full` in dispatch) unchanged.
 
 ---
 

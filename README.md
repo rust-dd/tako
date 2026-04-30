@@ -2,15 +2,24 @@
 [![Crates.io](https://img.shields.io/crates/v/tako-rs?style=flat-square)](https://crates.io/crates/tako-rs)
 ![License](https://img.shields.io/crates/l/tako-rs?style=flat-square)
 
+> **⚠️ Tako 2.0 is in progress on `main`.** The default branch carries breaking
+> changes (new `Server::builder`, `Router::with_state`, `nest`/`scope`, `405 +
+> Allow`, RFC 7807 `problem+json`, runtime-agnostic `ServerHandle`, …) that are
+> **not yet released**. For production, install the published 1.x line from
+> crates.io:
+>
+> ```toml
+> [dependencies]
+> tako-rs = "1"
+> ```
+>
+> Track 2.0 work in [`V2_ROADMAP.md`](./V2_ROADMAP.md). Expect API churn until
+> the 2.0 alpha is tagged.
+
 # 🐙 Tako — Multi-Transport Rust Framework for Modern Network Services
 
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible Rust framework for services that go beyond plain HTTP.
 > Build one cohesive application across HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP, Unix sockets, and WebTransport with a single routing, middleware, and observability model.
-
-> **Blog posts:**
-> - [Tako: A Lightweight Async Web Framework on Tokio and Hyper](https://rust-dd.com/post/tako-a-lightweight-async-web-framework-on-tokio-and-hyper)
-> - [Tako v.0.5.0 road to v.1.0.0](https://rust-dd.com/post/tako-v-0-5-0-road-to-v-1-0-0)
-> - [Tako v0.5.0 → v0.7.1-2: from "nice router" to "mini platform"](https://rust-dd.com/post/tako-v0-5-0-to-v0-7-1-2-from-nice-router-to-mini-platform)
 
 ## Why Tako
 
