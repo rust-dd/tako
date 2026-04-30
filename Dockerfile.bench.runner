@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -e
+
+MODE=${1:-multi}
+WORKERS=${2:-14}
+CONNS=${3:-200,1000}
+ADDR=127.0.0.1:18080
+WRK_THREADS=${WRK_THREADS:-10}
+DURATION=${DURATION:-20}
+
+ulimit -n 1048576 || true
+echo "[runner] kernel: $(uname -sr)"
+echo "[runner] starting bench-pt mode=$MODE workers=$WORKERS"
+
+bench-pt "$MODE" "$ADDR" "$WORKERS" &
+PID=$!
+trap 'kill $PID 2>/dev/null || true' EXIT
+
+# Wait for server to come up.
+for _ in $(seq 1 50); do
+  if curl -fsS "http://$ADDR/" > /dev/null 2>&1; then break; fi
+  sleep 0.1
+done
+
+IFS=',' read -ra C_LIST <<< "$CONNS"
+for C in "${C_LIST[@]}"; do
+  echo ""
+  echo "==== $MODE  c=$C t=$WRK_THREADS d=${DURATION}s ===="
+  wrk -t"$WRK_THREADS" -c"$C" -d"${DURATION}s" --latency "http://$ADDR/"
+  echo ""
+done

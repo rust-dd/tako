@@ -1,137 +1,135 @@
-[package]
-name = "tako-rs"
+[workspace]
+members = [
+  "tako-core",
+  "tako-core-local",
+  "tako-extractors",
+  "tako-macros",
+  "tako-server",
+  "tako-server-pt",
+  "tako-streams",
+  "tako-plugins",
+  "tako-rs",
+]
+exclude = [
+  "examples/auth",
+  "examples/extractors-multi",
+  "examples/file-stream",
+  "examples/graphql",
+  "examples/graphql-generic-ws",
+  "examples/grpc-unary",
+  "examples/health",
+  "examples/hello-world",
+  "examples/hello-world-compio",
+  "examples/hello-world-http3",
+  "examples/http3-sse",
+  "examples/job-queue",
+  "examples/json-header-map",
+  "examples/metrics-opentelemetry",
+  "examples/multipart",
+  "examples/openapi",
+  "examples/openapi-utoipa",
+  "examples/proxy-protocol",
+  "examples/signals-advanced",
+  "examples/signals-basic",
+  "examples/signals-complex",
+  "examples/signals-route",
+  "examples/signals-rpc",
+  "examples/stream-compression",
+  "examples/streams",
+  "examples/streams-compio",
+  "examples/tcp-echo",
+  "examples/tls-compio",
+  "examples/udp-echo",
+  "examples/unix-socket",
+  "examples/upload-progress",
+  "examples/websocket",
+  "examples/websocket-compio",
+  "examples/websocket-http2",
+  "examples/webtransport",
+  "examples/with-state",
+]
+resolver = "2"
+
+[workspace.package]
 version = "1.1.2"
 edition = "2024"
-description = "Multi-transport Rust framework for modern network services."
 license = "MIT"
 repository = "https://github.com/rust-dd/tako"
 authors = ["Daniel Boros <dancixx@gmail.com>"]
-keywords = ["web", "framework", "realtime", "network", "http3"]
-readme = "README.md"
-documentation = "https://docs.rs/tako-rs"
-homepage = "https://github.com/rust-dd/tako"
 
-[dependencies]
-ahash = { version = "0.8.12", features = ["serde"], optional = true }
+[workspace.dependencies]
+# Internal sub-crates
+tako-core = { path = "tako-core", version = "1.1.2" }
+tako-core-local = { path = "tako-core-local", version = "1.1.2" }
+tako-extractors = { path = "tako-extractors", version = "1.1.2" }
+tako-macros = { path = "tako-macros", version = "1.1.2" }
+tako-plugins = { path = "tako-plugins", version = "1.1.2" }
+tako-server = { path = "tako-server", version = "1.1.2" }
+tako-server-pt = { path = "tako-server-pt", version = "1.1.2" }
+tako-streams = { path = "tako-streams", version = "1.1.2" }
+
+# Required dependencies
 anyhow = "1.0.98"
-async-graphql = { version = "7.0.17", optional = true }
 async-trait = "0.1.88"
 base64 = "0.22.1"
-brotli = { version = "8.0.1", optional = true }
 bytes = "1.10.1"
-compio = { version = "0.17.0", features = ["macros", "rustls"], optional = true }
-compio-ws = { version = "0.2.0", optional = true }
-compio-io = { version = "0.8.4", optional = true }
-compio-buf = { version = "0.7.1", optional = true }
 cookie = { version = "0.18.1", features = ["private", "signed"] }
-cyper-core = { version = "0.7.0", optional = true }
-flate2 = { version = "1.1.2", optional = true }
 futures-util = "0.3.31"
 http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.3"
 hyper = { version = "1.6.0", features = ["full"] }
 hyper-util = { version = "0.1.14", features = ["tokio"] }
+linkme = "0.3"
 matchit = "0.9.1"
 mime = "0.3.17"
 mime_guess = "2.0.5"
-multer = { version = "3.1.0", optional = true }
 once_cell = "1.21.3"
 parking_lot = "0.12.5"
 pin-project-lite = "0.2.16"
-prost = { version = "0.14.1", optional = true }
-rustls = { version = "0.23.28", optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
+scc = "3.4.8"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_urlencoded = "0.7"
 serde_bytes = "0.11.17"
 serde_json = "1.0.140"
+serde_urlencoded = "0.7"
 sha1 = "0.10.6"
-simd-json = { version = "0.15.1", optional = true }
-prometheus = { version = "0.13.4", optional = true }
-opentelemetry = { version = "0.31.0", optional = true }
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"], optional = true }
-arc-swap = "1"
-scc = "3.4.8"
 smallvec = "1"
-send_wrapper = { version = "0.6", optional = true }
-sonic-rs = { version = "0.5.6", optional = true }
-tikv-jemallocator = { version = "0.6.0", optional = true }
 tokio = { version = "1.48.0", features = ["full"] }
-tokio-rustls = { version = "0.26.2", optional = true }
 tokio-stream = "0.1.17"
 tokio-tungstenite = "0.27.0"
 tokio-util = { version = "0.7.15", features = ["compat"] }
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", optional = true }
 url = "2.5.4"
 urlencoding = "2.1.3"
-utoipa = { version = "5.4", optional = true }
-uuid = { version = "1.17.0", optional = true, features = ["v4"] }
-vespera_core = { version = "0.1.43", optional = true }
-webpki-roots = { version = "1.0.1", optional = true }
-zstd = { version = "0.13.3", optional = true }
-h3 = { version = "0.0.8", optional = true }
-h3-quinn = { version = "0.0.10", optional = true }
-quinn = { version = "0.11.9", optional = true }
 
-[target.'cfg(target_os = "freebsd")'.dependencies]
-jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
-
-[target.'cfg(not(target_os = "freebsd"))'.dependencies]
-jwt-simple = { version = "0.12.12", optional = true }
-
-[features]
-async-graphql = ["dep:async-graphql"]
-compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
-compio-tls = ["compio", "tls", "dep:rustls", "dep:rustls-pemfile"]
-compio-ws = ["compio", "dep:compio-ws", "dep:compio-io", "dep:compio-buf"]
-metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
-metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
-graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
-client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
-default = []
-file-stream = []
-http2 = []
-jemalloc = ["dep:tikv-jemallocator"]
-multipart = ["dep:multer", "dep:uuid"]
-plugins = ["dep:brotli", "dep:flate2"]
-protobuf = ["dep:prost"]
-signals = []
-simd = ["dep:simd-json", "dep:sonic-rs", "jemalloc"]
-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
-grpc = ["protobuf"]
-http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
-webtransport = ["http3"]
-ahash = ["dep:ahash"]
-tako-tracing = ["dep:tracing-subscriber"]
-utoipa = ["dep:utoipa"]
-utoipa-yaml = ["utoipa", "utoipa/yaml"]
-vespera = ["dep:vespera_core"]
-zero-copy-extractors = []
-jwt-simple = ["dep:jwt-simple"]
-zstd = ["dep:zstd", "plugins"]
-
-[dev-dependencies]
-tokio = { version = "1", features = ["full", "test-util"] }
-http = "1"
-http-body-util = "0.1"
-bytes = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
-futures-util = "0.3"
+# Optional / feature-gated
+ahash = { version = "0.8.12", features = ["serde"] }
+brotli = "8.0.1"
+compio = { version = "0.17.0", features = ["macros", "rustls"] }
+compio-buf = "0.7.1"
+compio-io = "0.8.4"
+compio-ws = "0.2.0"
+cyper-core = "0.7.0"
+flate2 = "1.1.2"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+multer = "3.1.0"
+opentelemetry = "0.31.0"
+opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"] }
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
+prometheus = "0.13.4"
+prost = "0.14.1"
+quinn = "0.11.9"
+rustls = "0.23.28"
+rustls-pemfile = "2.2.0"
+send_wrapper = "0.6"
+simd-json = "0.15.1"
+sonic-rs = "0.5.6"
+tikv-jemallocator = "0.6.0"
+tokio-rustls = "0.26.2"
+uuid = { version = "1.17.0", features = ["v4"] }
+zstd = "0.13.3"
 
 [profile.release]
 lto = "fat"
 codegen-units = 1
-
-[lib]
-name = "tako"
-path = "src/lib.rs"
-doctest = false
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]

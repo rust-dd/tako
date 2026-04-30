@@ -1,0 +1,74 @@
+[package]
+name = "tako-plugins"
+description = "Internal plugin and concrete-middleware implementations for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_plugins"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+tako-extractors.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cookie.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+mime.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+pin-project-lite.workspace = true
+scc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+smallvec.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tracing.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+
+# Optional / feature-gated
+ahash = { workspace = true, optional = true }
+brotli = { workspace = true, optional = true }
+compio = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+multer = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+zstd = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
+
+[target.'cfg(not(target_os = "freebsd"))'.dependencies]
+jwt-simple = { version = "0.12.12", optional = true }
+
+[features]
+default = []
+plugins = ["dep:brotli", "dep:flate2", "tako-core/plugins"]
+multipart = ["dep:multer", "dep:uuid", "tako-extractors/multipart"]
+metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
+signals = ["tako-core/signals"]
+ahash = ["dep:ahash", "tako-core/ahash"]
+jwt-simple = ["dep:jwt-simple", "tako-extractors/jwt-simple"]
+zstd = ["dep:zstd", "plugins"]
+# compio is forwarded for cfg gating inside concrete plugin/middleware impls.
+compio = ["dep:compio", "tako-core/compio"]

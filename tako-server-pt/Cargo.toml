@@ -1,0 +1,45 @@
+[package]
+name = "tako-server-pt"
+description = "Internal thread-per-core server bootstrap for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_server_pt"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+tako-core-local = { workspace = true, optional = true }
+
+futures-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+socket2 = { version = "0.5", features = ["all"] }
+
+# Optional CPU pinning
+core_affinity = { version = "0.8", optional = true }
+
+# Optional compio runtime (io_uring on Linux, IOCP on Windows, kqueue on macOS).
+compio = { workspace = true, optional = true }
+cyper-core = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+
+[features]
+default = ["affinity"]
+affinity = ["dep:core_affinity"]
+signals = ["tako-core/signals"]
+local = ["dep:tako-core-local"]
+# The compio crate is enabled directly here without flipping `tako-core/compio`,
+# because that core feature globally switches signals/queue to compio spawn,
+# which conflicts with the existing tokio-based `tako_server::serve` path.
+compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+compio-local = ["compio", "local"]

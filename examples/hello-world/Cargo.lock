@@ -1102,8 +1102,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-rs"
-version = "1.1.1"
+name = "tako-core"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1139,6 +1139,129 @@ dependencies = [
  "tracing",
  "url",
  "urlencoding",
+]
+
+[[package]]
+name = "tako-extractors"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "cookie",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "mime",
+ "mime_guess",
+ "once_cell",
+ "parking_lot",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_urlencoded",
+ "sha1",
+ "smallvec",
+ "tako-core",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
+name = "tako-plugins"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "brotli",
+ "bytes",
+ "cookie",
+ "flate2",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "mime",
+ "once_cell",
+ "parking_lot",
+ "pin-project-lite",
+ "scc",
+ "serde",
+ "serde_json",
+ "sha1",
+ "smallvec",
+ "tako-core",
+ "tako-extractors",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
+name = "tako-rs"
+version = "1.1.2"
+dependencies = [
+ "tako-core",
+ "tako-extractors",
+ "tako-plugins",
+ "tako-server",
+ "tako-streams",
+]
+
+[[package]]
+name = "tako-server"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pin-project-lite",
+ "tako-core",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "tako-streams"
+version = "1.1.2"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mime",
+ "mime_guess",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tako-core",
+ "tako-server",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]

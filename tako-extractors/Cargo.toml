@@ -1,0 +1,64 @@
+[package]
+name = "tako-extractors"
+description = "Internal extractor implementations for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_extractors"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+cookie.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+serde_json.workspace = true
+serde_urlencoded.workspace = true
+sha1.workspace = true
+smallvec.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+urlencoding.workspace = true
+
+# Optional / feature-gated
+ahash = { workspace = true, optional = true }
+multer = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+simd-json = { workspace = true, optional = true }
+sonic-rs = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "freebsd")'.dependencies]
+jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
+
+[target.'cfg(not(target_os = "freebsd"))'.dependencies]
+jwt-simple = { version = "0.12.12", optional = true }
+
+[features]
+default = []
+ahash = ["dep:ahash", "tako-core/ahash"]
+multipart = ["dep:multer", "dep:uuid"]
+protobuf = ["dep:prost"]
+simd = ["dep:simd-json", "dep:sonic-rs"]
+jwt-simple = ["dep:jwt-simple"]
+zero-copy-extractors = []

@@ -1,0 +1,62 @@
+[package]
+name = "tako-streams"
+description = "Internal stream/upgrade transports for tako-rs (not published)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "tako_streams"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+tako-core.workspace = true
+tako-server.workspace = true
+
+anyhow.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+mime.workspace = true
+mime_guess.workspace = true
+pin-project-lite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tokio-tungstenite.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+# Optional / feature-gated
+compio = { workspace = true, optional = true }
+compio-ws = { workspace = true, optional = true }
+compio-io = { workspace = true, optional = true }
+compio-buf = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+h3 = { workspace = true, optional = true }
+h3-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+
+[features]
+default = []
+file-stream = []
+plugins = []
+signals = ["tako-core/signals"]
+compio = ["dep:compio", "dep:send_wrapper", "tako-core/compio", "tako-server/compio"]
+compio-ws = ["compio", "dep:compio-ws", "dep:compio-io", "dep:compio-buf"]
+http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile", "tako-server/http3"]
+webtransport = ["http3"]
