@@ -51,23 +51,7 @@ impl RequestId {
   pub fn new() -> Self {
     Self {
       header: HeaderName::from_static("x-request-id"),
-      generator: Arc::new(|| {
-        // Simple UUID v4 generation without dependency
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now()
-          .duration_since(UNIX_EPOCH)
-          .unwrap_or_default();
-        let seed = now.as_nanos();
-        // Simple pseudo-random ID (good enough for request correlation)
-        format!(
-          "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-          (seed & 0xFFFFFFFF) as u32,
-          ((seed >> 32) & 0xFFFF) as u16,
-          ((seed >> 48) & 0x0FFF) as u16,
-          (0x8000 | ((seed >> 60) & 0x3FFF)) as u16,
-          (seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) & 0xFFFFFFFFFFFF) as u64,
-        )
-      }),
+      generator: Arc::new(|| uuid::Uuid::new_v4().to_string()),
     }
   }
 

@@ -37,15 +37,20 @@ use std::time::Duration;
 
 use bytes::Buf;
 use bytes::Bytes;
+use bytes::BytesMut;
 use h3::quic::BidiStream;
+use h3::quic::RecvStream;
 use h3::server::RequestStream;
+use http::HeaderMap;
 use http::Request;
 use http_body::Body;
+use http_body::Frame;
 use quinn::crypto::rustls::QuicServerConfig;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::certs;
-use rustls_pemfile::pkcs8_private_keys;
+use rustls_pemfile::private_key;
+use tokio_stream::wrappers::ReceiverStream;
 
 use tako_core::body::TakoBody;
 use tako_core::router::Router;
@@ -111,7 +116,11 @@ async fn run(
     .with_no_client_auth()
     .with_single_cert(certs_vec, key)?;
 
-  tls_config.max_early_data_size = u32::MAX;
+  // 0-RTT (early data) is disabled by default: the server has no replay-protection
+  // wiring on the request path, so accepting early-data application bytes would
+  // expose idempotent endpoints to replay attacks. Re-enabling requires plumbing a
+  // replay cache and a typed extractor — see V2_ROADMAP.md § 1.5.
+  tls_config.max_early_data_size = 0;
   tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
   let server_config =
@@ -260,15 +269,70 @@ async fn handle_connection(
   Ok(())
 }
 
+/// Channel buffer for the H3 streaming body.
+///
+/// Bounds the number of in-flight frames between the QUIC receiver task and the
+/// handler so that a slow handler exerts backpressure on the client instead of
+/// growing memory unboundedly.
+const H3_BODY_CHANNEL_CAPACITY: usize = 8;
+
+/// Builds a streaming `TakoBody` backed by an HTTP/3 receive stream.
+///
+/// Spawns a forwarder task that pulls QUIC chunks via `recv_data`, emits them as
+/// `Frame::data`, and then pulls trailers via `recv_trailers` to emit a
+/// `Frame::trailers`. The bounded channel provides natural backpressure.
+fn build_h3_body<R>(mut recv: RequestStream<R, Bytes>) -> TakoBody
+where
+  R: RecvStream + Send + 'static,
+{
+  let (tx, rx) = tokio::sync::mpsc::channel::<Result<Frame<Bytes>, BoxError>>(H3_BODY_CHANNEL_CAPACITY);
+  tokio::spawn(async move {
+    loop {
+      match recv.recv_data().await {
+        Ok(Some(mut chunk)) => {
+          let mut buf = BytesMut::with_capacity(chunk.remaining());
+          while chunk.has_remaining() {
+            let slice = chunk.chunk();
+            buf.extend_from_slice(slice);
+            let len = slice.len();
+            chunk.advance(len);
+          }
+          if !buf.is_empty() && tx.send(Ok(Frame::data(buf.freeze()))).await.is_err() {
+            return;
+          }
+        }
+        Ok(None) => break,
+        Err(e) => {
+          let _ = tx.send(Err(Box::new(e) as BoxError)).await;
+          return;
+        }
+      }
+    }
+    match recv.recv_trailers().await {
+      Ok(Some(trailers)) => {
+        let _ = tx.send(Ok(Frame::trailers(trailers))).await;
+      }
+      Ok(None) => {}
+      Err(e) => {
+        let _ = tx.send(Err(Box::new(e) as BoxError)).await;
+      }
+    }
+  });
+
+  TakoBody::from_try_stream(ReceiverStream::new(rx))
+}
+
 /// Handles a single HTTP/3 request.
 async fn handle_request<S>(
   req: Request<()>,
-  mut stream: RequestStream<S, Bytes>,
+  stream: RequestStream<S, Bytes>,
   router: Arc<Router>,
   remote_addr: SocketAddr,
 ) -> Result<(), BoxError>
 where
-  S: BidiStream<Bytes>,
+  S: BidiStream<Bytes> + Send + 'static,
+  <S as BidiStream<Bytes>>::SendStream: Send + 'static,
+  <S as BidiStream<Bytes>>::RecvStream: Send + 'static,
 {
   #[cfg(feature = "signals")]
   let path = req.uri().path().to_string();
@@ -286,19 +350,13 @@ where
     .await;
   }
 
-  // Collect request body
-  let mut body_bytes = Vec::new();
-  while let Some(mut chunk) = stream.recv_data().await? {
-    while chunk.has_remaining() {
-      let bytes = chunk.chunk();
-      body_bytes.extend_from_slice(bytes);
-      chunk.advance(bytes.len());
-    }
-  }
+  // Split into send and recv halves so the handler can stream the body while we
+  // hold the send half locally for the response.
+  let (mut send_stream, recv_stream) = stream.split();
 
-  // Build request with body
+  // Build request with a streaming body (data + trailers).
   let (parts, _) = req.into_parts();
-  let body = TakoBody::from(Bytes::from(body_bytes));
+  let body = build_h3_body(recv_stream);
   let mut tako_req = Request::from_parts(parts, body);
   tako_req.extensions_mut().insert(remote_addr);
 
@@ -317,19 +375,28 @@ where
     .await;
   }
 
-  // Send response
+  // Send response head
   let (parts, body) = response.into_parts();
   let resp = http::Response::from_parts(parts, ());
+  send_stream.send_response(resp).await?;
 
-  stream.send_response(resp).await?;
-
-  // Stream body data frame by frame (supports SSE)
+  // Stream response body frame by frame; preserve trailers through to send_trailers.
   let mut body = std::pin::pin!(body);
-  while let Some(frame) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
-    match frame {
+  let mut response_trailers: Option<HeaderMap> = None;
+  while let Some(frame_res) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {
+    match frame_res {
       Ok(frame) => {
-        if let Some(data) = frame.data_ref().filter(|d| !d.is_empty()) {
-          stream.send_data(data.clone()).await?;
+        if frame.is_data() {
+          if let Ok(data) = frame.into_data()
+            && !data.is_empty()
+          {
+            send_stream.send_data(data).await?;
+          }
+        } else if frame.is_trailers() {
+          if let Ok(t) = frame.into_trailers() {
+            // Last trailer frame wins; HTTP responses are not expected to emit multiple.
+            response_trailers = Some(t);
+          }
         }
       }
       Err(e) => {
@@ -339,7 +406,11 @@ where
     }
   }
 
-  stream.finish().await?;
+  if let Some(trailers) = response_trailers {
+    send_stream.send_trailers(trailers).await?;
+  } else {
+    send_stream.finish().await?;
+  }
 
   Ok(())
 }
@@ -355,13 +426,13 @@ pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
 }
 
 /// Loads a private key from a PEM-encoded file.
+///
+/// Accepts PKCS#8, PKCS#1 (RSA) and SEC1 (EC) PEM blocks.
 pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
   let mut rd = BufReader::new(
     File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
   );
-  pkcs8_private_keys(&mut rd)
-    .next()
-    .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
-    .map(|k| k.into())
-    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
+  private_key(&mut rd)
+    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))?
+    .ok_or_else(|| anyhow::anyhow!("no PEM private key (PKCS#8, PKCS#1 or SEC1) found in '{}'", path))
 }

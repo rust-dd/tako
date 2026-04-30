@@ -166,14 +166,8 @@ impl SessionMiddleware {
 }
 
 fn generate_session_id() -> String {
-  use std::time::{SystemTime, UNIX_EPOCH};
-  let now = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_nanos();
-  let a = now.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-  let b = a.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-  format!("{:032x}{:032x}", a, b)
+  // Cryptographically secure random session ID (UUID v4 backed by getrandom).
+  uuid::Uuid::new_v4().simple().to_string()
 }
 
 fn extract_cookie_value<'a>(req: &'a Request, cookie_name: &str) -> Option<&'a str> {

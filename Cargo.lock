@@ -3681,6 +3681,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "smallvec",
+ "subtle",
  "tako-core",
  "tako-extractors",
  "tokio",

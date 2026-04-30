@@ -48,7 +48,7 @@ use hyper_util::rt::TokioIo;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls_pemfile::certs;
-use rustls_pemfile::pkcs8_private_keys;
+use rustls_pemfile::private_key;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
@@ -66,6 +66,28 @@ use tako_core::types::BoxError;
 
 /// Default drain timeout for graceful shutdown (30 seconds).
 const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
+// HTTP/2 hardening caps applied unconditionally to every connection.
+//
+// Defaults are deliberately conservative; they mitigate the CVE-2023-44487 RST flood
+// class and bound memory used by malicious or misbehaving clients. Mirrors the
+// posture that nginx/Envoy ship out of the box.
+
+/// Maximum number of concurrent open streams per H2 connection.
+#[cfg(feature = "http2")]
+const H2_MAX_CONCURRENT_STREAMS: u32 = 100;
+
+/// Maximum total header list size per request in bytes (16 KiB).
+#[cfg(feature = "http2")]
+const H2_MAX_HEADER_LIST_SIZE: u32 = 16 * 1024;
+
+/// Maximum send buffer size per stream in bytes (1 MiB).
+#[cfg(feature = "http2")]
+const H2_MAX_SEND_BUF_SIZE: usize = 1024 * 1024;
+
+/// Maximum number of pending-accept RST_STREAM frames before disconnect (CVE-2023-44487).
+#[cfg(feature = "http2")]
+const H2_MAX_PENDING_ACCEPT_RESET_STREAMS: usize = 50;
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
@@ -224,7 +246,11 @@ pub async fn run(
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
-            let h2 = http2::Builder::new(TokioExecutor::new());
+            let mut h2 = http2::Builder::new(TokioExecutor::new());
+            h2.max_concurrent_streams(H2_MAX_CONCURRENT_STREAMS)
+              .max_header_list_size(H2_MAX_HEADER_LIST_SIZE)
+              .max_send_buf_size(H2_MAX_SEND_BUF_SIZE)
+              .max_pending_accept_reset_streams(H2_MAX_PENDING_ACCEPT_RESET_STREAMS);
 
             if let Err(e) = h2.serve_connection(io, svc).await {
               tracing::error!("HTTP/2 error: {e}");
@@ -326,17 +352,17 @@ pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
 
 /// Loads a private key from a PEM-encoded file.
 ///
-/// Reads and parses a PKCS#8 private key from the specified file path. The file
-/// should contain a single PEM-encoded private key.
+/// Accepts PKCS#8, PKCS#1 (RSA) and SEC1 (EC) PEM blocks and returns the first
+/// key found. Previously this function silently rejected RSA and SEC1 keys.
 ///
 /// # Arguments
 ///
 /// * `path` - File system path to the private key file
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the file cannot be opened, read, if no private key is found,
-/// or if the private key is malformed or invalid.
+/// Returns an error if the file cannot be opened, contains no recognized
+/// private key block, or the key is malformed.
 ///
 /// # Examples
 ///
@@ -354,9 +380,7 @@ pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
   let mut rd = BufReader::new(
     File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
   );
-  pkcs8_private_keys(&mut rd)
-    .next()
-    .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
-    .map(|k| k.into())
-    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
+  private_key(&mut rd)
+    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))?
+    .ok_or_else(|| anyhow::anyhow!("no PEM private key (PKCS#8, PKCS#1 or SEC1) found in '{}'", path))
 }

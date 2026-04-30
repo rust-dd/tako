@@ -125,6 +125,7 @@ rustls-pemfile = "2.2.0"
 send_wrapper = "0.6"
 simd-json = "0.15.1"
 sonic-rs = "0.5.6"
+subtle = "2.6.1"
 tikv-jemallocator = "0.6.0"
 tokio-rustls = "0.26.2"
 uuid = { version = "1.17.0", features = ["v4"] }

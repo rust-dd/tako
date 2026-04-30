@@ -380,7 +380,6 @@ impl TakoPlugin for CompressionPlugin {
 /// to clients. It's more memory-intensive than streaming compression but may have
 /// better compression ratios for smaller responses.
 async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Responder {
-  // Parse the `Accept-Encoding` header to determine supported encodings.
   let accepted = req
     .headers()
     .get(ACCEPT_ENCODING)
@@ -413,6 +412,11 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
       return resp.into_response();
     }
   }
+
+  // The response is now compression-eligible. Always advertise that the
+  // representation depends on `Accept-Encoding` so caches don't serve a
+  // wrongly-encoded variant to a peer with different `Accept-Encoding`.
+  ensure_vary_accept_encoding(resp.headers_mut());
 
   // Collect the response body and check its size.
   let body_bytes = match resp.body_mut().collect().await {
@@ -450,9 +454,6 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
       .headers_mut()
       .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
     resp.headers_mut().remove(CONTENT_LENGTH);
-    resp
-      .headers_mut()
-      .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
   } else {
     *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
   }
@@ -500,6 +501,10 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
     }
   }
 
+  // The response is compression-eligible: advertise Vary regardless of whether we
+  // actually apply an encoding, so caches key on `Accept-Encoding`.
+  ensure_vary_accept_encoding(resp.headers_mut());
+
   // Estimate size from `Content-Length`.
   if let Some(len) = resp
     .headers()
@@ -526,37 +531,97 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
       .headers_mut()
       .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
     resp.headers_mut().remove(CONTENT_LENGTH);
-    resp
-      .headers_mut()
-      .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
   }
 
   resp.into_response()
 }
 
+/// Appends `Accept-Encoding` to the `Vary` header without duplicating it.
+///
+/// `Vary: Accept-Encoding` is required on every compression-eligible response
+/// so shared caches don't serve a wrongly-encoded representation to a different
+/// client.
+fn ensure_vary_accept_encoding(headers: &mut http::HeaderMap) {
+  let already_present = headers.get_all(VARY).iter().any(|v| {
+    v.to_str().map(|s| {
+      s.split(',')
+        .any(|tok| tok.trim().eq_ignore_ascii_case("Accept-Encoding"))
+    }).unwrap_or(false)
+  });
+  if !already_present {
+    headers.append(VARY, HeaderValue::from_static("Accept-Encoding"));
+  }
+}
+
 /// Selects the best compression encoding based on client preferences and server capabilities.
 ///
-/// This function parses the Accept-Encoding header and chooses the most preferred
-/// compression algorithm that is both supported by the client and enabled on the server.
-/// The selection prioritizes compression quality while respecting client preferences.
+/// Honors RFC 9110 quality values: a token with `q=0` is rejected, an unlisted
+/// token defers to the wildcard `*` if present, otherwise it is unacceptable.
+/// Server preference order is `br > gzip > deflate > zstd`.
 fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
-  let header = header.to_ascii_lowercase();
-  let test = |e: Encoding| header.contains(e.as_str()) && enabled.contains(&e);
-  if test(Encoding::Brotli) {
-    Some(Encoding::Brotli)
-  } else if test(Encoding::Gzip) {
-    Some(Encoding::Gzip)
-  } else if test(Encoding::Deflate) {
-    Some(Encoding::Deflate)
-  } else {
-    #[cfg(feature = "zstd")]
-    {
-      if test(Encoding::Zstd) {
-        return Some(Encoding::Zstd);
-      }
+  let parsed = parse_accept_encoding(header);
+  // Pull `*` once — it determines acceptance of any encoding not listed explicitly.
+  let wildcard_q = parsed
+    .iter()
+    .find(|(c, _)| c == "*")
+    .map(|(_, q)| *q);
+
+  let acceptable = |enc: Encoding| -> bool {
+    let name = enc.as_str();
+    match parsed.iter().find(|(c, _)| c == name) {
+      Some((_, q)) => *q > 0.0,
+      None => wildcard_q.map(|q| q > 0.0).unwrap_or(false),
     }
-    None
+  };
+
+  // Server preference order — Brotli first for ratio, Gzip second for compatibility.
+  let server_order: [Encoding; 3] = [Encoding::Brotli, Encoding::Gzip, Encoding::Deflate];
+  for enc in server_order {
+    if enabled.contains(&enc) && acceptable(enc) {
+      return Some(enc);
+    }
   }
+
+  #[cfg(feature = "zstd")]
+  {
+    if enabled.contains(&Encoding::Zstd) && acceptable(Encoding::Zstd) {
+      return Some(Encoding::Zstd);
+    }
+  }
+
+  None
+}
+
+/// Parses an `Accept-Encoding` header into `(token, q)` pairs.
+///
+/// Tokens are lowercased; `q=` is honored, defaulting to `1.0` when absent and
+/// falling back to `1.0` on parse errors.
+fn parse_accept_encoding(header: &str) -> Vec<(String, f32)> {
+  header
+    .split(',')
+    .filter_map(|piece| {
+      let piece = piece.trim();
+      if piece.is_empty() {
+        return None;
+      }
+      let mut parts = piece.split(';');
+      let coding = parts.next()?.trim().to_ascii_lowercase();
+      if coding.is_empty() {
+        return None;
+      }
+      let mut q: f32 = 1.0;
+      for param in parts {
+        let param = param.trim();
+        let qv = param
+          .strip_prefix("q=")
+          .or_else(|| param.strip_prefix("Q="));
+        if let Some(qv) = qv {
+          q = qv.parse().unwrap_or(1.0);
+        }
+      }
+      Some((coding, q))
+    })
+    .collect()
 }
 
 /// Compresses data using Gzip algorithm.

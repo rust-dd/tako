@@ -47,6 +47,8 @@
 //! router.route(Method::GET, "/public", public_handler);
 //! ```
 
+use std::fmt;
+
 use anyhow::Result;
 use http::HeaderName;
 use http::HeaderValue;
@@ -57,7 +59,9 @@ use http::header::ACCESS_CONTROL_ALLOW_HEADERS;
 use http::header::ACCESS_CONTROL_ALLOW_METHODS;
 use http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 use http::header::ACCESS_CONTROL_MAX_AGE;
+use http::header::ACCESS_CONTROL_REQUEST_HEADERS;
 use http::header::ORIGIN;
+use http::header::VARY;
 
 use tako_core::body::TakoBody;
 use tako_core::middleware::Next;
@@ -121,6 +125,42 @@ impl Default for Config {
     }
   }
 }
+
+impl Config {
+  /// Validates the CORS configuration against the Fetch spec's hard rules.
+  ///
+  /// Returns an error if the configuration would produce a header combination that
+  /// browsers reject (e.g. `Access-Control-Allow-Origin: *` together with
+  /// `Access-Control-Allow-Credentials: true`).
+  pub fn validate(&self) -> Result<(), CorsConfigError> {
+    if self.allow_credentials && self.origins.is_empty() {
+      return Err(CorsConfigError::CredentialsWithWildcardOrigin);
+    }
+    Ok(())
+  }
+}
+
+/// Errors produced when constructing an invalid [`CorsPlugin`] configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CorsConfigError {
+  /// `allow_credentials = true` was combined with no explicit origins, which would
+  /// produce `Access-Control-Allow-Origin: *` alongside `Access-Control-Allow-Credentials: true`.
+  /// Browsers reject this combination per the Fetch spec.
+  CredentialsWithWildcardOrigin,
+}
+
+impl fmt::Display for CorsConfigError {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::CredentialsWithWildcardOrigin => f.write_str(
+        "CORS misconfiguration: allow_credentials = true requires at least one explicit \
+         allowed origin; reflecting `*` together with credentials is rejected by browsers",
+      ),
+    }
+  }
+}
+
+impl std::error::Error for CorsConfigError {}
 
 /// Builder for configuring CORS policies with a fluent API.
 ///
@@ -209,10 +249,23 @@ impl CorsBuilder {
   }
 
   /// Builds the CORS plugin with the configured settings.
+  ///
+  /// # Panics
+  ///
+  /// Panics if [`Config::validate`] fails — typically when `allow_credentials = true`
+  /// is combined with an empty origin list. Use [`CorsBuilder::try_build`] to handle
+  /// the error explicitly.
   #[inline]
   #[must_use]
   pub fn build(self) -> CorsPlugin {
-    CorsPlugin { cfg: self.0 }
+    self.try_build().expect("invalid CORS configuration")
+  }
+
+  /// Builds the CORS plugin, returning an error on invalid configuration instead of panicking.
+  #[inline]
+  pub fn try_build(self) -> Result<CorsPlugin, CorsConfigError> {
+    self.0.validate()?;
+    Ok(CorsPlugin { cfg: self.0 })
   }
 }
 
@@ -279,30 +332,39 @@ impl TakoPlugin for CorsPlugin {
 /// Handles CORS processing for incoming requests including preflight and actual requests.
 async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
   let origin = req.headers().get(ORIGIN).cloned();
+  let request_headers = req.headers().get(ACCESS_CONTROL_REQUEST_HEADERS).cloned();
 
   if req.method() == Method::OPTIONS {
     let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
       .body(TakoBody::empty())
       .expect("valid CORS preflight response");
-    add_cors_headers(&cfg, origin, &mut resp);
+    add_cors_headers(&cfg, origin, request_headers.as_ref(), &mut resp);
     return resp.into_response();
   }
 
   let mut resp = next.run(req).await;
-  add_cors_headers(&cfg, origin, &mut resp);
+  add_cors_headers(&cfg, origin, request_headers.as_ref(), &mut resp);
   resp.into_response()
 }
 
 /// Adds CORS headers to HTTP responses based on configuration and request origin.
-fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Response) {
-  // Origin validation and Access-Control-Allow-Origin header
-  let allow_origin = if cfg.origins.is_empty() {
-    "*".to_string()
+fn add_cors_headers(
+  cfg: &Config,
+  origin: Option<HeaderValue>,
+  request_headers: Option<&HeaderValue>,
+  resp: &mut Response,
+) {
+  // Origin validation and Access-Control-Allow-Origin header.
+  //
+  // Invariant guarded by `Config::validate`: when `allow_credentials = true`,
+  // `cfg.origins` is non-empty — so `*` is never emitted alongside credentials.
+  let (allow_origin, mirrored_origin) = if cfg.origins.is_empty() {
+    ("*".to_string(), false)
   } else if let Some(o) = &origin {
     let s = o.to_str().unwrap_or_default();
     if cfg.origins.iter().any(|p| p == s) {
-      s.to_string()
+      (s.to_string(), true)
     } else {
       return; // Origin not allowed, don't add CORS headers
     }
@@ -314,6 +376,12 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
     ACCESS_CONTROL_ALLOW_ORIGIN,
     HeaderValue::from_str(&allow_origin).expect("valid origin header value"),
   );
+
+  // When the response varies on the request Origin (i.e. we mirrored it back),
+  // shared caches must key on Origin to avoid cross-origin response leakage.
+  if mirrored_origin {
+    resp.headers_mut().append(VARY, HeaderValue::from_static("Origin"));
+  }
 
   // Access-Control-Allow-Methods header
   let methods = if cfg.methods.is_empty() {
@@ -335,12 +403,30 @@ fn add_cors_headers(cfg: &Config, origin: Option<HeaderValue>, resp: &mut Respon
     );
   }
 
-  // Access-Control-Allow-Headers header
+  // Access-Control-Allow-Headers header.
+  //
+  // `*` is invalid in any "Allow-*" header when `Access-Control-Allow-Credentials: true`
+  // (Fetch spec). Two strategies when no explicit list is configured:
+  //   - credentials disallowed: emit `*` (browsers accept it).
+  //   - credentials allowed: reflect the request's `Access-Control-Request-Headers`
+  //     so the preflight succeeds without a footgun.
   if cfg.headers.is_empty() {
-    // Allow all request headers by default when none are explicitly configured.
-    resp
-      .headers_mut()
-      .insert(ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("*"));
+    if cfg.allow_credentials {
+      if let Some(req_h) = request_headers {
+        resp
+          .headers_mut()
+          .insert(ACCESS_CONTROL_ALLOW_HEADERS, req_h.clone());
+        resp.headers_mut().append(
+          VARY,
+          HeaderValue::from_static("Access-Control-Request-Headers"),
+        );
+      }
+      // No `Access-Control-Request-Headers` to reflect → emit nothing.
+    } else {
+      resp
+        .headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("*"));
+    }
   } else {
     let h = cfg
       .headers

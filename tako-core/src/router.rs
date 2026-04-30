@@ -427,12 +427,14 @@ impl Router {
       {
         let method_str = req.method().to_string();
         let path_str = req.uri().path().to_string();
+        let route_template = route.path.clone();
 
         route_signals
           .emit(
-            Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 2)
+            Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 3)
               .meta("method", method_str.clone())
-              .meta("path", path_str.clone()),
+              .meta("path", path_str.clone())
+              .meta("route", route_template.clone()),
           )
           .await;
 
@@ -450,9 +452,10 @@ impl Router {
 
         route_signals
           .emit(
-            Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 3)
+            Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 4)
               .meta("method", method_str)
               .meta("path", path_str)
+              .meta("route", route_template)
               .meta("status", response.status().as_u16().to_string()),
           )
           .await;

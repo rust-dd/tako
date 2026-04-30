@@ -154,8 +154,35 @@ pub mod prometheus_backend {
   use super::MetricsBackend;
   use super::Signal;
 
+  /// Derives a low-cardinality `transport` label from a connection signal.
+  ///
+  /// Replaces the per-IP `remote_addr` label which would otherwise produce
+  /// one Prometheus series per client IP.
+  fn transport_label(signal: &Signal) -> &'static str {
+    if signal.metadata.get("protocol").map(String::as_str) == Some("h3") {
+      "h3"
+    } else if signal.metadata.get("tls").map(String::as_str) == Some("true") {
+      "tls"
+    } else if signal.metadata.contains_key("unix_path") {
+      "unix"
+    } else {
+      "tcp"
+    }
+  }
+
+  /// Prefer the matched route template (`route`) over the raw URI path (`path`)
+  /// to keep label cardinality bounded by the number of registered routes.
+  fn route_label(signal: &Signal) -> &str {
+    signal
+      .metadata
+      .get("route")
+      .or_else(|| signal.metadata.get("path"))
+      .map(String::as_str)
+      .unwrap_or("")
+  }
+
   /// Basic Prometheus metrics backend that tracks HTTP request counts
-  /// and connection counts using labels for method, path, and status.
+  /// and connection counts using labels for method, route, and status.
   pub struct PrometheusMetricsBackend {
     registry: Registry,
     http_requests_total: IntCounterVec,
@@ -166,9 +193,11 @@ pub mod prometheus_backend {
 
   impl PrometheusMetricsBackend {
     pub fn new(registry: Registry) -> Self {
+      // Route-template-based labels keep cardinality bounded by route count;
+      // raw path labels would explode under `/users/:id`-style traffic.
       let http_requests_total = IntCounterVec::new(
         Opts::new("tako_http_requests_total", "Total HTTP requests completed"),
-        &["method", "path", "status"],
+        &["method", "route", "status"],
       )
       .expect("failed to create http_requests_total metric");
 
@@ -177,19 +206,20 @@ pub mod prometheus_backend {
           "tako_route_requests_total",
           "Total route-level HTTP requests completed",
         ),
-        &["method", "path", "status"],
+        &["method", "route", "status"],
       )
       .expect("failed to create route_requests_total metric");
 
+      // `transport` is bounded (tcp/tls/h3/unix); `remote_addr` was unbounded.
       let connections_opened_total = IntCounterVec::new(
         Opts::new("tako_connections_opened_total", "Total connections opened"),
-        &["remote_addr"],
+        &["transport"],
       )
       .expect("failed to create connections_opened_total metric");
 
       let connections_closed_total = IntCounterVec::new(
         Opts::new("tako_connections_closed_total", "Total connections closed"),
-        &["remote_addr"],
+        &["transport"],
       )
       .expect("failed to create connections_closed_total metric");
 
@@ -227,11 +257,7 @@ pub mod prometheus_backend {
         .get("method")
         .map(String::as_str)
         .unwrap_or("");
-      let path = signal
-        .metadata
-        .get("path")
-        .map(String::as_str)
-        .unwrap_or("");
+      let route = route_label(signal);
       let status = signal
         .metadata
         .get("status")
@@ -239,7 +265,7 @@ pub mod prometheus_backend {
         .unwrap_or("");
       self
         .http_requests_total
-        .with_label_values(&[method, path, status])
+        .with_label_values(&[method, route, status])
         .inc();
     }
 
@@ -249,11 +275,7 @@ pub mod prometheus_backend {
         .get("method")
         .map(String::as_str)
         .unwrap_or("");
-      let path = signal
-        .metadata
-        .get("path")
-        .map(String::as_str)
-        .unwrap_or("");
+      let route = route_label(signal);
       let status = signal
         .metadata
         .get("status")
@@ -261,31 +283,23 @@ pub mod prometheus_backend {
         .unwrap_or("");
       self
         .http_route_requests_total
-        .with_label_values(&[method, path, status])
+        .with_label_values(&[method, route, status])
         .inc();
     }
 
     fn on_connection_opened(&self, signal: &Signal) {
-      let addr = signal
-        .metadata
-        .get("remote_addr")
-        .map(String::as_str)
-        .unwrap_or("");
+      let transport = transport_label(signal);
       self
         .connections_opened_total
-        .with_label_values(&[addr])
+        .with_label_values(&[transport])
         .inc();
     }
 
     fn on_connection_closed(&self, signal: &Signal) {
-      let addr = signal
-        .metadata
-        .get("remote_addr")
-        .map(String::as_str)
-        .unwrap_or("");
+      let transport = transport_label(signal);
       self
         .connections_closed_total
-        .with_label_values(&[addr])
+        .with_label_values(&[transport])
         .inc();
     }
   }
@@ -327,16 +341,39 @@ pub mod opentelemetry_backend {
     }
   }
 
+  /// Derives a low-cardinality `transport` label from a connection signal.
+  fn transport_label(signal: &Signal) -> &'static str {
+    if signal.metadata.get("protocol").map(String::as_str) == Some("h3") {
+      "h3"
+    } else if signal.metadata.get("tls").map(String::as_str) == Some("true") {
+      "tls"
+    } else if signal.metadata.contains_key("unix_path") {
+      "unix"
+    } else {
+      "tcp"
+    }
+  }
+
+  /// Prefer the matched route template (`route`) over the raw URI path (`path`).
+  fn route_label(signal: &Signal) -> String {
+    signal
+      .metadata
+      .get("route")
+      .or_else(|| signal.metadata.get("path"))
+      .cloned()
+      .unwrap_or_default()
+  }
+
   impl MetricsBackend for OtelMetricsBackend {
     fn on_request_completed(&self, signal: &Signal) {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();
-      let path = signal.metadata.get("path").cloned().unwrap_or_default();
+      let route = route_label(signal);
       let status = signal.metadata.get("status").cloned().unwrap_or_default();
       self.http_requests_total.add(
         1,
         &[
           KeyValue::new("method", method),
-          KeyValue::new("path", path),
+          KeyValue::new("route", route),
           KeyValue::new("status", status),
         ],
       );
@@ -344,38 +381,28 @@ pub mod opentelemetry_backend {
 
     fn on_route_request_completed(&self, signal: &Signal) {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();
-      let path = signal.metadata.get("path").cloned().unwrap_or_default();
+      let route = route_label(signal);
       let status = signal.metadata.get("status").cloned().unwrap_or_default();
       self.http_route_requests_total.add(
         1,
         &[
           KeyValue::new("method", method),
-          KeyValue::new("path", path),
+          KeyValue::new("route", route),
           KeyValue::new("status", status),
         ],
       );
     }
 
     fn on_connection_opened(&self, signal: &Signal) {
-      let addr = signal
-        .metadata
-        .get("remote_addr")
-        .cloned()
-        .unwrap_or_default();
       self
         .connections_opened_total
-        .add(1, &[KeyValue::new("remote_addr", addr)]);
+        .add(1, &[KeyValue::new("transport", transport_label(signal))]);
     }
 
     fn on_connection_closed(&self, signal: &Signal) {
-      let addr = signal
-        .metadata
-        .get("remote_addr")
-        .cloned()
-        .unwrap_or_default();
       self
         .connections_closed_total
-        .add(1, &[KeyValue::new("remote_addr", addr)]);
+        .add(1, &[KeyValue::new("transport", transport_label(signal))]);
     }
   }
 }

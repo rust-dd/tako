@@ -300,8 +300,24 @@ async fn body_limit_content_length_reject() {
 async fn body_limit_runtime_reject() {
   use tako::middleware::body_limit::BodyLimit;
 
+  // Stream-aware enforcement: the limit fires inside the body stream, so a
+  // handler that reads the body sees an `Err` once the cap is exceeded. The
+  // limit no longer triggers when the handler ignores the body (that's the
+  // intended trade-off vs the previous buffer-and-check approach).
   let mut router = Router::new();
-  router.route(Method::POST, "/upload", |_req: Request| async { "ok" });
+  router.route(Method::POST, "/upload", |req: Request| async move {
+    let (_, body) = req.into_parts();
+    match body.collect().await {
+      Ok(_) => http::Response::builder()
+        .status(StatusCode::OK)
+        .body(TakoBody::from("ok"))
+        .unwrap(),
+      Err(_) => http::Response::builder()
+        .status(StatusCode::PAYLOAD_TOO_LARGE)
+        .body(TakoBody::from("Body exceeds allowed size"))
+        .unwrap(),
+    }
+  });
   router.middleware(BodyLimit::new_with_dynamic(5, |_| 5).into_middleware());
 
   let req = make_req_with_body(Method::POST, "/upload", "too large");
