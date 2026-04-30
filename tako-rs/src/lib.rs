@@ -45,6 +45,9 @@ pub mod __private {
 
 pub use tako_core::body;
 pub use tako_core::config;
+pub use tako_core::conn_info;
+pub use tako_core::problem;
+pub use tako_core::router_state;
 pub use tako_core::queue;
 pub use tako_core::redirect;
 pub use tako_core::responder;
@@ -102,6 +105,22 @@ pub use tako_streams::webtransport;
 pub use tako_server::server_tcp;
 pub use tako_server::server_udp;
 
+#[cfg(all(feature = "http2", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+pub use tako_server::server_h2c;
+#[cfg(all(feature = "http2", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+pub use tako_server::serve_h2c;
+#[cfg(all(feature = "http2", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+pub use tako_server::serve_h2c_with_config;
+#[cfg(all(feature = "http2", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+pub use tako_server::serve_h2c_with_shutdown;
+#[cfg(all(feature = "http2", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+pub use tako_server::serve_h2c_with_shutdown_and_config;
+
 #[cfg(all(unix, not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))))]
 pub use tako_server::server_unix;
 
@@ -124,16 +143,33 @@ pub use tako_server::server_tls_compio;
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_server::server_h3;
 
+pub use tako_server::AcceptBackoff;
+pub use tako_server::ServerConfig;
+pub use tako_server::{ServerHandle, TlsCert};
+#[cfg(not(feature = "compio"))]
+pub use tako_server::{Server, ServerBuilder};
+#[cfg(feature = "compio")]
+pub use tako_server::{CompioServer, CompioServerBuilder};
 pub use tako_server::bind_with_port_fallback;
 pub use tako_server::serve;
 pub use tako_server::serve_with_shutdown;
+#[cfg(not(feature = "compio"))]
+pub use tako_server::serve_with_config;
+#[cfg(not(feature = "compio"))]
+pub use tako_server::serve_with_shutdown_and_config;
 
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_server::serve_h3;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+pub use tako_server::serve_h3_with_config;
+#[cfg(all(feature = "http3", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_server::serve_h3_with_shutdown;
+#[cfg(all(feature = "http3", not(feature = "compio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+pub use tako_server::serve_h3_with_shutdown_and_config;
 
 #[cfg(any(
   all(feature = "tls", not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))),
@@ -147,6 +183,12 @@ pub use tako_server::serve_tls;
 ))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
 pub use tako_server::serve_tls_with_shutdown;
+#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))))]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub use tako_server::serve_tls_with_config;
+#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))))]
+#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+pub use tako_server::serve_tls_with_shutdown_and_config;
 
 /// Request data extraction utilities.
 pub mod extractors {

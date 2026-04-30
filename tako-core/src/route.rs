@@ -75,8 +75,8 @@ pub struct Route {
   /// Flag to ensure route plugins are initialized only once.
   #[cfg(feature = "plugins")]
   plugins_initialized: AtomicBool,
-  /// HTTP protocol version
-  http_protocol: Option<http::Version>,
+  /// HTTP protocol version guard (set once via [`Route::version`] / `h09`/`h10`/`h11`/`h2`).
+  http_protocol: OnceLock<http::Version>,
   /// Route-level signal arbiter.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
@@ -103,7 +103,7 @@ impl Route {
       plugins: RwLock::new(Vec::new()),
       #[cfg(feature = "plugins")]
       plugins_initialized: AtomicBool::new(false),
-      http_protocol: None,
+      http_protocol: OnceLock::new(),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
       #[cfg(any(feature = "utoipa", feature = "vespera"))]
@@ -126,9 +126,14 @@ impl Route {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
-    middlewares.push(mw);
-    self.middlewares.store(Arc::new(middlewares));
+    // RCU-style append: ArcSwap retries the closure on CAS conflict, so
+    // concurrent route-level middleware pushes cannot lose entries.
+    self.middlewares.rcu(move |current| {
+      let mut next = Vec::with_capacity(current.len() + 1);
+      next.extend(current.iter().cloned());
+      next.push(mw.clone());
+      Arc::new(next)
+    });
     self.has_middleware.store(true, Ordering::Release);
     self
   }
@@ -205,30 +210,40 @@ impl Route {
     }
   }
 
-  /// HTTP/0.9 guard
-  pub fn h09(&mut self) {
-    self.http_protocol = Some(http::Version::HTTP_09);
+  /// Restricts this route to a specific HTTP protocol version.
+  ///
+  /// Requests whose `version()` does not match are answered with
+  /// `505 HTTP Version Not Supported`. Set once at registration; later calls
+  /// are no-ops (lock-free reads in the hot path).
+  pub fn version(&self, version: http::Version) -> &Self {
+    let _ = self.http_protocol.set(version);
+    self
   }
 
-  /// HTTP/1.0 guard
-  pub fn h10(&mut self) {
-    self.http_protocol = Some(http::Version::HTTP_10);
+  /// HTTP/0.9 guard. Shorthand for [`Route::version`] with [`http::Version::HTTP_09`].
+  pub fn h09(&self) -> &Self {
+    self.version(http::Version::HTTP_09)
   }
 
-  /// HTTP/1.1 guard
-  pub fn h11(&mut self) {
-    self.http_protocol = Some(http::Version::HTTP_11);
+  /// HTTP/1.0 guard. Shorthand for [`Route::version`] with [`http::Version::HTTP_10`].
+  pub fn h10(&self) -> &Self {
+    self.version(http::Version::HTTP_10)
   }
 
-  /// HTTP/2 guard
-  #[doc(alias = "tsr")]
-  pub fn h2(&mut self) {
-    self.http_protocol = Some(http::Version::HTTP_2);
+  /// HTTP/1.1 guard. Shorthand for [`Route::version`] with [`http::Version::HTTP_11`].
+  pub fn h11(&self) -> &Self {
+    self.version(http::Version::HTTP_11)
+  }
+
+  /// HTTP/2 guard. Shorthand for [`Route::version`] with [`http::Version::HTTP_2`].
+  pub fn h2(&self) -> &Self {
+    self.version(http::Version::HTTP_2)
   }
 
   /// Returns the configured protocol guard, if any.
+  #[inline]
   pub(crate) fn protocol_guard(&self) -> Option<http::Version> {
-    self.http_protocol
+    self.http_protocol.get().copied()
   }
 
   #[cfg(feature = "signals")]
@@ -496,5 +511,54 @@ impl Route {
   #[inline]
   pub(crate) fn get_simd_json_mode(&self) -> Option<SimdJsonMode> {
     self.simd_json_mode.get().copied()
+  }
+
+  /// Builds a new `Arc<Route>` with the same handler / middlewares / config
+  /// but a different path. Used by [`crate::router::Router::nest`] to register
+  /// a child router's routes under a prefix without mutating the originals.
+  ///
+  /// Route-level plugins are *not* carried over — `TakoPlugin` is not `Clone`,
+  /// and the cloned route is treated as already-initialized so the empty
+  /// plugin list is never set up. Plugin-bearing routes should be registered
+  /// directly on the parent router after `nest`.
+  pub(crate) fn cloned_with_path(&self, new_path: String) -> Arc<Route> {
+    let cloned = Self {
+      path: new_path,
+      method: self.method.clone(),
+      handler: self.handler.clone(),
+      middlewares: ArcSwap::new(self.middlewares.load_full()),
+      has_middleware: AtomicBool::new(self.has_middleware.load(Ordering::Acquire)),
+      tsr: self.tsr,
+      #[cfg(feature = "plugins")]
+      plugins: RwLock::new(Vec::new()),
+      #[cfg(feature = "plugins")]
+      plugins_initialized: AtomicBool::new(true),
+      http_protocol: {
+        let lock = OnceLock::new();
+        if let Some(v) = self.http_protocol.get() {
+          let _ = lock.set(*v);
+        }
+        lock
+      },
+      #[cfg(feature = "signals")]
+      signals: SignalArbiter::new(),
+      #[cfg(any(feature = "utoipa", feature = "vespera"))]
+      openapi: RwLock::new(self.openapi.read().clone()),
+      timeout: {
+        let lock = OnceLock::new();
+        if let Some(v) = self.timeout.get() {
+          let _ = lock.set(*v);
+        }
+        lock
+      },
+      simd_json_mode: {
+        let lock = OnceLock::new();
+        if let Some(v) = self.simd_json_mode.get() {
+          let _ = lock.set(*v);
+        }
+        lock
+      },
+    };
+    Arc::new(cloned)
   }
 }

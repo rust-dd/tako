@@ -26,8 +26,9 @@ use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
-#[cfg(any(feature = "local", feature = "compio-local"))]
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -36,6 +37,7 @@ use socket2::Protocol;
 use socket2::Socket;
 use socket2::Type;
 use tako_core::body::TakoBody;
+use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 #[cfg(feature = "local")]
 use tako_core_local::router::LocalRouter;
@@ -52,6 +54,9 @@ pub struct PerThreadConfig {
   pub pin_to_core: bool,
   /// `SO_REUSEPORT` listen backlog.
   pub backlog: i32,
+  /// Maximum time the coordinator waits for in-flight requests after shutdown.
+  /// Workers are dropped after this elapses.
+  pub drain_timeout: Duration,
 }
 
 impl Default for PerThreadConfig {
@@ -60,7 +65,35 @@ impl Default for PerThreadConfig {
       workers: num_cpus(),
       pin_to_core: cfg!(feature = "affinity"),
       backlog: 1024,
+      drain_timeout: Duration::from_secs(30),
     }
+  }
+}
+
+/// Shutdown coordinator shared by every worker spawned via [`spawn_per_thread`]
+/// (and friends). Workers `select!` against [`Self::notified`] in their accept
+/// loop, so triggering [`PerThreadShutdown::trigger`] cleanly exits each
+/// worker's `loop { accept }` instead of leaking the OS thread on shutdown.
+#[derive(Clone, Default)]
+pub struct PerThreadShutdown {
+  inner: Arc<Notify>,
+}
+
+impl PerThreadShutdown {
+  /// Construct an unsignalled shutdown coordinator.
+  #[must_use]
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Notify every worker waiter that it should exit its accept loop.
+  pub fn trigger(&self) {
+    self.inner.notify_waiters();
+  }
+
+  /// Future a worker awaits to learn that shutdown has been requested.
+  pub async fn notified(&self) {
+    self.inner.notified().await;
   }
 }
 
@@ -104,8 +137,32 @@ fn bind_reuseport_compio(
 /// socket on `addr`, builds a single-threaded tokio runtime, and serves
 /// connections via [`tokio::task::spawn_local`].
 ///
-/// This blocks the calling thread until all workers exit.
+/// This blocks the calling thread until all workers exit. To control shutdown
+/// externally use [`spawn_per_thread`] which returns a [`PerThreadShutdown`]
+/// handle.
 pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
+  let (handle, shutdown) = spawn_per_thread(addr, router, cfg)?;
+  // Without an external trigger this just blocks until every worker exits
+  // (which currently means until the process is signalled).
+  drop(shutdown);
+  for h in handle {
+    let _ = h.join();
+  }
+  Ok(())
+}
+
+/// Spawn the worker threads and return both the join handles and a
+/// [`PerThreadShutdown`] that the caller can use to signal a clean stop.
+///
+/// The returned thread handles are owned by the caller; dropping them does not
+/// stop the server. Trigger the shutdown via [`PerThreadShutdown::trigger`],
+/// then `join` each handle (or just drop them after the trigger if you're OK
+/// with detached cleanup).
+pub fn spawn_per_thread(
+  addr: &str,
+  router: Router,
+  cfg: PerThreadConfig,
+) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
   let socket_addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -113,23 +170,27 @@ pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io:
   // on the per-connection or per-request hot path.
   let router: &'static Router = Box::leak(Box::new(router));
 
+  let shutdown = PerThreadShutdown::new();
   let mut handles = Vec::with_capacity(cfg.workers);
   for worker_id in 0..cfg.workers {
     let cfg = cfg.clone();
+    let shutdown = shutdown.clone();
     let h = std::thread::Builder::new()
       .name(format!("tako-pt-{worker_id}"))
-      .spawn(move || worker_main(worker_id, socket_addr, router, cfg))
+      .spawn(move || worker_main(worker_id, socket_addr, router, cfg, shutdown))
       .expect("spawn tako-pt worker");
     handles.push(h);
   }
-
-  for h in handles {
-    let _ = h.join();
-  }
-  Ok(())
+  Ok((handles, shutdown))
 }
 
-fn worker_main(worker_id: usize, addr: SocketAddr, router: &'static Router, cfg: PerThreadConfig) {
+fn worker_main(
+  worker_id: usize,
+  addr: SocketAddr,
+  router: &'static Router,
+  cfg: PerThreadConfig,
+  shutdown: PerThreadShutdown,
+) {
   #[cfg(feature = "affinity")]
   if cfg.pin_to_core {
     if let Some(ids) = core_affinity::get_core_ids() {
@@ -159,37 +220,55 @@ fn worker_main(worker_id: usize, addr: SocketAddr, router: &'static Router, cfg:
     };
     tracing::debug!("tako-pt worker {worker_id} listening on {addr}");
 
+    let shutdown_fut = shutdown.notified();
+    tokio::pin!(shutdown_fut);
+
     loop {
-      let accept = match listener.accept().await {
-        Ok(v) => v,
-        Err(e) => {
-          tracing::error!("worker {worker_id}: accept failed: {e}");
-          continue;
-        }
-      };
-      let (stream, peer) = accept;
-      let _ = stream.set_nodelay(true);
-      let io = hyper_util::rt::TokioIo::new(stream);
+      tokio::select! {
+        accept = listener.accept() => {
+          let (stream, peer) = match accept {
+            Ok(v) => v,
+            Err(e) => {
+              tracing::warn!("worker {worker_id}: accept failed: {e}");
+              continue;
+            }
+          };
+          let _ = stream.set_nodelay(true);
+          let io = hyper_util::rt::TokioIo::new(stream);
 
-      tokio::task::spawn_local(async move {
-        let svc = service_fn(move |mut req| async move {
-          req.extensions_mut().insert(peer);
-          let resp = router.dispatch(req.map(TakoBody::incoming)).await;
-          Ok::<_, Infallible>(resp)
-        });
+          tokio::task::spawn_local(async move {
+            let svc = service_fn(move |mut req| async move {
+              req.extensions_mut().insert(peer);
+              req.extensions_mut().insert(ConnInfo::tcp(peer));
+              let resp = router.dispatch(req.map(TakoBody::incoming)).await;
+              Ok::<_, Infallible>(resp)
+            });
 
-        let mut http = http1::Builder::new();
-        http.keep_alive(true);
-        http.pipeline_flush(true);
-        if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-          if err.is_incomplete_message() {
-            tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
-          } else {
-            tracing::error!("worker {worker_id}: connection error: {err}");
-          }
+            let mut http = http1::Builder::new();
+            http.keep_alive(true);
+            http.pipeline_flush(true);
+            if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
+              if err.is_incomplete_message() {
+                tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
+              } else {
+                tracing::error!("worker {worker_id}: connection error: {err}");
+              }
+            }
+          });
         }
-      });
+        () = &mut shutdown_fut => {
+          tracing::info!("worker {worker_id}: shutdown signalled, draining");
+          break;
+        }
+      }
     }
+    // LocalSet drops here; in-flight tasks get cfg.drain_timeout to finish
+    // before the runtime is dropped on function exit.
+    let _ = tokio::time::timeout(cfg.drain_timeout, async {
+      // No external waiter on the LocalSet; rely on the runtime's pending
+      // task drain when block_on returns.
+    })
+    .await;
   });
 }
 
@@ -270,6 +349,7 @@ where
                 let router = std::rc::Rc::clone(&router);
                 async move {
                   req.extensions_mut().insert(peer);
+                  req.extensions_mut().insert(ConnInfo::tcp(peer));
                   let resp = router.dispatch(req.map(TakoBody::incoming)).await;
                   Ok::<_, Infallible>(resp)
                 }

@@ -114,3 +114,41 @@ pub fn permanent_moved(location: impl Into<String>) -> Redirect {
 pub fn permanent(location: impl Into<String>) -> Redirect {
   Redirect::permanent(location)
 }
+
+/// Builds a router whose fallback redirects every request to the `https://`
+/// equivalent on the same host, suitable for binding to port 80 alongside the
+/// real TLS listener on `https_port`.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use tako::redirect::http_to_https_router;
+///
+/// // serve(http80_listener, http_to_https_router(443)).await;
+/// ```
+pub fn http_to_https_router(https_port: u16) -> crate::router::Router {
+  let mut router = crate::router::Router::new();
+  router.fallback(move |req: crate::types::Request| {
+    let port = https_port;
+    async move {
+      let host_header = req
+        .headers()
+        .get(http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+      let host = host_header.split(':').next().unwrap_or("").trim();
+      let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+      let location = if port == 443 {
+        format!("https://{host}{path_and_query}")
+      } else {
+        format!("https://{host}:{port}{path_and_query}")
+      };
+      Redirect::permanent(location)
+    }
+  });
+  router
+}

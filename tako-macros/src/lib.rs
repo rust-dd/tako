@@ -109,12 +109,16 @@ struct PathParam {
   ty: Type,
 }
 
-/// Parses `"/users/{id: u64}/posts/{post_id: u64}"` into the matchit-friendly
-/// stripped path `"/users/{id}/posts/{post_id}"` plus a list of `(name, type)`
-/// pairs.
+/// Parses path placeholders. Two syntaxes are accepted:
+/// - typed: `{id: u64}` — emits a field on the generated `*Params` struct
+/// - untyped: `{id}` — matchit/axum-style; passes through untouched and does
+///   not contribute to the `*Params` struct
+///
+/// Returns the matchit-friendly stripped path (every placeholder reduced to
+/// `{name}`) plus the list of typed `(name, type)` pairs only.
 fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
   let mut stripped = String::with_capacity(path.len());
-  let mut params = Vec::new();
+  let mut typed = Vec::new();
   let bytes = path.as_bytes();
   let mut i = 0;
   while i < bytes.len() {
@@ -128,31 +132,40 @@ fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
       .find(|&j| bytes[j] == b'}')
       .ok_or_else(|| syn::Error::new(span, "unclosed '{' in path"))?;
     let inner = &path[i + 1..close];
-    let (name_str, ty_str) = inner.split_once(':').ok_or_else(|| {
-      syn::Error::new(
-        span,
-        format!("placeholder '{{{inner}}}' must be 'name: Type'"),
-      )
-    })?;
-    let name: Ident = parse_str(name_str.trim()).map_err(|e| {
-      syn::Error::new(
-        span,
-        format!("invalid placeholder name '{}': {e}", name_str.trim()),
-      )
-    })?;
-    let ty: Type = parse_str(ty_str.trim()).map_err(|e| {
-      syn::Error::new(
-        span,
-        format!("invalid placeholder type '{}': {e}", ty_str.trim()),
-      )
-    })?;
-    stripped.push('{');
-    stripped.push_str(&name.to_string());
-    stripped.push('}');
-    params.push(PathParam { name, ty });
+    match inner.split_once(':') {
+      Some((name_str, ty_str)) => {
+        let name: Ident = parse_str(name_str.trim()).map_err(|e| {
+          syn::Error::new(
+            span,
+            format!("invalid placeholder name '{}': {e}", name_str.trim()),
+          )
+        })?;
+        let ty: Type = parse_str(ty_str.trim()).map_err(|e| {
+          syn::Error::new(
+            span,
+            format!("invalid placeholder type '{}': {e}", ty_str.trim()),
+          )
+        })?;
+        stripped.push('{');
+        stripped.push_str(&name.to_string());
+        stripped.push('}');
+        typed.push(PathParam { name, ty });
+      }
+      None => {
+        let name: Ident = parse_str(inner.trim()).map_err(|e| {
+          syn::Error::new(
+            span,
+            format!("invalid placeholder name '{}': {e}", inner.trim()),
+          )
+        })?;
+        stripped.push('{');
+        stripped.push_str(&name.to_string());
+        stripped.push('}');
+      }
+    }
     i = close + 1;
   }
-  Ok((stripped, params))
+  Ok((stripped, typed))
 }
 
 /// snake_case → PascalCase. `get_user` → `GetUser`. ASCII only, which is
@@ -175,6 +188,10 @@ fn pascal_case(s: &str) -> String {
 
 /// Shared expansion: given a method ident, a path literal, an optional struct
 /// name override, and the handler fn, produce the generated tokens.
+///
+/// Only emits the `*Params` struct when the path contains at least one typed
+/// placeholder (`{id: u64}`). Pure-static or untyped-only paths skip the
+/// struct entirely and just register the route.
 fn expand_route(
   method: Ident,
   path: LitStr,
@@ -189,6 +206,49 @@ fn expand_route(
   };
 
   let fn_name = &func.sig.ident;
+  let registrar_ident = format_ident!(
+    "__TAKO_REGISTER_{}",
+    fn_name.to_string().to_uppercase(),
+    span = fn_name.span()
+  );
+
+  // No typed placeholders.
+  if params.is_empty() {
+    // Explicit `name = "..."` keeps emitting a unit marker struct so callers
+    // can still reference `Name::METHOD` / `Name::PATH`. Without an override
+    // we skip the struct entirely.
+    if let Some(struct_name) = name_override {
+      let expanded: TokenStream2 = quote! {
+        pub struct #struct_name;
+
+        impl #struct_name {
+          pub const METHOD: ::tako::Method = ::tako::Method::#method;
+          pub const PATH: &'static str = #stripped;
+        }
+
+        #[::tako::__private::linkme::distributed_slice(::tako::router::TAKO_ROUTES)]
+        #[linkme(crate = ::tako::__private::linkme)]
+        static #registrar_ident: fn(&mut ::tako::router::Router) = |__router| {
+          __router.route(#struct_name::METHOD, #struct_name::PATH, #fn_name);
+        };
+
+        #func
+      };
+      return expanded.into();
+    }
+
+    let expanded: TokenStream2 = quote! {
+      #[::tako::__private::linkme::distributed_slice(::tako::router::TAKO_ROUTES)]
+      #[linkme(crate = ::tako::__private::linkme)]
+      static #registrar_ident: fn(&mut ::tako::router::Router) = |__router| {
+        __router.route(::tako::Method::#method, #stripped, #fn_name);
+      };
+
+      #func
+    };
+    return expanded.into();
+  }
+
   let struct_name = name_override.unwrap_or_else(|| {
     format_ident!(
       "{}Params",
@@ -196,11 +256,6 @@ fn expand_route(
       span = fn_name.span()
     )
   });
-  let registrar_ident = format_ident!(
-    "__TAKO_REGISTER_{}",
-    fn_name.to_string().to_uppercase(),
-    span = fn_name.span()
-  );
 
   let field_idents: Vec<&Ident> = params.iter().map(|p| &p.name).collect();
   let field_names_str: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();

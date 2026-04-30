@@ -49,6 +49,7 @@ use crate::middleware::Next;
 use crate::plugins::TakoPlugin;
 use crate::responder::Responder;
 use crate::route::Route;
+use crate::router_state::RouterState;
 #[cfg(feature = "signals")]
 use crate::signals::Signal;
 #[cfg(feature = "signals")]
@@ -97,6 +98,10 @@ pub struct Router {
   inner: MethodMap<matchit::Router<Arc<Route>>>,
   /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values.
   routes: MethodMap<Vec<Weak<Route>>>,
+  /// Optional path prefix prepended to every `route()` call while it is set.
+  /// Used by [`Router::mount_all_into`] and [`Router::scope`] (see v2 roadmap).
+  /// Only consulted at registration time — zero cost on the dispatch hot path.
+  pending_prefix: Option<String>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Fast check: true when global middleware is registered (avoids ArcSwap load on hot path).
@@ -118,6 +123,15 @@ pub struct Router {
   timeout_fallback: Option<BoxHandler>,
   /// Global error handler for 5xx responses.
   error_handler: Option<ErrorHandler>,
+  /// Global error handler for 4xx responses (opt-in; runs after dispatch).
+  client_error_handler: Option<ErrorHandler>,
+  /// Per-router typed state populated via [`Router::with_state`].
+  /// `Arc` is shared with every dispatched request via the request extension
+  /// so the `State<T>` extractor can read instance-local values.
+  router_state: Arc<RouterState>,
+  /// Fast-path flag: when `false`, dispatch skips the per-request Arc clone +
+  /// extension insert that wires `router_state` into requests.
+  has_router_state: AtomicBool,
 }
 
 impl Default for Router {
@@ -134,6 +148,7 @@ impl Router {
     let router = Self {
       inner: MethodMap::new(),
       routes: MethodMap::new(),
+      pending_prefix: None,
       middlewares: ArcSwap::new(Arc::default()),
       has_global_middleware: AtomicBool::new(false),
       fallback: None,
@@ -146,6 +161,9 @@ impl Router {
       timeout: None,
       timeout_fallback: None,
       error_handler: None,
+      client_error_handler: None,
+      router_state: Arc::new(RouterState::new()),
+      has_router_state: AtomicBool::new(false),
     };
 
     #[cfg(feature = "signals")]
@@ -191,8 +209,9 @@ impl Router {
   where
     H: Handler<T> + Clone + 'static,
   {
+    let final_path = self.apply_pending_prefix(path);
     let route = Arc::new(Route::new(
-      path.to_string(),
+      final_path.clone(),
       method.clone(),
       BoxHandler::new::<H, T>(handler),
       None,
@@ -201,7 +220,7 @@ impl Router {
     if let Err(err) = self
       .inner
       .get_or_default_mut(&method)
-      .insert(path.to_string(), route.clone())
+      .insert(final_path, route.clone())
     {
       panic!("Failed to register route: {err}");
     }
@@ -212,6 +231,94 @@ impl Router {
       .push(Arc::downgrade(&route));
 
     route
+  }
+
+  /// Returns `path` with the active `pending_prefix` (if any) prepended.
+  /// Cold path; only runs at registration time.
+  fn apply_pending_prefix(&self, path: &str) -> String {
+    match &self.pending_prefix {
+      None => path.to_string(),
+      Some(prefix) => {
+        let prefix = prefix.trim_end_matches('/');
+        if path.is_empty() || path == "/" {
+          if prefix.is_empty() { "/".to_string() } else { prefix.to_string() }
+        } else if path.starts_with('/') {
+          let mut s = String::with_capacity(prefix.len() + path.len());
+          s.push_str(prefix);
+          s.push_str(path);
+          s
+        } else {
+          let mut s = String::with_capacity(prefix.len() + 1 + path.len());
+          s.push_str(prefix);
+          s.push('/');
+          s.push_str(path);
+          s
+        }
+      }
+    }
+  }
+
+  /// Registers a `GET` route. Shorthand for [`Router::route`] with [`Method::GET`].
+  #[inline]
+  pub fn get<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::GET, path, handler)
+  }
+
+  /// Registers a `POST` route. Shorthand for [`Router::route`] with [`Method::POST`].
+  #[inline]
+  pub fn post<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::POST, path, handler)
+  }
+
+  /// Registers a `PUT` route. Shorthand for [`Router::route`] with [`Method::PUT`].
+  #[inline]
+  pub fn put<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::PUT, path, handler)
+  }
+
+  /// Registers a `DELETE` route. Shorthand for [`Router::route`] with [`Method::DELETE`].
+  #[inline]
+  pub fn delete<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::DELETE, path, handler)
+  }
+
+  /// Registers a `PATCH` route. Shorthand for [`Router::route`] with [`Method::PATCH`].
+  #[inline]
+  pub fn patch<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::PATCH, path, handler)
+  }
+
+  /// Registers a `HEAD` route. Shorthand for [`Router::route`] with [`Method::HEAD`].
+  #[inline]
+  pub fn head<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::HEAD, path, handler)
+  }
+
+  /// Registers an `OPTIONS` route. Shorthand for [`Router::route`] with [`Method::OPTIONS`].
+  #[inline]
+  pub fn options<H, T>(&mut self, path: &str, handler: H) -> Arc<Route>
+  where
+    H: Handler<T> + Clone + 'static,
+  {
+    self.route(Method::OPTIONS, path, handler)
   }
 
   /// Registers every route declared via the `#[tako::route]` / `#[tako::get]`
@@ -240,6 +347,144 @@ impl Router {
     for register in TAKO_ROUTES {
       register(self);
     }
+    self
+  }
+
+  /// Like [`Router::mount_all`] but registers every macro-declared route under
+  /// the given path prefix. The prefix is normalized (trailing `/` stripped),
+  /// then prepended to each registered path. Useful when you want, e.g., all
+  /// `#[get("/users")]` declarations to live under `/api`.
+  ///
+  /// Ordering across crates remains the linker's choice (see
+  /// [`Router::mount_all`] for details).
+  ///
+  /// # Examples
+  ///
+  /// ```ignore
+  /// let mut router = Router::new();
+  /// router.mount_all_into("/api"); // /users → /api/users, /health → /api/health
+  /// ```
+  pub fn mount_all_into(&mut self, prefix: &str) -> &mut Self {
+    let saved = self.pending_prefix.take();
+    self.pending_prefix = Some(prefix.to_string());
+    for register in TAKO_ROUTES {
+      register(self);
+    }
+    self.pending_prefix = saved;
+    self
+  }
+
+  /// Registers a group of routes under a shared path prefix.
+  ///
+  /// The closure receives `self` with the prefix active, so any `route()` /
+  /// `get()` / `post()` etc. calls inside register the routes with the prefix
+  /// prepended. Prefixes nest: a `scope("/v1", |r| r.scope("/users", …))`
+  /// produces routes under `/v1/users`. Cold path; no dispatch impact.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  /// use tako::responder::Responder;
+  ///
+  /// async fn list_users() -> impl Responder { "users" }
+  /// async fn create_user() -> impl Responder { "created" }
+  ///
+  /// let mut router = Router::new();
+  /// router.scope("/api/v1", |r| {
+  ///     r.get("/users", list_users);
+  ///     r.post("/users", create_user);
+  /// });
+  /// ```
+  pub fn scope<F>(&mut self, prefix: &str, build: F) -> &mut Self
+  where
+    F: FnOnce(&mut Router),
+  {
+    let saved = self.pending_prefix.take();
+    let new_prefix = match &saved {
+      Some(parent) => {
+        let parent = parent.trim_end_matches('/');
+        if prefix.starts_with('/') {
+          format!("{parent}{prefix}")
+        } else {
+          format!("{parent}/{prefix}")
+        }
+      }
+      None => prefix.to_string(),
+    };
+    self.pending_prefix = Some(new_prefix);
+    build(self);
+    self.pending_prefix = saved;
+    self
+  }
+
+  /// Mounts every route from a child router under the given path prefix.
+  ///
+  /// Unlike [`Router::merge`], `nest` builds **new** `Arc<Route>` instances for
+  /// each child route via `Route::cloned_with_path` — so re-nesting the same
+  /// child cannot double-stack its global middleware onto the same shared
+  /// `Arc<Route>`. The child router's global middleware chain is prepended to
+  /// each newly-registered route's middleware chain (so child globals run
+  /// before child-route middleware at dispatch time).
+  ///
+  /// Caveats:
+  /// - Route-level plugins on the child are **not** carried over.
+  /// - The child's fallback / error handlers are **not** inherited.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  /// use tako::responder::Responder;
+  ///
+  /// async fn list_users() -> impl Responder { "users" }
+  ///
+  /// let mut api = Router::new();
+  /// api.get("/users", list_users);
+  ///
+  /// let mut root = Router::new();
+  /// root.nest("/api/v1", api); // /users → /api/v1/users
+  /// ```
+  pub fn nest(&mut self, prefix: &str, child: Router) -> &mut Self {
+    let upstream_globals = child.middlewares.load_full();
+
+    for (method, weak_vec) in child.routes.iter() {
+      for weak in weak_vec {
+        let Some(child_route) = weak.upgrade() else {
+          continue;
+        };
+
+        let combined = combine_prefix_path(prefix, &child_route.path);
+        let new_path = self.apply_pending_prefix(&combined);
+
+        let new_route = child_route.cloned_with_path(new_path.clone());
+
+        if !upstream_globals.is_empty() {
+          let existing = new_route.middlewares.load_full();
+          let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
+          merged.extend(upstream_globals.iter().cloned());
+          merged.extend(existing.iter().cloned());
+          new_route.has_middleware.store(true, Ordering::Release);
+          new_route.middlewares.store(Arc::new(merged));
+        }
+
+        if let Err(err) = self
+          .inner
+          .get_or_default_mut(&method)
+          .insert(new_path, new_route.clone())
+        {
+          panic!("Failed to nest route: {err}");
+        }
+        self
+          .routes
+          .get_or_default_mut(&method)
+          .push(Arc::downgrade(&new_route));
+      }
+    }
+
+    #[cfg(feature = "signals")]
+    self.signals.merge_from(&child.signals);
+
     self
   }
 
@@ -275,8 +520,9 @@ impl Router {
       panic!("Cannot route with TSR for root path");
     }
 
+    let final_path = self.apply_pending_prefix(path);
     let route = Arc::new(Route::new(
-      path.to_string(),
+      final_path.clone(),
       method.clone(),
       BoxHandler::new::<H, T>(handler),
       Some(true),
@@ -285,7 +531,7 @@ impl Router {
     if let Err(err) = self
       .inner
       .get_or_default_mut(&method)
-      .insert(path.to_string(), route.clone())
+      .insert(final_path, route.clone())
     {
       panic!("Failed to register route: {err}");
     }
@@ -369,6 +615,29 @@ impl Router {
   /// Dispatches an incoming request to the appropriate route handler.
   #[inline]
   pub async fn dispatch(&self, mut req: Request) -> Response {
+    // Per-router state: only inject when at least one `with_state` was called.
+    // The atomic load is monomorphic and cheap; the Arc clone (atomic incref)
+    // only happens for routers that actually use instance-local state.
+    if self.has_router_state.load(Ordering::Acquire) {
+      req.extensions_mut().insert(Arc::clone(&self.router_state));
+    }
+
+    // App-level request signal — emitted here so every transport gets it for
+    // free without duplicating the boilerplate. The cost is a single string
+    // formatting pair per request and is gated to the `signals` feature.
+    #[cfg(feature = "signals")]
+    let (req_method_str, req_path_str) =
+      (req.method().to_string(), req.uri().path().to_string());
+    #[cfg(feature = "signals")]
+    {
+      SignalArbiter::emit_app(
+        Signal::with_capacity(ids::REQUEST_STARTED, 2)
+          .meta("method", req_method_str.clone())
+          .meta("path", req_path_str.clone()),
+      )
+      .await;
+    }
+
     // Phase 1: Route lookup using a borrowed path — no String allocation on the
     // hot path. The block scope ensures all borrows on `req` are released before
     // we need to mutate it.
@@ -478,7 +747,7 @@ impl Router {
         }
       }
     } else {
-      // Cold path: no direct match — try TSR redirect / fallback.
+      // Cold path: no direct match — try TSR redirect / 405 / fallback.
       // String allocation is acceptable here.
       let tsr_path = {
         let p = req.uri().path();
@@ -504,31 +773,70 @@ impl Router {
         self
           .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
           .await
-      } else if let Some(handler) = &self.fallback {
-        self
-          .run_with_global_middlewares_for_endpoint(req, handler.clone())
-          .await
       } else {
-        let handler = |_req: Request| async {
-          http::Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(TakoBody::empty())
-            .expect("valid 404 response")
-        };
+        // Method-mismatch detection: if the same path is registered for any
+        // *other* method, RFC 9110 mandates 405 with an `Allow` header rather
+        // than 404. This is the cold path; iterating the 9 standard methods
+        // is cheap.
+        let allowed = self.collect_allowed_methods(req.uri().path());
+        if !allowed.is_empty() {
+          let allow_value = join_methods(&allowed);
+          let handler = move |_req: Request| async move {
+            http::Response::builder()
+              .status(StatusCode::METHOD_NOT_ALLOWED)
+              .header(http::header::ALLOW, allow_value.clone())
+              .body(TakoBody::empty())
+              .expect("valid 405 response")
+          };
+          self
+            .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+            .await
+        } else if let Some(handler) = &self.fallback {
+          self
+            .run_with_global_middlewares_for_endpoint(req, handler.clone())
+            .await
+        } else {
+          let handler = |_req: Request| async {
+            http::Response::builder()
+              .status(StatusCode::NOT_FOUND)
+              .body(TakoBody::empty())
+              .expect("valid 404 response")
+          };
 
-        self
-          .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
-          .await
+          self
+            .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+            .await
+        }
       }
     };
 
-    self.maybe_apply_error_handler(response)
+    let response = self.maybe_apply_error_handler(response);
+
+    #[cfg(feature = "signals")]
+    {
+      SignalArbiter::emit_app(
+        Signal::with_capacity(ids::REQUEST_COMPLETED, 3)
+          .meta("method", req_method_str)
+          .meta("path", req_path_str)
+          .meta("status", response.status().as_u16().to_string()),
+      )
+      .await;
+    }
+
+    response
   }
 
-  /// Applies the global error handler if one is set and the response is a server error.
+  /// Applies the appropriate error handler if one is set:
+  /// - 5xx → [`Router::error_handler`]
+  /// - 4xx → [`Router::client_error_handler`]
   fn maybe_apply_error_handler(&self, response: Response) -> Response {
-    if response.status().is_server_error() {
+    let status = response.status();
+    if status.is_server_error() {
       if let Some(handler) = &self.error_handler {
+        return handler(response);
+      }
+    } else if status.is_client_error() {
+      if let Some(handler) = &self.client_error_handler {
         return handler(response);
       }
     }
@@ -560,6 +868,44 @@ impl Router {
   /// ```
   pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
     set_state(value);
+  }
+
+  /// Inserts a value into this router's instance-local typed state.
+  ///
+  /// Unlike [`Router::state`] (which writes the process-global registry and
+  /// therefore allows only one value per `T` per process), `with_state` is
+  /// per-router — multiple routers can hold distinct `T`s without collisions.
+  ///
+  /// The [`crate::extractors::state::State`] extractor reads the per-router
+  /// store first and falls back to the global store if no per-router value
+  /// exists, so existing code that uses `set_state` / `Router::state`
+  /// continues to work unchanged.
+  ///
+  /// Hot-path cost is one `Arc` clone per request *only when* at least one
+  /// `with_state` call has happened on this router; an `AtomicBool::Acquire`
+  /// fast-path skips it for routers that don't use instance-local state.
+  ///
+  /// # Examples
+  ///
+  /// ```rust
+  /// use tako::router::Router;
+  ///
+  /// #[derive(Clone)]
+  /// struct Db;
+  ///
+  /// let mut router = Router::new();
+  /// router.with_state(Db);
+  /// ```
+  pub fn with_state<T: Clone + Send + Sync + 'static>(&mut self, value: T) -> &mut Self {
+    self.router_state.insert(value);
+    self.has_router_state.store(true, Ordering::Release);
+    self
+  }
+
+  /// Returns the per-router typed state (shared `Arc`).
+  #[inline]
+  pub fn router_state(&self) -> &Arc<RouterState> {
+    &self.router_state
   }
 
   #[cfg(feature = "signals")]
@@ -631,9 +977,15 @@ impl Router {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    let mut middlewares = self.middlewares.load().iter().cloned().collect::<Vec<_>>();
-    middlewares.push(mw);
-    self.middlewares.store(Arc::new(middlewares));
+    // RCU-style append: rebuild the Vec atomically against concurrent pushers.
+    // ArcSwap retries the closure on CAS conflict, so concurrent middleware
+    // registrations cannot lose entries.
+    self.middlewares.rcu(move |current| {
+      let mut next = Vec::with_capacity(current.len() + 1);
+      next.extend(current.iter().cloned());
+      next.push(mw.clone());
+      Arc::new(next)
+    });
     self.has_global_middleware.store(true, Ordering::Release);
     self
   }
@@ -773,6 +1125,29 @@ impl Router {
     self
   }
 
+  /// Sets a global error handler for 4xx responses.
+  ///
+  /// Mirrors [`Router::error_handler`] but fires for client errors. Useful for
+  /// converting bare 404 / 405 / 422 responses into structured error documents
+  /// (e.g. via [`crate::problem::default_problem_responder`]).
+  pub fn client_error_handler(
+    &mut self,
+    handler: impl Fn(Response) -> Response + Send + Sync + 'static,
+  ) -> &mut Self {
+    self.client_error_handler = Some(Arc::new(handler));
+    self
+  }
+
+  /// Convenience: install [`crate::problem::default_problem_responder`] for
+  /// both 4xx and 5xx so unhandled errors always render as
+  /// `application/problem+json`.
+  pub fn use_problem_json(&mut self) -> &mut Self {
+    let h: ErrorHandler = Arc::new(crate::problem::default_problem_responder);
+    self.error_handler = Some(h.clone());
+    self.client_error_handler = Some(h);
+    self
+  }
+
   /// Registers a plugin with the router.
   ///
   /// Plugins extend the router's functionality by providing additional features
@@ -903,6 +1278,20 @@ impl Router {
     self.signals.merge_from(&other.signals);
   }
 
+  /// Returns every method that has a route matching the given path.
+  ///
+  /// Used by the 405 / `Allow` cold-path branch in [`Router::dispatch`]; not on
+  /// the fast path. Iterates all standard methods (O(9)) plus any custom ones.
+  fn collect_allowed_methods(&self, path: &str) -> SmallVec<[Method; 4]> {
+    let mut allowed = SmallVec::<[Method; 4]>::new();
+    for (method, m) in self.inner.iter() {
+      if m.at(path).is_ok() {
+        allowed.push(method);
+      }
+    }
+    allowed
+  }
+
   /// Ensures the request HTTP version satisfies the route's configured protocol guard.
   /// Returns `Some(Response)` with 505 HTTP Version Not Supported when the request
   /// doesn't match the guard, otherwise returns `None` to continue dispatch.
@@ -958,6 +1347,41 @@ impl Router {
 
     result
   }
+}
+
+/// Joins a path prefix and a child path, normalising the boundary slash.
+fn combine_prefix_path(prefix: &str, path: &str) -> String {
+  if prefix.is_empty() || prefix == "/" {
+    return path.to_string();
+  }
+  let prefix = prefix.trim_end_matches('/');
+  if path.is_empty() || path == "/" {
+    return prefix.to_string();
+  }
+  if path.starts_with('/') {
+    let mut out = String::with_capacity(prefix.len() + path.len());
+    out.push_str(prefix);
+    out.push_str(path);
+    out
+  } else {
+    let mut out = String::with_capacity(prefix.len() + 1 + path.len());
+    out.push_str(prefix);
+    out.push('/');
+    out.push_str(path);
+    out
+  }
+}
+
+/// Joins a slice of HTTP methods into a comma-separated `Allow`-header value.
+fn join_methods(methods: &[Method]) -> String {
+  let mut out = String::with_capacity(methods.len() * 8);
+  for (i, m) in methods.iter().enumerate() {
+    if i > 0 {
+      out.push_str(", ");
+    }
+    out.push_str(m.as_str());
+  }
+  out
 }
 
 /// Distributed slice of route registration thunks.
