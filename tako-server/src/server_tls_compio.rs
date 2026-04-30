@@ -240,7 +240,11 @@ pub async fn run(
           h1.keep_alive(true);
 
           if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
-            tracing::error!("HTTP/1.1 error: {e}");
+            if e.is_incomplete_message() {
+              tracing::debug!("TLS HTTP/1.1 client disconnected mid-message: {e}");
+            } else {
+              tracing::error!("HTTP/1.1 error: {e}");
+            }
           }
 
           #[cfg(feature = "signals")]

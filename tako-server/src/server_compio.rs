@@ -144,7 +144,11 @@ async fn run(
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
-            tracing::error!("Error serving connection: {err}");
+            if err.is_incomplete_message() {
+              tracing::debug!("client disconnected mid-message: {err}");
+            } else {
+              tracing::error!("Error serving connection: {err}");
+            }
           }
 
           #[cfg(feature = "signals")]

@@ -396,7 +396,11 @@ async fn run_proxy_http(
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
-            tracing::error!("Error serving PROXY protocol connection: {err}");
+            if err.is_incomplete_message() {
+              tracing::debug!("client disconnected mid-message on PROXY protocol connection: {err}");
+            } else {
+              tracing::error!("Error serving PROXY protocol connection: {err}");
+            }
           }
         });
       }

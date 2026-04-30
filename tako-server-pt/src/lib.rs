@@ -182,7 +182,11 @@ fn worker_main(worker_id: usize, addr: SocketAddr, router: &'static Router, cfg:
         http.keep_alive(true);
         http.pipeline_flush(true);
         if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-          tracing::error!("worker {worker_id}: connection error: {err}");
+          if err.is_incomplete_message() {
+            tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
+          } else {
+            tracing::error!("worker {worker_id}: connection error: {err}");
+          }
         }
       });
     }
@@ -275,7 +279,11 @@ where
               http.keep_alive(true);
               http.pipeline_flush(true);
               if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-                tracing::error!("worker {worker_id}: connection error: {err}");
+                if err.is_incomplete_message() {
+                  tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
+                } else {
+                  tracing::error!("worker {worker_id}: connection error: {err}");
+                }
               }
             });
           }
@@ -385,7 +393,11 @@ fn worker_main_compio(
         let mut http = http1::Builder::new();
         http.keep_alive(true);
         if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-          tracing::error!("worker {worker_id}: connection error: {err}");
+          if err.is_incomplete_message() {
+            tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
+          } else {
+            tracing::error!("worker {worker_id}: connection error: {err}");
+          }
         }
       })
       .detach();
@@ -482,7 +494,11 @@ where
               let mut http = http1::Builder::new();
               http.keep_alive(true);
               if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-                tracing::error!("worker {worker_id}: connection error: {err}");
+                if err.is_incomplete_message() {
+                  tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
+                } else {
+                  tracing::error!("worker {worker_id}: connection error: {err}");
+                }
               }
             })
             .detach();

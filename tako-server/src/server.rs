@@ -170,7 +170,14 @@ async fn run(
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
-            tracing::error!("Error serving connection: {err}");
+            // Hyper raises `IncompleteMessage` when the peer closes mid-request
+            // or mid-response. This is normal traffic (keep-alive races, client
+            // cancellation, NAT/proxy timeouts) and shouldn't pollute ERROR logs.
+            if err.is_incomplete_message() {
+              tracing::debug!("client disconnected mid-message: {err}");
+            } else {
+              tracing::error!("Error serving connection: {err}");
+            }
           }
 
           #[cfg(feature = "signals")]

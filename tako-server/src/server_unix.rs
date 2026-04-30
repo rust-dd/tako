@@ -231,7 +231,11 @@ async fn run_http(
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
-            tracing::error!("Error serving Unix HTTP connection: {err}");
+            if err.is_incomplete_message() {
+              tracing::debug!("client disconnected mid-message on Unix socket: {err}");
+            } else {
+              tracing::error!("Error serving Unix HTTP connection: {err}");
+            }
           }
         });
       }
