@@ -36,7 +36,6 @@
 //! });
 //! ```
 
-use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,14 +43,23 @@ use std::sync::Arc;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-
+use subtle::Choice;
+use subtle::ConstantTimeEq;
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::responder::Responder;
-use tako_core::types::BuildHasher;
 use tako_core::types::Request;
 use tako_core::types::Response;
+
+/// Constant-time match against a list of candidate tokens. See `api_key_auth` for rationale.
+fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
+  let mut found = Choice::from(0u8);
+  for candidate in candidates {
+    found |= input.ct_eq(candidate.as_slice());
+  }
+  bool::from(found)
+}
 
 /// Bearer token authentication middleware configuration.
 ///
@@ -98,8 +106,8 @@ use tako_core::types::Response;
 /// });
 /// ```
 pub struct BearerAuth {
-  /// Static token set for quick validation.
-  tokens: Option<HashSet<String, BuildHasher>>,
+  /// Static tokens (raw bytes, scanned in constant time).
+  tokens: Option<Vec<Vec<u8>>>,
   /// Custom verification function for dynamic token validation.
   verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
 }
@@ -109,10 +117,9 @@ pub struct BearerAuth {
 impl BearerAuth {
   /// Creates authentication middleware with a single static token.
   pub fn static_token(token: impl Into<String>) -> Self {
-    let mut set: HashSet<String, BuildHasher> = HashSet::with_hasher(BuildHasher::default());
-    set.insert(token.into());
+    let token: String = token.into();
     Self {
-      tokens: Some(set),
+      tokens: Some(vec![token.into_bytes()]),
       verify: None,
     }
   }
@@ -124,7 +131,12 @@ impl BearerAuth {
     I::Item: Into<String>,
   {
     Self {
-      tokens: Some(tokens.into_iter().map(Into::into).collect()),
+      tokens: Some(
+        tokens
+          .into_iter()
+          .map(|t| Into::<String>::into(t).into_bytes())
+          .collect(),
+      ),
       verify: None,
     }
   }
@@ -148,7 +160,12 @@ impl BearerAuth {
     F: Fn(&str) -> bool + Clone + Send + Sync + 'static,
   {
     Self {
-      tokens: Some(tokens.into_iter().map(Into::into).collect()),
+      tokens: Some(
+        tokens
+          .into_iter()
+          .map(|t| Into::<String>::into(t).into_bytes())
+          .collect(),
+      ),
       verify: Some(Box::new(f)),
     }
   }
@@ -192,9 +209,9 @@ impl IntoMiddleware for BearerAuth {
               .into_response();
           }
           Some(t) => {
-            // Check static token set first
+            // Check static tokens (constant-time scan)
             if let Some(set) = &tokens
-              && set.contains(t)
+              && constant_time_contains(t.as_bytes(), set)
             {
               return next.run(req).await.into_response();
             }

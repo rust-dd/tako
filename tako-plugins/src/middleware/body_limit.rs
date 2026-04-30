@@ -40,10 +40,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use http::StatusCode;
 use http::header::CONTENT_LENGTH;
-use http_body_util::BodyExt;
+use http_body_util::Limited;
 
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
@@ -158,19 +157,13 @@ where
           return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
         }
 
-        // Runtime body size enforcement: collect body and check actual size.
-        // This catches chunked/streaming bodies that bypass Content-Length checks.
+        // Stream-aware enforcement: wrap the body in `Limited` so reads past `limit`
+        // produce a `LengthLimitError` instead of buffering the entire body up-front.
+        // Handlers that consume the body see a normal body error and can return 413
+        // via `LengthLimitError` downcasting.
         let (parts, body) = req.into_parts();
-        let collected = match body.collect().await {
-          Ok(c) => c.to_bytes(),
-          Err(_) => {
-            return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
-          }
-        };
-        if collected.len() > limit {
-          return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
-        }
-        let req = http::Request::from_parts(parts, TakoBody::from(Bytes::from(collected)));
+        let limited = Limited::new(body, limit);
+        let req = http::Request::from_parts(parts, TakoBody::new(limited));
         next.run(req).await.into_response()
       })
     }

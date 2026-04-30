@@ -42,6 +42,17 @@ pub mod plugins;
 /// Response generation utilities and traits.
 pub mod responder;
 
+/// RFC 7807 / RFC 9457 `application/problem+json` error responses.
+pub mod problem;
+
+/// Unified per-connection metadata extension shared by every transport.
+pub mod conn_info;
+
+/// Shared TLS certificate / key PEM loading helpers.
+#[cfg(any(feature = "tls", feature = "http3", feature = "client"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "http3", feature = "client"))))]
+pub mod tls;
+
 /// Redirection utilities for handling HTTP redirects.
 pub mod redirect;
 
@@ -56,6 +67,9 @@ pub mod queue;
 
 /// Application state management and dependency injection.
 pub mod state;
+
+/// Per-router typed state container (instance-scoped, complements `state`).
+pub mod router_state;
 
 #[cfg(feature = "signals")]
 /// In-process signal arbiter for custom events.

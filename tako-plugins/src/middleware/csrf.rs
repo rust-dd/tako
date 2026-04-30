@@ -78,14 +78,8 @@ impl Csrf {
 }
 
 fn generate_csrf_token() -> String {
-  use std::time::{SystemTime, UNIX_EPOCH};
-  let now = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_nanos();
-  let a = now.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-  let b = a.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-  format!("{:016x}{:016x}", a & 0xFFFFFFFFFFFFFFFF, b & 0xFFFFFFFFFFFFFFFF)
+  // Cryptographically secure random CSRF token (UUID v4 backed by getrandom).
+  uuid::Uuid::new_v4().simple().to_string()
 }
 
 fn is_unsafe_method(method: &Method) -> bool {

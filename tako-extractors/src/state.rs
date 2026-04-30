@@ -25,6 +25,7 @@ use http::request::Parts;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;
+use tako_core::router_state::RouterState;
 use tako_core::state::get_state;
 use tako_core::types::Request;
 
@@ -50,6 +51,17 @@ impl Responder for MissingState {
   }
 }
 
+/// Reads `T` from the per-router typed state first (when the router was set
+/// up via `Router::with_state`), falling back to the process-global registry.
+fn lookup<T: Send + Sync + 'static>(extensions: &http::Extensions) -> Option<Arc<T>> {
+  if let Some(rs) = extensions.get::<Arc<RouterState>>() {
+    if let Some(arc) = rs.get::<T>() {
+      return Some(arc);
+    }
+  }
+  get_state::<T>()
+}
+
 impl<'a, T> FromRequest<'a> for State<T>
 where
   T: Send + Sync + 'static,
@@ -57,9 +69,9 @@ where
   type Error = MissingState;
 
   fn from_request(
-    _req: &'a mut Request,
+    req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(match get_state::<T>() {
+    futures_util::future::ready(match lookup::<T>(req.extensions()) {
       Some(arc) => Ok(Self(arc)),
       None => Err(MissingState),
     })
@@ -73,9 +85,9 @@ where
   type Error = MissingState;
 
   fn from_request_parts(
-    _parts: &'a mut Parts,
+    parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(match get_state::<T>() {
+    futures_util::future::ready(match lookup::<T>(&parts.extensions) {
       Some(arc) => Ok(Self(arc)),
       None => Err(MissingState),
     })

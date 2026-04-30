@@ -33,16 +33,24 @@ pub struct Config<T: Clone>(pub T);
 impl<T: DeserializeOwned + Clone> Config<T> {
   /// Loads configuration from environment variables.
   ///
-  /// Field names are converted to uppercase with underscores (e.g., `database_url` -> `DATABASE_URL`).
+  /// Field names are matched against environment variable names case-insensitively
+  /// (`database_url` ↔ `DATABASE_URL`). Non-string fields (`u16`, `bool`, …) are
+  /// parsed via the `envy` crate's per-field deserializers, so a typed
+  /// `port: u16` reads `PORT=8080` natively without relying on JSON number
+  /// coercion (which the previous serde_json-roundtrip implementation got wrong).
   pub fn from_env() -> Result<Self, ConfigError> {
-    // Collect all env vars into a map
-    let vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let config: T = envy::from_env::<T>().map_err(|e| ConfigError(e.to_string()))?;
+    Ok(Config(config))
+  }
 
-    // Serialize the map to JSON, then deserialize into T
-    let value = serde_json::to_value(&vars).map_err(|e| ConfigError(e.to_string()))?;
-    let config: T =
-      serde_json::from_value(value).map_err(|e| ConfigError(e.to_string()))?;
-
+  /// Loads configuration from environment variables that share a common prefix.
+  ///
+  /// Useful when several configs coexist in the process — set
+  /// `MYAPP_DATABASE_URL`, `MYAPP_PORT`, … and call `Config::from_env_prefixed("MYAPP_")`.
+  pub fn from_env_prefixed(prefix: &str) -> Result<Self, ConfigError> {
+    let config: T = envy::prefixed(prefix)
+      .from_env::<T>()
+      .map_err(|e| ConfigError(e.to_string()))?;
     Ok(Config(config))
   }
 

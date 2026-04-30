@@ -18,15 +18,24 @@ pub fn set_tracing_level(level_filter: LevelFilter) {
 }
 
 /// Initializes the global tracing subscriber with formatted output.
+///
+/// Idempotent: calling more than once (e.g. when several `serve_*` entry
+/// points run in the same process) is a no-op after the first install. This
+/// avoids the `SetGlobalDefaultError` panic the previous unconditional
+/// `init()` produced under the `Server::builder` integration tests.
 pub fn init_tracing() {
-  tracing_subscriber::registry()
-    .with(
-      tracing_subscriber::fmt::layer()
-        .with_span_events(FmtSpan::CLOSE)
-        .with_file(true)
-        .with_line_number(true)
-        .with_level(true)
-        .with_filter(unsafe { TRACING_LEVEL }),
-    )
-    .init();
+  use std::sync::Once;
+  static INIT: Once = Once::new();
+  INIT.call_once(|| {
+    let _ = tracing_subscriber::registry()
+      .with(
+        tracing_subscriber::fmt::layer()
+          .with_span_events(FmtSpan::CLOSE)
+          .with_file(true)
+          .with_line_number(true)
+          .with_level(true)
+          .with_filter(unsafe { TRACING_LEVEL }),
+      )
+      .try_init();
+  });
 }

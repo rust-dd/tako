@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use compio_ws::tungstenite::Message;
+use compio::ws::tungstenite::Message;
 use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;

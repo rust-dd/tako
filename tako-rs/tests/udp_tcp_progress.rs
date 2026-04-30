@@ -66,7 +66,10 @@ async fn upload_progress_callback_fires() {
   });
   let mw = progress.into_middleware();
 
-  async fn handler(_req: Request) -> impl Responder {
+  // Streaming progress increments only as the body is read; drain it explicitly.
+  async fn handler(req: Request) -> impl Responder {
+    use http_body_util::BodyExt;
+    let _ = req.into_body().collect().await;
     "ok"
   }
 
@@ -104,11 +107,11 @@ async fn upload_progress_tracker_in_extensions() {
   let mw = progress.into_middleware();
 
   async fn handler(req: Request) -> impl Responder {
-    let bytes = req
-      .extensions()
-      .get::<ProgressTracker>()
-      .map(|t| t.bytes_read())
-      .unwrap_or(0);
+    use http_body_util::BodyExt;
+    let tracker = req.extensions().get::<ProgressTracker>().cloned();
+    // Drain the body so the streaming progress wrapper increments the counter.
+    let _ = req.into_body().collect().await;
+    let bytes = tracker.map(|t| t.bytes_read()).unwrap_or(0);
     format!("{bytes}")
   }
 
@@ -148,11 +151,11 @@ async fn upload_progress_percent_via_tracker() {
   let mw = progress.into_middleware();
 
   async fn handler(req: Request) -> impl Responder {
-    let pct = req
-      .extensions()
-      .get::<ProgressTracker>()
-      .and_then(|t| t.percent())
-      .unwrap_or(0);
+    use http_body_util::BodyExt;
+    let tracker = req.extensions().get::<ProgressTracker>().cloned();
+    // Drain the body so the streaming progress wrapper increments the counter.
+    let _ = req.into_body().collect().await;
+    let pct = tracker.and_then(|t| t.percent()).unwrap_or(0);
     format!("{pct}")
   }
 

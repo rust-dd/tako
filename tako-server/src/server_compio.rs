@@ -2,7 +2,6 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
 use compio::net::TcpListener;
 use cyper_core::HyperStream;
@@ -12,20 +11,23 @@ use hyper::service::service_fn;
 use tokio::sync::Notify;
 
 use tako_core::body::TakoBody;
+use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::Signal;
-#[cfg(feature = "signals")]
-use tako_core::signals::SignalArbiter;
-#[cfg(feature = "signals")]
-use tako_core::signals::ids;
+use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
 
-/// Default drain timeout for graceful shutdown (30 seconds).
-const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+use crate::ServerConfig;
 
 pub async fn serve(listener: TcpListener, router: Router) {
-  if let Err(e) = run(listener, router, None::<std::future::Pending<()>>).await {
+  if let Err(e) = run(
+    listener,
+    router,
+    None::<std::future::Pending<()>>,
+    ServerConfig::default(),
+  )
+  .await
+  {
     tracing::error!("Server error: {e}");
   }
 }
@@ -36,7 +38,26 @@ pub async fn serve_with_shutdown(
   router: Router,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run(listener, router, Some(signal)).await {
+  if let Err(e) = run(listener, router, Some(signal), ServerConfig::default()).await {
+    tracing::error!("Server error: {e}");
+  }
+}
+
+/// Like [`serve`] with caller-supplied [`ServerConfig`].
+pub async fn serve_with_config(listener: TcpListener, router: Router, config: ServerConfig) {
+  if let Err(e) = run(listener, router, None::<std::future::Pending<()>>, config).await {
+    tracing::error!("Server error: {e}");
+  }
+}
+
+/// Like [`serve_with_shutdown`] with caller-supplied [`ServerConfig`].
+pub async fn serve_with_shutdown_and_config(
+  listener: TcpListener,
+  router: Router,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run(listener, router, Some(signal), config).await {
     tracing::error!("Server error: {e}");
   }
 }
@@ -45,6 +66,7 @@ async fn run(
   listener: TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   tako_core::tracing::init_tracing();
@@ -56,20 +78,15 @@ async fn run(
   let addr_str = listener.local_addr()?.to_string();
 
   #[cfg(feature = "signals")]
-  {
-    SignalArbiter::emit_app(
-      Signal::with_capacity(ids::SERVER_STARTED, 3)
-        .meta("addr", addr_str.clone())
-        .meta("transport", "tcp")
-        .meta("tls", "false"),
-    )
-    .await;
-  }
+  signal_tx::emit_server_started(&addr_str, "tcp", false).await;
 
   tracing::debug!("Tako listening on {}", addr_str);
 
   let inflight = Arc::new(AtomicUsize::new(0));
   let drain_notify = Arc::new(Notify::new());
+  let drain_timeout = config.drain_timeout;
+  let keep_alive = config.keep_alive;
+  let _max_connections = config.max_connections;
 
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
@@ -94,53 +111,20 @@ async fn run(
 
         compio::runtime::spawn(async move {
           #[cfg(feature = "signals")]
-          {
-            SignalArbiter::emit_app(
-              Signal::with_capacity(ids::CONNECTION_OPENED, 1)
-                .meta("remote_addr", addr.to_string()),
-            )
-            .await;
-          }
+          signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 
           let svc = service_fn(move |mut req| {
             let router = router.clone();
             async move {
-              #[cfg(feature = "signals")]
-              let path = req.uri().path().to_string();
-              #[cfg(feature = "signals")]
-              let method = req.method().to_string();
-
               req.extensions_mut().insert(addr);
-
-              #[cfg(feature = "signals")]
-              {
-                SignalArbiter::emit_app(
-                  Signal::with_capacity(ids::REQUEST_STARTED, 2)
-                    .meta("method", method.clone())
-                    .meta("path", path.clone()),
-                )
-                .await;
-              }
-
+              req.extensions_mut().insert(ConnInfo::tcp(addr));
               let response = router.dispatch(req.map(TakoBody::new)).await;
-
-              #[cfg(feature = "signals")]
-              {
-                SignalArbiter::emit_app(
-                  Signal::with_capacity(ids::REQUEST_COMPLETED, 3)
-                    .meta("method", method)
-                    .meta("path", path)
-                    .meta("status", response.status().as_u16().to_string()),
-                )
-                .await;
-              }
-
               Ok::<_, Infallible>(response)
             }
           });
 
           let mut http = http1::Builder::new();
-          http.keep_alive(true);
+          http.keep_alive(keep_alive);
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
@@ -152,17 +136,12 @@ async fn run(
           }
 
           #[cfg(feature = "signals")]
-          {
-            SignalArbiter::emit_app(
-              Signal::with_capacity(ids::CONNECTION_CLOSED, 1)
-                .meta("remote_addr", addr.to_string()),
-            )
-            .await;
-          }
+          signal_tx::emit_connection_closed(&addr.to_string(), false, None).await;
 
-          if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-            drain_notify.notify_one();
-          }
+          inflight.fetch_sub(1, Ordering::SeqCst);
+          // Wake every drainer waiter — notify_one() races against waiters
+          // registered between the load and the await on the coordinator side.
+          drain_notify.notify_waiters();
         })
         .detach();
       }
@@ -173,21 +152,32 @@ async fn run(
     }
   }
 
-  // Drain in-flight connections
-  if inflight.load(Ordering::SeqCst) > 0 {
+  // Drain in-flight connections — re-check inflight after every notification
+  // and bail when the overall deadline elapses, so a connection that closes
+  // between the load and the await still satisfies the drain.
+  let drain_deadline = std::time::Instant::now() + drain_timeout;
+  while inflight.load(Ordering::SeqCst) > 0 {
+    let now = std::time::Instant::now();
+    if now >= drain_deadline {
+      tracing::warn!(
+        "Drain timeout ({:?}) exceeded, {} connections still active",
+        drain_timeout,
+        inflight.load(Ordering::SeqCst)
+      );
+      break;
+    }
+    let remaining = drain_deadline - now;
     let drain_wait = drain_notify.notified();
-    let sleep = compio::time::sleep(DEFAULT_DRAIN_TIMEOUT);
+    let sleep = compio::time::sleep(remaining);
     let drain_wait = std::pin::pin!(drain_wait);
     let sleep = std::pin::pin!(sleep);
-    match futures_util::future::select(drain_wait, sleep).await {
-      Either::Left(_) => {}
-      Either::Right(_) => {
-        tracing::warn!(
-          "Drain timeout ({:?}) exceeded, {} connections still active",
-          DEFAULT_DRAIN_TIMEOUT,
-          inflight.load(Ordering::SeqCst)
-        );
-      }
+    if let Either::Right(_) = futures_util::future::select(drain_wait, sleep).await {
+      tracing::warn!(
+        "Drain timeout ({:?}) exceeded, {} connections still active",
+        drain_timeout,
+        inflight.load(Ordering::SeqCst)
+      );
+      break;
     }
   }
 

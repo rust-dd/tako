@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
-compio = { version = "0.17.0", features = ["macros"] }
+compio = { version = "0.18.0", features = ["macros", "net"] }
 http = "1"
 tako-rs = { path = "../../tako-rs", features = ["compio-tls"] }
 

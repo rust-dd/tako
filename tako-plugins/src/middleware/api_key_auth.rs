@@ -32,7 +32,6 @@
 //! ```
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -40,14 +39,28 @@ use std::sync::Arc;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
+use subtle::Choice;
+use subtle::ConstantTimeEq;
 
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::responder::Responder;
-use tako_core::types::BuildHasher;
 use tako_core::types::Request;
 use tako_core::types::Response;
+
+/// Constant-time match against a list of candidate keys.
+///
+/// Iterates the full list every call; per-byte comparison uses `subtle::ConstantTimeEq`
+/// so equal-length matches do not leak via wall-clock. Length mismatches still return
+/// faster than equal-length compares — clients learn key length but not contents.
+fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
+  let mut found = Choice::from(0u8);
+  for candidate in candidates {
+    found |= input.ct_eq(candidate.as_slice());
+  }
+  bool::from(found)
+}
 
 /// Location where the API key should be extracted from.
 #[derive(Clone)]
@@ -90,8 +103,8 @@ impl Default for ApiKeyLocation {
 /// });
 /// ```
 pub struct ApiKeyAuth {
-  /// Static API key set for quick validation.
-  keys: Option<HashSet<String, BuildHasher>>,
+  /// Static API keys (raw bytes, scanned in constant time).
+  keys: Option<Vec<Vec<u8>>>,
   /// Custom verification function for dynamic key validation.
   verify: Option<Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
   /// Location to extract the API key from.
@@ -103,10 +116,9 @@ impl ApiKeyAuth {
   ///
   /// By default, the key is extracted from the `X-API-Key` header.
   pub fn new(key: impl Into<String>) -> Self {
-    let mut set: HashSet<String, BuildHasher> = HashSet::with_hasher(BuildHasher::default());
-    set.insert(key.into());
+    let key: String = key.into();
     Self {
-      keys: Some(set),
+      keys: Some(vec![key.into_bytes()]),
       verify: None,
       location: ApiKeyLocation::default(),
     }
@@ -119,7 +131,12 @@ impl ApiKeyAuth {
     I::Item: Into<String>,
   {
     Self {
-      keys: Some(keys.into_iter().map(Into::into).collect()),
+      keys: Some(
+        keys
+          .into_iter()
+          .map(|k| Into::<String>::into(k).into_bytes())
+          .collect(),
+      ),
       verify: None,
       location: ApiKeyLocation::default(),
     }
@@ -145,7 +162,12 @@ impl ApiKeyAuth {
     F: Fn(&str) -> bool + Send + Sync + 'static,
   {
     Self {
-      keys: Some(keys.into_iter().map(Into::into).collect()),
+      keys: Some(
+        keys
+          .into_iter()
+          .map(|k| Into::<String>::into(k).into_bytes())
+          .collect(),
+      ),
       verify: Some(Arc::new(f)),
       location: ApiKeyLocation::default(),
     }
@@ -248,9 +270,9 @@ impl IntoMiddleware for ApiKeyAuth {
           }
         };
 
-        // Validate against static keys
+        // Validate against static keys (constant-time scan)
         if let Some(set) = &keys {
-          if set.contains(api_key.as_ref()) {
+          if constant_time_contains(api_key.as_bytes(), set) {
             return next.run(req).await.into_response();
           }
         }

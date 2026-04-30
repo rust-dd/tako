@@ -88,7 +88,8 @@ impl Default for Config {
     Self {
       header: HeaderName::from_static("idempotency-key"),
       methods: vec![Method::POST],
-      ttl_secs: 30,
+      // Matches the documented default on `Config::ttl_secs` (24h).
+      ttl_secs: 86400,
       scope: Scope::MethodAndPath,
       coalesce_inflight: true,
       inflight_wait_timeout_ms: None,
@@ -368,18 +369,30 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
         if cfg.verify_payload && payload_sig != sig {
           return conflict();
         }
-        // Wait for completion
+        // Wait for completion, honoring the optional timeout on both runtimes.
         if let Some(_ms) = cfg.inflight_wait_timeout_ms {
           #[cfg(not(feature = "compio"))]
           {
             let _ = timeout(Duration::from_millis(_ms), notify.notified()).await;
           }
-          // compio::time::sleep is !Send, so we cannot use it inside a
-          // middleware handler (BoxMiddleware requires Send futures).
-          // Fall through to the unconditional wait below.
+          // compio's timer futures are !Send, so we cannot await them directly inside
+          // a middleware handler (whose returned future is required to be Send).
+          // Forward the timeout through a helper compio task that fires `Notify`
+          // — `Notified` is Send, which keeps the middleware future Send-clean.
           #[cfg(feature = "compio")]
           {
-            notify.notified().await;
+            let timeout_signal = Arc::new(Notify::new());
+            let timer_signal = timeout_signal.clone();
+            compio::runtime::spawn(async move {
+              compio::time::sleep(Duration::from_millis(_ms)).await;
+              timer_signal.notify_waiters();
+            })
+            .detach();
+            futures_util::future::select(
+              std::pin::pin!(notify.notified()),
+              std::pin::pin!(timeout_signal.notified()),
+            )
+            .await;
           }
         } else {
           notify.notified().await;

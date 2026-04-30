@@ -44,7 +44,6 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -52,14 +51,14 @@ use tokio::io::AsyncReadExt;
 use tokio::task::JoinSet;
 
 use tako_core::body::TakoBody;
+use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
 
+use crate::ServerConfig;
+
 /// PROXY protocol v2 binary signature (12 bytes).
 const PROXY_V2_SIG: [u8; 12] = *b"\r\n\r\n\0\r\nQUIT\n";
-
-/// Default drain timeout for graceful shutdown.
-const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// PROXY protocol version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,10 +75,59 @@ pub enum ProxyTransport {
   Unknown,
 }
 
+/// Raw PROXY v2 TLV (Type-Length-Value) field.
+///
+/// Most known TLV types (`authority`, `aws_vpc_endpoint_id`, `tls_*`) are also
+/// surfaced as dedicated fields on [`ProxyHeader`]; `tlvs` keeps the unparsed
+/// list so callers can extract custom or future-defined types.
+#[derive(Debug, Clone)]
+pub struct ProxyTlv {
+  /// PP2_TYPE_* identifier byte.
+  pub kind: u8,
+  /// Raw TLV value bytes.
+  pub value: Vec<u8>,
+}
+
+/// TLS-derived PROXY v2 sub-TLVs (PP2_TYPE_SSL container, type 0x20).
+#[derive(Debug, Clone, Default)]
+pub struct ProxyTlsInfo {
+  /// PP2_CLIENT_SSL bitfield.
+  pub client_flags: u8,
+  /// rustls/openssl-style verify result code.
+  pub verify: u32,
+  /// PP2_SUBTYPE_SSL_VERSION (e.g. `"TLSv1.3"`).
+  pub version: Option<String>,
+  /// PP2_SUBTYPE_SSL_CN (peer common name).
+  pub common_name: Option<String>,
+  /// PP2_SUBTYPE_SSL_CIPHER.
+  pub cipher: Option<String>,
+  /// PP2_SUBTYPE_SSL_SIG_ALG.
+  pub sig_alg: Option<String>,
+  /// PP2_SUBTYPE_SSL_KEY_ALG.
+  pub key_alg: Option<String>,
+}
+
+// PP2 TLV type identifiers (per HAProxy spec).
+const PP2_TYPE_ALPN: u8 = 0x01;
+const PP2_TYPE_AUTHORITY: u8 = 0x02;
+const PP2_TYPE_CRC32C: u8 = 0x03;
+const PP2_TYPE_NOOP: u8 = 0x04;
+const PP2_TYPE_UNIQUE_ID: u8 = 0x05;
+const PP2_TYPE_SSL: u8 = 0x20;
+const PP2_SUBTYPE_SSL_VERSION: u8 = 0x21;
+const PP2_SUBTYPE_SSL_CN: u8 = 0x22;
+const PP2_SUBTYPE_SSL_CIPHER: u8 = 0x23;
+const PP2_SUBTYPE_SSL_SIG_ALG: u8 = 0x24;
+const PP2_SUBTYPE_SSL_KEY_ALG: u8 = 0x25;
+const PP2_TYPE_NETNS: u8 = 0x30;
+const PP2_TYPE_AWS_VPC_ENDPOINT_ID: u8 = 0xEA;
+
 /// Parsed PROXY protocol header.
 ///
 /// Contains the real client address (source) and the proxy/server address
-/// (destination) extracted from the PROXY protocol header.
+/// (destination) extracted from the PROXY protocol header. PROXY v2 TLVs
+/// (authority, AWS VPC endpoint ID, TLS info, …) are surfaced both as raw
+/// [`ProxyTlv`]s and as typed fields where they map cleanly.
 #[derive(Debug, Clone)]
 pub struct ProxyHeader {
   /// Protocol version (v1 text or v2 binary).
@@ -90,6 +138,115 @@ pub struct ProxyHeader {
   pub source: Option<SocketAddr>,
   /// Proxy/server address (the destination the client connected to).
   pub destination: Option<SocketAddr>,
+  /// AF_UNIX source path, when the connection family is Unix.
+  pub source_unix: Option<std::path::PathBuf>,
+  /// AF_UNIX destination path, when the connection family is Unix.
+  pub destination_unix: Option<std::path::PathBuf>,
+  /// PP2_TYPE_AUTHORITY (a.k.a. SNI) value if present.
+  pub authority: Option<String>,
+  /// PP2_TYPE_ALPN protocol bytes if present.
+  pub alpn: Option<Vec<u8>>,
+  /// AWS VPC endpoint identifier (PP2 type 0xEA) if present.
+  pub aws_vpc_endpoint_id: Option<String>,
+  /// Decoded PP2_TYPE_SSL sub-TLVs.
+  pub tls: Option<ProxyTlsInfo>,
+  /// Unique connection identifier (PP2 type 0x05).
+  pub unique_id: Option<Vec<u8>>,
+  /// Raw TLV list — kept for forward-compatibility / custom types.
+  pub tlvs: Vec<ProxyTlv>,
+}
+
+impl ProxyHeader {
+  fn empty(version: ProxyVersion, transport: ProxyTransport) -> Self {
+    Self {
+      version,
+      transport,
+      source: None,
+      destination: None,
+      source_unix: None,
+      destination_unix: None,
+      authority: None,
+      alpn: None,
+      aws_vpc_endpoint_id: None,
+      tls: None,
+      unique_id: None,
+      tlvs: Vec::new(),
+    }
+  }
+}
+
+/// Walks a PROXY v2 TLV byte stream and applies each entry to a [`ProxyHeader`].
+fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
+  while buf.len() >= 3 {
+    let kind = buf[0];
+    let len = u16::from_be_bytes([buf[1], buf[2]]) as usize;
+    if buf.len() < 3 + len {
+      break;
+    }
+    let value = &buf[3..3 + len];
+    match kind {
+      PP2_TYPE_ALPN => header.alpn = Some(value.to_vec()),
+      PP2_TYPE_AUTHORITY => {
+        if let Ok(s) = std::str::from_utf8(value) {
+          header.authority = Some(s.to_string());
+        }
+      }
+      PP2_TYPE_AWS_VPC_ENDPOINT_ID => {
+        if let Ok(s) = std::str::from_utf8(value) {
+          header.aws_vpc_endpoint_id = Some(s.to_string());
+        }
+      }
+      PP2_TYPE_UNIQUE_ID => header.unique_id = Some(value.to_vec()),
+      PP2_TYPE_SSL => {
+        // PP2_TYPE_SSL container layout: 1 byte client flags, 4 bytes verify
+        // (BE), then nested sub-TLVs.
+        if value.len() >= 5 {
+          let mut tls = ProxyTlsInfo {
+            client_flags: value[0],
+            verify: u32::from_be_bytes([value[1], value[2], value[3], value[4]]),
+            ..Default::default()
+          };
+          let mut sub = &value[5..];
+          while sub.len() >= 3 {
+            let sk = sub[0];
+            let slen = u16::from_be_bytes([sub[1], sub[2]]) as usize;
+            if sub.len() < 3 + slen {
+              break;
+            }
+            let sval = &sub[3..3 + slen];
+            match sk {
+              PP2_SUBTYPE_SSL_VERSION => {
+                tls.version = std::str::from_utf8(sval).ok().map(str::to_string)
+              }
+              PP2_SUBTYPE_SSL_CN => {
+                tls.common_name = std::str::from_utf8(sval).ok().map(str::to_string)
+              }
+              PP2_SUBTYPE_SSL_CIPHER => {
+                tls.cipher = std::str::from_utf8(sval).ok().map(str::to_string)
+              }
+              PP2_SUBTYPE_SSL_SIG_ALG => {
+                tls.sig_alg = std::str::from_utf8(sval).ok().map(str::to_string)
+              }
+              PP2_SUBTYPE_SSL_KEY_ALG => {
+                tls.key_alg = std::str::from_utf8(sval).ok().map(str::to_string)
+              }
+              _ => {}
+            }
+            sub = &sub[3 + slen..];
+          }
+          header.tls = Some(tls);
+        }
+      }
+      // CRC32C / NOOP / NETNS are accepted but currently dropped after the raw push.
+      PP2_TYPE_CRC32C | PP2_TYPE_NOOP | PP2_TYPE_NETNS => {}
+      _ => {}
+    }
+    header.tlvs.push(ProxyTlv {
+      kind,
+      value: value.to_vec(),
+    });
+    buf = &buf[3 + len..];
+  }
 }
 
 /// Reads and parses a PROXY protocol header from a stream.
@@ -165,12 +322,7 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
   }
 
   match parts[1] {
-    "UNKNOWN" => Ok(ProxyHeader {
-      version: ProxyVersion::V1,
-      transport: ProxyTransport::Unknown,
-      source: None,
-      destination: None,
-    }),
+    "UNKNOWN" => Ok(ProxyHeader::empty(ProxyVersion::V1, ProxyTransport::Unknown)),
     proto @ ("TCP4" | "TCP6") => {
       if parts.len() < 6 {
         return Err(std::io::Error::new(
@@ -207,12 +359,10 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
         ProxyTransport::Udp
       };
 
-      Ok(ProxyHeader {
-        version: ProxyVersion::V1,
-        transport,
-        source: Some(SocketAddr::new(src_ip, src_port)),
-        destination: Some(SocketAddr::new(dst_ip, dst_port)),
-      })
+      let mut header = ProxyHeader::empty(ProxyVersion::V1, transport);
+      header.source = Some(SocketAddr::new(src_ip, src_port));
+      header.destination = Some(SocketAddr::new(dst_ip, dst_port));
+      Ok(header)
     }
     other => Err(std::io::Error::new(
       std::io::ErrorKind::InvalidData,
@@ -255,12 +405,7 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
 
   // LOCAL command: connection from proxy itself, no address info
   if command == 0 {
-    return Ok(ProxyHeader {
-      version: ProxyVersion::V2,
-      transport: ProxyTransport::Unknown,
-      source: None,
-      destination: None,
-    });
+    return Ok(ProxyHeader::empty(ProxyVersion::V2, ProxyTransport::Unknown));
   }
 
   let transport = match protocol {
@@ -269,20 +414,18 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
     _ => ProxyTransport::Unknown,
   };
 
-  match family {
+  let mut header = ProxyHeader::empty(ProxyVersion::V2, transport);
+
+  let consumed: usize = match family {
     // AF_INET (IPv4)
     1 if addr_buf.len() >= 12 => {
       let src_ip = Ipv4Addr::new(addr_buf[0], addr_buf[1], addr_buf[2], addr_buf[3]);
       let dst_ip = Ipv4Addr::new(addr_buf[4], addr_buf[5], addr_buf[6], addr_buf[7]);
       let src_port = u16::from_be_bytes([addr_buf[8], addr_buf[9]]);
       let dst_port = u16::from_be_bytes([addr_buf[10], addr_buf[11]]);
-
-      Ok(ProxyHeader {
-        version: ProxyVersion::V2,
-        transport,
-        source: Some(SocketAddr::new(IpAddr::V4(src_ip), src_port)),
-        destination: Some(SocketAddr::new(IpAddr::V4(dst_ip), dst_port)),
-      })
+      header.source = Some(SocketAddr::new(IpAddr::V4(src_ip), src_port));
+      header.destination = Some(SocketAddr::new(IpAddr::V4(dst_ip), dst_port));
+      12
     }
     // AF_INET6 (IPv6)
     2 if addr_buf.len() >= 36 => {
@@ -290,22 +433,39 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
       let dst_ip = Ipv6Addr::from(<[u8; 16]>::try_from(&addr_buf[16..32]).unwrap());
       let src_port = u16::from_be_bytes([addr_buf[32], addr_buf[33]]);
       let dst_port = u16::from_be_bytes([addr_buf[34], addr_buf[35]]);
-
-      Ok(ProxyHeader {
-        version: ProxyVersion::V2,
-        transport,
-        source: Some(SocketAddr::new(IpAddr::V6(src_ip), src_port)),
-        destination: Some(SocketAddr::new(IpAddr::V6(dst_ip), dst_port)),
-      })
+      header.source = Some(SocketAddr::new(IpAddr::V6(src_ip), src_port));
+      header.destination = Some(SocketAddr::new(IpAddr::V6(dst_ip), dst_port));
+      36
     }
-    // UNSPEC or unknown
-    _ => Ok(ProxyHeader {
-      version: ProxyVersion::V2,
-      transport,
-      source: None,
-      destination: None,
-    }),
+    // AF_UNIX — 108-byte src + 108-byte dst NUL-terminated paths.
+    3 if addr_buf.len() >= 216 => {
+      let src = parse_unix_path(&addr_buf[0..108]);
+      let dst = parse_unix_path(&addr_buf[108..216]);
+      header.source_unix = src;
+      header.destination_unix = dst;
+      216
+    }
+    // UNSPEC or unknown — payload past addr_buf is still treated as TLVs.
+    _ => 0,
+  };
+
+  // Walk TLVs that follow the address payload.
+  if consumed < addr_buf.len() {
+    apply_tlvs(&mut header, &addr_buf[consumed..]);
   }
+
+  Ok(header)
+}
+
+/// Decode a NUL-terminated AF_UNIX path. Returns None if the path is empty.
+fn parse_unix_path(bytes: &[u8]) -> Option<std::path::PathBuf> {
+  let nul = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+  if nul == 0 {
+    return None;
+  }
+  std::str::from_utf8(&bytes[..nul])
+    .ok()
+    .map(|s| std::path::PathBuf::from(s.to_string()))
 }
 
 /// Starts an HTTP server that parses PROXY protocol headers on each connection.
@@ -314,7 +474,14 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
 /// extensions as `SocketAddr` (overriding the TCP peer address). The raw
 /// `ProxyHeader` is also available via `req.extensions().get::<ProxyHeader>()`.
 pub async fn serve_http_with_proxy_protocol(listener: tokio::net::TcpListener, router: Router) {
-  if let Err(e) = run_proxy_http(listener, router, None::<std::future::Pending<()>>).await {
+  if let Err(e) = run_proxy_http(
+    listener,
+    router,
+    None::<std::future::Pending<()>>,
+    ServerConfig::default(),
+  )
+  .await
+  {
     tracing::error!("PROXY protocol HTTP server error: {e}");
   }
 }
@@ -325,7 +492,31 @@ pub async fn serve_http_with_proxy_protocol_and_shutdown(
   router: Router,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run_proxy_http(listener, router, Some(signal)).await {
+  if let Err(e) = run_proxy_http(listener, router, Some(signal), ServerConfig::default()).await {
+    tracing::error!("PROXY protocol HTTP server error: {e}");
+  }
+}
+
+/// Like [`serve_http_with_proxy_protocol`] with caller-supplied [`ServerConfig`].
+pub async fn serve_http_with_proxy_protocol_and_config(
+  listener: tokio::net::TcpListener,
+  router: Router,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_proxy_http(listener, router, None::<std::future::Pending<()>>, config).await
+  {
+    tracing::error!("PROXY protocol HTTP server error: {e}");
+  }
+}
+
+/// Like [`serve_http_with_proxy_protocol_and_shutdown`] with caller-supplied [`ServerConfig`].
+pub async fn serve_http_with_proxy_protocol_shutdown_and_config(
+  listener: tokio::net::TcpListener,
+  router: Router,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_proxy_http(listener, router, Some(signal), config).await {
     tracing::error!("PROXY protocol HTTP server error: {e}");
   }
 }
@@ -334,6 +525,7 @@ async fn run_proxy_http(
   listener: tokio::net::TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
 ) -> Result<(), BoxError> {
   let router = Arc::new(router);
 
@@ -346,6 +538,12 @@ async fn run_proxy_http(
   );
 
   let mut join_set = JoinSet::new();
+  let mut accept_backoff = config.accept_backoff;
+  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let drain_timeout = config.drain_timeout;
+  let header_read_timeout = config.header_read_timeout;
+  let keep_alive = config.keep_alive;
+  let proxy_read_timeout = config.proxy_read_timeout;
   let signal = signal.map(|s| Box::pin(s));
   let signal_fused = async {
     if let Some(s) = signal {
@@ -359,19 +557,43 @@ async fn run_proxy_http(
   loop {
     tokio::select! {
       result = listener.accept() => {
-        let (mut stream, _tcp_addr) = result?;
+        let (mut stream, _tcp_addr) = match result {
+          Ok(v) => { accept_backoff.reset(); v }
+          Err(err) => {
+            tracing::warn!("PROXY accept failed: {err}; backing off");
+            accept_backoff.sleep_and_grow().await;
+            continue;
+          }
+        };
+        let permit = if let Some(sem) = &max_conn_semaphore {
+          match sem.clone().acquire_owned().await {
+            Ok(p) => Some(p),
+            Err(_) => continue,
+          }
+        } else {
+          None
+        };
         let _ = stream.set_nodelay(true);
         let router = router.clone();
 
         join_set.spawn(async move {
-          // Parse PROXY protocol header
-          let proxy_header = match read_proxy_protocol(&mut stream).await {
-            Ok(h) => h,
-            Err(e) => {
-              tracing::error!("Failed to parse PROXY protocol: {e}");
-              return;
-            }
-          };
+          // Parse PROXY protocol header under a read deadline so a stalled
+          // client cannot pin a worker task forever.
+          let proxy_header =
+            match tokio::time::timeout(proxy_read_timeout, read_proxy_protocol(&mut stream)).await {
+              Ok(Ok(h)) => h,
+              Ok(Err(e)) => {
+                tracing::warn!("Failed to parse PROXY protocol: {e}");
+                return;
+              }
+              Err(_) => {
+                tracing::warn!(
+                  "PROXY protocol read deadline ({:?}) elapsed; dropping connection",
+                  proxy_read_timeout,
+                );
+                return;
+              }
+            };
 
           let real_addr = proxy_header.source;
           let io = hyper_util::rt::TokioIo::new(stream);
@@ -381,9 +603,17 @@ async fn run_proxy_http(
             let proxy_header = proxy_header.clone();
             let real_addr = real_addr;
             async move {
-              // Insert real client address
+              // Strip any inbound X-Forwarded-For: clients behind a PROXY-protocol
+              // hop must not be able to spoof their address through the header.
+              // The PROXY-protocol-supplied source becomes the authoritative one.
+              req.headers_mut().remove(http::header::FORWARDED);
+              req.headers_mut().remove("x-forwarded-for");
+              req.headers_mut().remove("x-forwarded-host");
+              req.headers_mut().remove("x-forwarded-proto");
+
               if let Some(addr) = real_addr {
                 req.extensions_mut().insert(addr);
+                req.extensions_mut().insert(ConnInfo::tcp(addr));
               }
               req.extensions_mut().insert(proxy_header);
               let response = router.dispatch(req.map(TakoBody::incoming)).await;
@@ -392,7 +622,11 @@ async fn run_proxy_http(
           });
 
           let mut http = http1::Builder::new();
-          http.keep_alive(true);
+          http.keep_alive(keep_alive);
+          http.timer(hyper_util::rt::TokioTimer::new());
+          if let Some(t) = header_read_timeout {
+            http.header_read_timeout(t);
+          }
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
@@ -402,6 +636,8 @@ async fn run_proxy_http(
               tracing::error!("Error serving PROXY protocol connection: {err}");
             }
           }
+
+          drop(permit);
         });
       }
       () = &mut signal_fused => {
@@ -411,7 +647,7 @@ async fn run_proxy_http(
     }
   }
 
-  let drain = tokio::time::timeout(DEFAULT_DRAIN_TIMEOUT, async {
+  let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });
 

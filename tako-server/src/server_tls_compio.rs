@@ -4,13 +4,10 @@
 //! TLS-enabled HTTP server implementation for secure connections (compio runtime).
 
 use std::convert::Infallible;
-use std::fs::File;
 use std::future::Future;
-use std::io::BufReader;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use compio::net::TcpListener;
 use compio::tls::TlsAcceptor;
@@ -20,27 +17,22 @@ use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
-use rustls::ServerConfig;
-use rustls::pki_types::CertificateDer;
-use rustls::pki_types::PrivateKeyDer;
-use rustls_pemfile::certs;
-use rustls_pemfile::pkcs8_private_keys;
+use rustls::ServerConfig as RustlsServerConfig;
 #[cfg(feature = "http2")]
 use send_wrapper::SendWrapper;
 use tokio::sync::Notify;
 
 use tako_core::body::TakoBody;
+use tako_core::conn_info::{ConnInfo, TlsInfo};
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::Signal;
-#[cfg(feature = "signals")]
-use tako_core::signals::SignalArbiter;
-#[cfg(feature = "signals")]
-use tako_core::signals::ids;
+use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
 
-/// Default drain timeout for graceful shutdown (30 seconds).
-const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+use crate::ServerConfig;
+
+// HTTP/2 hardening + connection lifetimes are sourced from `ServerConfig`,
+// whose `Default` mirrors the historical hardcoded values.
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
 pub async fn serve_tls(
@@ -55,6 +47,7 @@ pub async fn serve_tls(
     certs,
     key,
     None::<std::future::Pending<()>>,
+    ServerConfig::default(),
   )
   .await
   {
@@ -70,7 +63,52 @@ pub async fn serve_tls_with_shutdown(
   key: Option<&str>,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run(listener, router, certs, key, Some(signal)).await {
+  if let Err(e) = run(
+    listener,
+    router,
+    certs,
+    key,
+    Some(signal),
+    ServerConfig::default(),
+  )
+  .await
+  {
+    tracing::error!("TLS server error: {e}");
+  }
+}
+
+/// Like [`serve_tls`] with caller-supplied [`ServerConfig`].
+pub async fn serve_tls_with_config(
+  listener: TcpListener,
+  router: Router,
+  certs: Option<&str>,
+  key: Option<&str>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run(
+    listener,
+    router,
+    certs,
+    key,
+    None::<std::future::Pending<()>>,
+    config,
+  )
+  .await
+  {
+    tracing::error!("TLS server error: {e}");
+  }
+}
+
+/// Like [`serve_tls_with_shutdown`] with caller-supplied [`ServerConfig`].
+pub async fn serve_tls_with_shutdown_and_config(
+  listener: TcpListener,
+  router: Router,
+  certs: Option<&str>,
+  key: Option<&str>,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run(listener, router, certs, key, Some(signal), config).await {
     tracing::error!("TLS server error: {e}");
   }
 }
@@ -82,6 +120,7 @@ pub async fn run(
   certs: Option<&str>,
   key: Option<&str>,
   signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   tako_core::tracing::init_tracing();
@@ -89,21 +128,21 @@ pub async fn run(
   let certs = load_certs(certs.unwrap_or("cert.pem"))?;
   let key = load_key(key.unwrap_or("key.pem"))?;
 
-  let mut config = ServerConfig::builder()
+  let mut tls_config = RustlsServerConfig::builder()
     .with_no_client_auth()
     .with_single_cert(certs, key)?;
 
   #[cfg(feature = "http2")]
   {
-    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
   }
 
   #[cfg(not(feature = "http2"))]
   {
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
   }
 
-  let acceptor = TlsAcceptor::from(Arc::new(config));
+  let acceptor = TlsAcceptor::from(Arc::new(tls_config));
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -112,20 +151,22 @@ pub async fn run(
   let addr_str = listener.local_addr()?.to_string();
 
   #[cfg(feature = "signals")]
-  {
-    SignalArbiter::emit_app(
-      Signal::with_capacity(ids::SERVER_STARTED, 3)
-        .meta("addr", addr_str.clone())
-        .meta("transport", "tcp")
-        .meta("tls", "true"),
-    )
-    .await;
-  }
+  signal_tx::emit_server_started(&addr_str, "tcp", true).await;
 
   tracing::info!("Tako TLS listening on {}", addr_str);
 
   let inflight = Arc::new(AtomicUsize::new(0));
   let drain_notify = Arc::new(Notify::new());
+  let drain_timeout = config.drain_timeout;
+  let keep_alive = config.keep_alive;
+  #[cfg(feature = "http2")]
+  let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
+  #[cfg(feature = "http2")]
+  let h2_max_header_list_size = config.h2_max_header_list_size;
+  #[cfg(feature = "http2")]
+  let h2_max_send_buf_size = config.h2_max_send_buf_size;
+  #[cfg(feature = "http2")]
+  let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
 
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
@@ -153,60 +194,43 @@ pub async fn run(
             Ok(s) => s,
             Err(e) => {
               tracing::error!("TLS error: {e}");
-              if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-                drain_notify.notify_one();
-              }
+              inflight.fetch_sub(1, Ordering::SeqCst);
+              drain_notify.notify_waiters();
               return;
             }
           };
 
           #[cfg(feature = "signals")]
-          {
-            SignalArbiter::emit_app(
-              Signal::with_capacity(ids::CONNECTION_OPENED, 2)
-                .meta("remote_addr", addr.to_string())
-                .meta("tls", "true"),
-            )
-            .await;
-          }
+          signal_tx::emit_connection_opened(&addr.to_string(), true, None).await;
+
+          let alpn_proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
+          let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
+          let conn_info = if is_h2 {
+            ConnInfo::h2_tls(addr, TlsInfo {
+              alpn: alpn_proto.clone(),
+              sni: None,
+              version: None,
+            })
+          } else {
+            ConnInfo::h1_tls(addr, TlsInfo {
+              alpn: alpn_proto.clone(),
+              sni: None,
+              version: None,
+            })
+          };
 
           #[cfg(feature = "http2")]
-          let proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
+          let proto = alpn_proto;
 
           let io = HyperStream::new(tls_stream);
+          // Per-request signals fire from inside Router::dispatch.
           let svc = service_fn(move |mut req| {
             let r = router.clone();
+            let conn_info = conn_info.clone();
             async move {
-              #[cfg(feature = "signals")]
-              let path = req.uri().path().to_string();
-              #[cfg(feature = "signals")]
-              let method = req.method().to_string();
-
               req.extensions_mut().insert(addr);
-
-              #[cfg(feature = "signals")]
-              {
-                SignalArbiter::emit_app(
-                  Signal::with_capacity(ids::REQUEST_STARTED, 2)
-                    .meta("method", method.clone())
-                    .meta("path", path.clone()),
-                )
-                .await;
-              }
-
+              req.extensions_mut().insert(conn_info);
               let response = r.dispatch(req.map(TakoBody::new)).await;
-
-              #[cfg(feature = "signals")]
-              {
-                SignalArbiter::emit_app(
-                  Signal::with_capacity(ids::REQUEST_COMPLETED, 3)
-                    .meta("method", method)
-                    .meta("path", path)
-                    .meta("status", response.status().as_u16().to_string()),
-                )
-                .await;
-              }
-
               Ok::<_, Infallible>(response)
             }
           });
@@ -214,30 +238,26 @@ pub async fn run(
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
             let mut h2 = http2::Builder::new(CompioH2Executor);
-            h2.timer(CompioH2Timer);
+            h2.timer(CompioH2Timer)
+              .max_concurrent_streams(h2_max_concurrent_streams)
+              .max_header_list_size(h2_max_header_list_size)
+              .max_send_buf_size(h2_max_send_buf_size)
+              .max_pending_accept_reset_streams(h2_max_pending_accept_reset_streams);
 
             if let Err(e) = h2.serve_connection(io, ServiceSendWrapper::new(svc)).await {
               tracing::error!("HTTP/2 error: {e}");
             }
 
             #[cfg(feature = "signals")]
-            {
-              SignalArbiter::emit_app(
-                Signal::with_capacity(ids::CONNECTION_CLOSED, 2)
-                  .meta("remote_addr", addr.to_string())
-                  .meta("tls", "true"),
-              )
-              .await;
-            }
+            signal_tx::emit_connection_closed(&addr.to_string(), true, None).await;
 
-            if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-              drain_notify.notify_one();
-            }
+            inflight.fetch_sub(1, Ordering::SeqCst);
+            drain_notify.notify_waiters();
             return;
           }
 
           let mut h1 = http1::Builder::new();
-          h1.keep_alive(true);
+          h1.keep_alive(keep_alive);
 
           if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
             if e.is_incomplete_message() {
@@ -248,18 +268,10 @@ pub async fn run(
           }
 
           #[cfg(feature = "signals")]
-          {
-            SignalArbiter::emit_app(
-              Signal::with_capacity(ids::CONNECTION_CLOSED, 2)
-                .meta("remote_addr", addr.to_string())
-                .meta("tls", "true"),
-            )
-            .await;
-          }
+          signal_tx::emit_connection_closed(&addr.to_string(), true, None).await;
 
-          if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-            drain_notify.notify_one();
-          }
+          inflight.fetch_sub(1, Ordering::SeqCst);
+          drain_notify.notify_waiters();
         })
         .detach();
       }
@@ -270,21 +282,32 @@ pub async fn run(
     }
   }
 
-  // Drain in-flight connections
-  if inflight.load(Ordering::SeqCst) > 0 {
+  // Drain in-flight connections — re-check the inflight counter on every
+  // notification, bounded by the overall drain deadline. Defends against the
+  // race where a connection finishes between the load and the await.
+  let drain_deadline = std::time::Instant::now() + drain_timeout;
+  while inflight.load(Ordering::SeqCst) > 0 {
+    let now = std::time::Instant::now();
+    if now >= drain_deadline {
+      tracing::warn!(
+        "Drain timeout ({:?}) exceeded, {} TLS connections still active",
+        drain_timeout,
+        inflight.load(Ordering::SeqCst)
+      );
+      break;
+    }
+    let remaining = drain_deadline - now;
     let drain_wait = drain_notify.notified();
-    let sleep = compio::time::sleep(DEFAULT_DRAIN_TIMEOUT);
+    let sleep = compio::time::sleep(remaining);
     let drain_wait = std::pin::pin!(drain_wait);
     let sleep = std::pin::pin!(sleep);
-    match futures_util::future::select(drain_wait, sleep).await {
-      Either::Left(_) => {}
-      Either::Right(_) => {
-        tracing::warn!(
-          "Drain timeout ({:?}) exceeded, {} TLS connections still active",
-          DEFAULT_DRAIN_TIMEOUT,
-          inflight.load(Ordering::SeqCst)
-        );
-      }
+    if let Either::Right(_) = futures_util::future::select(drain_wait, sleep).await {
+      tracing::warn!(
+        "Drain timeout ({:?}) exceeded, {} TLS connections still active",
+        drain_timeout,
+        inflight.load(Ordering::SeqCst)
+      );
+      break;
     }
   }
 
@@ -292,27 +315,13 @@ pub async fn run(
   Ok(())
 }
 
-/// Loads TLS certificates from a PEM-encoded file.
-pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
-  let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{}': {}", path, e))?,
-  );
-  certs(&mut rd)
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{}': {}", path, e))
-}
+/// Loads TLS certificates from a PEM-encoded file. Re-export of
+/// [`tako_core::tls::load_certs`].
+pub use tako_core::tls::load_certs;
 
-/// Loads a private key from a PEM-encoded file.
-pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
-  let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
-  );
-  pkcs8_private_keys(&mut rd)
-    .next()
-    .ok_or_else(|| anyhow::anyhow!("no private key found in '{}'", path))?
-    .map(|k| k.into())
-    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))
-}
+/// Loads a private key from a PEM-encoded file. Accepts PKCS#8, PKCS#1 (RSA),
+/// and SEC1 (EC) PEM blocks. Re-export of [`tako_core::tls::load_key`].
+pub use tako_core::tls::load_key;
 
 //
 // compio is a single-threaded, thread-per-core runtime whose futures are `!Send`.

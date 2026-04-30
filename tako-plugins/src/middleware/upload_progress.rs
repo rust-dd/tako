@@ -26,9 +26,20 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::Context;
+use std::task::Poll;
 
+use bytes::Bytes;
+use http_body::Body;
+use http_body::Frame;
+use http_body::SizeHint;
+use parking_lot::Mutex;
+use pin_project_lite::pin_project;
+
+use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
+use tako_core::types::BoxError;
 use tako_core::types::Request;
 use tako_core::types::Response;
 
@@ -147,6 +158,86 @@ impl UploadProgress {
   }
 }
 
+pin_project! {
+  /// Body wrapper that tracks bytes read frame-by-frame without buffering.
+  ///
+  /// Increments the shared counter as each data frame flows through and fires
+  /// the optional callback when the configured byte interval is exceeded. Errors
+  /// and end-of-stream are forwarded transparently.
+  struct ProgressBody<B> {
+    #[pin]
+    inner: B,
+    bytes_read: Arc<AtomicU64>,
+    total_bytes: Option<u64>,
+    last_notified_at: u64,
+    min_interval: u64,
+    callback: Option<Arc<dyn Fn(ProgressState) + Send + Sync + 'static>>,
+    final_notified: Arc<Mutex<bool>>,
+  }
+}
+
+impl<B> Body for ProgressBody<B>
+where
+  B: Body<Data = Bytes>,
+  B::Error: Into<BoxError>,
+{
+  type Data = Bytes;
+  type Error = BoxError;
+
+  fn poll_frame(
+    self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+    let this = self.project();
+    match this.inner.poll_frame(cx) {
+      Poll::Ready(Some(Ok(frame))) => {
+        if let Some(data) = frame.data_ref() {
+          let added = data.len() as u64;
+          let total = this.bytes_read.fetch_add(added, Ordering::Relaxed) + added;
+          if let Some(cb) = this.callback.as_ref()
+            && (*this.min_interval == 0 || total - *this.last_notified_at >= *this.min_interval)
+          {
+            *this.last_notified_at = total;
+            cb(ProgressState {
+              bytes_read: total,
+              total_bytes: *this.total_bytes,
+            });
+          }
+        }
+        Poll::Ready(Some(Ok(frame)))
+      }
+      Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
+      Poll::Ready(None) => {
+        // Fire a final callback exactly once when the body ends, so callers see
+        // the closing total even if the last interval did not trigger a notify.
+        if let Some(cb) = this.callback.as_ref() {
+          let mut guard = this.final_notified.lock();
+          if !*guard {
+            *guard = true;
+            let final_read = this.bytes_read.load(Ordering::Relaxed);
+            if final_read != *this.last_notified_at {
+              cb(ProgressState {
+                bytes_read: final_read,
+                total_bytes: *this.total_bytes,
+              });
+            }
+          }
+        }
+        Poll::Ready(None)
+      }
+      Poll::Pending => Poll::Pending,
+    }
+  }
+
+  fn is_end_stream(&self) -> bool {
+    self.inner.is_end_stream()
+  }
+
+  fn size_hint(&self) -> SizeHint {
+    self.inner.size_hint()
+  }
+}
+
 impl IntoMiddleware for UploadProgress {
   fn into_middleware(
     self,
@@ -178,55 +269,18 @@ impl IntoMiddleware for UploadProgress {
         };
         req.extensions_mut().insert(tracker);
 
-        // Collect body while tracking progress
-        use http_body_util::BodyExt;
-        let body = req.body_mut();
-        let mut collected = Vec::new();
-        let mut last_notified_at: u64 = 0;
-
-        // Use frame-by-frame collection for progress reporting
-        loop {
-          match body.frame().await {
-            Some(Ok(frame)) => {
-              if let Some(data) = frame.data_ref() {
-                collected.extend_from_slice(data);
-                let total = bytes_read.fetch_add(data.len() as u64, Ordering::Relaxed)
-                  + data.len() as u64;
-
-                // Fire callback if interval threshold met
-                if let Some(cb) = &callback {
-                  if min_interval == 0 || total - last_notified_at >= min_interval {
-                    last_notified_at = total;
-                    cb(ProgressState {
-                      bytes_read: total,
-                      total_bytes,
-                    });
-                  }
-                }
-              }
-            }
-            Some(Err(_)) => break,
-            None => break,
-          }
-        }
-
-        // Final notification
-        if let Some(cb) = &callback {
-          let final_read = bytes_read.load(Ordering::Relaxed);
-          if final_read != last_notified_at {
-            cb(ProgressState {
-              bytes_read: final_read,
-              total_bytes,
-            });
-          }
-        }
-
-        // Reconstruct request with collected body
-        let (parts, _) = req.into_parts();
-        let req = http::Request::from_parts(
-          parts,
-          tako_core::body::TakoBody::from(bytes::Bytes::from(collected)),
-        );
+        // Wrap the body in a streaming progress tracker — no buffering.
+        let (parts, body) = req.into_parts();
+        let progress_body = ProgressBody {
+          inner: body,
+          bytes_read,
+          total_bytes,
+          last_notified_at: 0,
+          min_interval,
+          callback,
+          final_notified: Arc::new(Mutex::new(false)),
+        };
+        let req = http::Request::from_parts(parts, TakoBody::new(progress_body));
 
         next.run(req).await
       })

@@ -35,11 +35,13 @@ serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 smallvec.workspace = true
+subtle.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true
 url.workspace = true
 urlencoding.workspace = true
+uuid.workspace = true
 
 # Optional / feature-gated
 ahash = { workspace = true, optional = true }
@@ -51,7 +53,6 @@ prometheus = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
-uuid = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
@@ -63,7 +64,7 @@ jwt-simple = { version = "0.12.12", optional = true }
 [features]
 default = []
 plugins = ["dep:brotli", "dep:flate2", "tako-core/plugins"]
-multipart = ["dep:multer", "dep:uuid", "tako-extractors/multipart"]
+multipart = ["dep:multer", "tako-extractors/multipart"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 signals = ["tako-core/signals"]

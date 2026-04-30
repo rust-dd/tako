@@ -19,6 +19,7 @@ async-trait.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cookie.workspace = true
+envy.workspace = true
 futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
@@ -54,9 +55,6 @@ ahash = { workspace = true, optional = true }
 async-graphql = { version = "7.0.17", optional = true }
 brotli = { workspace = true, optional = true }
 compio = { workspace = true, optional = true }
-compio-buf = { workspace = true, optional = true }
-compio-io = { workspace = true, optional = true }
-compio-ws = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
 flate2 = { workspace = true, optional = true }
 h3 = { workspace = true, optional = true }
@@ -92,7 +90,7 @@ jwt-simple = { version = "0.12.12", optional = true }
 async-graphql = ["dep:async-graphql"]
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
 compio-tls = ["compio", "tls", "dep:rustls", "dep:rustls-pemfile"]
-compio-ws = ["compio", "dep:compio-ws", "dep:compio-io", "dep:compio-buf"]
+compio-ws = ["compio", "compio/io", "compio/ws"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 graphiql = ["dep:async-graphql", "async-graphql/graphiql"]

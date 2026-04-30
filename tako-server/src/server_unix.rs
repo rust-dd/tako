@@ -48,11 +48,12 @@ use hyper::service::service_fn;
 use tokio::task::JoinSet;
 
 use tako_core::body::TakoBody;
+use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
 
-/// Default drain timeout for graceful shutdown (30 seconds).
-const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+use crate::ServerConfig;
+
 
 /// Peer address information for Unix domain socket connections.
 ///
@@ -162,7 +163,14 @@ where
 /// Ideal for production deployments behind a reverse proxy (nginx, HAProxy)
 /// where the app communicates via a local socket file instead of TCP.
 pub async fn serve_unix_http(path: impl AsRef<Path>, router: Router) {
-  if let Err(e) = run_http(path.as_ref(), router, None::<std::future::Pending<()>>).await {
+  if let Err(e) = run_http(
+    path.as_ref(),
+    router,
+    None::<std::future::Pending<()>>,
+    ServerConfig::default(),
+  )
+  .await
+  {
     tracing::error!("Unix HTTP server error: {e}");
   }
 }
@@ -173,7 +181,44 @@ pub async fn serve_unix_http_with_shutdown(
   router: Router,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run_http(path.as_ref(), router, Some(signal)).await {
+  if let Err(e) = run_http(
+    path.as_ref(),
+    router,
+    Some(signal),
+    ServerConfig::default(),
+  )
+  .await
+  {
+    tracing::error!("Unix HTTP server error: {e}");
+  }
+}
+
+/// Like [`serve_unix_http`] with caller-supplied [`ServerConfig`].
+pub async fn serve_unix_http_with_config(
+  path: impl AsRef<Path>,
+  router: Router,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_http(
+    path.as_ref(),
+    router,
+    None::<std::future::Pending<()>>,
+    config,
+  )
+  .await
+  {
+    tracing::error!("Unix HTTP server error: {e}");
+  }
+}
+
+/// Like [`serve_unix_http_with_shutdown`] with caller-supplied [`ServerConfig`].
+pub async fn serve_unix_http_with_shutdown_and_config(
+  path: impl AsRef<Path>,
+  router: Router,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_http(path.as_ref(), router, Some(signal), config).await {
     tracing::error!("Unix HTTP server error: {e}");
   }
 }
@@ -182,6 +227,7 @@ async fn run_http(
   path: &Path,
   router: Router,
   signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
 ) -> Result<(), BoxError> {
   cleanup_stale_socket(path)?;
 
@@ -194,6 +240,11 @@ async fn run_http(
   tracing::debug!("Tako Unix HTTP listening on {}", path.display());
 
   let mut join_set = JoinSet::new();
+  let mut accept_backoff = config.accept_backoff;
+  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let drain_timeout = config.drain_timeout;
+  let header_read_timeout = config.header_read_timeout;
+  let keep_alive = config.keep_alive;
   let signal = signal.map(|s| Box::pin(s));
   let signal_fused = async {
     if let Some(s) = signal {
@@ -207,7 +258,22 @@ async fn run_http(
   loop {
     tokio::select! {
       result = listener.accept() => {
-        let (stream, addr) = result?;
+        let (stream, addr) = match result {
+          Ok(v) => { accept_backoff.reset(); v }
+          Err(err) => {
+            tracing::warn!("Unix accept failed: {err}; backing off");
+            accept_backoff.sleep_and_grow().await;
+            continue;
+          }
+        };
+        let permit = if let Some(sem) = &max_conn_semaphore {
+          match sem.clone().acquire_owned().await {
+            Ok(p) => Some(p),
+            Err(_) => continue,
+          }
+        } else {
+          None
+        };
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 
@@ -220,14 +286,20 @@ async fn run_http(
             let router = router.clone();
             let peer_addr = peer_addr.clone();
             async move {
+              let conn_info = ConnInfo::unix(peer_addr.path.clone());
               req.extensions_mut().insert(peer_addr);
+              req.extensions_mut().insert(conn_info);
               let response = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(response)
             }
           });
 
           let mut http = http1::Builder::new();
-          http.keep_alive(true);
+          http.keep_alive(keep_alive);
+          http.timer(hyper_util::rt::TokioTimer::new());
+          if let Some(t) = header_read_timeout {
+            http.header_read_timeout(t);
+          }
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
@@ -237,6 +309,8 @@ async fn run_http(
               tracing::error!("Error serving Unix HTTP connection: {err}");
             }
           }
+
+          drop(permit);
         });
       }
       () = &mut signal_fused => {
@@ -246,7 +320,7 @@ async fn run_http(
     }
   }
 
-  let drain = tokio::time::timeout(DEFAULT_DRAIN_TIMEOUT, async {
+  let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });
 
