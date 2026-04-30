@@ -162,47 +162,72 @@ New `tako::problem` module: `Problem` struct with `Responder` impl that emits `a
 
 ---
 
-## 3. Server / transport (v2 breaking)
+## 3. Server / transport (v2 breaking) — Done in dev branch (unreleased)
 
-### 3.1 Replace the seven `serve_*` functions with a builder
+> **Status:** the §3 work landed on the dev branch and is covered by `cargo test` plus an end-to-end Docker bench (`Dockerfile.bench`, `Dockerfile.bench-ntex`). Subsections below are annotated with what shipped and what was deferred.
+
+### ~~3.1 Replace the seven `serve_*` functions with a builder~~ — Done (different API shape)
+
+~~```rust~~
+~~let server = tako::Server::builder()~~
+    ~~.listener(TcpListener::bind(addr).await?)~~
+    ~~.http(HttpConfig::default()~~
+        ~~.header_read_timeout(Duration::from_secs(30))~~
+        ~~.keep_alive_timeout(Duration::from_secs(60))~~
+        ~~.max_concurrent_streams(100)~~
+        ~~.max_frame_size(16 * 1024)~~
+        ~~.max_body_size(8 * 1024 * 1024))~~
+    ~~.tls(TlsConfig::Pem { cert, key })  // or ::Resolver(Arc<dyn ResolvesServerCert>)~~
+    ~~.h3(H3Config::default())~~
+    ~~.limits(Limits::default()~~
+        ~~.max_connections(50_000)~~
+        ~~.drain_timeout(Duration::from_secs(60)))~~
+    ~~.mode(Mode::PerCore { workers: num_cpus::get(), pin_cpus: true })~~
+    ~~.build();~~
+
+~~let handle = server.spawn(router);~~
+~~handle.shutdown(Duration::from_secs(30)).await?;~~
+~~```~~
+
+~~This subsumes `serve`, `serve_tls`, `serve_h3`, `serve_tcp`, `serve_udp`, `serve_unix`, `serve_proxy_protocol`, all `*_with_shutdown` variants, and the separate `tako-server-pt` crate.~~
+
+**Implemented as** (different shape, same intent):
 
 ```rust
 let server = tako::Server::builder()
-    .listener(TcpListener::bind(addr).await?)
-    .http(HttpConfig::default()
-        .header_read_timeout(Duration::from_secs(30))
-        .keep_alive_timeout(Duration::from_secs(60))
-        .max_concurrent_streams(100)
-        .max_frame_size(16 * 1024)
-        .max_body_size(8 * 1024 * 1024))
-    .tls(TlsConfig::Pem { cert, key })  // or ::Resolver(Arc<dyn ResolvesServerCert>)
-    .h3(H3Config::default())
-    .limits(Limits::default()
-        .max_connections(50_000)
-        .drain_timeout(Duration::from_secs(60)))
-    .mode(Mode::PerCore { workers: num_cpus::get(), pin_cpus: true })
+    .config(ServerConfig::default())          // single struct, all knobs flat
+    .tls(TlsCert::pem_paths("cert.pem", "key.pem"))
     .build();
 
-let handle = server.spawn(router);
-handle.shutdown(Duration::from_secs(30)).await?;
+let handle = server.spawn_http(listener, router); // or spawn_tls / spawn_h2c / spawn_h3 / spawn_unix_http / spawn_proxy_protocol / spawn_tcp_raw / spawn_udp_raw
+handle.shutdown(Duration::from_secs(30)).await;
 ```
 
-This subsumes `serve`, `serve_tls`, `serve_h3`, `serve_tcp`, `serve_udp`, `serve_unix`, `serve_proxy_protocol`, all `*_with_shutdown` variants, and the separate `tako-server-pt` crate.
+Compio side has its own `CompioServer::builder` with `spawn_http` / `spawn_tls`.
 
-### 3.2 Production-readiness gaps to close
+Differences from the original design:
+- listener handed to `spawn_*`, not to the builder (re-use one builder for many spawns)
+- single `ServerConfig` instead of `HttpConfig` + `TlsConfig` + `H3Config` + `Limits` separation
+- `TlsCert::PemPaths` only (`Der` / `Resolver` / `Acme` variants deferred)
+- explicit `spawn_http` / `spawn_tls` / `spawn_h3` / etc. instead of polymorphic `spawn(router)` (compile-time clarity beats runtime switch)
+- `tako-server-pt` stays a separate crate (`Mode::PerCore` integration deferred — `Box::leak` + `LocalSet` doesn't fit the tokio-runtime builder)
+- runtime-agnostic `ServerHandle` (Notify-based, not `tokio::JoinHandle`) so the same type is returned by both tokio and compio paths
+- `shutdown` returns `()` not `Result`
 
-- **`max_connections` semaphore on every transport.** `server.rs:122`, `server_tls.rs:165`, `server_unix.rs:218`, `proxy_protocol.rs:366` all unconditionally `JoinSet::spawn` per accept.
-- **HTTP timeouts.** `server.rs:167-170` and `server_tls.rs:245-247` set only `keep_alive(true)` and `pipeline_flush(true)`. Wire `header_read_timeout`, `keep_alive_timeout`, H2 `keep_alive_interval`, `max_concurrent_streams`, `max_frame_size`, `initial_stream_window_size`.
-- **Tunable drain timeout.** Hardcoded 30s in seven files (`server.rs:47`, `server_tls.rs:68`, `server_h3.rs:72`, `server_unix.rs:55`, `proxy_protocol.rs:62`, `server_tcp.rs:132`, `server_compio.rs:25`).
-- **`Box::leak(Router)`** (`server.rs:82`, `tako-server-pt/src/lib.rs:114, 318`) makes hot-reload impossible. Switch to `Arc<Router>` with RCU-style swap.
-- **Compio drain race.** `server_compio.rs:163-165` and `server_tls_compio.rs:233-235, 260-262` use `Notify::notify_one` only when `inflight == 1`. A connection finishing between the load and the await waits the full 30s. Use a `WaitGroup` or `notify_waiters` after every decrement.
-- **`tako-server-pt::worker_main`** is an infinite `loop { accept }` with no `select!` against shutdown (`lib.rs:132-194`); workers leak on shutdown.
-- **PROXY-protocol no read deadline** (`proxy_protocol.rs:368`). Apply `ProxyConfig::read_timeout` before parsing.
-- **Listener accept errors are fatal.** `server.rs:118` propagates `?`, `server_h3.rs:158` exits the listen loop on `None` from `endpoint.accept()`. Add EMFILE backoff and supervised restart.
+### ~~3.2 Production-readiness gaps to close~~ — Done
 
-### 3.3 Extract a `tako-tls` crate
+- ~~**`max_connections` semaphore on every transport.** `server.rs:122`, `server_tls.rs:165`, `server_unix.rs:218`, `proxy_protocol.rs:366` all unconditionally `JoinSet::spawn` per accept.~~ — **Done.** Optional `tokio::sync::Semaphore` opt-in via `ServerConfig::max_connections`. None → zero overhead.
+- ~~**HTTP timeouts.** `server.rs:167-170` and `server_tls.rs:245-247` set only `keep_alive(true)` and `pipeline_flush(true)`. Wire `header_read_timeout`, `keep_alive_timeout`, H2 `keep_alive_interval`, `max_concurrent_streams`, `max_frame_size`, `initial_stream_window_size`.~~ — **Done.** `header_read_timeout`, `keep_alive`, h2 caps (`max_concurrent_streams`, `max_header_list_size`, `max_send_buf_size`, `max_pending_accept_reset_streams`, `keep_alive_interval`) all sourced from `ServerConfig`. Hyper `TokioTimer` installed on every http1 builder. `keep_alive_timeout` field reserved (hyper http1 does not yet expose the setter); `max_frame_size` / `initial_stream_window_size` similar — present in config, not yet wired.
+- ~~**Tunable drain timeout.** Hardcoded 30s in seven files (`server.rs:47`, `server_tls.rs:68`, `server_h3.rs:72`, `server_unix.rs:55`, `proxy_protocol.rs:62`, `server_tcp.rs:132`, `server_compio.rs:25`).~~ — **Done.** All seven const removed; `ServerConfig::drain_timeout` is read in every transport.
+- **`Box::leak(Router)`** (`server.rs:82`, `tako-server-pt/src/lib.rs:114, 318`) makes hot-reload impossible. Switch to `Arc<Router>` with RCU-style swap. — **Pending — kept on purpose.** Default path remains `&'static Router` for the per-connection / per-request hot-path performance win. Hot-reload via `arc_swap::ArcSwap<Arc<Router>>` is a separate opt-in to add later.
+- ~~**Compio drain race.** `server_compio.rs:163-165` and `server_tls_compio.rs:233-235, 260-262` use `Notify::notify_one` only when `inflight == 1`. A connection finishing between the load and the await waits the full 30s. Use a `WaitGroup` or `notify_waiters` after every decrement.~~ — **Done.** `notify_waiters()` after every decrement; coordinator polls in a `while inflight > 0` loop bounded by the deadline.
+- ~~**`tako-server-pt::worker_main`** is an infinite `loop { accept }` with no `select!` against shutdown (`lib.rs:132-194`); workers leak on shutdown.~~ — **Done.** New `PerThreadShutdown { Arc<Notify> }`; `spawn_per_thread` returns `(Vec<JoinHandle>, PerThreadShutdown)`; worker accept loop selects against `shutdown.notified()`.
+- ~~**PROXY-protocol no read deadline** (`proxy_protocol.rs:368`). Apply `ProxyConfig::read_timeout` before parsing.~~ — **Done.** `ServerConfig::proxy_read_timeout` (default 10s); slowloris-class abuse can no longer pin a worker.
+- ~~**Listener accept errors are fatal.** `server.rs:118` propagates `?`, `server_h3.rs:158` exits the listen loop on `None` from `endpoint.accept()`. Add EMFILE backoff and supervised restart.~~ — **Done.** New `tako_server::AcceptBackoff` (5 ms → 1 s exponential). Every Tokio transport (server, server_tls, server_unix, proxy_protocol) logs + backs off + retries instead of returning `?`.
 
-`load_certs` and `load_key` are duplicated in `server_tls.rs:318-362`, `server_h3.rs:348-367`, `server_tls_compio.rs:296-315`, and `tako-streams/src/webtransport.rs:170-194` reaches across crates into `tako_server::server_h3::load_certs`. Move to a shared `tako-tls` crate exposing:
+### 3.3 Extract a `tako-tls` crate — Done (in-tree module, no separate crate)
+
+`load_certs` and `load_key` were duplicated in `server_tls.rs:318-362`, `server_h3.rs:348-367`, `server_tls_compio.rs:296-315`, and `tako-streams/src/webtransport.rs:170-194` reaches across crates into `tako_server::server_h3::load_certs`. ~~Move to a shared `tako-tls` crate exposing:~~
 
 ```rust
 pub enum TlsConfig {
@@ -213,18 +238,20 @@ pub enum TlsConfig {
 }
 ```
 
-Support PKCS#8, RSA, SEC1, EC. Add SNI multi-cert resolver. Wire mTLS via `WebPkiClientVerifier`. Add hot reload (file-watcher or signal-driven).
+~~Support PKCS#8, RSA, SEC1, EC.~~ Add SNI multi-cert resolver. Wire mTLS via `WebPkiClientVerifier`. Add hot reload (file-watcher or signal-driven).
+
+**Done partially:** `load_certs` / `load_key` consolidated into `tako_core::tls` (PKCS#8 + RSA + SEC1 + EC accepted). `server_tls`, `server_h3`, `server_tls_compio` re-export from there; `webtransport` calls it directly so it no longer reaches across crates. New workspace member was avoided (kept the crate count down). The `TlsConfig` enum + SNI multi-cert + mTLS + hot-reload pieces are deferred to the `Server::builder` `TlsCert` evolution.
 
 ### 3.4 Protocol-completeness items
 
-- **HTTP/3:** stream the request body, support trailers, support graceful GOAWAY (currently `endpoint.close(0u32.into(), ...)` is hard-close at `server_h3.rs:204`), expose qlog, retry-token, datagrams, congestion-control selection, max bidi/uni streams.
-- **h2c (cleartext H2)** for L7-proxy deployments.
-- **80→443 auto-redirect helper.**
-- **socket activation** (`LISTEN_FDS`).
-- **abstract Unix sockets** (`@`-prefixed).
-- **vsock** for VM-host bridges.
-- **PROXY v2 TLV parsing** (`proxy_protocol.rs:225-309`): AWS VPC endpoint ID (0xEA), TLS info (0x20), authority (0x02), CRC32C. Strip inbound `X-Forwarded-For` before injecting source. Handle `AF_UNIX` family (0x3) — currently silently lands in `_ => UNSPEC` at `:301-308`.
-- **Unify `ConnInfo` extension.** `server.rs:139` and `server_tls.rs:196` insert `SocketAddr`; `server_unix.rs:222` inserts `UnixPeerAddr`; H3 inserts something else again. Define one struct:
+- **HTTP/3:** ~~stream the request body, support trailers~~, support graceful GOAWAY (currently `endpoint.close(0u32.into(), ...)` is hard-close at `server_h3.rs:204`), expose qlog, retry-token, datagrams, congestion-control selection, max bidi/uni streams. — **Streaming body + trailers Done** (per `build_h3_body`). GOAWAY / qlog / retry-token / datagrams / congestion-control selection / max bidi/uni streams **Pending.**
+- ~~**h2c (cleartext H2)** for L7-proxy deployments.~~ — **Done.** New `tako_server::server_h2c` module; `Server::spawn_h2c(listener, router)` in the builder.
+- ~~**80→443 auto-redirect helper.**~~ — **Done.** `tako::redirect::http_to_https_router(https_port)` builds a router whose fallback 308-redirects every request.
+- **socket activation** (`LISTEN_FDS`). — **Pending.**
+- **abstract Unix sockets** (`@`-prefixed). — **Pending.**
+- **vsock** for VM-host bridges. — **Pending.**
+- ~~**PROXY v2 TLV parsing** (`proxy_protocol.rs:225-309`): AWS VPC endpoint ID (0xEA), TLS info (0x20), authority (0x02), CRC32C. Strip inbound `X-Forwarded-For` before injecting source. Handle `AF_UNIX` family (0x3) — currently silently lands in `_ => UNSPEC` at `:301-308`.~~ — **Done** (CRC32C parsed but not yet verified). New `ProxyHeader` fields: `authority`, `alpn`, `aws_vpc_endpoint_id`, `tls: Option<ProxyTlsInfo>`, `unique_id`, `tlvs: Vec<ProxyTlv>`, `source_unix`, `destination_unix`. Inbound `X-Forwarded-*` and `Forwarded` headers stripped in the service_fn before dispatch.
+- ~~**Unify `ConnInfo` extension.** `server.rs:139` and `server_tls.rs:196` insert `SocketAddr`; `server_unix.rs:222` inserts `UnixPeerAddr`; H3 inserts something else again. Define one struct:~~
 
 ```rust
 pub struct ConnInfo {
@@ -238,9 +265,13 @@ pub struct ConnInfo {
 }
 ```
 
-### 3.5 Observability inside the server crate
+— **Done.** New `tako_core::conn_info` module: `ConnInfo { peer, local, transport, tls }`, `PeerAddr { Ip, Unix, Other }`, `Transport { Http1, Http2, Http3, Unix, Tcp }`, `TlsInfo { alpn, sni, version }`. Every transport (TCP/TLS/H3/Unix/PROXY/h2c/per-thread, both tokio and compio) inserts a `ConnInfo` into request extensions alongside the legacy `SocketAddr` / `UnixPeerAddr` / `ProxyHeader` for backward compat.
 
-The four `signals` emissions (`server.rs:122-191`, `server_tls.rs:165-265`, `server_h3.rs:161-194, 273-318`) are copy-pasted. Move emission into a single per-request middleware so transport files don't duplicate the boilerplate. Wire W3C `traceparent` propagation.
+### ~~3.5 Observability inside the server crate~~ — Done (per-request part); traceparent pending
+
+~~The four `signals` emissions (`server.rs:122-191`, `server_tls.rs:165-265`, `server_h3.rs:161-194, 273-318`) are copy-pasted. Move emission into a single per-request middleware so transport files don't duplicate the boilerplate.~~ Wire W3C `traceparent` propagation.
+
+`REQUEST_STARTED` / `REQUEST_COMPLETED` emit moved into `Router::dispatch` (one site, all transports get it for free; gated on the `signals` feature). Connection-level emit factored into `tako_core::signals::transport::{emit_server_started, emit_connection_opened, emit_connection_closed}`. Five transport files lost ~5–10 lines each of boilerplate. **W3C `traceparent` propagation is pending** — see §4.2 `request_id` and the `traceparent` middleware in §4.3.
 
 ---
 
