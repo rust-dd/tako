@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "tako-core",
-  "tako-core-local",
   "tako-extractors",
   "tako-macros",
   "tako-server",
@@ -60,7 +59,6 @@ authors = ["Daniel Boros <dancixx@gmail.com>"]
 [workspace.dependencies]
 # Internal sub-crates
 tako-core = { path = "tako-core", version = "1.1.2" }
-tako-core-local = { path = "tako-core-local", version = "1.1.2" }
 tako-extractors = { path = "tako-extractors", version = "1.1.2" }
 tako-macros = { path = "tako-macros", version = "1.1.2" }
 tako-plugins = { path = "tako-plugins", version = "1.1.2" }

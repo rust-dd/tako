@@ -3655,17 +3655,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-core-local"
-version = "1.1.2"
-dependencies = [
- "futures-util",
- "http",
- "matchit",
- "smallvec",
- "tako-core",
-]
-
-[[package]]
 name = "tako-extractors"
 version = "1.1.2"
 dependencies = [
@@ -3769,7 +3758,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tako-core",
- "tako-core-local",
  "tako-extractors",
  "tako-macros",
  "tako-plugins",
@@ -3822,7 +3810,6 @@ dependencies = [
  "send_wrapper",
  "socket2 0.5.10",
  "tako-core",
- "tako-core-local",
  "tokio",
  "tracing",
 ]

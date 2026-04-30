@@ -15,7 +15,6 @@ doctest = false
 
 [dependencies]
 tako-core.workspace = true
-tako-core-local = { workspace = true, optional = true }
 
 futures-util.workspace = true
 hyper.workspace = true
@@ -37,9 +36,7 @@ send_wrapper = { workspace = true, optional = true }
 default = ["affinity"]
 affinity = ["dep:core_affinity"]
 signals = ["tako-core/signals"]
-local = ["dep:tako-core-local"]
 # The compio crate is enabled directly here without flipping `tako-core/compio`,
 # because that core feature globally switches signals/queue to compio spawn,
 # which conflicts with the existing tokio-based `tako_server::serve` path.
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
-compio-local = ["compio", "local"]

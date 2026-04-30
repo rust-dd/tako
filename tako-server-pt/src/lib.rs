@@ -13,14 +13,9 @@
 //!
 //! - [`serve_per_thread`] — uses the existing thread-safe [`tako::router::Router`]
 //!   from `tako-core`. Drop-in alternative to [`tako::serve`]; no API changes.
-//! - [`serve_per_thread_local`] (under the `local` feature) — uses
-//!   [`tako_core_local::router::LocalRouter`]. Allows `!Send` handler state
-//!   such as `Rc<RefCell<…>>` per worker.
 //! - [`serve_per_thread_compio`] (under the `compio` feature) — same SO_REUSEPORT
 //!   bootstrap but each worker runs a `compio` runtime (io_uring on Linux,
 //!   IOCP on Windows, kqueue on macOS).
-//! - [`serve_per_thread_compio_local`] (under the `compio-local` feature) —
-//!   compio runtime + `LocalRouter` per worker.
 
 use std::convert::Infallible;
 use std::io;
@@ -39,8 +34,6 @@ use socket2::Type;
 use tako_core::body::TakoBody;
 use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
-#[cfg(feature = "local")]
-use tako_core_local::router::LocalRouter;
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
 use tokio::task::LocalSet;
@@ -272,113 +265,6 @@ fn worker_main(
   });
 }
 
-/// Starts a thread-per-core HTTP server using the `!Send` [`LocalRouter`].
-///
-/// Same bootstrap as [`serve_per_thread`] but uses the local router from
-/// `tako-core-local`, allowing handlers to capture `!Send` state such as
-/// `Rc<RefCell<…>>` that lives entirely on a single worker thread.
-///
-/// `LocalRouter` cannot cross thread boundaries; the workers each construct
-/// their own router via the `init` callback.
-#[cfg(feature = "local")]
-#[cfg_attr(docsrs, doc(cfg(feature = "local")))]
-pub fn serve_per_thread_local<F>(addr: &str, init: F, cfg: PerThreadConfig) -> io::Result<()>
-where
-  F: Fn() -> LocalRouter + Send + Sync + 'static,
-{
-  use std::convert::Infallible;
-
-  let socket_addr =
-    SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-  let init: Arc<dyn Fn() -> LocalRouter + Send + Sync + 'static> = Arc::new(init);
-
-  let mut handles = Vec::with_capacity(cfg.workers);
-  for worker_id in 0..cfg.workers {
-    let cfg = cfg.clone();
-    let init = Arc::clone(&init);
-    let h = std::thread::Builder::new()
-      .name(format!("tako-pt-local-{worker_id}"))
-      .spawn(move || {
-        #[cfg(feature = "affinity")]
-        if cfg.pin_to_core {
-          if let Some(ids) = core_affinity::get_core_ids() {
-            if let Some(id) = ids.get(worker_id) {
-              let _ = core_affinity::set_for_current(*id);
-            }
-          }
-        }
-
-        let rt = match Builder::new_current_thread().enable_all().build() {
-          Ok(rt) => rt,
-          Err(e) => {
-            tracing::error!("worker {worker_id}: failed to build runtime: {e}");
-            return;
-          }
-        };
-
-        let local_set = LocalSet::new();
-        local_set.block_on(&rt, async move {
-          let router = init();
-          let router = std::rc::Rc::new(router);
-
-          let listener = match bind_reuseport(socket_addr, cfg.backlog) {
-            Ok(l) => l,
-            Err(e) => {
-              tracing::error!("worker {worker_id}: bind failed: {e}");
-              return;
-            }
-          };
-          tracing::debug!("tako-pt-local worker {worker_id} listening on {socket_addr}");
-
-          loop {
-            let accept = match listener.accept().await {
-              Ok(v) => v,
-              Err(e) => {
-                tracing::error!("worker {worker_id}: accept failed: {e}");
-                continue;
-              }
-            };
-            let (stream, peer) = accept;
-            let _ = stream.set_nodelay(true);
-            let io = hyper_util::rt::TokioIo::new(stream);
-            let router = std::rc::Rc::clone(&router);
-
-            tokio::task::spawn_local(async move {
-              let svc = service_fn(move |mut req| {
-                let router = std::rc::Rc::clone(&router);
-                async move {
-                  req.extensions_mut().insert(peer);
-                  req.extensions_mut().insert(ConnInfo::tcp(peer));
-                  let resp = router.dispatch(req.map(TakoBody::incoming)).await;
-                  Ok::<_, Infallible>(resp)
-                }
-              });
-
-              let mut http = http1::Builder::new();
-              http.keep_alive(true);
-              http.pipeline_flush(true);
-              if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-                if err.is_incomplete_message() {
-                  tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
-                } else {
-                  tracing::error!("worker {worker_id}: connection error: {err}");
-                }
-              }
-            });
-          }
-        });
-      })
-      .expect("spawn tako-pt-local worker");
-    handles.push(h);
-  }
-
-  for h in handles {
-    let _ = h.join();
-  }
-  Ok(())
-}
-
 /// Starts a thread-per-core HTTP server with the compio runtime.
 ///
 /// Same SO_REUSEPORT bootstrap as [`serve_per_thread`] but each worker runs a
@@ -485,112 +371,3 @@ fn worker_main_compio(
   });
 }
 
-/// Starts a thread-per-core HTTP server using compio + the `!Send`
-/// [`LocalRouter`].
-///
-/// Each worker builds its own [`compio::runtime::Runtime`] and constructs a
-/// `LocalRouter` via the `init` callback. compio's runtime is single-threaded
-/// by design, so `!Send` futures and `Rc<RefCell<…>>` state work natively
-/// without `LocalSet`.
-#[cfg(feature = "compio-local")]
-#[cfg_attr(docsrs, doc(cfg(feature = "compio-local")))]
-pub fn serve_per_thread_compio_local<F>(
-  addr: &str,
-  init: F,
-  cfg: PerThreadConfig,
-) -> io::Result<()>
-where
-  F: Fn() -> LocalRouter + Send + Sync + 'static,
-{
-  use cyper_core::HyperStream;
-
-  let socket_addr =
-    SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-  let init: Arc<dyn Fn() -> LocalRouter + Send + Sync + 'static> = Arc::new(init);
-
-  let mut handles = Vec::with_capacity(cfg.workers);
-  for worker_id in 0..cfg.workers {
-    let cfg = cfg.clone();
-    let init = Arc::clone(&init);
-    let h = std::thread::Builder::new()
-      .name(format!("tako-pt-compio-local-{worker_id}"))
-      .spawn(move || {
-        #[cfg(feature = "affinity")]
-        if cfg.pin_to_core {
-          if let Some(ids) = core_affinity::get_core_ids() {
-            if let Some(id) = ids.get(worker_id) {
-              let _ = core_affinity::set_for_current(*id);
-            }
-          }
-        }
-
-        let rt = match compio::runtime::RuntimeBuilder::new().build() {
-          Ok(rt) => rt,
-          Err(e) => {
-            tracing::error!("worker {worker_id}: failed to build compio runtime: {e}");
-            return;
-          }
-        };
-
-        rt.block_on(async move {
-          let router = std::rc::Rc::new(init());
-
-          let listener = match bind_reuseport_compio(socket_addr, cfg.backlog) {
-            Ok(l) => l,
-            Err(e) => {
-              tracing::error!("worker {worker_id}: bind failed: {e}");
-              return;
-            }
-          };
-          tracing::debug!(
-            "tako-pt-compio-local worker {worker_id} listening on {socket_addr}"
-          );
-
-          loop {
-            let accept = match listener.accept().await {
-              Ok(v) => v,
-              Err(e) => {
-                tracing::error!("worker {worker_id}: accept failed: {e}");
-                continue;
-              }
-            };
-            let (stream, peer) = accept;
-            let io = HyperStream::new(stream);
-            let router = std::rc::Rc::clone(&router);
-
-            compio::runtime::spawn(async move {
-              let svc = service_fn(move |mut req| {
-                let router = std::rc::Rc::clone(&router);
-                async move {
-                  req.extensions_mut().insert(peer);
-                  let resp = router
-                    .dispatch(req.map(tako_core::body::TakoBody::new))
-                    .await;
-                  Ok::<_, Infallible>(resp)
-                }
-              });
-
-              let mut http = http1::Builder::new();
-              http.keep_alive(true);
-              if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
-                if err.is_incomplete_message() {
-                  tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
-                } else {
-                  tracing::error!("worker {worker_id}: connection error: {err}");
-                }
-              }
-            })
-            .detach();
-          }
-        });
-      })
-      .expect("spawn tako-pt-compio-local worker");
-    handles.push(h);
-  }
-
-  for h in handles {
-    let _ = h.join();
-  }
-  Ok(())
-}

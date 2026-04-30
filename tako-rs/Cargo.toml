@@ -25,7 +25,6 @@ tako-streams.workspace = true
 tako-plugins.workspace = true
 linkme.workspace = true
 tako-server-pt = { workspace = true, optional = true }
-tako-core-local = { workspace = true, optional = true }
 tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
@@ -71,20 +70,14 @@ tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
 zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]
 jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
 
-# Thread-per-core runtime (Phase 1): existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
+# Thread-per-core runtime: existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
 per-thread = ["dep:tako-server-pt"]
 
-# Thread-per-core with `!Send` LocalRouter (Phase 2): handlers may capture Rc<RefCell<…>> per worker.
-per-thread-local = ["per-thread", "dep:tako-core-local", "tako-server-pt/local"]
-
-# Thread-per-core on the compio runtime (Phase 3): io_uring on Linux, IOCP on Windows, kqueue on macOS.
+# Thread-per-core on the compio runtime: io_uring on Linux, IOCP on Windows, kqueue on macOS.
 # Does NOT enable `tako-core/compio` because that feature globally rewrites
 # signals/queue to compio spawn and conflicts with `serve()`. The per-thread
 # compio entry point pulls in the compio runtime directly.
 per-thread-compio = ["per-thread", "tako-server-pt/compio"]
-
-# Thread-per-core compio + LocalRouter.
-per-thread-compio-local = ["per-thread-compio", "per-thread-local", "tako-server-pt/compio-local"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

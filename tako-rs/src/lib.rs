@@ -277,31 +277,9 @@ pub use tako_server_pt::PerThreadConfig;
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_server_pt::serve_per_thread;
 
-#[cfg(feature = "per-thread-local")]
-#[cfg_attr(docsrs, doc(cfg(feature = "per-thread-local")))]
-pub use tako_server_pt::serve_per_thread_local;
-
 #[cfg(feature = "per-thread-compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread-compio")))]
 pub use tako_server_pt::serve_per_thread_compio;
-
-#[cfg(feature = "per-thread-compio-local")]
-#[cfg_attr(docsrs, doc(cfg(feature = "per-thread-compio-local")))]
-pub use tako_server_pt::serve_per_thread_compio_local;
-
-#[cfg(feature = "per-thread-local")]
-#[cfg_attr(docsrs, doc(cfg(feature = "per-thread-local")))]
-pub mod local {
-  //! `!Send` thread-per-core API surface.
-  //!
-  //! Pair [`router::LocalRouter`] with [`crate::serve_per_thread_local`] to
-  //! run handlers that capture `Rc<RefCell<…>>` or other non-thread-safe
-  //! state per worker.
-  pub use tako_core_local::handler::{LocalBoxFuture, LocalBoxHandler, LocalHandler};
-  pub use tako_core_local::middleware::{LocalBoxMiddleware, LocalIntoMiddleware, LocalNext};
-  pub use tako_core_local::route::LocalRoute;
-  pub use tako_core_local::router::LocalRouter;
-}
 
 #[cfg(feature = "jemalloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
