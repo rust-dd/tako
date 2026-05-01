@@ -30,8 +30,7 @@ use tako_core::types::Response;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Canonicalization strategy: produces the byte string that gets HMAC'd.
-type CanonicalFn =
-  Arc<dyn Fn(&http::request::Parts, &[u8]) -> Vec<u8> + Send + Sync + 'static>;
+type CanonicalFn = Arc<dyn Fn(&http::request::Parts, &[u8]) -> Vec<u8> + Send + Sync + 'static>;
 
 /// Signature verification middleware.
 pub struct HmacSignature {

@@ -88,9 +88,8 @@ impl RevocationList for InMemoryRevocationList {
 
 /// Optional remote introspection. Returns true when the token is still
 /// valid; false when it has been revoked / expired upstream.
-pub type IntrospectionFn = Arc<
-  dyn Fn(&str) -> Pin<Box<dyn Future<Output = bool> + Send + 'static>> + Send + Sync + 'static,
->;
+pub type IntrospectionFn =
+  Arc<dyn Fn(&str) -> Pin<Box<dyn Future<Output = bool> + Send + 'static>> + Send + Sync + 'static>;
 
 /// Closure that extracts a `jti` (or any revocation-list key) from the
 /// verifier's decoded claims. Required when wiring up [`JwtAuth::revocation`].
@@ -217,7 +216,6 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
     }
   }
 }
-
 
 #[cfg(feature = "jwt-simple")]
 mod jwt_simple_impl {
@@ -411,7 +409,9 @@ mod jwt_simple_impl {
         opts.allowed_audiences = Some(set);
       }
 
-      key.verify_token::<C>(token, opts).map_err(|e| e.to_string())
+      key
+        .verify_token::<C>(token, opts)
+        .map_err(|e| e.to_string())
     }
   }
 }

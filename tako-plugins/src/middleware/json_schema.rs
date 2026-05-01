@@ -90,7 +90,9 @@ fn problem(status: StatusCode, errors: &[String]) -> Response {
   });
   let mut resp = http::Response::builder()
     .status(status)
-    .body(TakoBody::from(serde_json::to_vec(&body).unwrap_or_default()))
+    .body(TakoBody::from(
+      serde_json::to_vec(&body).unwrap_or_default(),
+    ))
     .expect("valid problem response");
   resp.headers_mut().insert(
     CONTENT_TYPE,
@@ -132,7 +134,10 @@ impl IntoMiddleware for JsonSchema {
             }
             match serde_json::from_slice::<Value>(&collected) {
               Ok(value) => {
-                let errors: Vec<String> = validator.iter_errors(&value).map(|e| e.to_string()).collect();
+                let errors: Vec<String> = validator
+                  .iter_errors(&value)
+                  .map(|e| e.to_string())
+                  .collect();
                 if !errors.is_empty() {
                   return problem(StatusCode::BAD_REQUEST, &errors);
                 }
@@ -157,7 +162,10 @@ impl IntoMiddleware for JsonSchema {
             }
             match serde_json::from_slice::<Value>(&collected) {
               Ok(value) => {
-                let errors: Vec<String> = validator.iter_errors(&value).map(|e| e.to_string()).collect();
+                let errors: Vec<String> = validator
+                  .iter_errors(&value)
+                  .map(|e| e.to_string())
+                  .collect();
                 if !errors.is_empty() {
                   return problem(StatusCode::INTERNAL_SERVER_ERROR, &errors);
                 }

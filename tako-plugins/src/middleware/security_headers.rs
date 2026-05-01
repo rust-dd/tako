@@ -239,9 +239,7 @@ impl IntoMiddleware for SecurityHeaders {
             let nonce = rand_nonce();
             let value = template.replace("{nonce}", &nonce);
             req.extensions_mut().insert(CspNonce(nonce));
-            HeaderValue::from_str(&value)
-              .ok()
-              .map(|hv| (hv, *header))
+            HeaderValue::from_str(&value).ok().map(|hv| (hv, *header))
           }
         };
 

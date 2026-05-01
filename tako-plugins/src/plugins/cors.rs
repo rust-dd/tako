@@ -303,7 +303,10 @@ impl CorsBuilder {
   #[inline]
   #[must_use]
   pub fn allow_origin_suffix(mut self, suffix: impl Into<String>) -> Self {
-    self.0.origin_matchers.push(OriginMatcher::Suffix(suffix.into()));
+    self
+      .0
+      .origin_matchers
+      .push(OriginMatcher::Suffix(suffix.into()));
     self
   }
 
@@ -314,7 +317,10 @@ impl CorsBuilder {
   where
     F: Fn(&str) -> bool + Send + Sync + 'static,
   {
-    self.0.origin_matchers.push(OriginMatcher::Custom(Arc::new(f)));
+    self
+      .0
+      .origin_matchers
+      .push(OriginMatcher::Custom(Arc::new(f)));
     self
   }
 

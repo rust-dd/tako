@@ -480,10 +480,8 @@ impl PrometheusMetricsConfig {
   /// Installs a Prometheus metrics backend and a scrape endpoint on the router.
   pub fn install(self, router: &mut Router) -> Arc<Registry> {
     let registry = Arc::new(Registry::new());
-    let backend = prometheus_backend::PrometheusMetricsBackend::with_buckets(
-      (*registry).clone(),
-      self.buckets,
-    );
+    let backend =
+      prometheus_backend::PrometheusMetricsBackend::with_buckets((*registry).clone(), self.buckets);
     let plugin = MetricsPlugin::new(Arc::new(backend));
 
     router.plugin(plugin);

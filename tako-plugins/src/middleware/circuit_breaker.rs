@@ -19,8 +19,8 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicU8;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
@@ -202,7 +202,12 @@ impl IntoMiddleware for CircuitBreaker {
             // Cool-down elapsed: transition to half-open if we win the race.
             if state
               .state
-              .compare_exchange(STATE_OPEN, STATE_HALF_OPEN, Ordering::AcqRel, Ordering::Acquire)
+              .compare_exchange(
+                STATE_OPEN,
+                STATE_HALF_OPEN,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+              )
               .is_ok()
             {
               state.reset_window();

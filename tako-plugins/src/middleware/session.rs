@@ -146,9 +146,7 @@ impl SessionStoreHandle {
   where
     F: FnMut(&str, &serde_json::Map<String, serde_json::Value>) -> bool,
   {
-    self
-      .store
-      .revoke_predicate(|k, v| !pred(k, &v.data));
+    self.store.revoke_predicate(|k, v| !pred(k, &v.data));
   }
 }
 
@@ -430,20 +428,10 @@ impl IntoMiddleware for SessionMiddleware {
               if let Some(id) = inbound_id.as_ref() {
                 store.remove(id);
               }
-              (
-                generate_session_id(),
-                serde_json::Map::new(),
-                now,
-                false,
-              )
+              (generate_session_id(), serde_json::Map::new(), now, false)
             }
           },
-          None => (
-            generate_session_id(),
-            serde_json::Map::new(),
-            now,
-            false,
-          ),
+          None => (generate_session_id(), serde_json::Map::new(), now, false),
         };
 
         let session = Session::new(data);

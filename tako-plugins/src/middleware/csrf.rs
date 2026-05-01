@@ -149,16 +149,17 @@ fn extract_cookie<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
 
 fn origin_allowed(value: &str, allow: &[String]) -> bool {
   // Match by exact scheme://host[:port] prefix, ignoring path.
-  let target = value
-    .splitn(4, '/')
-    .take(3)
-    .collect::<Vec<_>>()
-    .join("/");
+  let target = value.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
   allow.iter().any(|o| o == &target)
 }
 
 fn build_cookie(name: &str, token: &str, secure: bool, same_site: SameSite) -> String {
-  let mut s = format!("{}={}; Path=/; SameSite={}", name, token, same_site_str(same_site));
+  let mut s = format!(
+    "{}={}; Path=/; SameSite={}",
+    name,
+    token,
+    same_site_str(same_site)
+  );
   if secure || matches!(same_site, SameSite::None) {
     s.push_str("; Secure");
   }
@@ -335,9 +336,7 @@ fn ensure_csrf_cookie(
   if already_set {
     return;
   }
-  let token = preferred_token
-    .clone()
-    .unwrap_or_else(generate_csrf_token);
+  let token = preferred_token.clone().unwrap_or_else(generate_csrf_token);
   if bind_to_session {
     if let Some(session) = resp.extensions_mut().get::<Session>().cloned() {
       session.set(session_key, token.clone());

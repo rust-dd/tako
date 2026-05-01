@@ -643,6 +643,7 @@ async fn middleware_chain_order() {
 #[tokio::test]
 async fn timeout_returns_503_when_exceeded() {
   use std::time::Duration;
+
   use tako::middleware::timeout::Timeout;
 
   let mut router = Router::new();
@@ -659,6 +660,7 @@ async fn timeout_returns_503_when_exceeded() {
 #[tokio::test]
 async fn timeout_passes_when_within_deadline() {
   use std::time::Duration;
+
   use tako::middleware::timeout::Timeout;
 
   let mut router = Router::new();
@@ -713,10 +715,7 @@ async fn traceparent_propagates_inbound() {
   let resp = router.dispatch(req).await;
   let response_header = resp.headers().get(TRACEPARENT).unwrap().to_str().unwrap();
   assert!(response_header.contains("0123456789abcdef0123456789abcdef"));
-  assert_eq!(
-    body_str(resp).await,
-    "0123456789abcdef0123456789abcdef"
-  );
+  assert_eq!(body_str(resp).await, "0123456789abcdef0123456789abcdef");
 }
 
 #[tokio::test]
@@ -782,8 +781,7 @@ async fn tenant_extracted_from_header() {
       .unwrap_or_else(|| "no-tenant".into())
   });
   router.middleware(
-    TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id"))
-      .into_middleware(),
+    TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id")).into_middleware(),
   );
 
   let mut req = make_req(Method::GET, "/");
