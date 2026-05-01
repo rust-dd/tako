@@ -48,6 +48,7 @@
 //! ```
 
 use std::fmt;
+use std::sync::Arc;
 
 use anyhow::Result;
 use http::HeaderName;
@@ -69,6 +70,43 @@ use tako_core::responder::Responder;
 use tako_core::router::Router;
 use tako_core::types::Request;
 use tako_core::types::Response;
+
+/// Origin matching mode.
+#[derive(Clone)]
+pub enum OriginMatcher {
+  /// Exact match (current default).
+  Exact(String),
+  /// Suffix match — `acme.example.com` matches origin `https://api.acme.example.com`.
+  Suffix(String),
+  /// Custom predicate. Receives the verbatim `Origin` header value.
+  Custom(Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>),
+}
+
+impl OriginMatcher {
+  fn matches(&self, origin: &str) -> bool {
+    match self {
+      Self::Exact(s) => s == origin,
+      Self::Suffix(s) => {
+        // Match against the host portion (`scheme://host[:port]`).
+        let host = origin
+          .splitn(4, '/')
+          .nth(2)
+          .unwrap_or(origin)
+          .splitn(2, ':')
+          .next()
+          .unwrap_or("");
+        host == s.as_str() || host.ends_with(&format!(".{s}"))
+      }
+      Self::Custom(f) => f(origin),
+    }
+  }
+}
+
+impl<S: Into<String>> From<S> for OriginMatcher {
+  fn from(value: S) -> Self {
+    Self::Exact(value.into())
+  }
+}
 
 /// CORS policy configuration settings for cross-origin request handling.
 ///
@@ -93,8 +131,10 @@ use tako_core::types::Response;
 /// ```
 #[derive(Clone)]
 pub struct Config {
-  /// List of allowed origin URLs for cross-origin requests.
+  /// Exact origin allow-list (legacy). For wider matching, use [`Self::origin_matchers`].
   pub origins: Vec<String>,
+  /// Suffix / regex / custom origin matchers (additive on top of `origins`).
+  pub origin_matchers: Vec<OriginMatcher>,
   /// List of allowed HTTP methods for cross-origin requests.
   pub methods: Vec<Method>,
   /// List of allowed request headers for cross-origin requests.
@@ -103,6 +143,10 @@ pub struct Config {
   pub allow_credentials: bool,
   /// Maximum age in seconds for preflight request caching by browsers.
   pub max_age_secs: Option<u32>,
+  /// Send `Access-Control-Allow-Private-Network: true` in preflight responses
+  /// when the client signals `Access-Control-Request-Private-Network: true`.
+  /// Required for browsers to allow public→private requests post Chrome 104.
+  pub allow_private_network: bool,
 }
 
 impl Default for Config {
@@ -110,6 +154,7 @@ impl Default for Config {
   fn default() -> Self {
     Self {
       origins: Vec::new(),
+      origin_matchers: Vec::new(),
       methods: vec![
         Method::GET,
         Method::POST,
@@ -121,6 +166,7 @@ impl Default for Config {
       headers: Vec::new(),
       allow_credentials: false,
       max_age_secs: Some(3600),
+      allow_private_network: false,
     }
   }
 }
@@ -132,10 +178,15 @@ impl Config {
   /// browsers reject (e.g. `Access-Control-Allow-Origin: *` together with
   /// `Access-Control-Allow-Credentials: true`).
   pub fn validate(&self) -> Result<(), CorsConfigError> {
-    if self.allow_credentials && self.origins.is_empty() {
+    if self.allow_credentials && self.origins.is_empty() && self.origin_matchers.is_empty() {
       return Err(CorsConfigError::CredentialsWithWildcardOrigin);
     }
     Ok(())
+  }
+
+  fn origin_allowed(&self, origin: &str) -> bool {
+    self.origins.iter().any(|p| p == origin)
+      || self.origin_matchers.iter().any(|m| m.matches(origin))
   }
 }
 
@@ -247,6 +298,34 @@ impl CorsBuilder {
     self
   }
 
+  /// Adds a suffix-style origin match (e.g. `example.com` accepts every
+  /// subdomain). Combine with [`Self::allow_origin`] for hybrid policies.
+  #[inline]
+  #[must_use]
+  pub fn allow_origin_suffix(mut self, suffix: impl Into<String>) -> Self {
+    self.0.origin_matchers.push(OriginMatcher::Suffix(suffix.into()));
+    self
+  }
+
+  /// Plug a custom origin predicate.
+  #[inline]
+  #[must_use]
+  pub fn allow_origin_predicate<F>(mut self, f: F) -> Self
+  where
+    F: Fn(&str) -> bool + Send + Sync + 'static,
+  {
+    self.0.origin_matchers.push(OriginMatcher::Custom(Arc::new(f)));
+    self
+  }
+
+  /// Enables Private Network Access (Chrome PNA) preflight handling.
+  #[inline]
+  #[must_use]
+  pub fn allow_private_network(mut self, yes: bool) -> Self {
+    self.0.allow_private_network = yes;
+    self
+  }
+
   /// Builds the CORS plugin with the configured settings.
   ///
   /// # Panics
@@ -332,18 +411,30 @@ impl TakoPlugin for CorsPlugin {
 async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
   let origin = req.headers().get(ORIGIN).cloned();
   let request_headers = req.headers().get(ACCESS_CONTROL_REQUEST_HEADERS).cloned();
+  let pna_request = req
+    .headers()
+    .get("access-control-request-private-network")
+    .and_then(|v| v.to_str().ok())
+    .map(|v| v.eq_ignore_ascii_case("true"))
+    .unwrap_or(false);
 
   if req.method() == Method::OPTIONS {
     let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
       .body(TakoBody::empty())
       .expect("valid CORS preflight response");
-    add_cors_headers(&cfg, origin, request_headers.as_ref(), &mut resp);
+    add_cors_headers(
+      &cfg,
+      origin,
+      request_headers.as_ref(),
+      pna_request,
+      &mut resp,
+    );
     return resp.into_response();
   }
 
   let mut resp = next.run(req).await;
-  add_cors_headers(&cfg, origin, request_headers.as_ref(), &mut resp);
+  add_cors_headers(&cfg, origin, request_headers.as_ref(), false, &mut resp);
   resp.into_response()
 }
 
@@ -352,23 +443,26 @@ fn add_cors_headers(
   cfg: &Config,
   origin: Option<HeaderValue>,
   request_headers: Option<&HeaderValue>,
+  pna_request: bool,
   resp: &mut Response,
 ) {
   // Origin validation and Access-Control-Allow-Origin header.
   //
   // Invariant guarded by `Config::validate`: when `allow_credentials = true`,
-  // `cfg.origins` is non-empty — so `*` is never emitted alongside credentials.
-  let (allow_origin, mirrored_origin) = if cfg.origins.is_empty() {
+  // at least one origin or matcher is configured — so `*` is never emitted
+  // alongside credentials.
+  let allow_anything = cfg.origins.is_empty() && cfg.origin_matchers.is_empty();
+  let (allow_origin, mirrored_origin) = if allow_anything {
     ("*".to_string(), false)
   } else if let Some(o) = &origin {
     let s = o.to_str().unwrap_or_default();
-    if cfg.origins.iter().any(|p| p == s) {
+    if cfg.origin_allowed(s) {
       (s.to_string(), true)
     } else {
-      return; // Origin not allowed, don't add CORS headers
+      return;
     }
   } else {
-    return; // No origin header, don't add CORS headers
+    return;
   };
 
   resp.headers_mut().insert(
@@ -454,6 +548,16 @@ fn add_cors_headers(
     resp.headers_mut().insert(
       ACCESS_CONTROL_MAX_AGE,
       HeaderValue::from_str(&secs.to_string()).expect("valid max-age header value"),
+    );
+  }
+
+  // Private Network Access (PNA) — emit only on preflight responses where
+  // the client signaled the request bit. Doing so on regular responses is a
+  // spec violation.
+  if cfg.allow_private_network && pna_request {
+    resp.headers_mut().insert(
+      "access-control-allow-private-network",
+      HeaderValue::from_static("true"),
     );
   }
 }

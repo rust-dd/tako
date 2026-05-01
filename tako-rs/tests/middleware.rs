@@ -340,7 +340,8 @@ async fn security_headers_default() {
     "nosniff"
   );
   assert_eq!(resp.headers().get("x-frame-options").unwrap(), "DENY");
-  assert_eq!(resp.headers().get("x-xss-protection").unwrap(), "0");
+  // X-XSS-Protection intentionally omitted per OWASP guidance (CSP supersedes).
+  assert!(resp.headers().get("x-xss-protection").is_none());
   assert_eq!(
     resp.headers().get("referrer-policy").unwrap(),
     "strict-origin-when-cross-origin"
@@ -633,4 +634,226 @@ async fn middleware_chain_order() {
   // Actually: first mw calls next → second mw calls next → handler → second mw
   // modifies resp → first mw modifies resp. So first wins (runs last on response).
   assert_eq!(resp.headers().get("x-order").unwrap(), "first");
+}
+
+// ---------------------------------------------------------------------------
+// 4.3 — new middleware
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn timeout_returns_503_when_exceeded() {
+  use std::time::Duration;
+  use tako::middleware::timeout::Timeout;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/slow", |_req: Request| async {
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    "done"
+  });
+  router.middleware(Timeout::new(Duration::from_millis(5)).into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/slow")).await;
+  assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn timeout_passes_when_within_deadline() {
+  use std::time::Duration;
+  use tako::middleware::timeout::Timeout;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/fast", |_req: Request| async { "done" });
+  router.middleware(Timeout::new(Duration::from_secs(1)).into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/fast")).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert_eq!(body_str(resp).await, "done");
+}
+
+#[tokio::test]
+async fn traceparent_generates_when_missing() {
+  use tako::middleware::traceparent::TRACEPARENT;
+  use tako::middleware::traceparent::Traceparent;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async { "ok" });
+  router.middleware(Traceparent::new().into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/")).await;
+  let header = resp.headers().get(TRACEPARENT).unwrap().to_str().unwrap();
+  assert!(header.starts_with("00-"));
+  let parts: Vec<&str> = header.split('-').collect();
+  assert_eq!(parts.len(), 4);
+  assert_eq!(parts[1].len(), 32);
+  assert_eq!(parts[2].len(), 16);
+  assert_eq!(parts[3].len(), 2);
+}
+
+#[tokio::test]
+async fn traceparent_propagates_inbound() {
+  use tako::middleware::traceparent::TRACEPARENT;
+  use tako::middleware::traceparent::TraceContext;
+  use tako::middleware::traceparent::Traceparent;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |req: Request| async move {
+    let ctx = req.extensions().get::<TraceContext>().cloned();
+    let tid = ctx.map(|c| c.trace_id).unwrap_or_default();
+    tid
+  });
+  router.middleware(Traceparent::new().into_middleware());
+
+  let mut req = make_req(Method::GET, "/");
+  req.headers_mut().insert(
+    "traceparent",
+    "00-0123456789abcdef0123456789abcdef-0011223344556677-01"
+      .parse()
+      .unwrap(),
+  );
+  let resp = router.dispatch(req).await;
+  let response_header = resp.headers().get(TRACEPARENT).unwrap().to_str().unwrap();
+  assert!(response_header.contains("0123456789abcdef0123456789abcdef"));
+  assert_eq!(
+    body_str(resp).await,
+    "0123456789abcdef0123456789abcdef"
+  );
+}
+
+#[tokio::test]
+async fn problem_json_rewrites_text_404() {
+  use tako::middleware::problem_json::ProblemJson;
+
+  let mut router = Router::new();
+  // Route exists but always 404s for the test; we want to assert middleware
+  // converts a plain-text 4xx into problem+json.
+  router.route(Method::GET, "/x", |_req: Request| async {
+    (StatusCode::NOT_FOUND, "missing")
+  });
+  router.middleware(ProblemJson::new().into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/x")).await;
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+  assert_eq!(
+    resp.headers().get("content-type").unwrap(),
+    "application/problem+json"
+  );
+  let body = body_str(resp).await;
+  assert!(body.contains("\"status\":404"));
+}
+
+#[tokio::test]
+async fn etag_304_on_match() {
+  use tako::middleware::etag::ETag;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async { "hello" });
+  router.middleware(ETag::new().into_middleware());
+
+  // First call to capture the generated ETag.
+  let resp = router.dispatch(make_req(Method::GET, "/")).await;
+  let etag = resp
+    .headers()
+    .get("etag")
+    .unwrap()
+    .to_str()
+    .unwrap()
+    .to_string();
+
+  // Second call with If-None-Match should yield 304.
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("if-none-match", etag.parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+}
+
+#[tokio::test]
+async fn tenant_extracted_from_header() {
+  use tako::middleware::tenant::Tenant;
+  use tako::middleware::tenant::TenantMiddleware;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |req: Request| async move {
+    req
+      .extensions()
+      .get::<Tenant>()
+      .map(|t| t.0.clone())
+      .unwrap_or_else(|| "no-tenant".into())
+  });
+  router.middleware(
+    TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id"))
+      .into_middleware(),
+  );
+
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("x-tenant-id", "acme".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(body_str(resp).await, "acme");
+}
+
+#[tokio::test]
+async fn healthcheck_live_endpoint() {
+  use tako::middleware::healthcheck::Healthcheck;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api/anything", |_req: Request| async {
+    "user route"
+  });
+  router.middleware(Healthcheck::new().into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/live")).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(body_str(resp).await.contains("alive"));
+}
+
+#[tokio::test]
+async fn healthcheck_drain_blocks_ready() {
+  use tako::middleware::healthcheck::Healthcheck;
+
+  let mw = Healthcheck::new();
+  let handle = mw.handle();
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
+  router.middleware(mw.into_middleware());
+
+  // Initially ready.
+  let resp = router.dispatch(make_req(Method::GET, "/ready")).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+
+  // Flip drain → not ready.
+  handle.drain();
+  let resp = router.dispatch(make_req(Method::GET, "/ready")).await;
+  assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+  assert!(resp.headers().get("retry-after").is_some());
+}
+
+#[tokio::test]
+async fn problem_json_passes_through_json() {
+  use tako::middleware::problem_json::ProblemJson;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/x", |_req: Request| async {
+    let mut resp = http::Response::builder()
+      .status(StatusCode::BAD_REQUEST)
+      .body(TakoBody::from(r#"{"foo":"bar"}"#))
+      .unwrap();
+    resp
+      .headers_mut()
+      .insert("content-type", "application/json".parse().unwrap());
+    resp
+  });
+  router.middleware(ProblemJson::new().into_middleware());
+
+  let resp = router.dispatch(make_req(Method::GET, "/x")).await;
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  assert_eq!(
+    resp.headers().get("content-type").unwrap(),
+    "application/json"
+  );
+  // Body untouched (the existing JSON authority wins).
+  assert_eq!(body_str(resp).await, r#"{"foo":"bar"}"#);
 }

@@ -116,6 +116,45 @@ impl Encoding {
   }
 }
 
+/// Content-type matching policy.
+#[derive(Clone)]
+pub enum ContentTypePolicy {
+  /// Default heuristic: text/*, anything containing `json`, `javascript`, `xml`.
+  Default,
+  /// Exact MIME types (case-insensitive). E.g. `["application/json", "text/html"]`.
+  Exact(Vec<String>),
+  /// MIME prefixes (case-insensitive). E.g. `["text/", "application/x-json-"]`.
+  Prefix(Vec<String>),
+  /// Caller-provided predicate. Receives the verbatim header value.
+  Custom(std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>),
+}
+
+impl Default for ContentTypePolicy {
+  fn default() -> Self {
+    Self::Default
+  }
+}
+
+impl ContentTypePolicy {
+  fn matches(&self, ct: &str) -> bool {
+    let ct = ct.split(';').next().unwrap_or(ct).trim();
+    match self {
+      Self::Default => {
+        ct.starts_with("text/")
+          || ct.contains("json")
+          || ct.contains("javascript")
+          || ct.contains("xml")
+      }
+      Self::Exact(list) => list.iter().any(|m| m.eq_ignore_ascii_case(ct)),
+      Self::Prefix(list) => {
+        let lc = ct.to_ascii_lowercase();
+        list.iter().any(|m| lc.starts_with(&m.to_ascii_lowercase()))
+      }
+      Self::Custom(f) => f(ct),
+    }
+  }
+}
+
 /// Configuration settings for HTTP response compression.
 #[derive(Clone)]
 pub struct Config {
@@ -134,6 +173,8 @@ pub struct Config {
   pub zstd_level: i32,
   /// Whether to use streaming compression instead of buffering entire responses.
   pub stream: bool,
+  /// Which response content types are eligible for compression.
+  pub content_types: ContentTypePolicy,
 }
 
 impl Default for Config {
@@ -148,6 +189,7 @@ impl Default for Config {
       #[cfg(feature = "zstd")]
       zstd_level: 3,
       stream: false,
+      content_types: ContentTypePolicy::default(),
     }
   }
 }
@@ -241,6 +283,12 @@ impl CompressionBuilder {
   /// Sets the minimum response size threshold for compression.
   pub fn min_size(mut self, bytes: usize) -> Self {
     self.0.min_size = bytes;
+    self
+  }
+
+  /// Replaces the content-type matching policy.
+  pub fn content_types(mut self, policy: ContentTypePolicy) -> Self {
+    self.0.content_types = policy;
     self
   }
 
@@ -404,11 +452,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   // Skip compression for unsupported content types.
   if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
     let ct = ct.to_str().unwrap_or("");
-    if !(ct.starts_with("text/")
-      || ct.contains("json")
-      || ct.contains("javascript")
-      || ct.contains("xml"))
-    {
+    if !cfg.content_types.matches(ct) {
       return resp.into_response();
     }
   }
@@ -492,11 +536,7 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
   // Skip compression for unsupported content types.
   if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
     let ct = ct.to_str().unwrap_or("");
-    if !(ct.starts_with("text/")
-      || ct.contains("json")
-      || ct.contains("javascript")
-      || ct.contains("xml"))
-    {
+    if !cfg.content_types.matches(ct) {
       return resp.into_response();
     }
   }

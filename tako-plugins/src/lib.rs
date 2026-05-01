@@ -14,3 +14,7 @@ pub mod plugins;
 
 /// Concrete middleware implementations.
 pub mod middleware;
+
+/// Pluggable backend traits for stateful middleware (sessions, rate limit, …)
+/// plus the bundled in-memory implementations.
+pub mod stores;

@@ -227,16 +227,38 @@ pub mod extractors {
 pub mod middleware {
   pub use tako_core::middleware::IntoMiddleware;
   pub use tako_core::middleware::Next;
+  pub use tako_plugins::middleware::access_log;
   pub use tako_plugins::middleware::api_key_auth;
   pub use tako_plugins::middleware::basic_auth;
   pub use tako_plugins::middleware::bearer_auth;
   pub use tako_plugins::middleware::body_limit;
+  pub use tako_plugins::middleware::circuit_breaker;
   pub use tako_plugins::middleware::csrf;
+  pub use tako_plugins::middleware::etag;
+  pub use tako_plugins::middleware::healthcheck;
+  #[cfg(feature = "hmac-signature")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "hmac-signature")))]
+  pub use tako_plugins::middleware::hmac_signature;
+  #[cfg(feature = "ip-filter")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "ip-filter")))]
+  pub use tako_plugins::middleware::ip_filter;
+  #[cfg(feature = "json-schema")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "json-schema")))]
+  pub use tako_plugins::middleware::json_schema;
   pub use tako_plugins::middleware::jwt_auth;
+  pub use tako_plugins::middleware::problem_json;
   pub use tako_plugins::middleware::request_id;
   pub use tako_plugins::middleware::security_headers;
   pub use tako_plugins::middleware::session;
+  pub use tako_plugins::middleware::tenant;
+  pub use tako_plugins::middleware::timeout;
+  pub use tako_plugins::middleware::traceparent;
   pub use tako_plugins::middleware::upload_progress;
+}
+
+/// Pluggable backend traits for stateful middleware (sessions, rate limiting, …).
+pub mod stores {
+  pub use tako_plugins::stores::*;
 }
 
 #[cfg(feature = "plugins")]

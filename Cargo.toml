@@ -111,14 +111,18 @@ cyper-core = "0.8.0"
 flate2 = "1.1.2"
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
+hmac = "0.12"
+ipnet = "2.11"
 listenfd = "1.0"
 multer = "3.1.0"
 opentelemetry = "0.31.0"
 opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"] }
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
 prometheus = "0.13.4"
+jsonschema = { version = "0.30", default-features = false }
 prost = "0.14.1"
 quinn = "0.11.9"
+sha2 = "0.10"
 rustls = "0.23.28"
 rustls-pemfile = "2.2.0"
 send_wrapper = "0.6"

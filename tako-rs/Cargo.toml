@@ -69,6 +69,9 @@ vespera = ["tako-core/vespera"]
 tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
 zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]
 jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
+ip-filter = ["tako-plugins/ip-filter"]
+hmac-signature = ["tako-plugins/hmac-signature"]
+json-schema = ["tako-plugins/json-schema"]
 
 # Thread-per-core runtime: existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
 per-thread = ["dep:tako-server-pt"]

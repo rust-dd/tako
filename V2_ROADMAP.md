@@ -291,50 +291,60 @@ pub struct ConnInfo {
 
 ---
 
-## 4. Plugins / middleware (v2)
+## ~~4. Plugins / middleware (v2)~~ — Done in dev branch (unreleased)
 
-### 4.1 Pluggable backends
+> **Status:** every subsection landed on the dev branch and is covered by `cargo test`. Unreleased to crates.io. Notes per item record what shipped and what was deliberately deferred.
 
-Today every store is `scc::HashMap`. Define traits and ship `Memory*` + feature-gated `Redis*` (and optionally `Postgres*`) implementations:
+### ~~4.1 Pluggable backends~~ — Done
+
+New `tako_plugins::stores` module:
 
 ```rust
-trait SessionStore: Send + Sync + 'static { ... }
-trait RateLimitStore: Send + Sync + 'static { ... }
-trait IdempotencyStore: Send + Sync + 'static { ... }
-trait JwksProvider: Send + Sync + 'static { ... }
-trait CsrfTokenStore: Send + Sync + 'static { ... }
+pub trait SessionStore: Send + Sync + 'static { … }
+pub trait RateLimitStore: Send + Sync + 'static { … }
+pub trait IdempotencyStore: Send + Sync + 'static { … }
+pub trait JwksProvider: Send + Sync + 'static { … }
+pub trait CsrfTokenStore: Send + Sync + 'static { … }
 ```
 
-### 4.2 Existing plugin fixes
+`stores::memory` ships `MemorySessionStore`, `MemoryRateLimitStore` (token-bucket), `MemoryIdempotencyStore`, `StaticJwksProvider`, `MemoryCsrfTokenStore`. Built-in middleware still defaults to embedded `scc::HashMap` for binary-compatibility, but the trait split lets users plug Redis / Postgres / external backends without forking the middleware. Concrete `Redis*` / `Postgres*` adapters are intentionally left out of the framework (one less dependency surface; in-tree they would force every consumer to compile `redis-rs`).
 
-| Plugin | Fix |
+> **TODO — follow-up before v2.0:** ship optional `tako-stores-redis` and `tako-stores-postgres` companion crates that implement the five traits against `redis::aio::ConnectionManager` and `tokio-postgres`. Gate them behind `redis-stores` / `postgres-stores` cargo features on `tako-rs` so consumers opt in. **Do not skip this** — without them, multi-replica deployments of session / rate-limit / idempotency middleware are forced to roll their own backend or stay on the in-memory store (which loses state on restart and silos counters per pod). Linked work items:
+> - `tako-stores-redis` — `MemorySessionStore` parity via `EXPIRE`-backed keys, GCRA rate limiter via Lua / `INCR` scripts, idempotency cache, JWKS pull-through with TTL.
+> - `tako-stores-postgres` — same surface for installations that already have Postgres in the path; uses `LISTEN/NOTIFY` for cluster-wide revocation broadcasts.
+> - Integration tests in `examples/session-redis` and `examples/idempotency-postgres` exercising failover and TTL semantics.
+> - Add a row to the §4.1 status table (above) once each backend lands.
+
+### ~~4.2 Existing plugin fixes~~ — Done
+
+| Plugin | What landed |
 |---|---|
-| `session` | Rotate on privilege change; split idle vs absolute timeout; rolling cookie refresh on every request (currently set only when `is_new`, `session.rs:267-292`); revoke-all helper. |
-| `rate_limiter` | Per-route / per-user / per-IP composite key; emit `RateLimit-Limit / RateLimit-Remaining / RateLimit-Reset` and `Retry-After` (draft-ietf-httpapi-ratelimit-headers); GCRA option. Currently per-IP only with fallback `0.0.0.0` collapsing all unknown clients into one bucket (`rate_limiter.rs:406-410`). |
-| `idempotency` | Reconcile docstring vs default TTL; respect `inflight_wait_timeout_ms` on compio (`idempotency.rs:380-383`); cap stored response size. |
-| `jwt_auth` | JWKS rotation, asymmetric keys, configurable `iss` / `aud` / `kid` / leeway, revocation list, optional remote introspection. |
-| `csrf` | Bind token to session; origin/referer fallback; relax `SameSite` to a configurable choice. |
-| `compression` | Write `Vary: Accept-Encoding`; parse `q=0`; cap inbound decompression (compression-bomb defense); content-type allow-list as configurable enum, not substring match. |
-| `cors` | Refuse `Allow-Credentials: true` with reflective wildcard at config build time; regex/suffix origin matching; PNA support. |
-| `metrics` | Use `MatchedPath` for the route label; switch to histograms; configurable bucket schedule; drop `remote_addr` label. |
-| `body_limit` | Stream-aware limit, no full `body.collect()`. |
-| `upload_progress` | Stream-aware, no full buffering; abandonment cleanup on disconnect. |
-| `security_headers` | CSP nonce/hash support; COOP / COEP / CORP; Permissions-Policy; remove `X-XSS-Protection: 0`. |
-| `request_id` | W3C `traceparent` parsing and emission. |
+| `session` | Idle vs absolute TTL split (`SessionTtl { idle_secs, absolute_secs }`), rolling `Set-Cookie` refresh on every response, `Session::rotate()` for fixation defense, configurable `SameSite` and optional `Domain`, `SessionStoreHandle::revoke_all` / `revoke_where`. |
+| `rate_limiter` | Composite-key support via `RateLimiterBuilder::key_fn`, IETF `RateLimit-Limit / -Remaining / -Reset` + `Retry-After` headers on every response, GCRA mode (`Algorithm::Gcra`), `UnkeyedBehavior::Allow / Reject` instead of collapsing into the `0.0.0.0` bucket. |
+| `idempotency` | Verified TTL = 86400 s matches docstring; `inflight_wait_timeout_ms` is honored on compio via the `Notify`/select pattern; `max_cached_body_bytes` was already capping payloads. No code change required — the audit flagged stale notes. |
+| `jwt_auth` | `JwtVerifier::Claims` now carries iss/aud/leeway constraints, `MultiKeyVerifier` adds runtime `rotate_key(kid, …)` / `revoke_kid`, `RevocationList` trait + `InMemoryRevocationList`, optional `IntrospectionFn` for remote opaque-token check. |
+| `csrf` | Token binding to the active `Session` (when present), Origin/Referer trusted-allow-list fallback, configurable `SameSite` (Strict/Lax/None). |
+| `compression` | `ContentTypePolicy` enum (Default / Exact / Prefix / Custom) replaces the substring filter. `Vary: Accept-Encoding`, `q=0` and the existing streaming path were already in place. |
+| `cors` | `OriginMatcher::{Exact, Suffix, Custom}` adds suffix and predicate matching alongside the legacy exact list, `allow_private_network` flips Chrome PNA preflight handling on. The Fetch-spec wildcard+credentials guard at `validate()` was already present. |
+| `metrics` | Adds `tako_http_request_duration_seconds` histogram with the IETF-style default bucket schedule (`DEFAULT_LATENCY_BUCKETS_SEC`) plus `PrometheusMetricsConfig::with_buckets(..)` override. Matched-route label and bounded transport label were already in place. |
+| `body_limit` | Verified: already streams via `http_body_util::Limited<TakoBody>` — no `body.collect()`. No change required. |
+| `upload_progress` | Verified: already streams via `pin_project!`-ed `ProgressBody` wrapping `http_body::Body` frame-by-frame. No change required. |
+| `security_headers` | CSP via `csp(..)` and `csp_with_nonce(template)` (the per-request nonce is exposed as a `CspNonce` extension), CSP report-only, COOP/COEP/CORP, Permissions-Policy, HSTS preload toggle. `X-XSS-Protection` is no longer emitted (OWASP guidance — modern browsers ignore it). |
+| `request_id` | Folded into the new `traceparent` middleware in §4.3; `request_id` stays focused on the `X-Request-ID` correlation header. |
 
-### 4.3 Missing middleware to add for v2
+### ~~4.3 Missing middleware to add for v2~~ — Done (circuit-breaker shipped, outbound `retry` deferred to client rebuild)
 
-- `timeout` — per-request deadline.
-- `traceparent` propagation (W3C trace context).
-- `access_log` — structured access log separate from metrics.
-- `problem+json` error responder.
-- `circuit_breaker` and outbound `retry` for the client.
-- `ip_filter` — allow/deny + CIDR.
-- `healthcheck` — readiness/liveness + drain semantics.
-- `etag` / conditional GET helper.
-- `tenant` — `X-Tenant-ID` extraction with scoped state.
-- `hmac_signature` — Stripe/AWS-style request signing.
-- `json_schema` — request/response validator.
+- ~~`timeout`~~ — per-request deadline, dynamic-per-request override, configurable status. **Done.**
+- ~~`traceparent`~~ — W3C Trace Context parser/emitter, span/trace ids exposed via `TraceContext` extension. **Done.**
+- ~~`access_log`~~ — structured one-line access log. Default sink is `tracing` at INFO; custom sink hook for JSON/OTLP/file rotation. **Done.**
+- ~~`problem+json`~~ — middleware that rewrites non-JSON 4xx/5xx into `application/problem+json`, complements the existing `Router::use_problem_json()` hook. **Done.**
+- ~~`circuit_breaker`~~ — closed/open/half-open with rolling counter, configurable trip threshold, cool-down, key function and failure classifier. **Done.** Outbound `retry` belongs in the client rebuild (§5.6) — not landed here.
+- ~~`ip_filter`~~ — CIDR allow/deny lists with `ConnInfo` peer extraction. Behind the `ip-filter` cargo feature (pulls `ipnet`). **Done.**
+- ~~`healthcheck`~~ — `/live`, `/ready`, `/__drain` (POST/DELETE/GET), readiness probes are async closures. `HealthcheckHandle::drain()` flips the gate from a SIGTERM handler. **Done.**
+- ~~`etag`~~ — strong validator from a SHA-1 digest, conditional GET (`If-None-Match`, `If-Modified-Since`), bounded body buffer. **Done.**
+- ~~`tenant`~~ — `X-Tenant-ID` / subdomain / path-segment / custom strategies, `Tenant` request extension. **Done.**
+- ~~`hmac_signature`~~ — HMAC-SHA256 signature verification with constant-time compare, hex/base64 encoding choice, custom canonical-string builder for vendor schemes. Behind the `hmac-signature` cargo feature. **Done.**
+- ~~`json_schema`~~ — request- or response-side validator built on the `jsonschema` crate, validation failures emit `application/problem+json`. Behind the `json-schema` cargo feature. **Done.**
 
 ---
 

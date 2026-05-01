@@ -51,6 +51,12 @@ pub trait MetricsBackend: Send + Sync + 'static {
   fn on_connection_closed(&self, signal: &Signal);
 }
 
+/// Default Prometheus / OTel histogram bucket schedule (seconds), tuned for
+/// HTTP request latencies between sub-millisecond and ten seconds.
+pub const DEFAULT_LATENCY_BUCKETS_SEC: &[f64] = &[
+  0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
 /// Metrics plugin that subscribes to Tako's signal bus and forwards
 /// events to a configurable metrics backend.
 #[cfg(feature = "signals")]
@@ -146,10 +152,13 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
 pub mod prometheus_backend {
   use std::sync::Arc;
 
+  use prometheus::HistogramOpts;
+  use prometheus::HistogramVec;
   use prometheus::IntCounterVec;
   use prometheus::Opts;
   use prometheus::Registry;
 
+  use super::DEFAULT_LATENCY_BUCKETS_SEC;
   use super::MetricsBackend;
   use super::Signal;
 
@@ -186,12 +195,19 @@ pub mod prometheus_backend {
     registry: Registry,
     http_requests_total: IntCounterVec,
     http_route_requests_total: IntCounterVec,
+    http_request_duration: HistogramVec,
     connections_opened_total: IntCounterVec,
     connections_closed_total: IntCounterVec,
   }
 
   impl PrometheusMetricsBackend {
+    /// Builds the backend with the default latency buckets.
     pub fn new(registry: Registry) -> Self {
+      Self::with_buckets(registry, DEFAULT_LATENCY_BUCKETS_SEC.to_vec())
+    }
+
+    /// Builds the backend with a caller-supplied latency bucket schedule.
+    pub fn with_buckets(registry: Registry, buckets: Vec<f64>) -> Self {
       // Route-template-based labels keep cardinality bounded by route count;
       // raw path labels would explode under `/users/:id`-style traffic.
       let http_requests_total = IntCounterVec::new(
@@ -208,6 +224,16 @@ pub mod prometheus_backend {
         &["method", "route", "status"],
       )
       .expect("failed to create route_requests_total metric");
+
+      let http_request_duration = HistogramVec::new(
+        HistogramOpts::new(
+          "tako_http_request_duration_seconds",
+          "End-to-end HTTP request duration",
+        )
+        .buckets(buckets),
+        &["method", "route", "status"],
+      )
+      .expect("failed to create http_request_duration metric");
 
       // `transport` is bounded (tcp/tls/h3/unix); `remote_addr` was unbounded.
       let connections_opened_total = IntCounterVec::new(
@@ -229,6 +255,9 @@ pub mod prometheus_backend {
         .register(Box::new(http_route_requests_total.clone()))
         .expect("failed to register http_route_requests_total");
       registry
+        .register(Box::new(http_request_duration.clone()))
+        .expect("failed to register http_request_duration");
+      registry
         .register(Box::new(connections_opened_total.clone()))
         .expect("failed to register connections_opened_total");
       registry
@@ -239,6 +268,7 @@ pub mod prometheus_backend {
         registry,
         http_requests_total,
         http_route_requests_total,
+        http_request_duration,
         connections_opened_total,
         connections_closed_total,
       }
@@ -266,6 +296,19 @@ pub mod prometheus_backend {
         .http_requests_total
         .with_label_values(&[method, route, status])
         .inc();
+      // Histogram observation: the `duration_us` metadata is emitted by
+      // upstream signal sites when latency tracking is enabled. Microseconds
+      // are converted to seconds (Prometheus convention) before observation.
+      if let Some(d_us) = signal
+        .metadata
+        .get("duration_us")
+        .and_then(|s| s.parse::<u64>().ok())
+      {
+        self
+          .http_request_duration
+          .with_label_values(&[method, route, status])
+          .observe((d_us as f64) / 1_000_000.0);
+      }
     }
 
     fn on_route_request_completed(&self, signal: &Signal) {
@@ -411,6 +454,9 @@ pub mod opentelemetry_backend {
 pub struct PrometheusMetricsConfig {
   /// HTTP path where the Prometheus scrape endpoint will be exposed.
   pub endpoint_path: String,
+  /// Latency histogram bucket boundaries (seconds). Defaults to
+  /// [`DEFAULT_LATENCY_BUCKETS_SEC`].
+  pub buckets: Vec<f64>,
 }
 
 #[cfg(feature = "metrics-prometheus")]
@@ -418,16 +464,26 @@ impl Default for PrometheusMetricsConfig {
   fn default() -> Self {
     Self {
       endpoint_path: "/metrics".to_string(),
+      buckets: DEFAULT_LATENCY_BUCKETS_SEC.to_vec(),
     }
   }
 }
 
 #[cfg(feature = "metrics-prometheus")]
 impl PrometheusMetricsConfig {
+  /// Replaces the histogram bucket schedule.
+  pub fn with_buckets(mut self, buckets: Vec<f64>) -> Self {
+    self.buckets = buckets;
+    self
+  }
+
   /// Installs a Prometheus metrics backend and a scrape endpoint on the router.
   pub fn install(self, router: &mut Router) -> Arc<Registry> {
     let registry = Arc::new(Registry::new());
-    let backend = prometheus_backend::PrometheusMetricsBackend::new((*registry).clone());
+    let backend = prometheus_backend::PrometheusMetricsBackend::with_buckets(
+      (*registry).clone(),
+      self.buckets,
+    );
     let plugin = MetricsPlugin::new(Arc::new(backend));
 
     router.plugin(plugin);

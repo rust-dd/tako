@@ -48,11 +48,15 @@ ahash = { workspace = true, optional = true }
 brotli = { workspace = true, optional = true }
 compio = { workspace = true, optional = true }
 flate2 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+ipnet = { workspace = true, optional = true }
+jsonschema = { workspace = true, optional = true }
 multer = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
@@ -71,5 +75,11 @@ signals = ["tako-core/signals"]
 ahash = ["dep:ahash", "tako-core/ahash"]
 jwt-simple = ["dep:jwt-simple", "tako-extractors/jwt-simple"]
 zstd = ["dep:zstd", "plugins"]
+# CIDR-aware IP filter middleware.
+ip-filter = ["dep:ipnet"]
+# HMAC signature verifier (Stripe / AWS-style request signing).
+hmac-signature = ["dep:hmac", "dep:sha2"]
+# JSON-schema body validator middleware.
+json-schema = ["dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.
 compio = ["dep:compio", "tako-core/compio"]
