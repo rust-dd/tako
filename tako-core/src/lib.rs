@@ -50,7 +50,10 @@ pub mod conn_info;
 
 /// Shared TLS certificate / key PEM loading helpers.
 #[cfg(any(feature = "tls", feature = "http3", feature = "client"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "http3", feature = "client"))))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(any(feature = "tls", feature = "http3", feature = "client")))
+)]
 pub mod tls;
 
 /// Redirection utilities for handling HTTP redirects.

@@ -90,10 +90,7 @@ impl WebTransportSession {
   }
 
   /// Sends an unreliable datagram to the peer.
-  pub fn send_datagram(
-    &self,
-    data: bytes::Bytes,
-  ) -> Result<(), quinn::SendDatagramError> {
+  pub fn send_datagram(&self, data: bytes::Bytes) -> Result<(), quinn::SendDatagramError> {
     self.conn.send_datagram(data)
   }
 
@@ -109,28 +106,26 @@ impl WebTransportSession {
 }
 
 /// Handler function type for WebTransport sessions.
-pub type WebTransportHandler = Arc<
-  dyn Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>>
-    + Send
-    + Sync,
->;
+pub type WebTransportHandler =
+  Arc<dyn Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Starts a WebTransport server on the given address.
 ///
 /// Each accepted QUIC connection is wrapped in a `WebTransportSession` and
 /// dispatched to the handler.
-pub async fn serve_webtransport<F>(
-  addr: &str,
-  cert_path: &str,
-  key_path: &str,
-  handler: F,
-) where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>>
-    + Send
-    + Sync
-    + 'static,
+pub async fn serve_webtransport<F>(addr: &str, cert_path: &str, key_path: &str, handler: F)
+where
+  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
 {
-  if let Err(e) = run(addr, cert_path, key_path, handler, None::<std::future::Pending<()>>).await {
+  if let Err(e) = run(
+    addr,
+    cert_path,
+    key_path,
+    handler,
+    None::<std::future::Pending<()>>,
+  )
+  .await
+  {
     tracing::error!("WebTransport server error: {e}");
   }
 }
@@ -143,10 +138,7 @@ pub async fn serve_webtransport_with_shutdown<F, S>(
   handler: F,
   signal: S,
 ) where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>>
-    + Send
-    + Sync
-    + 'static,
+  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
   if let Err(e) = run(addr, cert_path, key_path, handler, Some(signal)).await {
@@ -162,10 +154,7 @@ async fn run<F>(
   signal: Option<impl Future<Output = ()>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>>
-    + Send
-    + Sync
-    + 'static,
+  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
 {
   // Use the consolidated PEM loaders from tako-core::tls so this crate does
   // not reach across into another transport crate's private surface.
@@ -193,7 +182,10 @@ where
   let socket_addr: SocketAddr = addr.parse()?;
   let endpoint = quinn::Endpoint::server(server_config, socket_addr)?;
 
-  tracing::info!("WebTransport server listening on {}", endpoint.local_addr()?);
+  tracing::info!(
+    "WebTransport server listening on {}",
+    endpoint.local_addr()?
+  );
 
   let handler = Arc::new(handler);
   let mut join_set = tokio::task::JoinSet::new();

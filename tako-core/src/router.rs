@@ -241,7 +241,11 @@ impl Router {
       Some(prefix) => {
         let prefix = prefix.trim_end_matches('/');
         if path.is_empty() || path == "/" {
-          if prefix.is_empty() { "/".to_string() } else { prefix.to_string() }
+          if prefix.is_empty() {
+            "/".to_string()
+          } else {
+            prefix.to_string()
+          }
         } else if path.starts_with('/') {
           let mut s = String::with_capacity(prefix.len() + path.len());
           s.push_str(prefix);
@@ -626,8 +630,7 @@ impl Router {
     // free without duplicating the boilerplate. The cost is a single string
     // formatting pair per request and is gated to the `signals` feature.
     #[cfg(feature = "signals")]
-    let (req_method_str, req_path_str) =
-      (req.method().to_string(), req.uri().path().to_string());
+    let (req_method_str, req_path_str) = (req.method().to_string(), req.uri().path().to_string());
     #[cfg(feature = "signals")]
     {
       SignalArbiter::emit_app(
@@ -789,7 +792,10 @@ impl Router {
               .expect("valid 405 response")
           };
           self
-            .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+            .run_with_global_middlewares_for_endpoint(
+              req,
+              BoxHandler::new::<_, (Request,)>(handler),
+            )
             .await
         } else if let Some(handler) = &self.fallback {
           self
@@ -804,7 +810,10 @@ impl Router {
           };
 
           self
-            .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
+            .run_with_global_middlewares_for_endpoint(
+              req,
+              BoxHandler::new::<_, (Request,)>(handler),
+            )
             .await
         }
       }

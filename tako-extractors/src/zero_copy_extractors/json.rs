@@ -3,7 +3,6 @@ use http::HeaderValue;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::Serialize;
-
 use tako_core::body::TakoBody;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::json::JsonError;

@@ -34,7 +34,6 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use http::StatusCode;
 use http::request::Parts;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;

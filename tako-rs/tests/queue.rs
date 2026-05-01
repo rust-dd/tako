@@ -1,8 +1,12 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use tako::queue::{Job, Queue, QueueError, RetryPolicy};
+use tako::queue::Job;
+use tako::queue::Queue;
+use tako::queue::QueueError;
+use tako::queue::RetryPolicy;
 
 #[tokio::test]
 async fn push_and_process_job() {

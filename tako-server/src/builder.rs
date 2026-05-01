@@ -17,24 +17,19 @@
 //! underlying `serve_*_with_shutdown_and_config` call.
 
 use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
-
-use tokio::sync::Notify;
-
-#[cfg(not(feature = "compio"))]
-use std::pin::Pin;
-
 #[cfg(not(feature = "compio"))]
 use std::path::PathBuf;
 #[cfg(not(feature = "compio"))]
-use tokio::net::TcpListener;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 
 use tako_core::router::Router;
+#[cfg(not(feature = "compio"))]
+use tokio::net::TcpListener;
+use tokio::sync::Notify;
 
 use crate::ServerConfig;
-
-// ───────────────────────── shared handle ──────────────────────────
 
 /// Background-task handle returned by every `spawn_*` method.
 ///
@@ -105,8 +100,6 @@ where
     Either::Left(_) | Either::Right(_) => {}
   }
 }
-
-// ───────────────────────── TLS material ──────────────────────────
 
 /// Client-authentication policy applied to a TLS server.
 ///
@@ -180,7 +173,9 @@ impl std::fmt::Debug for TlsCert {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       TlsCert::PemPaths {
-        cert_path, key_path, ..
+        cert_path,
+        key_path,
+        ..
       } => f
         .debug_struct("PemPaths")
         .field("cert_path", cert_path)
@@ -264,8 +259,6 @@ impl TlsCert {
   }
 }
 
-// ───────────────────────── reloadable resolver ──────────────────────────
-
 /// A `ResolvesServerCert` whose backing [`rustls::sign::CertifiedKey`] can be
 /// swapped at runtime via [`ReloadableResolver::reload_from_pem`] or
 /// [`ReloadableResolver::reload_from_der`].
@@ -346,7 +339,22 @@ fn build_certified_key(
 ) -> anyhow::Result<rustls::sign::CertifiedKey> {
   let certs = tako_core::tls::load_certs(cert_path)?;
   let key = tako_core::tls::load_key(key_path)?;
-  let signer = rustls::crypto::ring::sign::any_supported_type(&key)
+
+  // Use whatever rustls CryptoProvider is installed — server_h3 / webtransport
+  // install `ring` on first use; pure-TLS apps may not have installed any yet.
+  // Opportunistically install rustls's default backend (`aws-lc-rs`) if the
+  // global slot is still empty, so callers don't have to wire it themselves.
+  if rustls::crypto::CryptoProvider::get_default().is_none() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  }
+  let provider = rustls::crypto::CryptoProvider::get_default().ok_or_else(|| {
+    anyhow::anyhow!(
+      "no rustls CryptoProvider installed — enable rustls's `aws_lc_rs` or `ring` feature"
+    )
+  })?;
+  let signer = provider
+    .key_provider
+    .load_private_key(key)
     .map_err(|e| anyhow::anyhow!("failed to load signing key from '{}': {}", key_path, e))?;
   Ok(rustls::sign::CertifiedKey::new(certs, signer))
 }
@@ -394,7 +402,9 @@ pub fn build_rustls_server_config(
 
   let mut config = match cert {
     TlsCert::PemPaths {
-      cert_path, key_path, ..
+      cert_path,
+      key_path,
+      ..
     } => {
       let certs = tako_core::tls::load_certs(cert_path)?;
       let key = tako_core::tls::load_key(key_path)?;
@@ -415,8 +425,6 @@ pub fn build_rustls_server_config(
   config.alpn_protocols = alpn;
   Ok(Arc::new(config))
 }
-
-// ───────────────────────── tokio Server ──────────────────────────
 
 /// Fluent constructor for the tokio-runtime [`Server`].
 #[cfg(not(feature = "compio"))]
@@ -703,8 +711,6 @@ impl Server {
   }
 }
 
-// ───────────────────────── compio Server ──────────────────────────
-
 /// Fluent constructor for the compio-runtime [`CompioServer`].
 #[cfg(feature = "compio")]
 #[derive(Debug, Default, Clone)]
@@ -837,9 +843,9 @@ fn tls_alpn_for_tcp() -> Vec<Vec<u8>> {
   }
 }
 
-// ───────────────────────── helpers ──────────────────────────
-
-fn make_handle(drain_timeout: Duration) -> (ServerHandle, impl Future<Output = ()> + Send + 'static) {
+fn make_handle(
+  drain_timeout: Duration,
+) -> (ServerHandle, impl Future<Output = ()> + Send + 'static) {
   let shutdown = Arc::new(Notify::new());
   let done = Arc::new(Notify::new());
   let shutdown_for_task = shutdown.clone();

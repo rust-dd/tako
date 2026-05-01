@@ -42,10 +42,9 @@ use http_body::Body;
 use http_body::Frame;
 use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
-use zstd::stream::Encoder;
-
 use tako_core::body::TakoBody;
 use tako_core::types::BoxError;
+use zstd::stream::Encoder;
 
 /// Compresses an HTTP body stream using Zstandard compression algorithm.
 pub fn stream_zstd<B>(body: B, level: i32) -> TakoBody

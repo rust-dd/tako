@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 
 use futures_util::future::ready;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 

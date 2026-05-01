@@ -56,7 +56,6 @@ use http::header::{self};
 use http_body_util::BodyExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-
 use tako_core::body::TakoBody;
 use tako_core::extractors::FromRequest;
 use tako_core::responder::Responder;

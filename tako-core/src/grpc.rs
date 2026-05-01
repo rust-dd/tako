@@ -41,7 +41,8 @@ use prost::Message;
 use crate::body::TakoBody;
 use crate::extractors::FromRequest;
 use crate::responder::Responder;
-use crate::types::{Request, Response};
+use crate::types::Request;
+use crate::types::Response;
 
 /// gRPC status codes.
 ///
@@ -93,10 +94,16 @@ pub enum GrpcError {
 impl Responder for GrpcError {
   fn into_response(self) -> Response {
     let (status_code, message) = match self {
-      GrpcError::InvalidContentType => (GrpcStatusCode::InvalidArgument, "invalid content-type; expected application/grpc"),
+      GrpcError::InvalidContentType => (
+        GrpcStatusCode::InvalidArgument,
+        "invalid content-type; expected application/grpc",
+      ),
       GrpcError::BodyReadError(_) => (GrpcStatusCode::Internal, "failed to read request body"),
       GrpcError::InvalidFrame => (GrpcStatusCode::InvalidArgument, "malformed gRPC frame"),
-      GrpcError::DecodeError(_) => (GrpcStatusCode::InvalidArgument, "failed to decode protobuf message"),
+      GrpcError::DecodeError(_) => (
+        GrpcStatusCode::InvalidArgument,
+        "failed to decode protobuf message",
+      ),
     };
 
     build_grpc_error_response(status_code, message)
@@ -138,19 +145,15 @@ where
       }
 
       let _compressed = body_bytes[0];
-      let msg_len = u32::from_be_bytes([
-        body_bytes[1],
-        body_bytes[2],
-        body_bytes[3],
-        body_bytes[4],
-      ]) as usize;
+      let msg_len =
+        u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]]) as usize;
 
       if body_bytes.len() < 5 + msg_len {
         return Err(GrpcError::InvalidFrame);
       }
 
-      let message =
-        T::decode(&body_bytes[5..5 + msg_len]).map_err(|e| GrpcError::DecodeError(e.to_string()))?;
+      let message = T::decode(&body_bytes[5..5 + msg_len])
+        .map_err(|e| GrpcError::DecodeError(e.to_string()))?;
 
       Ok(GrpcRequest { message })
     }
@@ -192,10 +195,7 @@ impl<T: Message> GrpcResponse<T> {
 impl<T: Message> Responder for GrpcResponse<T> {
   fn into_response(self) -> Response {
     if self.status != GrpcStatusCode::Ok {
-      return build_grpc_error_response(
-        self.status,
-        self.error_message.as_deref().unwrap_or(""),
-      );
+      return build_grpc_error_response(self.status, self.error_message.as_deref().unwrap_or(""));
     }
 
     let body_bytes = match self.message {

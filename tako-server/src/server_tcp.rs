@@ -142,10 +142,7 @@ where
 #[cfg(feature = "compio")]
 pub async fn serve_tcp<F>(addr: &str, handler: F) -> std::io::Result<()>
 where
-  F: Fn(
-      compio::net::TcpStream,
-      SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+  F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
     + Send
     + Sync
     + 'static,
@@ -173,16 +170,14 @@ where
 #[cfg(feature = "compio")]
 pub async fn serve_tcp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
 where
-  F: Fn(
-      compio::net::TcpStream,
-      SocketAddr,
-    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+  F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
     + Send
     + Sync
     + 'static,
   S: Future<Output = ()> + 'static,
 {
-  use std::sync::atomic::{AtomicUsize, Ordering};
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering;
 
   let listener = compio::net::TcpListener::bind(addr).await?;
   tracing::info!("TCP server listening on {}", listener.local_addr()?);

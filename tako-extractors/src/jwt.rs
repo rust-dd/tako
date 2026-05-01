@@ -41,7 +41,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;

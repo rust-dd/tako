@@ -48,9 +48,11 @@ tokio-vsock = { workspace = true, optional = true }
 [features]
 default = []
 signals = ["tako-core/signals"]
-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-core/tls"]
 http2 = []
-http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
+# http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
+# ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
+http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-core/http3"]
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-core/compio"]
 compio-tls = ["compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.

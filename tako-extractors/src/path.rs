@@ -27,7 +27,6 @@
 use std::convert::Infallible;
 
 use http::request::Parts;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::types::Request;

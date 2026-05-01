@@ -59,7 +59,6 @@ use std::time::Instant;
 use anyhow::Result;
 use http::StatusCode;
 use scc::HashMap as SccHashMap;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::Next;
 use tako_core::plugins::TakoPlugin;

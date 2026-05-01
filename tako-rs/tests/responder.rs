@@ -1,7 +1,9 @@
 use http::StatusCode;
 use http_body_util::BodyExt;
 use tako::body::TakoBody;
-use tako::responder::{Responder, StaticHeaders, NOT_FOUND};
+use tako::responder::NOT_FOUND;
+use tako::responder::Responder;
+use tako::responder::StaticHeaders;
 
 async fn body_str(resp: tako::types::Response) -> String {
   let bytes = resp.into_body().collect().await.unwrap().to_bytes();

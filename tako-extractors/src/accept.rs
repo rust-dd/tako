@@ -20,7 +20,6 @@
 //! ```
 
 use http::request::Parts;
-
 use tako_core::extractors::FromRequestParts;
 
 /// Parsed Accept header with content negotiation helpers.
@@ -51,8 +50,7 @@ impl Accept {
     self.media_types.iter().any(|mt| {
       mt.essence == media_type
         || mt.essence == "*/*"
-        || (mt.essence.ends_with("/*")
-          && media_type.starts_with(mt.essence.trim_end_matches("/*")))
+        || (mt.essence.ends_with("/*") && media_type.starts_with(mt.essence.trim_end_matches("/*")))
     })
   }
 
@@ -63,7 +61,11 @@ impl Accept {
 
   /// Returns all accepted media types sorted by quality (highest first).
   pub fn types(&self) -> Vec<&str> {
-    self.media_types.iter().map(|mt| mt.essence.as_str()).collect()
+    self
+      .media_types
+      .iter()
+      .map(|mt| mt.essence.as_str())
+      .collect()
   }
 }
 
@@ -95,7 +97,11 @@ fn parse_accept(header: &str) -> Vec<MediaType> {
     })
     .collect();
 
-  types.sort_by(|a, b| b.quality.partial_cmp(&a.quality).unwrap_or(std::cmp::Ordering::Equal));
+  types.sort_by(|a, b| {
+    b.quality
+      .partial_cmp(&a.quality)
+      .unwrap_or(std::cmp::Ordering::Equal)
+  });
   types
 }
 

@@ -161,14 +161,23 @@ impl AcceptBackoff {
 mod server;
 
 mod builder;
-#[cfg(not(feature = "compio"))]
-pub use builder::{Server, ServerBuilder};
-#[cfg(feature = "compio")]
-pub use builder::{CompioServer, CompioServerBuilder};
-pub use builder::{ServerHandle, TlsCert, either};
 #[cfg(feature = "tls")]
-pub use builder::{ClientAuth, ReloadableResolver, build_rustls_server_config};
-
+pub use builder::ClientAuth;
+#[cfg(feature = "compio")]
+pub use builder::CompioServer;
+#[cfg(feature = "compio")]
+pub use builder::CompioServerBuilder;
+#[cfg(feature = "tls")]
+pub use builder::ReloadableResolver;
+#[cfg(not(feature = "compio"))]
+pub use builder::Server;
+#[cfg(not(feature = "compio"))]
+pub use builder::ServerBuilder;
+pub use builder::ServerHandle;
+pub use builder::TlsCert;
+#[cfg(feature = "tls")]
+pub use builder::build_rustls_server_config;
+pub use builder::either;
 #[cfg(not(feature = "compio"))]
 pub use server::serve;
 #[cfg(not(feature = "compio"))]

@@ -21,7 +21,6 @@
 use std::sync::Arc;
 
 use http::request::Parts;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;

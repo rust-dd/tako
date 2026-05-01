@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use http::HeaderName;
 use http::HeaderValue;
-
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::types::Request;

@@ -39,7 +39,9 @@ pub struct ListenFds(listenfd::ListenFd);
 
 impl std::fmt::Debug for ListenFds {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("ListenFds").field("len", &self.0.len()).finish()
+    f.debug_struct("ListenFds")
+      .field("len", &self.0.len())
+      .finish()
   }
 }
 

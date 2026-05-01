@@ -44,19 +44,22 @@ use http::Request;
 use http_body::Body;
 use http_body::Frame;
 use quinn::VarInt;
-use quinn::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
+use quinn::congestion::BbrConfig;
+use quinn::congestion::CubicConfig;
+use quinn::congestion::NewRenoConfig;
 use quinn::crypto::rustls::QuicServerConfig;
-use tokio::sync::Notify;
-use tokio_stream::wrappers::ReceiverStream;
-
 use tako_core::body::TakoBody;
-use tako_core::conn_info::{ConnInfo, TlsInfo};
+use tako_core::conn_info::ConnInfo;
+use tako_core::conn_info::TlsInfo;
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
+use tokio::sync::Notify;
+use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{H3Congestion, ServerConfig};
+use crate::H3Congestion;
+use crate::ServerConfig;
 
 /// Starts an HTTP/3 server with the given router and certificates.
 ///
@@ -93,7 +96,16 @@ pub async fn serve_h3_with_shutdown(
   key: Option<&str>,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run(router, addr, certs, key, Some(signal), ServerConfig::default()).await {
+  if let Err(e) = run(
+    router,
+    addr,
+    certs,
+    key,
+    Some(signal),
+    ServerConfig::default(),
+  )
+  .await
+  {
     tracing::error!("HTTP/3 server error: {e}");
   }
 }
@@ -166,9 +178,7 @@ pub async fn serve_h3_with_rustls_config_and_shutdown(
   signal: impl Future<Output = ()>,
   config: ServerConfig,
 ) {
-  if let Err(e) =
-    run_with_rustls_config(router, addr, rustls_config, Some(signal), config).await
-  {
+  if let Err(e) = run_with_rustls_config(router, addr, rustls_config, Some(signal), config).await {
     tracing::error!("HTTP/3 server error: {e}");
   }
 }
@@ -253,9 +263,8 @@ async fn run_with_rustls_config(
   // QuicServerConfig wraps a rustls::ServerConfig; it requires the underlying
   // config to set ALPN to h3. Calling `try_from` errors otherwise, so we trust
   // the caller (or the build_rustls_server_config helper) to pre-set ALPN.
-  let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
-    QuicServerConfig::try_from((*tls_config).clone())?,
-  ));
+  let mut server_config =
+    quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from((*tls_config).clone())?));
   server_config.transport_config(Arc::new(transport_config_from(&config)));
 
   let socket_addr: SocketAddr = addr.parse()?;
@@ -277,7 +286,9 @@ async fn run_with_rustls_config(
   let drain_timeout = config.drain_timeout;
   let goaway_grace = config.h3_goaway_grace.min(drain_timeout);
   let h3_use_retry = config.h3_use_retry;
-  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
 
   // Per-connection graceful shutdown: when triggered, every spawned connection
   // task races its `accept()` against this notify, then calls `h3.shutdown(0)`
@@ -464,7 +475,8 @@ fn build_h3_body<R>(mut recv: RequestStream<R, Bytes>) -> TakoBody
 where
   R: RecvStream + Send + 'static,
 {
-  let (tx, rx) = tokio::sync::mpsc::channel::<Result<Frame<Bytes>, BoxError>>(H3_BODY_CHANNEL_CAPACITY);
+  let (tx, rx) =
+    tokio::sync::mpsc::channel::<Result<Frame<Bytes>, BoxError>>(H3_BODY_CHANNEL_CAPACITY);
   tokio::spawn(async move {
     loop {
       match recv.recv_data().await {
@@ -579,7 +591,6 @@ where
 /// Loads TLS certificates from a PEM-encoded file. Re-export of
 /// [`tako_core::tls::load_certs`].
 pub use tako_core::tls::load_certs;
-
 /// Loads a private key from a PEM-encoded file. Accepts PKCS#8, PKCS#1 (RSA),
 /// and SEC1 (EC) PEM blocks. Re-export of [`tako_core::tls::load_key`].
 pub use tako_core::tls::load_key;

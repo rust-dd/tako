@@ -20,14 +20,14 @@ use hyper::service::service_fn;
 use rustls::ServerConfig as RustlsServerConfig;
 #[cfg(feature = "http2")]
 use send_wrapper::SendWrapper;
-use tokio::sync::Notify;
-
 use tako_core::body::TakoBody;
-use tako_core::conn_info::{ConnInfo, TlsInfo};
+use tako_core::conn_info::ConnInfo;
+use tako_core::conn_info::TlsInfo;
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
+use tokio::sync::Notify;
 
 use crate::ServerConfig;
 
@@ -253,17 +253,23 @@ pub async fn run_with_config(
           let alpn_proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
           let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
           let conn_info = if is_h2 {
-            ConnInfo::h2_tls(addr, TlsInfo {
-              alpn: alpn_proto.clone(),
-              sni: None,
-              version: None,
-            })
+            ConnInfo::h2_tls(
+              addr,
+              TlsInfo {
+                alpn: alpn_proto.clone(),
+                sni: None,
+                version: None,
+              },
+            )
           } else {
-            ConnInfo::h1_tls(addr, TlsInfo {
-              alpn: alpn_proto.clone(),
-              sni: None,
-              version: None,
-            })
+            ConnInfo::h1_tls(
+              addr,
+              TlsInfo {
+                alpn: alpn_proto.clone(),
+                sni: None,
+                version: None,
+              },
+            )
           };
 
           #[cfg(feature = "http2")]
@@ -365,7 +371,6 @@ pub async fn run_with_config(
 /// Loads TLS certificates from a PEM-encoded file. Re-export of
 /// [`tako_core::tls::load_certs`].
 pub use tako_core::tls::load_certs;
-
 /// Loads a private key from a PEM-encoded file. Accepts PKCS#8, PKCS#1 (RSA),
 /// and SEC1 (EC) PEM blocks. Re-export of [`tako_core::tls::load_key`].
 pub use tako_core::tls::load_key;

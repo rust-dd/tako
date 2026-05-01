@@ -37,10 +37,6 @@ use http_body_util::BodyExt;
 use scc::HashMap as SccHashMap;
 use sha1::Digest;
 use sha1::Sha1;
-use tokio::sync::Notify;
-#[cfg(not(feature = "compio"))]
-use tokio::time::timeout;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::Next;
 use tako_core::plugins::TakoPlugin;
@@ -48,6 +44,9 @@ use tako_core::responder::Responder;
 use tako_core::router::Router;
 use tako_core::types::Request;
 use tako_core::types::Response;
+use tokio::sync::Notify;
+#[cfg(not(feature = "compio"))]
+use tokio::time::timeout;
 
 /// Which request attributes are included in the idempotency key scope.
 #[derive(Clone, Copy)]

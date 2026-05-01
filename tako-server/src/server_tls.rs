@@ -42,17 +42,17 @@ use hyper::service::service_fn;
 #[cfg(feature = "http2")]
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use tokio::net::TcpListener;
-use tokio::task::JoinSet;
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
-
 use tako_core::body::TakoBody;
-use tako_core::conn_info::{ConnInfo, TlsInfo};
+use tako_core::conn_info::ConnInfo;
+use tako_core::conn_info::TlsInfo;
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
+use tokio::net::TcpListener;
+use tokio::task::JoinSet;
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 
 use crate::ServerConfig;
 
@@ -238,7 +238,9 @@ pub async fn run_with_config(
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
-  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;
@@ -404,7 +406,6 @@ pub async fn run_with_config(
 /// Thin re-export of [`tako_core::tls::load_certs`]; preserved for backward
 /// compatibility.
 pub use tako_core::tls::load_certs;
-
 /// Loads a private key from a PEM-encoded file.
 ///
 /// Accepts PKCS#8, PKCS#1 (RSA), and SEC1 (EC) PEM blocks. Thin re-export of

@@ -24,7 +24,6 @@
 use cookie::Key;
 use http::StatusCode;
 use http::request::Parts;
-
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;

@@ -37,7 +37,6 @@ use http_body::Body;
 use http_body::Frame;
 use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
-
 use tako_core::body::TakoBody;
 use tako_core::types::BoxError;
 

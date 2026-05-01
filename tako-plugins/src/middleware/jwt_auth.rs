@@ -53,7 +53,6 @@ use std::pin::Pin;
 
 use http::StatusCode;
 use http::header::AUTHORIZATION;
-
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::responder::Responder;
@@ -142,9 +141,9 @@ mod jwt_simple_impl {
   use ::jwt_simple::prelude::*;
   use serde::Serialize;
   use serde::de::DeserializeOwned;
+  use tako_core::types::BuildHasher;
 
   use super::*;
-  use tako_core::types::BuildHasher;
 
   /// Multi-algorithm JWT verification key wrapper.
   ///
@@ -302,4 +301,6 @@ mod jwt_simple_impl {
 }
 
 #[cfg(feature = "jwt-simple")]
-pub use jwt_simple_impl::{AnyVerifyKey, MultiKeyVerifier};
+pub use jwt_simple_impl::AnyVerifyKey;
+#[cfg(feature = "jwt-simple")]
+pub use jwt_simple_impl::MultiKeyVerifier;

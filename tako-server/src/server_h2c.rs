@@ -17,15 +17,15 @@ use std::sync::Arc;
 
 use hyper::server::conn::http2;
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
-
+use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::TokioIo;
 use tako_core::body::TakoBody;
 use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
+use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use crate::ServerConfig;
 

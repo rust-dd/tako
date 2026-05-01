@@ -164,7 +164,9 @@ impl Responder for Vec<u8> {
 impl Responder for Cow<'static, str> {
   fn into_response(self) -> Response {
     match self {
-      Cow::Borrowed(s) => Response::new(TakoBody::full(Full::from(Bytes::from_static(s.as_bytes())))),
+      Cow::Borrowed(s) => {
+        Response::new(TakoBody::full(Full::from(Bytes::from_static(s.as_bytes()))))
+      }
       Cow::Owned(s) => Response::new(TakoBody::full(Full::from(Bytes::from(s)))),
     }
   }

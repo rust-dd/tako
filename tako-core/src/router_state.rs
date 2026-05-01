@@ -38,9 +38,7 @@ impl RouterState {
 
   /// Insert (or replace) the value associated with `T`.
   pub fn insert<T: Send + Sync + 'static>(&self, value: T) {
-    let _ = self
-      .inner
-      .insert_sync(TypeId::of::<T>(), Arc::new(value));
+    let _ = self.inner.insert_sync(TypeId::of::<T>(), Arc::new(value));
   }
 
   /// Retrieve the value associated with `T`, if any.

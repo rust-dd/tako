@@ -28,12 +28,11 @@ use std::convert::Infallible;
 
 use bytes::Bytes;
 use bytes::BytesMut;
+use futures_util::Stream;
+use futures_util::StreamExt;
 use http::StatusCode;
 use http::header;
 use http_body_util::StreamBody;
-use futures_util::Stream;
-use futures_util::StreamExt;
-
 use tako_core::body::TakoBody;
 use tako_core::responder::Responder;
 use tako_core::types::Response;

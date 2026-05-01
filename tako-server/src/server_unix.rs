@@ -52,12 +52,11 @@ use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tokio::task::JoinSet;
-
 use tako_core::body::TakoBody;
 use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
+use tokio::task::JoinSet;
 
 use crate::ServerConfig;
 
@@ -92,7 +91,6 @@ fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
   cleanup_stale_socket(path)?;
   tokio::net::UnixListener::bind(path)
 }
-
 
 /// Peer address information for Unix domain socket connections.
 ///
@@ -216,14 +214,7 @@ pub async fn serve_unix_http_with_shutdown(
   router: Router,
   signal: impl Future<Output = ()>,
 ) {
-  if let Err(e) = run_http(
-    path.as_ref(),
-    router,
-    Some(signal),
-    ServerConfig::default(),
-  )
-  .await
-  {
+  if let Err(e) = run_http(path.as_ref(), router, Some(signal), ServerConfig::default()).await {
     tracing::error!("Unix HTTP server error: {e}");
   }
 }
@@ -274,7 +265,9 @@ async fn run_http(
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
-  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;

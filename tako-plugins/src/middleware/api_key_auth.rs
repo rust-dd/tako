@@ -41,7 +41,6 @@ use http::StatusCode;
 use http::header;
 use subtle::Choice;
 use subtle::ConstantTimeEq;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
@@ -207,14 +206,11 @@ fn extract_api_key<'a>(req: &'a Request, location: &ApiKeyLocation) -> Option<Co
       .and_then(|v| v.to_str().ok())
       .map(|s| Cow::Borrowed(s.trim())),
 
-    ApiKeyLocation::Query(name) => req
-      .uri()
-      .query()
-      .and_then(|q| {
-        url::form_urlencoded::parse(q.as_bytes())
-          .find(|(k, _)| k == *name)
-          .map(|(_, v)| v)
-      }),
+    ApiKeyLocation::Query(name) => req.uri().query().and_then(|q| {
+      url::form_urlencoded::parse(q.as_bytes())
+        .find(|(k, _)| k == *name)
+        .map(|(_, v)| v)
+    }),
 
     ApiKeyLocation::HeaderOrQuery(header, query) => {
       // Try header first

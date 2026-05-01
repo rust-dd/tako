@@ -52,13 +52,12 @@ use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use sha1::Digest;
 use sha1::Sha1;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::Role;
-
 use tako_core::body::TakoBody;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
 use tako_core::types::Response;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Role;
 
 /// WebSocket connection handler with upgrade protocol support.
 ///

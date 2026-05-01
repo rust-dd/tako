@@ -14,7 +14,6 @@ use http::HeaderValue;
 use scc::HashMap as SccHashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::types::Request;
@@ -70,7 +69,9 @@ impl Session {
   /// Gets a value from the session.
   pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
     let data = self.data.lock();
-    data.get(key).and_then(|v| serde_json::from_value(v.clone()).ok())
+    data
+      .get(key)
+      .and_then(|v| serde_json::from_value(v.clone()).ok())
   }
 
   /// Sets a value in the session.

@@ -10,7 +10,6 @@ use std::sync::Arc;
 use http::HeaderValue;
 use http::Method;
 use http::StatusCode;
-
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::responder::Responder;
@@ -156,9 +155,7 @@ impl IntoMiddleware for Csrf {
             ensure_csrf_cookie(&mut resp, &cookie_name, secure);
             resp
           }
-          _ => {
-            (StatusCode::FORBIDDEN, "CSRF token mismatch").into_response()
-          }
+          _ => (StatusCode::FORBIDDEN, "CSRF token mismatch").into_response(),
         }
       })
     }
@@ -175,10 +172,7 @@ fn ensure_csrf_cookie(resp: &mut Response, cookie_name: &str, secure: bool) {
 
   if !has_csrf {
     let token = generate_csrf_token();
-    let mut cookie = format!(
-      "{}={}; Path=/; SameSite=Strict",
-      cookie_name, token
-    );
+    let mut cookie = format!("{}={}; Path=/; SameSite=Strict", cookie_name, token);
     if secure {
       cookie.push_str("; Secure");
     }

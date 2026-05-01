@@ -22,7 +22,6 @@ use http::header;
 use hyper::upgrade::Upgraded;
 use sha1::Digest;
 use sha1::Sha1;
-
 use tako_core::body::TakoBody;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
@@ -44,7 +43,10 @@ impl UpgradedStream {
 }
 
 impl compio::io::AsyncRead for UpgradedStream {
-  async fn read<B: compio::buf::IoBufMut>(&mut self, mut buf: B) -> compio::buf::BufResult<usize, B> {
+  async fn read<B: compio::buf::IoBufMut>(
+    &mut self,
+    mut buf: B,
+  ) -> compio::buf::BufResult<usize, B> {
     use std::pin::Pin;
     use std::task::Context;
 

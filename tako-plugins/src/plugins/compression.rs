@@ -72,21 +72,21 @@ pub mod deflate_stream;
 pub mod gzip_stream;
 pub mod zstd_stream;
 
-#[cfg(feature = "zstd")]
-use zstd::stream::encode_all as zstd_encode;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::Next;
 use tako_core::plugins::TakoPlugin;
+use tako_core::responder::Responder;
+use tako_core::router::Router;
+use tako_core::types::Request;
+use tako_core::types::Response;
+#[cfg(feature = "zstd")]
+use zstd::stream::encode_all as zstd_encode;
+
 use crate::plugins::compression::brotli_stream::stream_brotli;
 use crate::plugins::compression::deflate_stream::stream_deflate;
 use crate::plugins::compression::gzip_stream::stream_gzip;
 #[cfg(feature = "zstd")]
 use crate::plugins::compression::zstd_stream::stream_zstd;
-use tako_core::responder::Responder;
-use tako_core::router::Router;
-use tako_core::types::Request;
-use tako_core::types::Response;
 
 /// Supported HTTP compression encoding algorithms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -543,10 +543,12 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
 /// client.
 fn ensure_vary_accept_encoding(headers: &mut http::HeaderMap) {
   let already_present = headers.get_all(VARY).iter().any(|v| {
-    v.to_str().map(|s| {
-      s.split(',')
-        .any(|tok| tok.trim().eq_ignore_ascii_case("Accept-Encoding"))
-    }).unwrap_or(false)
+    v.to_str()
+      .map(|s| {
+        s.split(',')
+          .any(|tok| tok.trim().eq_ignore_ascii_case("Accept-Encoding"))
+      })
+      .unwrap_or(false)
   });
   if !already_present {
     headers.append(VARY, HeaderValue::from_static("Accept-Encoding"));
@@ -561,10 +563,7 @@ fn ensure_vary_accept_encoding(headers: &mut http::HeaderMap) {
 fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
   let parsed = parse_accept_encoding(header);
   // Pull `*` once — it determines acceptance of any encoding not listed explicitly.
-  let wildcard_q = parsed
-    .iter()
-    .find(|(c, _)| c == "*")
-    .map(|(_, q)| *q);
+  let wildcard_q = parsed.iter().find(|(c, _)| c == "*").map(|(_, q)| *q);
 
   let acceptable = |enc: Encoding| -> bool {
     let name = enc.as_str();

@@ -44,7 +44,6 @@ use base64::Engine;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
@@ -243,10 +242,9 @@ impl IntoMiddleware for BasicAuth {
         // Return 401 Unauthorized for invalid credentials
         let mut res = Response::new(TakoBody::empty());
         *res.status_mut() = StatusCode::UNAUTHORIZED;
-        res.headers_mut().append(
-          header::WWW_AUTHENTICATE,
-          www_authenticate,
-        );
+        res
+          .headers_mut()
+          .append(header::WWW_AUTHENTICATE, www_authenticate);
         res
       })
     }

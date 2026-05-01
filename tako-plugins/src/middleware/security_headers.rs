@@ -11,7 +11,6 @@ use std::future::Future;
 use std::pin::Pin;
 
 use http::HeaderValue;
-
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
 use tako_core::types::Request;
@@ -93,10 +92,7 @@ impl IntoMiddleware for SecurityHeaders {
     let frame_options = self.frame_options;
     let hsts_value = if self.hsts {
       let val = if self.hsts_include_subdomains {
-        format!(
-          "max-age={}; includeSubDomains",
-          self.hsts_max_age
-        )
+        format!("max-age={}; includeSubDomains", self.hsts_max_age)
       } else {
         format!("max-age={}", self.hsts_max_age)
       };
@@ -115,7 +111,10 @@ impl IntoMiddleware for SecurityHeaders {
         let mut resp = next.run(req).await;
         let headers = resp.headers_mut();
 
-        headers.insert("x-content-type-options", HeaderValue::from_static("nosniff"));
+        headers.insert(
+          "x-content-type-options",
+          HeaderValue::from_static("nosniff"),
+        );
         headers.insert("x-frame-options", frame_options);
         headers.insert("x-xss-protection", HeaderValue::from_static("0"));
         headers.insert("referrer-policy", referrer_policy);

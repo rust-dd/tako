@@ -42,10 +42,19 @@
 //! type wouldn't be reachable from the handler signature otherwise.
 
 use proc_macro::TokenStream;
-use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{format_ident, quote};
-use syn::parse::{Parse, ParseStream};
-use syn::{Ident, ItemFn, LitStr, Token, Type, parse_macro_input, parse_str};
+use proc_macro2::Span;
+use proc_macro2::TokenStream as TokenStream2;
+use quote::format_ident;
+use quote::quote;
+use syn::Ident;
+use syn::ItemFn;
+use syn::LitStr;
+use syn::Token;
+use syn::Type;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse_macro_input;
+use syn::parse_str;
 
 struct RouteArgs {
   method: Ident,

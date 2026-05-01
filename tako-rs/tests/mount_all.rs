@@ -3,14 +3,17 @@
 //! this binary contains *only* the routes declared below — that's what
 //! makes asserting the registered set tractable.
 
-use http::{Method, StatusCode};
+use http::Method;
+use http::StatusCode;
 use http_body_util::BodyExt;
 use tako::body::TakoBody;
+use tako::delete;
 use tako::extractors::typed_params::TypedParams;
+use tako::get;
+use tako::post;
 use tako::responder::Responder;
 use tako::router::Router;
 use tako::types::Request;
-use tako::{delete, get, post};
 
 #[get("/m/users/{id: u64}")]
 async fn m_get_user(TypedParams(p): TypedParams<MGetUserParams>) -> impl Responder {
@@ -45,9 +48,7 @@ async fn mount_all_registers_every_attribute_route() {
   let mut router = Router::new();
   router.mount_all();
 
-  let resp = router
-    .dispatch(make_req(Method::GET, "/m/users/42"))
-    .await;
+  let resp = router.dispatch(make_req(Method::GET, "/m/users/42")).await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "user=42");
 

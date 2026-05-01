@@ -38,7 +38,6 @@
 use http::StatusCode;
 use http_body_util::BodyExt;
 use prost::Message;
-
 use tako_core::extractors::FromRequest;
 use tako_core::responder::Responder;
 use tako_core::types::Request;

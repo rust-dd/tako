@@ -31,6 +31,10 @@ use futures_util::TryStream;
 use futures_util::TryStreamExt;
 use http::StatusCode;
 use http_body::Frame;
+use tako_core::body::TakoBody;
+use tako_core::responder::Responder;
+use tako_core::types::BoxError;
+use tako_core::types::Response;
 #[cfg(not(feature = "compio"))]
 use tokio::fs::File;
 #[cfg(not(feature = "compio"))]
@@ -39,11 +43,6 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncSeekExt;
 #[cfg(not(feature = "compio"))]
 use tokio_util::io::ReaderStream;
-
-use tako_core::body::TakoBody;
-use tako_core::responder::Responder;
-use tako_core::types::BoxError;
-use tako_core::types::Response;
 
 /// HTTP file stream with metadata support for efficient file delivery.
 ///
@@ -210,9 +209,8 @@ where
     }
 
     let slice = Bytes::from(data[(start as usize)..=(end as usize)].to_vec());
-    let stream = futures_util::stream::once(futures_util::future::ready(
-      Ok::<_, std::io::Error>(slice),
-    ));
+    let stream =
+      futures_util::stream::once(futures_util::future::ready(Ok::<_, std::io::Error>(slice)));
     Ok(FileStream::new(stream, None, None).into_range_response(start, end, total_size))
   }
 }

@@ -30,16 +30,15 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
-
 use tako_core::body::TakoBody;
 use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 #[cfg(feature = "signals")]
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
+use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use crate::ServerConfig;
 

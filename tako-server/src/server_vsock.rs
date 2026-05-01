@@ -35,14 +35,16 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
-use tokio_vsock::{VsockAddr, VsockListener};
-
 use tako_core::body::TakoBody;
-use tako_core::conn_info::{ConnInfo, PeerAddr, Transport};
+use tako_core::conn_info::ConnInfo;
+use tako_core::conn_info::PeerAddr;
+use tako_core::conn_info::Transport;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+use tokio_vsock::VsockAddr;
+use tokio_vsock::VsockListener;
 
 use crate::ServerConfig;
 
@@ -118,9 +120,7 @@ async fn run(
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
-  let max_conn_semaphore = config
-    .max_connections
-    .map(|n| Arc::new(Semaphore::new(n)));
+  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(Semaphore::new(n)));
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;

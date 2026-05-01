@@ -8,13 +8,17 @@
 
 use std::time::Duration;
 
-use http::{Method, StatusCode};
+use http::Method;
+use http::StatusCode;
+use tako::Server;
+use tako::ServerConfig;
 use tako::body::TakoBody;
 use tako::router::Router;
 use tako::types::Request;
-use tako::{Server, ServerConfig};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 
 async fn hello(_req: Request) -> &'static str {
   "ok"
@@ -65,7 +69,8 @@ async fn server_builder_default_config_is_default() {
 // Smoke-test the raw TCP path on the builder.
 #[tokio::test]
 async fn server_builder_handles_raw_tcp_echo() {
-  use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+  use tokio::io::AsyncReadExt as _;
+  use tokio::io::AsyncWriteExt as _;
 
   // Bind once just to discover a free port, then drop the listener so the
   // builder can rebind via serve_tcp_with_shutdown.
@@ -147,7 +152,10 @@ async fn server_builder_propagates_405_with_allow() {
   let _ = stream.read_to_end(&mut buf).await;
   let txt = String::from_utf8_lossy(&buf);
   assert!(
-    txt.contains(&format!("HTTP/1.1 {}", StatusCode::METHOD_NOT_ALLOWED.as_u16())),
+    txt.contains(&format!(
+      "HTTP/1.1 {}",
+      StatusCode::METHOD_NOT_ALLOWED.as_u16()
+    )),
     "wanted 405, got: {txt:?}"
   );
   assert!(

@@ -23,7 +23,6 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Notify;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -36,6 +35,7 @@ use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
+use tokio::sync::Notify;
 use tokio::task::LocalSet;
 
 /// Configuration for [`serve_per_thread`] and [`serve_per_thread_local`].
@@ -117,10 +117,7 @@ fn bind_reuseport(addr: SocketAddr, backlog: i32) -> io::Result<TcpListener> {
 }
 
 #[cfg(feature = "compio")]
-fn bind_reuseport_compio(
-  addr: SocketAddr,
-  backlog: i32,
-) -> io::Result<compio::net::TcpListener> {
+fn bind_reuseport_compio(addr: SocketAddr, backlog: i32) -> io::Result<compio::net::TcpListener> {
   compio::net::TcpListener::from_std(bind_reuseport_std(addr, backlog)?)
 }
 
@@ -273,11 +270,7 @@ fn worker_main(
 /// [`tako::router::Router`].
 #[cfg(feature = "compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
-pub fn serve_per_thread_compio(
-  addr: &str,
-  router: Router,
-  cfg: PerThreadConfig,
-) -> io::Result<()> {
+pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
   let socket_addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
@@ -370,4 +363,3 @@ fn worker_main_compio(
     }
   });
 }
-

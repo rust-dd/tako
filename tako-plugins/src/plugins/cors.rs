@@ -62,7 +62,6 @@ use http::header::ACCESS_CONTROL_MAX_AGE;
 use http::header::ACCESS_CONTROL_REQUEST_HEADERS;
 use http::header::ORIGIN;
 use http::header::VARY;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::Next;
 use tako_core::plugins::TakoPlugin;
@@ -380,7 +379,9 @@ fn add_cors_headers(
   // When the response varies on the request Origin (i.e. we mirrored it back),
   // shared caches must key on Origin to avoid cross-origin response leakage.
   if mirrored_origin {
-    resp.headers_mut().append(VARY, HeaderValue::from_static("Origin"));
+    resp
+      .headers_mut()
+      .append(VARY, HeaderValue::from_static("Origin"));
   }
 
   // Access-Control-Allow-Methods header

@@ -1,12 +1,17 @@
-use http::{Method, StatusCode};
-use http_body_util::BodyExt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
+
+use http::Method;
+use http::StatusCode;
+use http_body_util::BodyExt;
 use tako::body::TakoBody;
-use tako::router::Router;
-use tako::types::Request;
 #[cfg(feature = "plugins")]
-use tako::{plugins::TakoPlugin, router::Router as TakoPluginRouter};
+use tako::plugins::TakoPlugin;
+use tako::router::Router;
+#[cfg(feature = "plugins")]
+use tako::router::Router as TakoPluginRouter;
+use tako::types::Request;
 
 fn make_req(method: Method, uri: &str) -> Request {
   http::Request::builder()
@@ -94,7 +99,9 @@ async fn global_middleware_runs() {
   router.route(Method::GET, "/hello", |_req: Request| async { "Hello" });
   router.middleware(|req: Request, next: tako::middleware::Next| async move {
     let mut resp = next.run(req).await;
-    resp.headers_mut().insert("x-middleware", "applied".parse().unwrap());
+    resp
+      .headers_mut()
+      .insert("x-middleware", "applied".parse().unwrap());
     resp
   });
 
@@ -120,9 +127,7 @@ async fn router_timeout_returns_408() {
 async fn router_timeout_fallback() {
   let mut router = Router::new();
   router.timeout(Duration::from_millis(10));
-  router.timeout_fallback(|_req: Request| async {
-    (StatusCode::GATEWAY_TIMEOUT, "Too slow!")
-  });
+  router.timeout_fallback(|_req: Request| async { (StatusCode::GATEWAY_TIMEOUT, "Too slow!") });
   router.route(Method::GET, "/slow", |_req: Request| async {
     tokio::time::sleep(Duration::from_millis(100)).await;
     "done"
@@ -141,9 +146,10 @@ async fn error_handler_transforms_5xx() {
   });
   router.error_handler(|resp| {
     let status = resp.status();
-    let mut new_resp = http::Response::new(TakoBody::from(
-      format!("{{\"error\":\"{}\"}}", status.as_u16()),
-    ));
+    let mut new_resp = http::Response::new(TakoBody::from(format!(
+      "{{\"error\":\"{}\"}}",
+      status.as_u16()
+    )));
     *new_resp.status_mut() = status;
     new_resp.headers_mut().insert(
       http::header::CONTENT_TYPE,
@@ -244,7 +250,9 @@ async fn global_and_route_middlewares_preserve_order_and_extensions() {
 
         let mut resp = next.run(req).await;
         events.lock().unwrap().push("global-after");
-        resp.headers_mut().insert("x-global", "applied".parse().unwrap());
+        resp
+          .headers_mut()
+          .insert("x-global", "applied".parse().unwrap());
         resp
       }
     }
@@ -255,7 +263,10 @@ async fn global_and_route_middlewares_preserve_order_and_extensions() {
     let route_events = Arc::clone(&route_events);
     async move {
       route_events.lock().unwrap().push("handler");
-      assert_eq!(req.extensions().get::<MiddlewareStage>(), Some(&MiddlewareStage(2)));
+      assert_eq!(
+        req.extensions().get::<MiddlewareStage>(),
+        Some(&MiddlewareStage(2))
+      );
       "ok"
     }
   });
@@ -266,12 +277,17 @@ async fn global_and_route_middlewares_preserve_order_and_extensions() {
       let events = Arc::clone(&events);
       async move {
         events.lock().unwrap().push("route-before");
-        assert_eq!(req.extensions().get::<MiddlewareStage>(), Some(&MiddlewareStage(1)));
+        assert_eq!(
+          req.extensions().get::<MiddlewareStage>(),
+          Some(&MiddlewareStage(1))
+        );
         req.extensions_mut().insert(MiddlewareStage(2));
 
         let mut resp = next.run(req).await;
         events.lock().unwrap().push("route-after");
-        resp.headers_mut().insert("x-route", "applied".parse().unwrap());
+        resp
+          .headers_mut()
+          .insert("x-route", "applied".parse().unwrap());
         resp
       }
     }
@@ -317,7 +333,9 @@ async fn global_middleware_wraps_tsr_redirect() {
   let mut router = Router::new();
   router.middleware(|req: Request, next: tako::middleware::Next| async move {
     let mut resp = next.run(req).await;
-    resp.headers_mut().insert("x-global-tsr", "applied".parse().unwrap());
+    resp
+      .headers_mut()
+      .insert("x-global-tsr", "applied".parse().unwrap());
     resp
   });
   router.route_with_tsr(Method::GET, "/api", |_req: Request| async { "API" });
@@ -341,7 +359,9 @@ async fn merge_preserves_middleware_order_on_merged_routes() {
         events.lock().unwrap().push("sub-global-before");
         let mut resp = next.run(req).await;
         events.lock().unwrap().push("sub-global-after");
-        resp.headers_mut().insert("x-sub-global", "applied".parse().unwrap());
+        resp
+          .headers_mut()
+          .insert("x-sub-global", "applied".parse().unwrap());
         resp
       }
     }
@@ -362,7 +382,9 @@ async fn merge_preserves_middleware_order_on_merged_routes() {
         events.lock().unwrap().push("route-before");
         let mut resp = next.run(req).await;
         events.lock().unwrap().push("route-after");
-        resp.headers_mut().insert("x-route", "applied".parse().unwrap());
+        resp
+          .headers_mut()
+          .insert("x-route", "applied".parse().unwrap());
         resp
       }
     }
@@ -461,7 +483,9 @@ async fn route_plugin_runs_once_and_precedes_route_middleware() {
         events.lock().unwrap().push("route-before");
         let mut resp = next.run(req).await;
         events.lock().unwrap().push("route-after");
-        resp.headers_mut().insert("x-route", "applied".parse().unwrap());
+        resp
+          .headers_mut()
+          .insert("x-route", "applied".parse().unwrap());
         resp
       }
     }
@@ -554,9 +578,17 @@ async fn nest_does_not_double_stack_middleware_on_re_nest() {
   root.nest("/b", child2);
 
   let _ = root.dispatch(make_req(Method::GET, "/a/ping")).await;
-  assert_eq!(*counter.lock().unwrap(), 1, "middleware fired more than once on /a/ping");
+  assert_eq!(
+    *counter.lock().unwrap(),
+    1,
+    "middleware fired more than once on /a/ping"
+  );
   let _ = root.dispatch(make_req(Method::GET, "/b/ping")).await;
-  assert_eq!(*counter.lock().unwrap(), 2, "middleware fired more than once on /b/ping");
+  assert_eq!(
+    *counter.lock().unwrap(),
+    2,
+    "middleware fired more than once on /b/ping"
+  );
 }
 
 #[tokio::test]
@@ -618,9 +650,13 @@ async fn scope_groups_routes_under_prefix() {
     });
   });
 
-  let resp = router.dispatch(make_req(Method::GET, "/api/v1/users")).await;
+  let resp = router
+    .dispatch(make_req(Method::GET, "/api/v1/users"))
+    .await;
   assert_eq!(resp.status(), StatusCode::OK);
-  let resp = router.dispatch(make_req(Method::GET, "/api/v1/admin/dashboard")).await;
+  let resp = router
+    .dispatch(make_req(Method::GET, "/api/v1/admin/dashboard"))
+    .await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "dashboard");
 }

@@ -17,11 +17,8 @@ use prometheus::Encoder;
 use prometheus::Registry;
 #[cfg(feature = "metrics-prometheus")]
 use prometheus::TextEncoder;
-
 #[cfg(feature = "metrics-prometheus")]
 use tako_core::Method;
-#[cfg(feature = "metrics-prometheus")]
-use tako_extractors::state::State;
 use tako_core::plugins::TakoPlugin;
 #[cfg(feature = "metrics-prometheus")]
 use tako_core::responder::Responder;
@@ -32,6 +29,8 @@ use tako_core::signals::Signal;
 use tako_core::signals::app_events;
 #[cfg(feature = "signals")]
 use tako_core::signals::ids;
+#[cfg(feature = "metrics-prometheus")]
+use tako_extractors::state::State;
 
 /// Common interface for metrics backends used by the metrics plugin.
 ///

@@ -25,7 +25,8 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
@@ -35,7 +36,6 @@ use http_body::Frame;
 use http_body::SizeHint;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
-
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;

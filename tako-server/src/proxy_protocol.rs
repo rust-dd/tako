@@ -47,13 +47,12 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tokio::io::AsyncReadExt;
-use tokio::task::JoinSet;
-
 use tako_core::body::TakoBody;
 use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tako_core::types::BoxError;
+use tokio::io::AsyncReadExt;
+use tokio::task::JoinSet;
 
 use crate::ServerConfig;
 
@@ -331,7 +330,10 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
   }
 
   match parts[1] {
-    "UNKNOWN" => Ok(ProxyHeader::empty(ProxyVersion::V1, ProxyTransport::Unknown)),
+    "UNKNOWN" => Ok(ProxyHeader::empty(
+      ProxyVersion::V1,
+      ProxyTransport::Unknown,
+    )),
     proto @ ("TCP4" | "TCP6") => {
       if parts.len() < 6 {
         return Err(std::io::Error::new(
@@ -409,7 +411,12 @@ fn locate_crc32c_tlv(mut buf: &[u8]) -> Option<(usize, u32)> {
 /// header (signature + version/command/family/protocol/length + addr + TLVs)
 /// with the 4-byte CRC32C value field replaced by zeros. Returns `None` when
 /// no CRC32C TLV is present.
-fn verify_v2_crc32c(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8], tlv_start: usize) -> Option<bool> {
+fn verify_v2_crc32c(
+  sig: &[u8; 12],
+  hdr: &[u8; 4],
+  addr_buf: &[u8],
+  tlv_start: usize,
+) -> Option<bool> {
   if tlv_start >= addr_buf.len() {
     return None;
   }
@@ -460,7 +467,10 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
 
   // LOCAL command: connection from proxy itself, no address info
   if command == 0 {
-    return Ok(ProxyHeader::empty(ProxyVersion::V2, ProxyTransport::Unknown));
+    return Ok(ProxyHeader::empty(
+      ProxyVersion::V2,
+      ProxyTransport::Unknown,
+    ));
   }
 
   let transport = match protocol {
@@ -567,8 +577,7 @@ pub async fn serve_http_with_proxy_protocol_and_config(
   router: Router,
   config: ServerConfig,
 ) {
-  if let Err(e) = run_proxy_http(listener, router, None::<std::future::Pending<()>>, config).await
-  {
+  if let Err(e) = run_proxy_http(listener, router, None::<std::future::Pending<()>>, config).await {
     tracing::error!("PROXY protocol HTTP server error: {e}");
   }
 }
@@ -603,7 +612,9 @@ async fn run_proxy_http(
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
-  let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;
