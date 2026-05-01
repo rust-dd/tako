@@ -143,6 +143,42 @@ pub async fn serve_tls_with_shutdown_and_config(
   }
 }
 
+/// Run with a caller-built `Arc<rustls::ServerConfig>`. Use this when
+/// constructing the TLS config via [`crate::TlsCert`] variants beyond
+/// `PemPaths` (`Der`, `Resolver`, mTLS) — the [`crate::build_rustls_server_config`]
+/// helper handles the assembly.
+pub async fn serve_tls_with_rustls_config(
+  listener: TcpListener,
+  router: Router,
+  rustls_config: Arc<RustlsServerConfig>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_with_config(
+    listener,
+    router,
+    rustls_config,
+    None::<std::future::Pending<()>>,
+    config,
+  )
+  .await
+  {
+    tracing::error!("TLS server error: {e}");
+  }
+}
+
+/// Like [`serve_tls_with_rustls_config`] with graceful shutdown.
+pub async fn serve_tls_with_rustls_config_and_shutdown(
+  listener: TcpListener,
+  router: Router,
+  rustls_config: Arc<RustlsServerConfig>,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_with_config(listener, router, rustls_config, Some(signal), config).await {
+    tracing::error!("TLS server error: {e}");
+  }
+}
+
 /// Runs the TLS server loop, handling secure connections and request dispatch.
 pub async fn run(
   listener: TcpListener,
@@ -172,7 +208,21 @@ pub async fn run(
     tls_config.alpn_protocols = vec![b"http/1.1".to_vec()];
   }
 
-  let acceptor = TlsAcceptor::from(Arc::new(tls_config));
+  run_with_config(listener, router, Arc::new(tls_config), signal, config).await
+}
+
+/// Variant of [`run`] that accepts a pre-built `Arc<rustls::ServerConfig>`.
+pub async fn run_with_config(
+  listener: TcpListener,
+  router: Router,
+  tls_config: Arc<RustlsServerConfig>,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
+  #[cfg(feature = "tako-tracing")]
+  tako_core::tracing::init_tracing();
+
+  let acceptor = TlsAcceptor::from(tls_config);
   let router = Arc::new(router);
 
   // Setup plugins

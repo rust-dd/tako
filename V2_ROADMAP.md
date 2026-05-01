@@ -225,7 +225,7 @@ Differences from the original design:
 - ~~**PROXY-protocol no read deadline** (`proxy_protocol.rs:368`). Apply `ProxyConfig::read_timeout` before parsing.~~ — **Done.** `ServerConfig::proxy_read_timeout` (default 10s); slowloris-class abuse can no longer pin a worker.
 - ~~**Listener accept errors are fatal.** `server.rs:118` propagates `?`, `server_h3.rs:158` exits the listen loop on `None` from `endpoint.accept()`. Add EMFILE backoff and supervised restart.~~ — **Done.** New `tako_server::AcceptBackoff` (5 ms → 1 s exponential). Every Tokio transport (server, server_tls, server_unix, proxy_protocol) logs + backs off + retries instead of returning `?`.
 
-### 3.3 Extract a `tako-tls` crate — Done (in-tree module, no separate crate)
+### ~~3.3 Extract a `tako-tls` crate~~ — Done (in-tree, ACME deferred)
 
 `load_certs` and `load_key` were duplicated in `server_tls.rs:318-362`, `server_h3.rs:348-367`, `server_tls_compio.rs:296-315`, and `tako-streams/src/webtransport.rs:170-194` reaches across crates into `tako_server::server_h3::load_certs`. ~~Move to a shared `tako-tls` crate exposing:~~
 
@@ -238,19 +238,35 @@ pub enum TlsConfig {
 }
 ```
 
-~~Support PKCS#8, RSA, SEC1, EC.~~ Add SNI multi-cert resolver. Wire mTLS via `WebPkiClientVerifier`. Add hot reload (file-watcher or signal-driven).
+~~Support PKCS#8, RSA, SEC1, EC. Add SNI multi-cert resolver. Wire mTLS via `WebPkiClientVerifier`. Add hot reload (file-watcher or signal-driven).~~ — Done (ACME deferred).
 
-**Done partially:** `load_certs` / `load_key` consolidated into `tako_core::tls` (PKCS#8 + RSA + SEC1 + EC accepted). `server_tls`, `server_h3`, `server_tls_compio` re-export from there; `webtransport` calls it directly so it no longer reaches across crates. New workspace member was avoided (kept the crate count down). The `TlsConfig` enum + SNI multi-cert + mTLS + hot-reload pieces are deferred to the `Server::builder` `TlsCert` evolution.
+**Implemented:**
+- `load_certs` / `load_key` consolidated into `tako_core::tls` (PKCS#8 + RSA + SEC1 + EC). `server_tls`, `server_h3`, `server_tls_compio` re-export from there; `webtransport` calls it directly so it no longer reaches across crates. New workspace member was avoided (kept the crate count down).
+- The `TlsConfig`-shape evolution lives on the existing `tako_server::TlsCert` enum: new variants `Der { certs, key, client_auth }` and `Resolver { resolver, client_auth }` (both gated on `feature = "tls"`), plus `PemPaths { ..., client_auth }`. All three variants accept an optional `ClientAuth` for mTLS.
+- **mTLS**: `tako_server::ClientAuth::{Optional(roots), Required(roots)}` carries an `Arc<rustls::RootCertStore>`; the helper `build_rustls_server_config(&TlsCert, alpn)` turns this into a `WebPkiClientVerifier` and wires it through to `rustls::ServerConfig` for every TCP/TLS, compio-TLS and HTTP/3 spawn path.
+- **SNI multi-cert** is enabled by passing any `Arc<dyn rustls::server::ResolvesServerCert>` to `TlsCert::resolver(...)`.
+- **Hot reload**: `tako_server::ReloadableResolver` is a `ResolvesServerCert` backed by `arc_swap::ArcSwap<CertifiedKey>`. Callers hold the `Arc<ReloadableResolver>`, pass it via `TlsCert::resolver(...)`, and call `.reload_from_pem(cert, key)` (or `.reload(cert_key)`) at runtime — every subsequent TLS handshake picks up the new cert with no observable downtime. The file-watcher driver is intentionally left for the caller (notify-rs / inotify / fsevents — outside the framework boundary).
+- **`ACME` variant** still deferred — needs a separate design pass (rustls-acme integration, cache directory, HTTP-01 vs TLS-ALPN-01 challenge wiring, integration with the live listener). Not landed.
 
-### 3.4 Protocol-completeness items
+The two new public entrypoints `serve_tls_with_rustls_config_and_shutdown` (TCP TLS, both tokio + compio) and `serve_h3_with_rustls_config_and_shutdown` accept a fully-built `Arc<rustls::ServerConfig>`, so applications that need bespoke rustls config beyond what `TlsCert` covers can wire it themselves.
 
-- **HTTP/3:** ~~stream the request body, support trailers~~, support graceful GOAWAY (currently `endpoint.close(0u32.into(), ...)` is hard-close at `server_h3.rs:204`), expose qlog, retry-token, datagrams, congestion-control selection, max bidi/uni streams. — **Streaming body + trailers Done** (per `build_h3_body`). GOAWAY / qlog / retry-token / datagrams / congestion-control selection / max bidi/uni streams **Pending.**
+### ~~3.4 Protocol-completeness items~~ — Done (qlog deferred)
+
+- ~~**HTTP/3:** stream the request body, support trailers, support graceful GOAWAY (currently `endpoint.close(0u32.into(), ...)` is hard-close at `server_h3.rs:204`), expose qlog, retry-token, datagrams, congestion-control selection, max bidi/uni streams.~~ — **Done apart from qlog.**
+  - Streaming body + trailers via `build_h3_body`.
+  - **Graceful GOAWAY**: each connection task races `h3_conn.accept()` against a per-connection `Notify`; on shutdown signal it calls `h3_conn.shutdown(0)` (which emits the GOAWAY frame), waits up to `ServerConfig::h3_goaway_grace` for in-flight request handlers, then exits. The endpoint hard-close happens only after every connection task either finished gracefully or hit the global drain timeout.
+  - **Retry-token**: opt-in `ServerConfig::h3_use_retry`. When enabled, `Incoming::remote_address_validated()` is checked before accept; unvalidated peers are issued `Incoming::retry()` (one extra round-trip with a server-issued QUIC retry token). Mitigates UDP source-IP-spoofing amplification.
+  - **Datagrams (RFC 9221)**: `ServerConfig::h3_enable_datagrams` toggles `quinn::TransportConfig::datagram_receive_buffer_size`.
+  - **Congestion control**: `ServerConfig::h3_congestion = H3Congestion::{Cubic, NewReno, Bbr}` selects the `quinn::congestion::ControllerFactory`.
+  - **max bidi/uni streams**: `ServerConfig::h3_max_concurrent_bidi_streams` / `h3_max_concurrent_uni_streams` (defaults 100 / 8).
+  - **Idle timeout**: `ServerConfig::h3_max_idle_timeout` (default 30 s).
+  - **qlog Pending** — quinn 0.11.9 exposes `QlogConfig` / `QlogStream` only behind a separate `qlog` feature flag, and quinn-proto 0.11.10 doesn't expose a public per-connection qlog setter on `TransportConfig`. Wiring this requires either a quinn upgrade or a dedicated PR that opts into the `quinn/qlog` feature, threads a per-connection `QlogStream` through the spawn loop, and writes qlog files into a configured directory. Left for follow-up.
 - ~~**h2c (cleartext H2)** for L7-proxy deployments.~~ — **Done.** New `tako_server::server_h2c` module; `Server::spawn_h2c(listener, router)` in the builder.
 - ~~**80→443 auto-redirect helper.**~~ — **Done.** `tako::redirect::http_to_https_router(https_port)` builds a router whose fallback 308-redirects every request.
-- **socket activation** (`LISTEN_FDS`). — **Pending.**
-- **abstract Unix sockets** (`@`-prefixed). — **Pending.**
-- **vsock** for VM-host bridges. — **Pending.**
-- ~~**PROXY v2 TLV parsing** (`proxy_protocol.rs:225-309`): AWS VPC endpoint ID (0xEA), TLS info (0x20), authority (0x02), CRC32C. Strip inbound `X-Forwarded-For` before injecting source. Handle `AF_UNIX` family (0x3) — currently silently lands in `_ => UNSPEC` at `:301-308`.~~ — **Done** (CRC32C parsed but not yet verified). New `ProxyHeader` fields: `authority`, `alpn`, `aws_vpc_endpoint_id`, `tls: Option<ProxyTlsInfo>`, `unique_id`, `tlvs: Vec<ProxyTlv>`, `source_unix`, `destination_unix`. Inbound `X-Forwarded-*` and `Forwarded` headers stripped in the service_fn before dispatch.
+- ~~**socket activation** (`LISTEN_FDS`).~~ — **Done.** Behind the `socket-activation` feature: `tako_server::socket_activation::ListenFds::from_env()` reads `LISTEN_FDS` / `LISTEN_PID` (and the s6 / catflap equivalents via the `listenfd` crate) and exposes `tcp_listener(idx)`, `unix_listener(idx)`, `udp_socket(idx)` returning the tokio listener types directly. The returned listener is passed to the existing `Server::spawn_*` methods unchanged.
+- ~~**abstract Unix sockets** (`@`-prefixed).~~ — **Done** (Linux). `serve_unix*` / `serve_unix_http*` and `Server::spawn_unix_http` accept paths whose string form starts with `@`; the helper `bind_unix_listener` translates `@name` → kernel abstract namespace via `std::os::unix::net::SocketAddr::from_abstract_name`. Stale-socket cleanup and post-shutdown `remove_file` are skipped for abstract paths (they have no filesystem entry).
+- ~~**vsock** for VM-host bridges.~~ — **Done** (Linux + `vsock` feature). New `tako_server::server_vsock` module: `serve_vsock_http*` plus `Server::spawn_vsock_http(cid, port, router)`. Backed by `tokio-vsock`. `ConnInfo::peer` carries a `PeerAddr::Other("vsock:cid:port")` label so middleware can branch on transport.
+- ~~**PROXY v2 TLV parsing** (`proxy_protocol.rs:225-309`): AWS VPC endpoint ID (0xEA), TLS info (0x20), authority (0x02), CRC32C. Strip inbound `X-Forwarded-For` before injecting source. Handle `AF_UNIX` family (0x3) — currently silently lands in `_ => UNSPEC` at `:301-308`.~~ — **Done** (CRC32C now also verified). New `ProxyHeader` fields: `authority`, `alpn`, `aws_vpc_endpoint_id`, `tls: Option<ProxyTlsInfo>`, `unique_id`, `tlvs: Vec<ProxyTlv>`, `source_unix`, `destination_unix`, `crc32c_verified: Option<bool>`. Inbound `X-Forwarded-*` and `Forwarded` headers stripped in the service_fn before dispatch. CRC32C verification: when a `PP2_TYPE_CRC32C` TLV is present, the parser reconstructs the on-wire header with the 4-byte CRC value zeroed, recomputes via the `crc32c` crate, and surfaces the match/mismatch on `crc32c_verified`. A mismatch is logged at `warn` but does not abort the parse — the operator chooses the policy via the field.
 - ~~**Unify `ConnInfo` extension.** `server.rs:139` and `server_tls.rs:196` insert `SocketAddr`; `server_unix.rs:222` inserts `UnixPeerAddr`; H3 inserts something else again. Define one struct:~~
 
 ```rust

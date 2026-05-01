@@ -31,6 +31,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Buf;
 use bytes::Bytes;
@@ -42,7 +43,10 @@ use http::HeaderMap;
 use http::Request;
 use http_body::Body;
 use http_body::Frame;
+use quinn::VarInt;
+use quinn::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
 use quinn::crypto::rustls::QuicServerConfig;
+use tokio::sync::Notify;
 use tokio_stream::wrappers::ReceiverStream;
 
 use tako_core::body::TakoBody;
@@ -52,7 +56,7 @@ use tako_core::router::Router;
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
 
-use crate::ServerConfig;
+use crate::{H3Congestion, ServerConfig};
 
 /// Starts an HTTP/3 server with the given router and certificates.
 ///
@@ -130,6 +134,76 @@ pub async fn serve_h3_with_shutdown_and_config(
   }
 }
 
+/// Run an HTTP/3 server with a caller-built `Arc<rustls::ServerConfig>`. The
+/// caller is responsible for setting `alpn_protocols = [b"h3"]` (the
+/// [`crate::build_rustls_server_config`] helper does this when given the right
+/// ALPN list). Use this when constructing the TLS config via [`crate::TlsCert`]
+/// variants beyond `PemPaths`.
+pub async fn serve_h3_with_rustls_config(
+  router: Router,
+  addr: &str,
+  rustls_config: Arc<rustls::ServerConfig>,
+  config: ServerConfig,
+) {
+  if let Err(e) = run_with_rustls_config(
+    router,
+    addr,
+    rustls_config,
+    None::<std::future::Pending<()>>,
+    config,
+  )
+  .await
+  {
+    tracing::error!("HTTP/3 server error: {e}");
+  }
+}
+
+/// Like [`serve_h3_with_rustls_config`] with graceful shutdown.
+pub async fn serve_h3_with_rustls_config_and_shutdown(
+  router: Router,
+  addr: &str,
+  rustls_config: Arc<rustls::ServerConfig>,
+  signal: impl Future<Output = ()>,
+  config: ServerConfig,
+) {
+  if let Err(e) =
+    run_with_rustls_config(router, addr, rustls_config, Some(signal), config).await
+  {
+    tracing::error!("HTTP/3 server error: {e}");
+  }
+}
+
+/// Build a `quinn::TransportConfig` from the H3-specific knobs in [`ServerConfig`].
+fn transport_config_from(config: &ServerConfig) -> quinn::TransportConfig {
+  let mut tc = quinn::TransportConfig::default();
+  tc.max_concurrent_bidi_streams(VarInt::from_u32(config.h3_max_concurrent_bidi_streams));
+  tc.max_concurrent_uni_streams(VarInt::from_u32(config.h3_max_concurrent_uni_streams));
+  if let Some(idle) = config.h3_max_idle_timeout {
+    if let Ok(idle) = idle.try_into() {
+      tc.max_idle_timeout(Some(idle));
+    }
+  }
+  // QUIC datagrams (RFC 9221). Required for downstream WebTransport-style
+  // traffic. Send buffer is left at the quinn default.
+  if config.h3_enable_datagrams {
+    tc.datagram_receive_buffer_size(Some(64 * 1024));
+  } else {
+    tc.datagram_receive_buffer_size(None);
+  }
+  match config.h3_congestion {
+    H3Congestion::Cubic => {
+      tc.congestion_controller_factory(Arc::new(CubicConfig::default()));
+    }
+    H3Congestion::NewReno => {
+      tc.congestion_controller_factory(Arc::new(NewRenoConfig::default()));
+    }
+    H3Congestion::Bbr => {
+      tc.congestion_controller_factory(Arc::new(BbrConfig::default()));
+    }
+  }
+  tc
+}
+
 /// Runs the HTTP/3 server loop.
 async fn run(
   router: Router,
@@ -159,8 +233,30 @@ async fn run(
   tls_config.max_early_data_size = 0;
   tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
-  let server_config =
-    quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config)?));
+  run_with_rustls_config(router, addr, Arc::new(tls_config), signal, config).await
+}
+
+/// Variant of [`run`] that accepts a pre-built `Arc<rustls::ServerConfig>`.
+async fn run_with_rustls_config(
+  router: Router,
+  addr: &str,
+  tls_config: Arc<rustls::ServerConfig>,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
+  #[cfg(feature = "tako-tracing")]
+  tako_core::tracing::init_tracing();
+
+  // Install default crypto provider for rustls (required for QUIC/TLS)
+  let _ = rustls::crypto::ring::default_provider().install_default();
+
+  // QuicServerConfig wraps a rustls::ServerConfig; it requires the underlying
+  // config to set ALPN to h3. Calling `try_from` errors otherwise, so we trust
+  // the caller (or the build_rustls_server_config helper) to pre-set ALPN.
+  let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(
+    QuicServerConfig::try_from((*tls_config).clone())?,
+  ));
+  server_config.transport_config(Arc::new(transport_config_from(&config)));
 
   let socket_addr: SocketAddr = addr.parse()?;
   let endpoint = quinn::Endpoint::server(server_config, socket_addr)?;
@@ -179,7 +275,14 @@ async fn run(
 
   let mut join_set = tokio::task::JoinSet::new();
   let drain_timeout = config.drain_timeout;
+  let goaway_grace = config.h3_goaway_grace.min(drain_timeout);
+  let h3_use_retry = config.h3_use_retry;
   let max_conn_semaphore = config.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+
+  // Per-connection graceful shutdown: when triggered, every spawned connection
+  // task races its `accept()` against this notify, then calls `h3.shutdown(0)`
+  // so the peer sees a GOAWAY frame before the QUIC endpoint hard-closes.
+  let conn_shutdown = Arc::new(Notify::new());
 
   let signal = signal.map(|s| Box::pin(s));
   let signal_fused = async {
@@ -194,7 +297,18 @@ async fn run(
   loop {
     tokio::select! {
       maybe_conn = endpoint.accept() => {
-        let Some(new_conn) = maybe_conn else { break };
+        let Some(incoming) = maybe_conn else { break };
+
+        // Optional address-validation retry. Defends against UDP source-IP
+        // spoofing amplification by forcing the client through one extra
+        // round-trip with a server-issued retry token.
+        if h3_use_retry && !incoming.remote_address_validated() {
+          if let Err(e) = incoming.retry() {
+            tracing::debug!("HTTP/3 retry refused: {e}");
+          }
+          continue;
+        }
+
         let permit = if let Some(sem) = &max_conn_semaphore {
           match sem.clone().acquire_owned().await {
             Ok(p) => Some(p),
@@ -204,16 +318,19 @@ async fn run(
           None
         };
         let router = router.clone();
+        let conn_shutdown = conn_shutdown.clone();
 
         join_set.spawn(async move {
-          match new_conn.await {
+          match incoming.await {
             Ok(conn) => {
               let remote_addr = conn.remote_address();
 
               #[cfg(feature = "signals")]
               signal_tx::emit_connection_opened(&remote_addr.to_string(), true, Some("h3")).await;
 
-              if let Err(e) = handle_connection(conn, router, remote_addr).await {
+              if let Err(e) =
+                handle_connection(conn, router, remote_addr, conn_shutdown, goaway_grace).await
+              {
                 tracing::error!("HTTP/3 connection error: {e}");
               }
 
@@ -229,16 +346,18 @@ async fn run(
         });
       }
       () = &mut signal_fused => {
-        tracing::info!("Shutdown signal received, draining HTTP/3 connections...");
+        tracing::info!("Shutdown signal received, sending HTTP/3 GOAWAY...");
         break;
       }
     }
   }
 
-  // Close the endpoint to stop accepting new connections
-  endpoint.close(0u32.into(), b"server shutting down");
+  // Phase 1: kick every connection into graceful-shutdown mode so it stops
+  // accepting new requests and emits a GOAWAY frame to the peer.
+  conn_shutdown.notify_waiters();
 
-  // Drain in-flight connections
+  // Phase 2: wait for in-flight connections to finish gracefully, bounded by
+  // the global drain deadline.
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });
@@ -252,44 +371,78 @@ async fn run(
     join_set.abort_all();
   }
 
+  // Phase 3: close the endpoint after grace expired (or all conns settled).
+  endpoint.close(0u32.into(), b"server shutting down");
   endpoint.wait_idle().await;
   tracing::info!("HTTP/3 server shut down gracefully");
   Ok(())
 }
 
 /// Handles a single HTTP/3 connection.
+///
+/// Races `accept()` against the per-connection shutdown notify; on shutdown,
+/// emits a GOAWAY frame via `h3_conn.shutdown(0)` and waits up to `goaway_grace`
+/// for any already-spawned request handlers to finish before returning.
 async fn handle_connection(
   conn: quinn::Connection,
   router: Arc<Router>,
   remote_addr: SocketAddr,
+  shutdown: Arc<Notify>,
+  goaway_grace: Duration,
 ) -> Result<(), BoxError> {
   let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn)).await?;
+  let mut request_tasks = tokio::task::JoinSet::new();
+  let shutdown_notified = shutdown.notified();
+  tokio::pin!(shutdown_notified);
 
   loop {
-    match h3_conn.accept().await {
-      Ok(Some(resolver)) => {
-        let router = router.clone();
-        tokio::spawn(async move {
-          match resolver.resolve_request().await {
-            Ok((req, stream)) => {
-              if let Err(e) = handle_request(req, stream, router, remote_addr).await {
-                tracing::error!("HTTP/3 request error: {e}");
+    tokio::select! {
+      accepted = h3_conn.accept() => {
+        match accepted {
+          Ok(Some(resolver)) => {
+            let router = router.clone();
+            request_tasks.spawn(async move {
+              match resolver.resolve_request().await {
+                Ok((req, stream)) => {
+                  if let Err(e) = handle_request(req, stream, router, remote_addr).await {
+                    tracing::error!("HTTP/3 request error: {e}");
+                  }
+                }
+                Err(e) => {
+                  tracing::error!("HTTP/3 request resolve error: {e}");
+                }
               }
-            }
-            Err(e) => {
-              tracing::error!("HTTP/3 request resolve error: {e}");
-            }
+            });
           }
-        });
+          Ok(None) => break,
+          Err(e) => {
+            tracing::error!("HTTP/3 accept error: {e}");
+            break;
+          }
+        }
       }
-      Ok(None) => {
-        break;
-      }
-      Err(e) => {
-        tracing::error!("HTTP/3 accept error: {e}");
+      () = shutdown_notified.as_mut() => {
+        // Send GOAWAY(0): the peer must not start any new request, but we
+        // continue draining streams already in flight on this connection.
+        if let Err(e) = h3_conn.shutdown(0).await {
+          tracing::debug!("HTTP/3 GOAWAY error: {e}");
+        }
         break;
       }
     }
+  }
+
+  // Drain in-flight request handlers within the per-connection grace.
+  let drain = tokio::time::timeout(goaway_grace, async {
+    while request_tasks.join_next().await.is_some() {}
+  });
+  if drain.await.is_err() {
+    tracing::debug!(
+      "HTTP/3 connection grace ({:?}) elapsed; aborting {} request task(s)",
+      goaway_grace,
+      request_tasks.len()
+    );
+    request_tasks.abort_all();
   }
 
   Ok(())

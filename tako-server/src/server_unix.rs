@@ -4,6 +4,12 @@
 //! The HTTP variant is ideal for production deployments behind nginx/HAProxy
 //! where the app communicates via a local socket file instead of TCP.
 //!
+//! Filesystem and Linux abstract-namespace paths are both supported. A path
+//! whose string representation starts with `@` is interpreted as a Linux
+//! abstract socket: e.g. `@tako.sock` binds to the abstract name `tako.sock`
+//! (NUL-prefixed in the kernel). Abstract sockets do not touch the filesystem,
+//! so the stale-socket cleanup and post-shutdown removal are skipped for them.
+//!
 //! # Examples
 //!
 //! ## Raw Unix socket (echo server)
@@ -38,6 +44,7 @@
 
 use std::convert::Infallible;
 use std::future::Future;
+use std::io;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -53,6 +60,38 @@ use tako_core::router::Router;
 use tako_core::types::BoxError;
 
 use crate::ServerConfig;
+
+/// Returns true if `path`'s string form starts with `@`, marking it as a
+/// Linux abstract-namespace socket.
+#[inline]
+fn is_abstract_path(path: &Path) -> bool {
+  path.to_str().is_some_and(|s| s.starts_with('@'))
+}
+
+/// Bind a `tokio::net::UnixListener` for either a filesystem path or a Linux
+/// abstract path (`@`-prefixed). Filesystem paths get the stale-socket
+/// cleanup; abstract paths don't.
+fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
+  if is_abstract_path(path) {
+    #[cfg(target_os = "linux")]
+    {
+      let name = &path.to_str().unwrap().as_bytes()[1..];
+      let addr = std::os::unix::net::SocketAddr::from_abstract_name(name)?;
+      let std_listener = std::os::unix::net::UnixListener::bind_addr(&addr)?;
+      std_listener.set_nonblocking(true)?;
+      return tokio::net::UnixListener::from_std(std_listener);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+      return Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "abstract Unix socket paths (`@`-prefixed) are Linux-only",
+      ));
+    }
+  }
+  cleanup_stale_socket(path)?;
+  tokio::net::UnixListener::bind(path)
+}
 
 
 /// Peer address information for Unix domain socket connections.
@@ -81,9 +120,7 @@ where
     + 'static,
 {
   let path = path.as_ref();
-  cleanup_stale_socket(path)?;
-
-  let listener = tokio::net::UnixListener::bind(path)?;
+  let listener = bind_unix_listener(path)?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
   let handler = Arc::new(handler);
@@ -120,9 +157,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   let path = path.as_ref();
-  cleanup_stale_socket(path)?;
-
-  let listener = tokio::net::UnixListener::bind(path)?;
+  let listener = bind_unix_listener(path)?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
   let handler = Arc::new(handler);
@@ -229,9 +264,7 @@ async fn run_http(
   signal: Option<impl Future<Output = ()>>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
-  cleanup_stale_socket(path)?;
-
-  let listener = tokio::net::UnixListener::bind(path)?;
+  let listener = bind_unix_listener(path)?;
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -332,8 +365,12 @@ async fn run_http(
     join_set.abort_all();
   }
 
-  // Clean up socket file
-  let _ = std::fs::remove_file(path);
+  // Filesystem-backed paths get the socket file removed on shutdown so a
+  // subsequent run can re-bind cleanly. Abstract sockets disappear with the
+  // last reference, so there's nothing to clean.
+  if !is_abstract_path(path) {
+    let _ = std::fs::remove_file(path);
+  }
   tracing::info!("Unix HTTP server shut down gracefully");
   Ok(())
 }

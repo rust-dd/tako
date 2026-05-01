@@ -154,6 +154,13 @@ pub struct ProxyHeader {
   pub unique_id: Option<Vec<u8>>,
   /// Raw TLV list — kept for forward-compatibility / custom types.
   pub tlvs: Vec<ProxyTlv>,
+  /// PROXY v2 CRC32C verification result.
+  ///
+  /// `Some(true)` if a `PP2_TYPE_CRC32C` TLV was present and the recomputed
+  /// CRC32C of the full PROXY v2 header (with the CRC value zeroed) matched.
+  /// `Some(false)` if it was present but mismatched. `None` if the TLV was
+  /// absent (CRC32C is optional in the spec) or if the header is v1.
+  pub crc32c_verified: Option<bool>,
 }
 
 impl ProxyHeader {
@@ -171,6 +178,7 @@ impl ProxyHeader {
       tls: None,
       unique_id: None,
       tlvs: Vec::new(),
+      crc32c_verified: None,
     }
   }
 }
@@ -237,7 +245,8 @@ fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
           header.tls = Some(tls);
         }
       }
-      // CRC32C / NOOP / NETNS are accepted but currently dropped after the raw push.
+      // CRC32C is verified out-of-band by `verify_v2_crc32c` before TLV
+      // expansion; NOOP / NETNS have no semantic meaning to surface.
       PP2_TYPE_CRC32C | PP2_TYPE_NOOP | PP2_TYPE_NETNS => {}
       _ => {}
     }
@@ -371,10 +380,56 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
   }
 }
 
+/// Walks the TLV section of a PROXY v2 header and returns the offset (relative
+/// to the TLV section start) of the first `PP2_TYPE_CRC32C` value plus the
+/// expected 32-bit checksum, if a well-formed CRC32C TLV is present.
+fn locate_crc32c_tlv(mut buf: &[u8]) -> Option<(usize, u32)> {
+  let mut offset = 0usize;
+  while buf.len() >= 3 {
+    let kind = buf[0];
+    let len = u16::from_be_bytes([buf[1], buf[2]]) as usize;
+    if buf.len() < 3 + len {
+      return None;
+    }
+    if kind == PP2_TYPE_CRC32C && len == 4 {
+      let value_offset = offset + 3;
+      let v = &buf[3..7];
+      let expected = u32::from_be_bytes([v[0], v[1], v[2], v[3]]);
+      return Some((value_offset, expected));
+    }
+    buf = &buf[3 + len..];
+    offset += 3 + len;
+  }
+  None
+}
+
+/// Verifies the PROXY v2 CRC32C TLV against the full reconstructed header.
+///
+/// Per the HAProxy PROXY v2 spec the checksum is computed over the entire
+/// header (signature + version/command/family/protocol/length + addr + TLVs)
+/// with the 4-byte CRC32C value field replaced by zeros. Returns `None` when
+/// no CRC32C TLV is present.
+fn verify_v2_crc32c(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8], tlv_start: usize) -> Option<bool> {
+  if tlv_start >= addr_buf.len() {
+    return None;
+  }
+  let (value_offset_in_tlvs, expected) = locate_crc32c_tlv(&addr_buf[tlv_start..])?;
+  let zero_at_in_addr = tlv_start + value_offset_in_tlvs;
+  // Reconstruct the on-wire header into a single contiguous buffer.
+  let mut full = Vec::with_capacity(12 + 4 + addr_buf.len());
+  full.extend_from_slice(sig);
+  full.extend_from_slice(hdr);
+  full.extend_from_slice(addr_buf);
+  let zero_at = 16 + zero_at_in_addr;
+  full[zero_at..zero_at + 4].copy_from_slice(&[0, 0, 0, 0]);
+  let computed = crc32c::crc32c(&full);
+  Some(computed == expected)
+}
+
 /// Parse PROXY protocol v2 (binary format).
 async fn parse_v2<R: AsyncReadExt + Unpin>(
   reader: &mut R,
-  _sig: &[u8; 12],
+  sig: &[u8; 12],
 ) -> std::io::Result<ProxyHeader> {
   // Read remaining 4 bytes of v2 header (version/command, family/protocol, length)
   let mut hdr = [0u8; 4];
@@ -448,6 +503,15 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
     // UNSPEC or unknown — payload past addr_buf is still treated as TLVs.
     _ => 0,
   };
+
+  // Verify the CRC32C TLV (if any) against the full reconstructed header
+  // before TLV expansion so a corrupt payload does not silently mutate the
+  // typed `ProxyHeader` fields. A mismatch is logged but does not abort the
+  // parse — the operator decides via `ProxyHeader::crc32c_verified`.
+  header.crc32c_verified = verify_v2_crc32c(sig, &hdr, &addr_buf, consumed);
+  if header.crc32c_verified == Some(false) {
+    tracing::warn!("PROXY v2 CRC32C mismatch — header may be corrupt or spoofed");
+  }
 
   // Walk TLVs that follow the address payload.
   if consumed < addr_buf.len() {

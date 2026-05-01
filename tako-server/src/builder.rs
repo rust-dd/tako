@@ -108,11 +108,40 @@ where
 
 // ───────────────────────── TLS material ──────────────────────────
 
+/// Client-authentication policy applied to a TLS server.
+///
+/// Both variants carry the trusted [`rustls::RootCertStore`] used to validate
+/// the client-presented chain. `Optional` allows clients without a cert to
+/// proceed (the application can later inspect the peer certs); `Required`
+/// terminates handshakes that omit a cert.
+#[cfg(feature = "tls")]
+#[derive(Clone)]
+pub enum ClientAuth {
+  /// Verify the client cert if presented; allow connections without one.
+  Optional(Arc<rustls::RootCertStore>),
+  /// Require a valid client cert; reject the handshake otherwise.
+  Required(Arc<rustls::RootCertStore>),
+}
+
+#[cfg(feature = "tls")]
+impl std::fmt::Debug for ClientAuth {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      ClientAuth::Optional(_) => f.debug_tuple("Optional").field(&"<root_store>").finish(),
+      ClientAuth::Required(_) => f.debug_tuple("Required").field(&"<root_store>").finish(),
+    }
+  }
+}
+
 /// Optional TLS material the builder can attach to a TLS-mode server.
 ///
-/// `Acme` / `Resolver` variants are reserved for future expansion; today only
-/// PEM paths are accepted.
-#[derive(Debug, Clone)]
+/// Variants:
+/// - [`TlsCert::PemPaths`] — load cert and key from disk on every spawn.
+/// - [`TlsCert::Der`] — pre-loaded DER cert chain + key.
+/// - [`TlsCert::Resolver`] — user-supplied [`rustls::server::ResolvesServerCert`]
+///   for SNI multi-cert serving or hot-reloadable certificates (see
+///   [`ReloadableResolver`]).
+#[derive(Clone)]
 pub enum TlsCert {
   /// Filesystem paths for cert + key PEM files.
   PemPaths {
@@ -120,17 +149,271 @@ pub enum TlsCert {
     cert_path: String,
     /// Path to the PEM-encoded private key.
     key_path: String,
+    /// Optional mTLS policy.
+    #[cfg(feature = "tls")]
+    client_auth: Option<ClientAuth>,
+  },
+  /// Pre-loaded DER cert chain + key. Useful when certs come from secret
+  /// storage rather than the filesystem.
+  #[cfg(feature = "tls")]
+  Der {
+    /// DER-encoded certificate chain (leaf first).
+    certs: Arc<Vec<rustls::pki_types::CertificateDer<'static>>>,
+    /// DER-encoded private key.
+    key: Arc<rustls::pki_types::PrivateKeyDer<'static>>,
+    /// Optional mTLS policy.
+    client_auth: Option<ClientAuth>,
+  },
+  /// User-supplied certificate resolver. The most flexible variant — drives
+  /// SNI multi-cert serving, hot reload (see [`ReloadableResolver`]), and any
+  /// custom logic that picks a cert per client-hello.
+  #[cfg(feature = "tls")]
+  Resolver {
+    /// The resolver used by rustls to pick a cert per handshake.
+    resolver: Arc<dyn rustls::server::ResolvesServerCert>,
+    /// Optional mTLS policy.
+    client_auth: Option<ClientAuth>,
   },
 }
 
+impl std::fmt::Debug for TlsCert {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      TlsCert::PemPaths {
+        cert_path, key_path, ..
+      } => f
+        .debug_struct("PemPaths")
+        .field("cert_path", cert_path)
+        .field("key_path", key_path)
+        .finish_non_exhaustive(),
+      #[cfg(feature = "tls")]
+      TlsCert::Der { client_auth, .. } => f
+        .debug_struct("Der")
+        .field("client_auth", client_auth)
+        .finish_non_exhaustive(),
+      #[cfg(feature = "tls")]
+      TlsCert::Resolver { client_auth, .. } => f
+        .debug_struct("Resolver")
+        .field("client_auth", client_auth)
+        .finish_non_exhaustive(),
+    }
+  }
+}
+
 impl TlsCert {
-  /// Construct from filesystem paths.
+  /// Construct from filesystem paths (PEM cert + PEM key).
   pub fn pem_paths(cert: impl Into<String>, key: impl Into<String>) -> Self {
     Self::PemPaths {
       cert_path: cert.into(),
       key_path: key.into(),
+      #[cfg(feature = "tls")]
+      client_auth: None,
     }
   }
+
+  /// Like [`TlsCert::pem_paths`] with an attached mTLS policy.
+  #[cfg(feature = "tls")]
+  pub fn pem_paths_with_client_auth(
+    cert: impl Into<String>,
+    key: impl Into<String>,
+    client_auth: ClientAuth,
+  ) -> Self {
+    Self::PemPaths {
+      cert_path: cert.into(),
+      key_path: key.into(),
+      client_auth: Some(client_auth),
+    }
+  }
+
+  /// Construct from pre-loaded DER cert chain + key.
+  #[cfg(feature = "tls")]
+  pub fn der(
+    certs: Vec<rustls::pki_types::CertificateDer<'static>>,
+    key: rustls::pki_types::PrivateKeyDer<'static>,
+  ) -> Self {
+    Self::Der {
+      certs: Arc::new(certs),
+      key: Arc::new(key),
+      client_auth: None,
+    }
+  }
+
+  /// Construct from a user-supplied certificate resolver. This is the entry
+  /// point for SNI multi-cert servers and hot-reload (see [`ReloadableResolver`]).
+  #[cfg(feature = "tls")]
+  pub fn resolver(resolver: Arc<dyn rustls::server::ResolvesServerCert>) -> Self {
+    Self::Resolver {
+      resolver,
+      client_auth: None,
+    }
+  }
+
+  /// Returns a clone of the resolver (or no-op for static cert variants).
+  ///
+  /// Useful when the caller wants to swap the live cert at runtime — they pass
+  /// in a [`ReloadableResolver`] via [`TlsCert::resolver`] and keep the `Arc`
+  /// for later `.reload_*()` calls.
+  #[cfg(feature = "tls")]
+  pub fn with_client_auth(mut self, auth: ClientAuth) -> Self {
+    match &mut self {
+      TlsCert::PemPaths { client_auth, .. }
+      | TlsCert::Der { client_auth, .. }
+      | TlsCert::Resolver { client_auth, .. } => *client_auth = Some(auth),
+    }
+    self
+  }
+}
+
+// ───────────────────────── reloadable resolver ──────────────────────────
+
+/// A `ResolvesServerCert` whose backing [`rustls::sign::CertifiedKey`] can be
+/// swapped at runtime via [`ReloadableResolver::reload_from_pem`] or
+/// [`ReloadableResolver::reload_from_der`].
+///
+/// Backed by [`arc_swap::ArcSwap`], the swap is atomic and lock-free on the
+/// hot path (one `Arc` clone per TLS handshake). Use it via
+/// [`TlsCert::resolver`] and keep the returned `Arc` so callers can trigger
+/// reloads from anywhere (file watcher, signal handler, admin endpoint, …).
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "tls")]
+/// # async fn _example() -> anyhow::Result<()> {
+/// use std::sync::Arc;
+/// use tako_server::{ReloadableResolver, Server, TlsCert};
+///
+/// let resolver = Arc::new(ReloadableResolver::from_pem("cert.pem", "key.pem")?);
+/// let cert = TlsCert::resolver(resolver.clone());
+/// let server = Server::builder().tls(cert).build();
+/// // Later, after a cert rotation:
+/// resolver.reload_from_pem("cert.pem", "key.pem")?;
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "tls")]
+pub struct ReloadableResolver {
+  current: arc_swap::ArcSwap<rustls::sign::CertifiedKey>,
+}
+
+#[cfg(feature = "tls")]
+impl std::fmt::Debug for ReloadableResolver {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("ReloadableResolver").finish_non_exhaustive()
+  }
+}
+
+#[cfg(feature = "tls")]
+impl ReloadableResolver {
+  /// Construct from on-disk PEM files.
+  pub fn from_pem(cert_path: &str, key_path: &str) -> anyhow::Result<Self> {
+    let ck = build_certified_key(cert_path, key_path)?;
+    Ok(Self {
+      current: arc_swap::ArcSwap::from_pointee(ck),
+    })
+  }
+
+  /// Atomically swap to a new cert + key loaded from the given PEM files.
+  ///
+  /// Hot-path TLS handshakes pick up the new cert on the next `resolve` call
+  /// without dropping any in-flight session.
+  pub fn reload_from_pem(&self, cert_path: &str, key_path: &str) -> anyhow::Result<()> {
+    let ck = build_certified_key(cert_path, key_path)?;
+    self.current.store(Arc::new(ck));
+    Ok(())
+  }
+
+  /// Atomically swap to a pre-built [`rustls::sign::CertifiedKey`].
+  pub fn reload(&self, ck: rustls::sign::CertifiedKey) {
+    self.current.store(Arc::new(ck));
+  }
+}
+
+#[cfg(feature = "tls")]
+impl rustls::server::ResolvesServerCert for ReloadableResolver {
+  fn resolve(
+    &self,
+    _client_hello: rustls::server::ClientHello<'_>,
+  ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+    Some(self.current.load_full())
+  }
+}
+
+#[cfg(feature = "tls")]
+fn build_certified_key(
+  cert_path: &str,
+  key_path: &str,
+) -> anyhow::Result<rustls::sign::CertifiedKey> {
+  let certs = tako_core::tls::load_certs(cert_path)?;
+  let key = tako_core::tls::load_key(key_path)?;
+  let signer = rustls::crypto::ring::sign::any_supported_type(&key)
+    .map_err(|e| anyhow::anyhow!("failed to load signing key from '{}': {}", key_path, e))?;
+  Ok(rustls::sign::CertifiedKey::new(certs, signer))
+}
+
+/// Build an `Arc<rustls::ServerConfig>` from a [`TlsCert`] and the desired
+/// ALPN protocol list.
+///
+/// Internal helper used by every `Server::spawn_*` TLS-mode method. Exposed
+/// so embedders can build the rustls config the same way Tako does and pass
+/// it to the lower-level `serve_*_with_rustls_config_*` entrypoints.
+#[cfg(feature = "tls")]
+pub fn build_rustls_server_config(
+  cert: &TlsCert,
+  alpn: Vec<Vec<u8>>,
+) -> anyhow::Result<Arc<rustls::ServerConfig>> {
+  use rustls::ServerConfig as RustlsServerConfig;
+
+  let builder = RustlsServerConfig::builder();
+
+  // Resolve the client-auth verifier first. `with_no_client_auth` and
+  // `with_client_cert_verifier` produce the same `ConfigBuilder<...>` next
+  // step, so we can branch cleanly here.
+  let client_auth = match cert {
+    TlsCert::PemPaths { client_auth, .. }
+    | TlsCert::Der { client_auth, .. }
+    | TlsCert::Resolver { client_auth, .. } => client_auth.clone(),
+  };
+
+  let builder_with_auth = match client_auth {
+    Some(ClientAuth::Optional(roots)) => {
+      let verifier = rustls::server::WebPkiClientVerifier::builder(roots)
+        .allow_unauthenticated()
+        .build()
+        .map_err(|e| anyhow::anyhow!("WebPkiClientVerifier build failed: {e}"))?;
+      builder.with_client_cert_verifier(verifier)
+    }
+    Some(ClientAuth::Required(roots)) => {
+      let verifier = rustls::server::WebPkiClientVerifier::builder(roots)
+        .build()
+        .map_err(|e| anyhow::anyhow!("WebPkiClientVerifier build failed: {e}"))?;
+      builder.with_client_cert_verifier(verifier)
+    }
+    None => builder.with_no_client_auth(),
+  };
+
+  let mut config = match cert {
+    TlsCert::PemPaths {
+      cert_path, key_path, ..
+    } => {
+      let certs = tako_core::tls::load_certs(cert_path)?;
+      let key = tako_core::tls::load_key(key_path)?;
+      builder_with_auth
+        .with_single_cert(certs, key)
+        .map_err(|e| anyhow::anyhow!("rustls config build failed: {e}"))?
+    }
+    TlsCert::Der { certs, key, .. } => {
+      let certs = certs.as_ref().clone();
+      let key = key.as_ref().clone_key();
+      builder_with_auth
+        .with_single_cert(certs, key)
+        .map_err(|e| anyhow::anyhow!("rustls config build failed: {e}"))?
+    }
+    TlsCert::Resolver { resolver, .. } => builder_with_auth.with_cert_resolver(resolver.clone()),
+  };
+
+  config.alpn_protocols = alpn;
+  Ok(Arc::new(config))
 }
 
 // ───────────────────────── tokio Server ──────────────────────────
@@ -173,6 +456,10 @@ impl ServerBuilder {
 #[derive(Debug, Clone)]
 pub struct Server {
   config: ServerConfig,
+  // Read only by the `tls` / `http3` cfg-gated spawn methods; the field is
+  // always present so the builder API surface stays stable across feature
+  // combinations.
+  #[cfg_attr(not(any(feature = "tls", feature = "http3")), allow(dead_code))]
   tls: Option<TlsCert>,
 }
 
@@ -215,6 +502,10 @@ impl Server {
   }
 
   /// Spawn a TLS server. Requires that the builder was given a [`TlsCert`].
+  ///
+  /// Dispatches on the [`TlsCert`] variant: `PemPaths` keeps the legacy
+  /// path-loaded fast path; `Der` and `Resolver` (and any client-auth/mTLS
+  /// configuration) go through [`crate::build_rustls_server_config`].
   #[cfg(feature = "tls")]
   pub fn spawn_tls(&self, listener: TcpListener, router: Router) -> ServerHandle {
     let tls = self
@@ -223,13 +514,38 @@ impl Server {
       .expect("Server::spawn_tls requires a TlsCert (use builder().tls(...))");
     let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
     let config = self.config.clone();
+    let alpn = tls_alpn_for_tcp();
     spawn_done(handle.done.clone(), async move {
-      let TlsCert::PemPaths { cert_path, key_path } = tls;
-      crate::server_tls::serve_tls_with_shutdown_and_config(
+      // Plain `PemPaths` without mTLS keeps the no-overhead path-based loader;
+      // every other variant goes through the rustls-config helper.
+      if let TlsCert::PemPaths {
+        cert_path,
+        key_path,
+        client_auth: None,
+      } = &tls
+      {
+        crate::server_tls::serve_tls_with_shutdown_and_config(
+          listener,
+          router,
+          Some(cert_path.as_str()),
+          Some(key_path.as_str()),
+          shutdown_fut,
+          config,
+        )
+        .await;
+        return;
+      }
+      let rustls_cfg = match build_rustls_server_config(&tls, alpn) {
+        Ok(c) => c,
+        Err(e) => {
+          tracing::error!("Server::spawn_tls: failed to build rustls config: {e}");
+          return;
+        }
+      };
+      crate::server_tls::serve_tls_with_rustls_config_and_shutdown(
         listener,
         router,
-        Some(cert_path.as_str()),
-        Some(key_path.as_str()),
+        rustls_cfg,
         shutdown_fut,
         config,
       )
@@ -250,12 +566,34 @@ impl Server {
     let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
     let config = self.config.clone();
     spawn_done(handle.done.clone(), async move {
-      let TlsCert::PemPaths { cert_path, key_path } = tls;
-      crate::server_h3::serve_h3_with_shutdown_and_config(
+      if let TlsCert::PemPaths {
+        cert_path,
+        key_path,
+        client_auth: None,
+      } = &tls
+      {
+        crate::server_h3::serve_h3_with_shutdown_and_config(
+          router,
+          &addr,
+          Some(cert_path.as_str()),
+          Some(key_path.as_str()),
+          shutdown_fut,
+          config,
+        )
+        .await;
+        return;
+      }
+      let rustls_cfg = match build_rustls_server_config(&tls, vec![b"h3".to_vec()]) {
+        Ok(c) => c,
+        Err(e) => {
+          tracing::error!("Server::spawn_h3: failed to build rustls config: {e}");
+          return;
+        }
+      };
+      crate::server_h3::serve_h3_with_rustls_config_and_shutdown(
         router,
         &addr,
-        Some(cert_path.as_str()),
-        Some(key_path.as_str()),
+        rustls_cfg,
         shutdown_fut,
         config,
       )
@@ -273,6 +611,25 @@ impl Server {
     spawn_done(handle.done.clone(), async move {
       crate::server_unix::serve_unix_http_with_shutdown_and_config(
         path,
+        router,
+        shutdown_fut,
+        config,
+      )
+      .await;
+    });
+    handle
+  }
+
+  /// Spawn an HTTP server bound to a Linux vsock `(cid, port)` pair. Requires
+  /// the `vsock` feature and Linux.
+  #[cfg(all(target_os = "linux", feature = "vsock"))]
+  pub fn spawn_vsock_http(&self, cid: u32, port: u32, router: Router) -> ServerHandle {
+    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
+    let config = self.config.clone();
+    spawn_done(handle.done.clone(), async move {
+      crate::server_vsock::serve_vsock_http_with_shutdown_and_config(
+        cid,
+        port,
         router,
         shutdown_fut,
         config,
@@ -426,19 +783,57 @@ impl CompioServer {
       .expect("CompioServer::spawn_tls requires a TlsCert (use builder().tls(...))");
     let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
     let config = self.config.clone();
+    let alpn = tls_alpn_for_tcp();
     spawn_done_compio(handle.done.clone(), async move {
-      let TlsCert::PemPaths { cert_path, key_path } = tls;
-      crate::server_tls_compio::serve_tls_with_shutdown_and_config(
+      if let TlsCert::PemPaths {
+        cert_path,
+        key_path,
+        client_auth: None,
+      } = &tls
+      {
+        crate::server_tls_compio::serve_tls_with_shutdown_and_config(
+          listener,
+          router,
+          Some(cert_path.as_str()),
+          Some(key_path.as_str()),
+          shutdown_fut,
+          config,
+        )
+        .await;
+        return;
+      }
+      let rustls_cfg = match build_rustls_server_config(&tls, alpn) {
+        Ok(c) => c,
+        Err(e) => {
+          tracing::error!("CompioServer::spawn_tls: failed to build rustls config: {e}");
+          return;
+        }
+      };
+      crate::server_tls_compio::serve_tls_with_rustls_config_and_shutdown(
         listener,
         router,
-        Some(cert_path.as_str()),
-        Some(key_path.as_str()),
+        rustls_cfg,
         shutdown_fut,
         config,
       )
       .await;
     });
     handle
+  }
+}
+
+/// ALPN list used by TCP-based TLS spawn paths. Mirrors the per-feature
+/// negotiation already done in `server_tls{,_compio}::run`.
+#[cfg(feature = "tls")]
+#[inline]
+fn tls_alpn_for_tcp() -> Vec<Vec<u8>> {
+  #[cfg(feature = "http2")]
+  {
+    vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+  }
+  #[cfg(not(feature = "http2"))]
+  {
+    vec![b"http/1.1".to_vec()]
   }
 }
 

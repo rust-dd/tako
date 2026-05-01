@@ -13,6 +13,21 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+/// Selectable QUIC congestion controller. Mirrors the controllers shipped by
+/// `quinn::congestion`. Exposed here so HTTP/3 deployments can pick a profile
+/// without depending on quinn directly from the application crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum H3Congestion {
+  /// CUBIC — quinn's default and the most widely deployed.
+  #[default]
+  Cubic,
+  /// NewReno — older, conservative.
+  NewReno,
+  /// BBR — Google's bandwidth-delay-product controller; useful on
+  /// high-bandwidth, lossy links.
+  Bbr,
+}
+
 /// Production-readiness knobs shared by every Tako server transport.
 ///
 /// `Default` mirrors the historical hardcoded values (30 s drain, 30 s header
@@ -41,6 +56,27 @@ pub struct ServerConfig {
   pub h2_max_pending_accept_reset_streams: usize,
   /// HTTP/2 keep-alive ping interval. `None` disables.
   pub h2_keep_alive_interval: Option<Duration>,
+  /// HTTP/3 cap on concurrent client-initiated bidirectional streams. Maps to
+  /// `quinn::TransportConfig::max_concurrent_bidi_streams`.
+  pub h3_max_concurrent_bidi_streams: u32,
+  /// HTTP/3 cap on concurrent client-initiated unidirectional streams. Maps to
+  /// `quinn::TransportConfig::max_concurrent_uni_streams`.
+  pub h3_max_concurrent_uni_streams: u32,
+  /// HTTP/3 idle-timeout (no QUIC packets in either direction). `None` lets
+  /// quinn pick its default; `Some(d)` caps the connection lifetime.
+  pub h3_max_idle_timeout: Option<Duration>,
+  /// HTTP/3 congestion controller selection.
+  pub h3_congestion: H3Congestion,
+  /// Enable QUIC datagrams (RFC 9221) on HTTP/3 connections. Required for
+  /// downstream WebTransport-style traffic.
+  pub h3_enable_datagrams: bool,
+  /// Issue a QUIC Retry packet for each new connection whose source address
+  /// has not been validated. Mitigates UDP source-address-spoofing
+  /// amplification attacks at the cost of one extra round-trip per new client.
+  pub h3_use_retry: bool,
+  /// Per-connection grace given to in-flight HTTP/3 streams to finish after
+  /// the per-connection GOAWAY. Bounded by the global `drain_timeout`.
+  pub h3_goaway_grace: Duration,
   /// Optional ceiling on concurrent in-flight connections. Enforced via a
   /// semaphore in the accept loop; `None` disables.
   pub max_connections: Option<usize>,
@@ -62,6 +98,13 @@ impl Default for ServerConfig {
       h2_max_send_buf_size: 1024 * 1024,
       h2_max_pending_accept_reset_streams: 50,
       h2_keep_alive_interval: None,
+      h3_max_concurrent_bidi_streams: 100,
+      h3_max_concurrent_uni_streams: 8,
+      h3_max_idle_timeout: Some(Duration::from_secs(30)),
+      h3_congestion: H3Congestion::default(),
+      h3_enable_datagrams: false,
+      h3_use_retry: false,
+      h3_goaway_grace: Duration::from_secs(10),
       max_connections: None,
       proxy_read_timeout: Duration::from_secs(10),
       accept_backoff: AcceptBackoff::new(),
@@ -123,6 +166,8 @@ pub use builder::{Server, ServerBuilder};
 #[cfg(feature = "compio")]
 pub use builder::{CompioServer, CompioServerBuilder};
 pub use builder::{ServerHandle, TlsCert, either};
+#[cfg(feature = "tls")]
+pub use builder::{ClientAuth, ReloadableResolver, build_rustls_server_config};
 
 #[cfg(not(feature = "compio"))]
 pub use server::serve;
@@ -217,6 +262,16 @@ pub mod server_unix;
 /// PROXY protocol v1/v2 parser for load balancer integration.
 #[cfg(not(feature = "compio"))]
 pub mod proxy_protocol;
+
+/// systemd / s6 / catflap socket activation helpers (LISTEN_FDS).
+#[cfg(feature = "socket-activation")]
+#[cfg_attr(docsrs, doc(cfg(feature = "socket-activation")))]
+pub mod socket_activation;
+
+/// Linux vsock transport for VM-host bridges.
+#[cfg(all(target_os = "linux", feature = "vsock"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "vsock")))]
+pub mod server_vsock;
 
 /// Bind a TCP listener for `addr`, asking interactively to increment the port
 /// if it is already in use.
