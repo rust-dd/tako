@@ -217,6 +217,18 @@ pub mod extractors {
   #[cfg_attr(docsrs, doc(cfg(feature = "protobuf")))]
   pub use tako_extractors::protobuf;
   pub use tako_extractors::query;
+  pub use tako_extractors::query_multi;
+  pub use tako_extractors::connect_info;
+  pub use tako_extractors::content_length_limit;
+  pub use tako_extractors::extension;
+  pub use tako_extractors::matched_path;
+  pub use tako_extractors::uri_parts;
+  #[cfg(feature = "typed-header")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "typed-header")))]
+  pub use tako_extractors::typed_header;
+  #[cfg(any(feature = "validator", feature = "garde"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "validator", feature = "garde"))))]
+  pub use tako_extractors::validate;
   #[cfg(feature = "simd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "simd")))]
   pub use tako_extractors::simdjson;

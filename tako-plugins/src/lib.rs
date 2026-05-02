@@ -18,3 +18,7 @@ pub mod middleware;
 /// Pluggable backend traits for stateful middleware (sessions, rate limit, …)
 /// plus the bundled in-memory implementations.
 pub mod stores;
+
+/// Plugin/middleware-coupled extractors (e.g. verified JWT claims that are
+/// produced by `JwtAuth` middleware and surfaced via `JwtClaimsVerified<C>`).
+pub mod extractors;

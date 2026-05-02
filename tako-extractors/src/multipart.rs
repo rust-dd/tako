@@ -30,11 +30,14 @@
 //! ```
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
 use http_body_util::BodyExt;
+use multer::Constraints;
 use multer::Multipart;
+use multer::SizeLimit;
 use serde::Deserialize;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -47,6 +50,100 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
+/// Per-route or global configuration for multipart extraction.
+///
+/// Insert into request extensions (or set as global state) to constrain how
+/// `TakoMultipart` / `TakoTypedMultipart` consume request bodies. Defaults
+/// are permissive — opt in to limits explicitly.
+#[derive(Debug, Clone, Default)]
+pub struct MultipartConfig {
+  /// Total request body cap, in bytes. `None` = no whole-payload limit.
+  pub total_size_limit: Option<u64>,
+  /// Per-part body cap, in bytes. `None` = no per-part limit.
+  pub per_part_size_limit: Option<u64>,
+  /// Maximum number of parts. Reaching this returns an error mid-parse.
+  pub max_parts: Option<usize>,
+  /// Allow-list of part content-types (e.g. `image/png`, `application/pdf`).
+  /// `None` (or empty) = accept any.
+  pub allowed_content_types: Option<Arc<Vec<String>>>,
+  /// When uploading via `UploadedFile`, switch from in-memory buffering to a
+  /// temp file once the part exceeds this many bytes. `None` = always disk.
+  pub disk_spill_threshold: Option<u64>,
+}
+
+impl MultipartConfig {
+  /// Build a permissive config (no limits). Configure via the builder methods.
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Set a whole-request body cap.
+  pub fn total_size_limit(mut self, bytes: u64) -> Self {
+    self.total_size_limit = Some(bytes);
+    self
+  }
+
+  /// Set a per-part body cap.
+  pub fn per_part_size_limit(mut self, bytes: u64) -> Self {
+    self.per_part_size_limit = Some(bytes);
+    self
+  }
+
+  /// Set the maximum number of parts.
+  pub fn max_parts(mut self, n: usize) -> Self {
+    self.max_parts = Some(n);
+    self
+  }
+
+  /// Replace the allow-list of accepted part content-types.
+  pub fn allowed_content_types<I, S>(mut self, types: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    self.allowed_content_types = Some(Arc::new(types.into_iter().map(Into::into).collect()));
+    self
+  }
+
+  /// Set the in-memory → disk spill threshold for `UploadedFile`.
+  pub fn disk_spill_threshold(mut self, bytes: u64) -> Self {
+    self.disk_spill_threshold = Some(bytes);
+    self
+  }
+
+  fn to_constraints(&self) -> Constraints {
+    let mut limit = SizeLimit::new();
+    if let Some(b) = self.total_size_limit {
+      limit = limit.whole_stream(b);
+    }
+    if let Some(b) = self.per_part_size_limit {
+      limit = limit.per_field(b);
+    }
+    Constraints::new().size_limit(limit)
+  }
+
+  fn lookup(req_ext: &http::Extensions) -> MultipartConfig {
+    if let Some(cfg) = req_ext.get::<MultipartConfig>() {
+      return cfg.clone();
+    }
+    if let Some(arc) = tako_core::state::get_state::<MultipartConfig>() {
+      return arc.as_ref().clone();
+    }
+    MultipartConfig::default()
+  }
+
+  fn content_type_ok(&self, ct: Option<&str>) -> bool {
+    let Some(allow) = self.allowed_content_types.as_ref() else {
+      return true;
+    };
+    if allow.is_empty() {
+      return true;
+    }
+    let ct = ct.unwrap_or("");
+    allow.iter().any(|a| ct.starts_with(a.as_str()))
+  }
+}
+
 /// Error type for multipart extraction.
 #[derive(Debug)]
 pub enum MultipartError {
@@ -58,6 +155,10 @@ pub enum MultipartError {
   InvalidUtf8,
   /// Failed to parse boundary from Content-Type header.
   BoundaryParseError(String),
+  /// A part's content-type is not in the configured allow-list.
+  DisallowedContentType(String),
+  /// The configured `max_parts` count was exceeded.
+  TooManyParts,
 }
 
 impl Responder for MultipartError {
@@ -78,6 +179,16 @@ impl Responder for MultipartError {
       MultipartError::BoundaryParseError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Not multipart/form-data or boundary missing: {}", err),
+      )
+        .into_response(),
+      MultipartError::DisallowedContentType(ct) => (
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        format!("part content-type not allowed: {}", ct),
+      )
+        .into_response(),
+      MultipartError::TooManyParts => (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "too many multipart parts in request",
       )
         .into_response(),
     };
@@ -102,6 +213,10 @@ pub enum TypedMultipartError {
   DeserializationError(String),
   /// I/O error occurred during processing.
   IoError(String),
+  /// A part's content-type is not in the configured allow-list.
+  DisallowedContentType(String),
+  /// The configured `max_parts` count was exceeded.
+  TooManyParts,
 }
 
 impl Responder for TypedMultipartError {
@@ -137,6 +252,16 @@ impl Responder for TypedMultipartError {
       TypedMultipartError::IoError(err) => (
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("IO error: {}", err),
+      )
+        .into_response(),
+      TypedMultipartError::DisallowedContentType(ct) => (
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        format!("part content-type not allowed: {}", ct),
+      )
+        .into_response(),
+      TypedMultipartError::TooManyParts => (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "too many multipart parts in request",
       )
         .into_response(),
     }
@@ -207,8 +332,14 @@ impl<'a> TakoMultipart<'a> {
     let boundary = multer::parse_boundary(content_type_str)
       .map_err(|e| MultipartError::BoundaryParseError(e.to_string()))?;
 
+    let cfg = MultipartConfig::lookup(req.extensions());
+    let constraints = cfg.to_constraints();
     let body_stream = req.body_mut().into_data_stream();
-    Ok(TakoMultipart(Multipart::new(body_stream, boundary)))
+    Ok(TakoMultipart(Multipart::with_constraints(
+      body_stream,
+      boundary,
+      constraints,
+    )))
   }
 }
 
@@ -317,6 +448,70 @@ impl FromMultipartField for InMemoryFile {
   }
 }
 
+/// File upload that keeps small payloads in memory and spills large ones to
+/// disk. The threshold comes from the active [`MultipartConfig`]; without one
+/// it always keeps the file in memory.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BufferedUploadedFile {
+  /// Payload stayed in memory.
+  Memory(InMemoryFile),
+  /// Payload was streamed to disk because it exceeded the threshold.
+  Disk(UploadedFile),
+}
+
+impl FromMultipartField for BufferedUploadedFile {
+  async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
+    let cfg = tako_core::state::get_state::<MultipartConfig>().map(|a| a.as_ref().clone());
+    let threshold = cfg.as_ref().and_then(|c| c.disk_spill_threshold);
+
+    let file_name = field.file_name().map(|s| s.to_owned());
+    let content_type = field.content_type().map(|m| m.to_string());
+
+    let mut buffer: Vec<u8> = Vec::new();
+    let mut spilled: Option<(PathBuf, File)> = None;
+    let mut bytes_written: u64 = 0;
+
+    while let Some(chunk) = field.chunk().await? {
+      if let Some((_, ref mut f)) = spilled {
+        f.write_all(&chunk).await?;
+      } else {
+        buffer.extend_from_slice(&chunk);
+        if let Some(t) = threshold
+          && (buffer.len() as u64) > t
+        {
+          let fname = file_name
+            .as_deref()
+            .map(|f| format!("upload-{}-{}", Uuid::new_v4(), f))
+            .unwrap_or_else(|| format!("upload-{}", Uuid::new_v4()));
+          let path = std::env::temp_dir().join(fname);
+          let mut f = File::create(&path).await?;
+          f.write_all(&buffer).await?;
+          spilled = Some((path, f));
+          buffer.clear();
+        }
+      }
+      bytes_written += chunk.len() as u64;
+    }
+
+    if let Some((path, mut f)) = spilled {
+      f.flush().await?;
+      Ok(BufferedUploadedFile::Disk(UploadedFile {
+        file_name,
+        content_type,
+        path,
+        size: bytes_written,
+      }))
+    } else {
+      Ok(BufferedUploadedFile::Memory(InMemoryFile {
+        file_name,
+        content_type,
+        data: buffer,
+      }))
+    }
+  }
+}
+
 /// Represents a strongly-typed multipart request.
 ///
 /// This struct allows deserialization of multipart form data into a strongly-typed
@@ -358,14 +553,31 @@ where
       let boundary = multer::parse_boundary(content_type_str)
         .map_err(|e| TypedMultipartError::BoundaryParseError(e.to_string()))?;
 
-      let mut multipart = Multipart::new(req.body_mut().into_data_stream(), boundary);
+      let cfg = MultipartConfig::lookup(req.extensions());
+      let constraints = cfg.to_constraints();
+      let mut multipart =
+        Multipart::with_constraints(req.body_mut().into_data_stream(), boundary, constraints);
       let mut map = Map::<String, Value>::new();
+      let mut count: usize = 0;
 
       while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?
       {
+        count += 1;
+        if let Some(max) = cfg.max_parts
+          && count > max
+        {
+          return Err(TypedMultipartError::TooManyParts);
+        }
+        let part_ct = field.content_type().map(|m| m.to_string());
+        if !cfg.content_type_ok(part_ct.as_deref()) {
+          return Err(TypedMultipartError::DisallowedContentType(
+            part_ct.unwrap_or_default(),
+          ));
+        }
+
         let field_name = field
           .name()
           .ok_or_else(|| TypedMultipartError::FieldError("Field name missing".to_string()))?

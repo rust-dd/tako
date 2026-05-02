@@ -39,6 +39,47 @@ use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
 
+/// Key ring for rotation-aware cookie signing/verification.
+///
+/// `active` is used to sign new cookies; `previous` keys are tried for
+/// verification only, letting old cookies remain valid through a rotation.
+/// Each key carries a string `kid` so callers can log which key admitted a
+/// given cookie when [`KeyRing::sign_jar`] / [`CookieSigned::get_with_kid`] is used.
+#[derive(Clone)]
+pub struct KeyRing {
+  pub(crate) active_kid: String,
+  pub(crate) active: Key,
+  pub(crate) previous: Vec<(String, Key)>,
+}
+
+impl KeyRing {
+  /// Build a key ring with a single active key.
+  pub fn new(active_kid: impl Into<String>, active: Key) -> Self {
+    Self {
+      active_kid: active_kid.into(),
+      active,
+      previous: Vec::new(),
+    }
+  }
+
+  /// Add a previous key. Verification tries the active key first, then each
+  /// previous key in insertion order.
+  pub fn with_previous(mut self, kid: impl Into<String>, key: Key) -> Self {
+    self.previous.push((kid.into(), key));
+    self
+  }
+
+  /// Borrow the active key.
+  pub fn active(&self) -> &Key {
+    &self.active
+  }
+
+  /// The active key id.
+  pub fn active_kid(&self) -> &str {
+    &self.active_kid
+  }
+}
+
 /// A wrapper that provides methods for managing HMAC-signed cookies in HTTP requests and responses.
 ///
 /// Signed cookies use HMAC (Hash-based Message Authentication Code) to ensure
@@ -69,6 +110,8 @@ use tako_core::types::Request;
 pub struct CookieSigned {
   jar: CookieJar,
   key: Key,
+  /// Optional rotation ring; when present, verification tries every key.
+  ring: Option<KeyRing>,
 }
 
 /// Error type for signed cookie extraction.
@@ -123,6 +166,17 @@ impl CookieSigned {
     Self {
       jar: CookieJar::new(),
       key,
+      ring: None,
+    }
+  }
+
+  /// Creates a new `CookieSigned` driven by a key ring (rotation-aware).
+  pub fn with_ring(ring: KeyRing) -> Self {
+    let key = ring.active.clone();
+    Self {
+      jar: CookieJar::new(),
+      key,
+      ring: Some(ring),
     }
   }
 
@@ -138,7 +192,41 @@ impl CookieSigned {
       }
     }
 
-    Self { jar, key }
+    Self {
+      jar,
+      key,
+      ring: None,
+    }
+  }
+
+  /// Creates a `CookieSigned` instance from HTTP headers and a key ring.
+  pub fn from_headers_with_ring(headers: &HeaderMap, ring: KeyRing) -> Self {
+    let mut signed = Self::from_headers(headers, ring.active.clone());
+    signed.ring = Some(ring);
+    signed
+  }
+
+  /// Retrieves a signed cookie, returning the kid that admitted it (if any).
+  ///
+  /// Tries the active key first, then each previous key in the ring in order.
+  /// Returns `(cookie, kid)` on success; `None` if no key in the ring can verify.
+  pub fn get_with_kid(&self, name: &str) -> Option<(Cookie<'static>, String)> {
+    if let Some(c) = self.jar.signed(&self.key).get(name) {
+      let kid = self
+        .ring
+        .as_ref()
+        .map(|r| r.active_kid.clone())
+        .unwrap_or_else(|| "default".to_string());
+      return Some((c, kid));
+    }
+    if let Some(ring) = self.ring.as_ref() {
+      for (kid, key) in &ring.previous {
+        if let Some(c) = self.jar.signed(key).get(name) {
+          return Some((c, kid.clone()));
+        }
+      }
+    }
+    None
   }
 
   /// Adds a signed cookie to the jar.
@@ -155,8 +243,21 @@ impl CookieSigned {
   }
 
   /// Retrieves and verifies a signed cookie from the jar by its name.
+  ///
+  /// When a [`KeyRing`] is configured (`with_ring` / `from_headers_with_ring`),
+  /// every previous key is tried after the active key fails.
   pub fn get(&self, name: &str) -> Option<Cookie<'static>> {
-    self.jar.signed(&self.key).get(name)
+    if let Some(c) = self.jar.signed(&self.key).get(name) {
+      return Some(c);
+    }
+    if let Some(ring) = self.ring.as_ref() {
+      for (_kid, key) in &ring.previous {
+        if let Some(c) = self.jar.signed(key).get(name) {
+          return Some(c);
+        }
+      }
+    }
+    None
   }
 
   /// Gets the inner `CookieJar` for advanced operations.
@@ -189,25 +290,30 @@ impl CookieSigned {
     &self.key
   }
 
-  /// Extracts signed cookies from a request using a master key from extensions.
+  /// Extracts signed cookies from a request, preferring a [`KeyRing`] over a
+  /// single [`Key`] when both are present in extensions.
   fn extract_from_request(req: &Request) -> Result<Self, CookieSignedError> {
+    if let Some(ring) = req.extensions().get::<KeyRing>().cloned() {
+      return Ok(Self::from_headers_with_ring(req.headers(), ring));
+    }
     let key = req
       .extensions()
       .get::<Key>()
       .ok_or(CookieSignedError::MissingKey)?
       .clone();
-
     Ok(Self::from_headers(req.headers(), key))
   }
 
-  /// Extracts signed cookies from request parts using a master key from extensions.
+  /// Same as [`Self::extract_from_request`] but for `Parts`.
   fn extract_from_parts(parts: &Parts) -> Result<Self, CookieSignedError> {
+    if let Some(ring) = parts.extensions.get::<KeyRing>().cloned() {
+      return Ok(Self::from_headers_with_ring(&parts.headers, ring));
+    }
     let key = parts
       .extensions
       .get::<Key>()
       .ok_or(CookieSignedError::MissingKey)?
       .clone();
-
     Ok(Self::from_headers(&parts.headers, key))
   }
 }

@@ -60,3 +60,21 @@ impl RouterState {
     self.inner.len()
   }
 }
+
+/// Routing-time path template attached to the request.
+///
+/// `Router::dispatch` inserts a `MatchedPath` into request extensions before
+/// running middleware and the handler so that metrics, logs, and extractors
+/// can label by the route template (e.g. `/users/{id}`) rather than the
+/// concrete URI (`/users/42`). Use the `tako_extractors::matched_path::MatchedPath`
+/// extractor in handlers — this struct is the underlying request extension.
+#[derive(Debug, Clone)]
+pub struct MatchedPath(pub String);
+
+impl MatchedPath {
+  /// Borrow the matched path template.
+  #[inline]
+  pub fn as_str(&self) -> &str {
+    &self.0
+  }
+}

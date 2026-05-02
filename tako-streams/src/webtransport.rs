@@ -1,10 +1,26 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
 
-//! WebTransport server support over QUIC.
+//! Raw QUIC session helper (NOT W3C WebTransport — see notes below).
 //!
-//! Provides WebTransport sessions with bidirectional/unidirectional streams
-//! and unreliable datagram support. Built on top of Quinn (QUIC) with
-//! the existing HTTP/3 infrastructure.
+//! ⚠️ **Status (v2):** what this module currently exposes is a thin wrapper
+//! over a `quinn` server endpoint. It accepts QUIC connections, enables
+//! datagrams, and surfaces bi/uni streams plus unreliable datagrams. It does
+//! **not** implement the W3C WebTransport draft handshake
+//! (`CONNECT :protocol = webtransport` over HTTP/3, `SETTINGS_ENABLE_WEBTRANSPORT`,
+//! per-session demultiplexing). Browsers cannot reach this server through
+//! the WebTransport API; only QUIC peers that speak the same private framing
+//! can.
+//!
+//! The W3C-compliant CONNECT handshake is a follow-up roadmap item. For now:
+//!
+//! - Use this module when you want a private QUIC tunnel between Tako-aware
+//!   peers (server-to-server, custom client).
+//! - Do **not** advertise this endpoint as `WebTransport` to browsers; they
+//!   will reject it.
+//!
+//! `WebTransportSession` is kept as the public name for source compatibility,
+//! and is also re-exported as `RawQuicSession` so callers can pick the name
+//! that matches their intent.
 //!
 //! # Examples
 //!
@@ -16,7 +32,6 @@
 //! # async fn example() {
 //! serve_webtransport("[::]:4433", "cert.pem", "key.pem", |session| {
 //!     Box::pin(async move {
-//!         // Accept bidirectional streams
 //!         while let Ok((mut send, mut recv)) = session.accept_bi().await {
 //!             tokio::spawn(async move {
 //!                 let mut buf = vec![0u8; 4096];
@@ -41,13 +56,22 @@ use quinn::crypto::rustls::QuicServerConfig;
 /// Default drain timeout for graceful shutdown.
 const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A WebTransport session wrapping a QUIC connection.
+/// A raw QUIC session.
 ///
-/// Provides access to bidirectional/unidirectional streams and unreliable
-/// datagrams over a QUIC connection.
+/// Despite the name, this is **not** a W3C WebTransport session — see the
+/// module-level docs for the trust model. The session exposes
+/// bi/unidirectional streams and unreliable datagrams from the underlying
+/// `quinn::Connection`.
 pub struct WebTransportSession {
   conn: quinn::Connection,
 }
+
+/// Alias that names this for what it actually is — a raw QUIC session.
+///
+/// Prefer this name in new code so the lack of W3C WebTransport handshake
+/// stays visible at the call site. `WebTransportSession` is kept as an alias
+/// for source compatibility.
+pub type RawQuicSession = WebTransportSession;
 
 impl WebTransportSession {
   /// Creates a new session from a QUIC connection.

@@ -49,6 +49,7 @@ use serde::de::{self};
 use smallvec::SmallVec;
 
 use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 use crate::responder::Responder;
 use crate::types::Request;
 
@@ -113,7 +114,20 @@ where
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Self::extract_params(req))
+    futures_util::future::ready(Self::extract_params(req.extensions()))
+  }
+}
+
+impl<'a, T> FromRequestParts<'a> for Params<T>
+where
+  T: DeserializeOwned + Send + 'a,
+{
+  type Error = ParamsError;
+
+  fn from_request_parts(
+    parts: &'a mut http::request::Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    futures_util::future::ready(Self::extract_params(&parts.extensions))
   }
 }
 
@@ -121,10 +135,9 @@ impl<T> Params<T>
 where
   T: DeserializeOwned,
 {
-  /// Extracts and deserializes path parameters from the request.
-  fn extract_params(req: &Request) -> Result<Params<T>, ParamsError> {
-    let path_params = req
-      .extensions()
+  /// Extracts and deserializes path parameters from request extensions.
+  fn extract_params(extensions: &http::Extensions) -> Result<Params<T>, ParamsError> {
+    let path_params = extensions
       .get::<PathParams>()
       .ok_or(ParamsError::MissingPathParams)?;
 
@@ -136,6 +149,22 @@ where
 }
 
 struct PathParamsDeserializer<'de>(&'de [(String, String)]);
+
+impl<'de> PathParamsDeserializer<'de> {
+  fn single<V: Visitor<'de>>(
+    self,
+    visitor: V,
+    f: impl FnOnce(ValueDeserializer<'de>, V) -> Result<V::Value, PathParamsDeError>,
+  ) -> Result<V::Value, PathParamsDeError> {
+    if self.0.len() != 1 {
+      return Err(de::Error::custom(format!(
+        "expected exactly 1 path parameter, got {}",
+        self.0.len()
+      )));
+    }
+    f(ValueDeserializer(&self.0[0].1), visitor)
+  }
+}
 
 impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
   type Error = PathParamsDeError;
@@ -174,10 +203,141 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
     }
   }
 
+  fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    visitor.visit_seq(PathParamsSeqAccess {
+      params: self.0,
+      index: 0,
+    })
+  }
+
+  fn deserialize_tuple<V: Visitor<'de>>(
+    self,
+    len: usize,
+    visitor: V,
+  ) -> Result<V::Value, Self::Error> {
+    if self.0.len() != len {
+      return Err(de::Error::custom(format!(
+        "expected tuple of {} path parameters, got {}",
+        len,
+        self.0.len()
+      )));
+    }
+    self.deserialize_seq(visitor)
+  }
+
+  fn deserialize_tuple_struct<V: Visitor<'de>>(
+    self,
+    _name: &'static str,
+    len: usize,
+    visitor: V,
+  ) -> Result<V::Value, Self::Error> {
+    self.deserialize_tuple(len, visitor)
+  }
+
+  fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    if self.0.is_empty() {
+      visitor.visit_none()
+    } else {
+      visitor.visit_some(self)
+    }
+  }
+
+  fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_bool(v))
+  }
+
+  fn deserialize_i8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_i8(v))
+  }
+
+  fn deserialize_i16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_i16(v))
+  }
+
+  fn deserialize_i32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_i32(v))
+  }
+
+  fn deserialize_i64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_i64(v))
+  }
+
+  fn deserialize_u8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_u8(v))
+  }
+
+  fn deserialize_u16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_u16(v))
+  }
+
+  fn deserialize_u32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_u32(v))
+  }
+
+  fn deserialize_u64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_u64(v))
+  }
+
+  fn deserialize_f32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_f32(v))
+  }
+
+  fn deserialize_f64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_f64(v))
+  }
+
+  fn deserialize_char<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_char(v))
+  }
+
+  fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_str(v))
+  }
+
+  fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_string(v))
+  }
+
+  fn deserialize_enum<V: Visitor<'de>>(
+    self,
+    name: &'static str,
+    variants: &'static [&'static str],
+    visitor: V,
+  ) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_enum(name, variants, v))
+  }
+
+  fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+    self.single(visitor, |d, v| d.deserialize_identifier(v))
+  }
+
   serde::forward_to_deserialize_any! {
-    bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes
-    byte_buf option unit unit_struct seq tuple tuple_struct enum identifier
-    ignored_any
+    bytes byte_buf unit unit_struct ignored_any
+  }
+}
+
+struct PathParamsSeqAccess<'de> {
+  params: &'de [(String, String)],
+  index: usize,
+}
+
+impl<'de> de::SeqAccess<'de> for PathParamsSeqAccess<'de> {
+  type Error = PathParamsDeError;
+
+  fn next_element_seed<T: de::DeserializeSeed<'de>>(
+    &mut self,
+    seed: T,
+  ) -> Result<Option<T::Value>, Self::Error> {
+    if self.index >= self.params.len() {
+      return Ok(None);
+    }
+    let value = &self.params[self.index].1;
+    self.index += 1;
+    seed.deserialize(ValueDeserializer(value)).map(Some)
+  }
+
+  fn size_hint(&self) -> Option<usize> {
+    Some(self.params.len() - self.index)
   }
 }
 

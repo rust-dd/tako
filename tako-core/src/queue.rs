@@ -34,6 +34,15 @@
 //! # }
 //! ```
 
+/// Pluggable queue backend abstraction (v2). The bundled `Queue` keeps its
+/// in-process semantics; opt into a remote broker via [`backend::QueueBackend`].
+pub mod backend;
+
+/// Cron scheduling on top of `QueueBackend` (opt-in via `queue-cron` feature).
+#[cfg(feature = "queue-cron")]
+#[cfg_attr(docsrs, doc(cfg(feature = "queue-cron")))]
+pub mod cron;
+
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -47,6 +56,33 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use scc::HashMap as SccHashMap;
 use tokio::sync::Notify;
+
+#[cfg(feature = "signals")]
+use crate::signals::Signal;
+#[cfg(feature = "signals")]
+use crate::signals::SignalArbiter;
+
+/// Well-known queue signal ids.
+#[cfg(feature = "signals")]
+pub mod signal_ids {
+  pub const QUEUE_JOB_QUEUED: &str = "queue.job.queued";
+  pub const QUEUE_JOB_STARTED: &str = "queue.job.started";
+  pub const QUEUE_JOB_COMPLETED: &str = "queue.job.completed";
+  pub const QUEUE_JOB_FAILED: &str = "queue.job.failed";
+  pub const QUEUE_JOB_RETRYING: &str = "queue.job.retrying";
+  pub const QUEUE_JOB_DEAD_LETTER: &str = "queue.job.dead_letter";
+}
+
+#[cfg(feature = "signals")]
+async fn emit_queue_signal(id: &'static str, name: &str, job_id: u64, attempt: u32) {
+  SignalArbiter::emit_app(
+    Signal::with_capacity(id, 3)
+      .meta("name", name)
+      .meta("id", job_id.to_string())
+      .meta("attempt", attempt.to_string()),
+  )
+  .await;
+}
 
 /// Error type for queue operations.
 #[derive(Debug)]
@@ -180,6 +216,7 @@ struct PendingJob {
   payload: Vec<u8>,
   attempt: u32,
   run_after: Option<Instant>,
+  dedup_key: Option<String>,
 }
 
 type BoxHandler =
@@ -319,11 +356,37 @@ impl Queue {
     self.push_inner(name.into(), payload, Some(Instant::now() + delay))
   }
 
-  fn push_inner(
+  /// Push with a dedup key — the job is queued at most once concurrently.
+  ///
+  /// If a job with the same `dedup_key` is currently in `pending`, this is a
+  /// no-op and the existing id is returned. Useful for idempotent triggers
+  /// (e.g. flush a cache only once per minute regardless of how many requests
+  /// arrived). The dedup window ends when the job is picked up.
+  pub async fn push_dedup(
+    &self,
+    name: impl Into<String>,
+    payload: &(impl serde::Serialize + ?Sized),
+    dedup_key: impl Into<String>,
+  ) -> Result<u64, QueueError> {
+    let key = dedup_key.into();
+    {
+      let pending = self.inner.pending.lock();
+      for j in pending.iter() {
+        if j.dedup_key.as_deref() == Some(key.as_str()) {
+          return Ok(j.id);
+        }
+      }
+    }
+    let name = name.into();
+    self.push_inner_keyed(name, payload, None, Some(key))
+  }
+
+  fn push_inner_keyed(
     &self,
     name: String,
     payload: &(impl serde::Serialize + ?Sized),
     run_after: Option<Instant>,
+    dedup_key: Option<String>,
   ) -> Result<u64, QueueError> {
     if self.inner.shutdown.load(Ordering::SeqCst) {
       return Err(QueueError::Shutdown);
@@ -340,9 +403,50 @@ impl Queue {
       payload: bytes,
       attempt: 0,
       run_after,
+      dedup_key,
     });
 
     self.inner.notify.notify_one();
+    Ok(id)
+  }
+
+  fn push_inner(
+    &self,
+    name: String,
+    payload: &(impl serde::Serialize + ?Sized),
+    run_after: Option<Instant>,
+  ) -> Result<u64, QueueError> {
+    if self.inner.shutdown.load(Ordering::SeqCst) {
+      return Err(QueueError::Shutdown);
+    }
+
+    let bytes =
+      serde_json::to_vec(payload).map_err(|e| QueueError::SerializeError(e.to_string()))?;
+
+    let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
+
+    #[cfg(feature = "signals")]
+    let job_name = name.clone();
+    self.inner.pending.lock().push_back(PendingJob {
+      id,
+      name,
+      payload: bytes,
+      attempt: 0,
+      run_after,
+      dedup_key: None,
+    });
+
+    self.inner.notify.notify_one();
+    #[cfg(feature = "signals")]
+    {
+      let arbiter = SignalArbiter::emit_app(
+        Signal::with_capacity(signal_ids::QUEUE_JOB_QUEUED, 2)
+          .meta("name", job_name)
+          .meta("id", id.to_string()),
+      );
+      // Best-effort fire-and-forget; the push API is sync for ergonomics.
+      tokio::spawn(arbiter);
+    }
     Ok(id)
   }
 
@@ -468,6 +572,14 @@ async fn worker_loop(inner: Arc<QueueInner>) {
 
     let Some(handler) = handler else {
       tracing::warn!("No handler for job '{}', moving to DLQ", pending_job.name);
+      #[cfg(feature = "signals")]
+      emit_queue_signal(
+        signal_ids::QUEUE_JOB_DEAD_LETTER,
+        &pending_job.name,
+        pending_job.id,
+        pending_job.attempt + 1,
+      )
+      .await;
       inner.dead_letters.lock().push(DeadJob {
         id: pending_job.id,
         name: pending_job.name,
@@ -481,6 +593,15 @@ async fn worker_loop(inner: Arc<QueueInner>) {
 
     inner.inflight.fetch_add(1, Ordering::SeqCst);
 
+    #[cfg(feature = "signals")]
+    emit_queue_signal(
+      signal_ids::QUEUE_JOB_STARTED,
+      &pending_job.name,
+      pending_job.id,
+      pending_job.attempt,
+    )
+    .await;
+
     let job = Job {
       payload: pending_job.payload.clone(),
       name: pending_job.name.clone(),
@@ -489,6 +610,25 @@ async fn worker_loop(inner: Arc<QueueInner>) {
     };
 
     let result = handler(job).await;
+
+    #[cfg(feature = "signals")]
+    if result.is_ok() {
+      emit_queue_signal(
+        signal_ids::QUEUE_JOB_COMPLETED,
+        &pending_job.name,
+        pending_job.id,
+        pending_job.attempt,
+      )
+      .await;
+    } else {
+      emit_queue_signal(
+        signal_ids::QUEUE_JOB_FAILED,
+        &pending_job.name,
+        pending_job.id,
+        pending_job.attempt,
+      )
+      .await;
+    }
 
     if let Err(e) = result {
       let max_retries = inner.retry_policy.max_retries();
@@ -506,12 +646,22 @@ async fn worker_loop(inner: Arc<QueueInner>) {
           delay
         );
 
+        #[cfg(feature = "signals")]
+        emit_queue_signal(
+          signal_ids::QUEUE_JOB_RETRYING,
+          &pending_job.name,
+          pending_job.id,
+          next_attempt,
+        )
+        .await;
+
         inner.pending.lock().push_back(PendingJob {
           id: pending_job.id,
           name: pending_job.name,
           payload: pending_job.payload,
           attempt: next_attempt,
           run_after: Some(Instant::now() + delay),
+          dedup_key: None,
         });
 
         inner.notify.notify_one();
@@ -523,6 +673,15 @@ async fn worker_loop(inner: Arc<QueueInner>) {
           max_retries,
           e
         );
+
+        #[cfg(feature = "signals")]
+        emit_queue_signal(
+          signal_ids::QUEUE_JOB_DEAD_LETTER,
+          &pending_job.name,
+          pending_job.id,
+          pending_job.attempt + 1,
+        )
+        .await;
 
         inner.dead_letters.lock().push(DeadJob {
           id: pending_job.id,

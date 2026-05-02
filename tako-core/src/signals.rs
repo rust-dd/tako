@@ -26,6 +26,28 @@ const DEFAULT_BROADCAST_CAPACITY: usize = 64;
 static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);
 
 /// Well-known signal identifiers for common lifecycle and request events.
+///
+/// **Naming conventions (v2):**
+///
+/// | prefix         | scope                                                                     |
+/// |----------------|---------------------------------------------------------------------------|
+/// | `server.*`     | process-level events (server start / stop)                                |
+/// | `connection.*` | per-connection events (open / close, transport snapshot)                  |
+/// | `request.*`    | per-request events on the **global** application arbiter                  |
+/// | `route.*`      | per-route events on the **route-local** arbiter (one arbiter per route)   |
+/// | `queue.*`      | background-job lifecycle (queue.job.queued / started / completed / …)     |
+/// | `rpc.*`        | typed-RPC errors raised through the arbiter                               |
+/// | `router.*`     | router-level events (hot reloads, future config swaps)                    |
+///
+/// `route.request.*` is intentionally a separate id (not an alias of
+/// `request.*`) because the two are emitted on different arbiters: the route
+/// arbiter sees only its own route's traffic, while the global arbiter sees
+/// every request. Subscribers that want both should listen on the global
+/// arbiter and join through the matched-path label.
+///
+/// Cluster-scope signals (cross-pod fan-out via Redis pub/sub or NATS) are
+/// out of scope for this module — see the [`bus`] sub-module for the
+/// `SignalBus` trait that companion crates implement.
 pub mod ids {
   pub const SERVER_STARTED: &str = "server.started";
   pub const SERVER_STOPPED: &str = "server.stopped";
@@ -37,6 +59,34 @@ pub mod ids {
   pub const RPC_ERROR: &str = "rpc.error";
   pub const ROUTE_REQUEST_STARTED: &str = "route.request.started";
   pub const ROUTE_REQUEST_COMPLETED: &str = "route.request.completed";
+}
+
+/// Cluster-scope signal bridge.
+///
+/// A `SignalBus` lifts the in-process `SignalArbiter` to a multi-node fan-out
+/// (Redis pub/sub, NATS, Kafka, …). Companion crates provide concrete impls;
+/// this trait is the contract.
+pub mod bus {
+  use super::Signal;
+  use async_trait::async_trait;
+
+  /// Inbound + outbound bridge between an in-process arbiter and a remote
+  /// pub/sub topic. Implementations should be cheap to clone (`Arc`-based).
+  #[async_trait]
+  pub trait SignalBus: Send + Sync + 'static {
+    /// Publish a signal to the remote topic.
+    async fn publish(&self, signal: &Signal);
+  }
+
+  /// No-op bus — every published signal is dropped. Useful as a default and
+  /// in tests.
+  #[derive(Clone, Default)]
+  pub struct LocalBus;
+
+  #[async_trait]
+  impl SignalBus for LocalBus {
+    async fn publish(&self, _signal: &Signal) {}
+  }
 }
 
 /// A signal emitted through the arbiter.

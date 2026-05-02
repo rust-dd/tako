@@ -69,6 +69,7 @@ use tako_core::types::Request;
 pub struct CookiePrivate {
   jar: CookieJar,
   key: Key,
+  ring: Option<crate::cookie_signed::KeyRing>,
 }
 
 /// Error type for private cookie extraction.
@@ -116,6 +117,17 @@ impl CookiePrivate {
     Self {
       jar: CookieJar::new(),
       key,
+      ring: None,
+    }
+  }
+
+  /// Creates a new `CookiePrivate` driven by a key ring (rotation-aware).
+  pub fn with_ring(ring: crate::cookie_signed::KeyRing) -> Self {
+    let key = ring.active().clone();
+    Self {
+      jar: CookieJar::new(),
+      key,
+      ring: Some(ring),
     }
   }
 
@@ -131,7 +143,18 @@ impl CookiePrivate {
       }
     }
 
-    Self { jar, key }
+    Self {
+      jar,
+      key,
+      ring: None,
+    }
+  }
+
+  /// Creates a `CookiePrivate` instance from HTTP headers and a key ring.
+  pub fn from_headers_with_ring(headers: &HeaderMap, ring: crate::cookie_signed::KeyRing) -> Self {
+    let mut p = Self::from_headers(headers, ring.active().clone());
+    p.ring = Some(ring);
+    p
   }
 
   /// Adds a private cookie to the jar.
@@ -148,8 +171,41 @@ impl CookiePrivate {
   }
 
   /// Retrieves and decrypts a private cookie from the jar by its name.
+  ///
+  /// When a [`crate::cookie_signed::KeyRing`] is configured, every previous
+  /// key is tried after the active key fails (rotation-aware decrypt).
   pub fn get(&self, name: &str) -> Option<Cookie<'static>> {
-    self.jar.private(&self.key).get(name)
+    if let Some(c) = self.jar.private(&self.key).get(name) {
+      return Some(c);
+    }
+    if let Some(ring) = self.ring.as_ref() {
+      for (_kid, key) in &ring.previous {
+        if let Some(c) = self.jar.private(key).get(name) {
+          return Some(c);
+        }
+      }
+    }
+    None
+  }
+
+  /// Retrieves a private cookie, returning the kid that admitted it (if any).
+  pub fn get_with_kid(&self, name: &str) -> Option<(Cookie<'static>, String)> {
+    if let Some(c) = self.jar.private(&self.key).get(name) {
+      let kid = self
+        .ring
+        .as_ref()
+        .map(|r| r.active_kid().to_string())
+        .unwrap_or_else(|| "default".to_string());
+      return Some((c, kid));
+    }
+    if let Some(ring) = self.ring.as_ref() {
+      for (kid, key) in &ring.previous {
+        if let Some(c) = self.jar.private(key).get(name) {
+          return Some((c, kid.clone()));
+        }
+      }
+    }
+    None
   }
 
   /// Gets the value of a private cookie after decryption.
@@ -177,8 +233,16 @@ impl CookiePrivate {
     &self.key
   }
 
-  /// Extracts private cookies from a request using a master key from extensions.
+  /// Extracts private cookies from a request, preferring a `KeyRing` over a
+  /// single `Key` when both are present in extensions.
   fn extract_from_request(req: &Request) -> Result<Self, CookiePrivateError> {
+    if let Some(ring) = req
+      .extensions()
+      .get::<crate::cookie_signed::KeyRing>()
+      .cloned()
+    {
+      return Ok(Self::from_headers_with_ring(req.headers(), ring));
+    }
     let key = req
       .extensions()
       .get::<Key>()
@@ -188,8 +252,15 @@ impl CookiePrivate {
     Ok(Self::from_headers(req.headers(), key))
   }
 
-  /// Extracts private cookies from request parts using a master key from extensions.
+  /// Same as [`Self::extract_from_request`] but for `Parts`.
   fn extract_from_parts(parts: &Parts) -> Result<Self, CookiePrivateError> {
+    if let Some(ring) = parts
+      .extensions
+      .get::<crate::cookie_signed::KeyRing>()
+      .cloned()
+    {
+      return Ok(Self::from_headers_with_ring(&parts.headers, ring));
+    }
     let key = parts
       .extensions
       .get::<Key>()

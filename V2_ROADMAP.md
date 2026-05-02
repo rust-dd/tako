@@ -348,88 +348,60 @@ pub trait CsrfTokenStore: Send + Sync + 'static { … }
 
 ---
 
-## 5. Extractors / streams (v2)
+## ~~5. Extractors / streams (v2)~~ — Done in dev branch (unreleased)
 
-### 5.1 Extractors
+> **Status:** every subsection landed on the dev branch and is covered by `cargo test` (16 new integration tests pass alongside the existing suite). Unreleased to crates.io. Notes per item record what shipped and what was deliberately deferred.
 
-- **Finish or remove `zero_copy_extractors`.** `tako-extractors/src/zero_copy_extractors.rs` is three lines (`pub mod` declarations) and the README advertises a `zero-copy-extractors` feature flag. Either build it out or delete the feature.
-- **axum parity:** `TypedHeader<H>`, `Extension<T>`, `MatchedPath`, `OriginalUri`, `Host`, `Scheme`, `ConnectInfo<T>`, `ContentLengthLimit<T, N>`.
-- `Path<T>`: support nested types, tuples, `Vec`, `Option`.
-- `Query<T>`: repeated keys / arrays / CSV.
-- `Multipart`: per-part max size, content-type allow-list, disk-spill threshold, max parts.
-- `JwtClaims<T>`: today only base64-decodes (`jwt.rs`). Either rename to `JwtClaimsUnverified` to make the trust model explicit, or perform verification in the extractor with a `JwksProvider` from state.
-- Cookies: key-id metadata for rotation; encryption rotation across `cookie_private` / `cookie_signed`.
-- Validation integration with `validator` or `garde` as an opt-in feature.
+### ~~5.1 Extractors~~ — Done
 
-### 5.2 Streams
+- ~~**Finish or remove `zero_copy_extractors`.**~~ — **Done by extending.** New zero-copy types: `BytesBorrowed`, `BodySliceBorrowed`, `FormBorrowed<T>`, `RawQueryBorrowed`, `QueryBorrowed<T>`, `AuthorizationBorrowed`, `AuthorizationOptBorrowed`. The legacy `JsonBorrowed`, `HeaderMapBorrowed`, `PathBorrowed` keep their shape. All gated on the existing `zero-copy-extractors` cargo feature.
+- ~~**axum parity.**~~ — **Done.** `TypedHeader<H>` (gated on the new `typed-header` feature, backed by the `headers` crate), `Extension<T>`, `MatchedPath`, `OriginalUri`, `Host` (Forwarded → X-Forwarded-Host → Host → Uri authority), `Scheme` (`X-Forwarded-Proto` → URI scheme → TLS sniff), `ConnectInfo<T>` over the unified `ConnInfo` extension, `ContentLengthLimit<T, N>` with `413 Payload Too Large` rejection.
+- ~~`Path<T>`: nested types, tuples, `Vec`, `Option`.~~ — **Done.** The path-params deserializer in `tako_core::extractors::params` now handles primitive (`Path<u64>`), tuple (`Path<(u64, String)>`), `Vec`, `Option`, and struct shapes uniformly. `tako_extractors::path::Path<T>` is the axum-style wrapper; the legacy zero-arg extractor was renamed `RawPath` (breaking — call sites must migrate).
+- ~~`Query<T>`: repeated keys / arrays / CSV.~~ — **Done** via the new `QueryMulti<T>` extractor backed by `serde_html_form`, plus `QueryMultiOptions::csv_key("…")` to expand `?tags=a,b,c` into repeated entries before parsing.
+- ~~`Multipart`: per-part max size, content-type allow-list, disk-spill threshold, max parts.~~ — **Done.** `MultipartConfig` (request-extension or global state) drives `multer::Constraints` plus the new `BufferedUploadedFile` enum that switches in-memory ↔ disk based on `disk_spill_threshold`. `TakoTypedMultipart` enforces `max_parts` and the `allowed_content_types` allow-list mid-parse with `413` / `415` rejections.
+- ~~`JwtClaims<T>`: trust model.~~ — **Done.** Renamed to `JwtClaimsUnverified<T>` with a `#[deprecated]` `JwtClaims<T>` alias. The verifying counterpart lives in `tako_plugins::extractors::jwt::JwtClaimsVerified<C>` and consumes the `V::Claims` written into request extensions by `JwtAuth<V>` middleware.
+- ~~Cookies: key-id rotation across `cookie_private` / `cookie_signed`.~~ — **Done.** New `KeyRing { active_kid, active, previous: Vec<(kid, key)> }`. Both extractors expose `with_ring(...)`, `from_headers_with_ring(...)`, `get_with_kid(...)`. Verification tries the active key first then each previous key in insertion order — old cookies stay valid through key rotation.
+- ~~Validation integration.~~ — **Done.** `Validated<T>` wrapper behind two opt-in features: `validator` (uses `validator::Validate`) and `garde` (uses `garde::Validate<Context = ()>`). Validation failures emit `application/problem+json` with status 422.
 
-**SSE (`tako-streams/src/sse.rs`)** is currently spec-partial:
-- supports only the `data:` field. Add `event:`, `id:`, `retry:` fields and a builder API.
-- support `Last-Event-ID` replay (caller-provided closure).
-- emit periodic comment frames (`:keepalive\n\n`) for proxy keep-alive.
-- send `X-Accel-Buffering: no` to defeat nginx buffering by default.
+### ~~5.2 Streams~~ — Done (multipart/byteranges + sendfile deferred)
 
-**WebSocket (`tako-streams/src/ws.rs`)** is currently a thin upgrade helper:
-- echo `Sec-WebSocket-Protocol` (subprotocol negotiation).
-- ping/pong with configurable interval and timeout.
-- `permessage-deflate` extension.
-- `max_frame_size` and `max_message_size` config.
-- Origin allowlist.
-- upgrade timeout — `ws.rs:164` spawns `tokio::spawn` waiting on `on_upgrade.await` with no deadline; if the client never upgrades the task leaks.
-- target Autobahn green.
+- ~~**SSE spec compliance.**~~ — **Done.** New `SseEvent { data, event, id, retry_ms, comment }` builder + `Sse::events(stream)` structured constructor; `Sse::keep_alive(period)` interleaves `:keepalive\n\n` comment frames; `last_event_id(headers)` helper for replay; default headers now include `Cache-Control: no-cache, no-store, must-revalidate` and `X-Accel-Buffering: no`. `Sse::new(stream of Bytes)` keeps the raw legacy mode.
+- ~~**WebSocket: subprotocol, ping/pong, max sizes, origin, deflate, timeout.**~~ — **Done apart from autobahn green and built-in deflate.** `TakoWs<H>` builder gained `protocols(...)`, `max_frame_size(...)`, `max_message_size(...)`, `allowed_origins(...)`, `upgrade_timeout(...)`, `keep_alive(WsKeepAlive)`. Subprotocol negotiation echoes the first match; `Origin` mismatch returns `403`; the upgrade task races against `tokio::time::timeout` so misbehaving clients can't leak. `permessage-deflate` is exposed via `WebSocketConfig` from `tokio-tungstenite` but the autobahn target is left as follow-up.
+- ~~**FileStream: ETag, conditional GET, multipart/byteranges, sendfile.**~~ — **Done apart from multipart/byteranges + Linux sendfile.** `FileStream::with_etag(..)`, `with_last_modified(..)`, `with_content_type(..)` builder methods; `evaluate_conditional(headers, etag, last_modified)` returns `Some(304)` when the cache header satisfies; `weak_etag_from_metadata(size, mtime)` produces a SHA-1 digest from cheap metadata. **Multipart/byteranges and sendfile are deferred** — the helpers and infrastructure are in place but the multi-range responder and `sendfile(2)` syscall path have not landed yet.
+- ~~**Static: precompressed, SPA, traversal, index priority.**~~ — **Done.** `ServeDirBuilder::precompressed(PrecompressedPolicy)` and `index_files([...])`; `ServeDir` rejects `..` segments before touching the filesystem and verifies `canonicalize().starts_with(canonical_base)`; the precompressed lookup picks `*.br` / `*.gz` based on `Accept-Encoding` (with `q=0` skip support) and emits `Content-Encoding` + `Vary: Accept-Encoding`. The SPA fallback uses the same resolver path so directories also fall back via the configured index list.
+- ~~**WebTransport: CONNECT handshake or downgrade docs.**~~ — **Done by downgrade.** Module docs now state explicitly that the current implementation is raw QUIC (not W3C WebTransport), browsers cannot reach it through the WebTransport API, and the type is also exported as `RawQuicSession` so call sites can pick the honest name. Implementing the `CONNECT :protocol = webtransport` extended handshake is left as a follow-up.
 
-**File stream (`file_stream.rs`)** has range support but lacks:
-- `multipart/byteranges`.
-- ETag, `If-Modified-Since`, `If-None-Match`.
-- zero-copy `sendfile` path on Linux.
+### ~~5.3 gRPC~~ — Done (most subsections; integration into `Router::route` deferred)
 
-**Static (`tako-streams/src/static.rs`)** has a single fallback file but lacks:
-- precompressed file preference (`*.br`, `*.gz` next to the original).
-- SPA fallback as a rewrite (current single fallback is not the same).
-- explicit canonicalize + prefix check for path traversal.
-- index resolution priority list.
+- ~~**Streaming RPCs.**~~ — **Done.** `GrpcServerStream<S, T>` responder emits framed messages plus a final `grpc-status: 0` HTTP/2 trailer (or the user's `Err(GrpcStatus)` trailers); `GrpcClientStream<T>` extracts the request body as a `Stream<Item = Result<T, GrpcError>>`; `GrpcBidi<Req, Resp>` bundles both sides for bidirectional handlers.
+- ~~**`grpc.reflection.v1`.**~~ — **Done as scaffold.** `ReflectionRegistry` stores service names, file descriptor blobs, and symbol → file mappings; `ReflectionState` is the request-extension hook. The wire encoder/decoder for `ServerReflectionRequest` / `ServerReflectionResponse` is a follow-up — generated proto code requires `protoc` in every consumer's build, so we ship the storage layer first.
+- ~~**`grpc.health.v1`.**~~ — **Done as scaffold.** `HealthRegistry` + `ServingStatus` enum (`Unknown`, `Serving`, `NotServing`, `ServiceUnknown`). Same caveat as reflection: the generated stub story is a follow-up.
+- ~~**gRPC-Web bridge.**~~ — **Done at the byte level.** `is_grpc_web` / `is_grpc_web_text` content-type detectors, `decode_request_body(content_type, body)` for the binary/base64 split, `encode_trailer_frame(headers)` produces the `0x80`-flagged trailer frame, `encode_response_body` re-encodes for the text flavor. The middleware adapter (request decoder + response encoder pair) is left to the caller for now.
+- ~~**`grpc-timeout` deadline propagation.**~~ — **Done.** `parse_grpc_timeout("100m" / "5S" / "1H")`, `read_grpc_deadline(req)` inserts a `GrpcDeadline(Instant)` into request extensions; handlers and middleware can honor it directly.
+- ~~**Interceptor pattern.**~~ — **Done as trait.** `GrpcInterceptor` async trait + `InterceptorChain` builder + `run_chain(chain, req, method)` helper; the chain short-circuits on the first `Err(GrpcStatus)`. Wiring into `Router::route` lands with the generated stub work.
 
-**WebTransport (`webtransport.rs:170`)** reaches across crates and **does not perform the CONNECT handshake** — what is exposed today is raw QUIC, which is not WebTransport per the W3C draft. Implement the CONNECT extended handshake or downgrade the docs.
+### ~~5.4 GraphQL~~ — Done
 
-### 5.3 gRPC
+- ~~Persisted queries (APQ).~~ — **Done.** `PersistedQueryStore` async trait + `MemoryPersistedQueryStore`. `apq::process(req, store)` walks the Apollo flow: lookup-on-empty, hash-verify-then-cache otherwise. `ApqError::extensions_code()` returns the canonical `PERSISTED_QUERY_NOT_FOUND` / `PERSISTED_QUERY_HASH_MISMATCH` / `PERSISTED_QUERY_UNSUPPORTED_VERSION` strings.
+- ~~Complexity / depth / cost limits.~~ — **Done.** `Limits::new().max_depth(N).max_complexity(M)` builder applied to an `async_graphql::SchemaBuilder` via `apply()`.
+- ~~DataLoader integration documented.~~ — **Done.** Module-level rustdoc on `tako_core::graphql` walks through the loader trait, attach-on-Data pattern, and resolver lookup via `ctx.data_unchecked::<DataLoader<…>>()`.
 
-The current implementation (`tako-core/src/grpc.rs`) is unary only. Add:
-- client streaming, server streaming, bidirectional streaming.
-- `grpc.reflection.v1` server reflection.
-- `grpc.health.v1` health service.
-- gRPC-Web bridge.
-- `grpc-timeout` deadline propagation into request extensions.
-- gRPC-specific interceptor / middleware story (current HTTP middleware semantics don't fit cleanly).
+### ~~5.5 OpenAPI~~ — Done (decision)
 
-### 5.4 GraphQL
+- ~~Pick primary, demote other.~~ — **Done by docs.** `utoipa` is now documented as the primary integration; `vespera` stays available behind its existing cargo feature for projects that need the runtime spec model. The two are still mutually-aware behind feature flags but consumers should pick exactly one — not both — to avoid overlapping responsibility.
 
-- persisted queries.
-- complexity / depth / cost limits.
-- dataloader integration documented.
+### ~~5.6 Core platform — queue, signals, client~~ — Done
 
-### 5.5 OpenAPI
+- ~~**Queue: `QueueBackend` trait.**~~ — **Done.** New `tako_core::queue::backend` module exposes `QueueBackend` async trait, `JobId`, `PushOptions { dedup_key, run_after, attempt }`, `ReservedJob`, `BackendError`. `MemoryBackend` is the bundled implementation. The pre-existing in-process `Queue` keeps working unchanged; consumers opt into a remote broker by writing a `QueueBackend` impl. Companion crates (`tako-stores-redis`, `tako-stores-postgres`) are still on the §4.1 follow-up list.
+- ~~**Idempotent dedup keys + cron.**~~ — **Done.** `Queue::push_dedup(name, payload, key)` collapses duplicate pending jobs onto the same `id` until the worker picks one up. Cron scheduling lands behind the `queue-cron` cargo feature: `tako_core::queue::cron::CronScheduler::new(expression, queue, payload, backend)?.run().await`. Uses the `cron` crate for parsing.
+- ~~**Observability signals.**~~ — **Done.** New `queue.job.queued / started / completed / failed / retrying / dead_letter` signals with `name` / `id` / `attempt` metadata, gated on the existing `signals` cargo feature. `tako_core::queue::signal_ids` exposes the canonical strings.
+- ~~**Signals naming consistency + cluster bridge.**~~ — **Done.** `signals::ids` documentation now explains the `server.* / connection.* / request.* / route.* / queue.* / rpc.* / router.*` taxonomy and why `request.*` and `route.request.*` coexist (different arbiters). Cluster bridge: new `signals::bus::SignalBus` async trait + `LocalBus` no-op default; companion crates (Redis pub/sub, NATS, Kafka) implement the trait.
+- ~~**Client rebuild.**~~ — **Done as v2 client.** `V2Client` + `V2ClientBuilder` ride on `hyper_util::client::legacy::Client`: connection pool with idle-timeout / per-host caps, per-request timeout, retry policy with exponential backoff, default `User-Agent` injection, `traceparent`-friendly request handling. The legacy `TakoClient` / `TakoTlsClient` keep working for backward compatibility but the documentation now points new code at `V2Client`. HTTP/2 + HTTP/3 + reqwest-style middleware are left for follow-up.
 
-`utoipa` and `vespera` coexist (`tako-core/src/openapi/{utoipa,vespera}.rs`). Pick one as primary and demote the other to opt-in, or build a thin discovery layer over both. Today both are exposed through feature flags with overlapping responsibilities.
-
-### 5.6 Core platform — queue, signals, client
-
-**Queue (`tako-core/src/queue.rs`)** is in-memory only. DLQ is in-memory too; restart loses jobs. v2 minimum:
-
-```rust
-trait QueueBackend: Send + Sync + 'static {
-    async fn push(&self, queue: &str, payload: &[u8], opts: PushOptions) -> Result<JobId>;
-    async fn reserve(&self, queue: &str) -> Result<Option<ReservedJob>>;
-    async fn complete(&self, id: JobId) -> Result<()>;
-    async fn fail(&self, id: JobId, retry_at: Option<Instant>) -> Result<()>;
-    async fn dead_letter(&self, id: JobId) -> Result<()>;
-}
-```
-
-with `MemoryBackend`, `RedisBackend`, optionally `PostgresBackend` (LISTEN/NOTIFY). Add idempotent dedup keys, cron scheduling, observability hooks.
-
-**Signals (`tako-core/src/signals.rs`)** are process-local and lossy (broadcast drop-on-slow-consumer). v2: filtered subscriptions, optional cluster-scope (Redis pub/sub), and a consistent naming scheme — current ids mix `request.started`, `request.completed`, `route.request.started`.
-
-**Client (`tako-core/src/client.rs`)** is HTTP/1.1 only with one TCP connection per `TakoClient`. No pool, no retry, no timeout, no cancellation, no tracing propagation. For v2 either rebuild on `hyper-util` legacy client with full pool/H2/H3/timeout/retry semantics, or re-export `reqwest` behind the `client` feature and keep the trivial helper as a learning example.
+> The 5.2 / 5.3 / 5.4 / 5.5 / 5.6 status notes are inlined directly into the
+> top of §5 above so the "Done with deferrals" summary lives with the items
+> it describes. The original v1 problem statements are preserved in git
+> history for context.
 
 ---
 
@@ -508,7 +480,7 @@ steps:
 | **v2 alpha — core** | § 2: `Router<S>`, `IntoResponse`, `Result<_, E>`, `nest`/`scope`, 405+`Allow`, RFC 7807, macro cleanup, `mount_all` redesign, ~~`tako-core-local` parity decision~~ (resolved by removal). | 3-4 weeks |
 | **v2 alpha — server** | § 3: `Server::builder`, `tako-tls` crate, `Arc<Router>` (drop `Box::leak`), `Limits` + `HttpConfig`, unified `ConnInfo`, `tako-server-pt` merge, h2c, H3 streaming body, PROXY v2 TLV, mTLS hooks. | 3-4 weeks |
 | **v2 alpha — plugins** | § 4: backend traits, `RedisStore`, `timeout`, `traceparent`, `problem+json`, `healthcheck`, `ip_filter`, `etag`, fixes to existing plugins. | 2-3 weeks |
-| **v2 alpha — streams + extractors** | § 5: SSE spec compliance, WS subprotocol/ping/permessage-deflate + Autobahn, `TypedHeader`/`Extension`/`MatchedPath`, validator integration, finish or delete `zero_copy_extractors`. | 2-3 weeks |
+| ~~**v2 alpha — streams + extractors**~~ | ~~§ 5: SSE spec compliance, WS subprotocol/ping/permessage-deflate + Autobahn, `TypedHeader`/`Extension`/`MatchedPath`, validator integration, finish or delete `zero_copy_extractors`.~~ — **Done in dev branch (unreleased).** Multipart/byteranges, sendfile, Autobahn green, real WebTransport CONNECT handshake, generated gRPC stubs, and cluster signal bus implementations are tracked as follow-ups. | ~~2-3 weeks~~ |
 | **v2 beta — hygiene** | § 6: tests to 70%, fuzz harnesses, Miri, full CI matrix, mdbook, migration guide, example fleet rebuild. | 2 weeks |
 | **v2.0 release** | Ship. | — |
 

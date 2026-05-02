@@ -56,8 +56,29 @@ pub struct Jwt {
 }
 
 /// JWT claims extractor with automatic deserialization to typed structures.
-#[doc(alias = "jwt_claims")]
-pub struct JwtClaims<T>(pub T);
+///
+/// ⚠️ **This extractor does NOT verify the token signature.** It only base64
+/// decodes the claims segment and checks `exp` / `nbf`. Treat its output as
+/// untrusted unless an upstream middleware (e.g.
+/// `tako_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
+/// signature for this request.
+///
+/// For a verifying extractor that consults a [`tako_plugins::stores::JwksProvider`]
+/// or a `JwtVerifier` from state, prefer
+/// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
+#[doc(alias = "jwt_claims_unverified")]
+pub struct JwtClaimsUnverified<T>(pub T);
+
+/// Deprecated alias for [`JwtClaimsUnverified`].
+///
+/// Renamed to make the (lack of) trust model explicit. New code should use
+/// `JwtClaimsUnverified<T>` for the unauthenticated decode and the verifying
+/// extractor in `tako-plugins` for authenticated claims.
+#[deprecated(
+  since = "1.2.0",
+  note = "renamed to `JwtClaimsUnverified<T>` to make the trust model explicit; for verified claims use `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`"
+)]
+pub type JwtClaims<T> = JwtClaimsUnverified<T>;
 
 /// Error types for JWT extraction and claims parsing.
 #[derive(Debug)]
@@ -240,7 +261,7 @@ impl Jwt {
   }
 }
 
-impl<T> JwtClaims<T>
+impl<T> JwtClaimsUnverified<T>
 where
   T: DeserializeOwned,
 {
@@ -256,7 +277,7 @@ where
     let claims: T = serde_json::from_value(claims_json)
       .map_err(|e| JwtError::ClaimsDeserializationError(e.to_string()))?;
 
-    Ok(JwtClaims(claims))
+    Ok(JwtClaimsUnverified(claims))
   }
 }
 
@@ -280,7 +301,7 @@ impl<'a> FromRequestParts<'a> for Jwt {
   }
 }
 
-impl<'a, T> FromRequest<'a> for JwtClaims<T>
+impl<'a, T> FromRequest<'a> for JwtClaimsUnverified<T>
 where
   T: DeserializeOwned + Send + 'a,
 {
@@ -293,7 +314,7 @@ where
   }
 }
 
-impl<'a, T> FromRequestParts<'a> for JwtClaims<T>
+impl<'a, T> FromRequestParts<'a> for JwtClaimsUnverified<T>
 where
   T: DeserializeOwned + Send + 'a,
 {

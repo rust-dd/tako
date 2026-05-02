@@ -24,6 +24,26 @@ pub mod bearer;
 /// Raw byte data extraction from request bodies.
 pub mod bytes;
 
+/// `ConnectInfo<T>` typed view over `tako_core::conn_info::ConnInfo`.
+pub mod connect_info;
+
+/// `ContentLengthLimit<T, N>` body-bound extractor wrapper.
+pub mod content_length_limit;
+
+/// `Extension<T>` typed extractor for request-scoped values.
+pub mod extension;
+
+/// `MatchedPath` extractor — the route template that matched the request.
+pub mod matched_path;
+
+/// URI-derived extractors (`OriginalUri`, `Host`, `Scheme`).
+pub mod uri_parts;
+
+/// `TypedHeader<H>` strongly-typed header extractor (requires `typed-header` feature).
+#[cfg(feature = "typed-header")]
+#[cfg_attr(docsrs, doc(cfg(feature = "typed-header")))]
+pub mod typed_header;
+
 /// Cookie parsing and management utilities.
 pub mod cookie_jar;
 
@@ -53,6 +73,14 @@ pub mod path;
 
 /// Query parameter parsing from URL query strings.
 pub mod query;
+
+/// Multi-value query parser preserving repeated keys and CSV expansions.
+pub mod query_multi;
+
+/// `Validated<T>` wrapper that runs `validator` / `garde` rules after extraction.
+#[cfg(any(feature = "validator", feature = "garde"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "validator", feature = "garde"))))]
+pub mod validate;
 
 /// Global state extraction for accessing shared app state.
 pub mod state;

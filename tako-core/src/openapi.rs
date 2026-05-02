@@ -1,12 +1,19 @@
 //! OpenAPI documentation generation integrations.
 //!
-//! This module provides integrations with popular OpenAPI documentation generators:
+//! Tako ships two integration backends; pick exactly one per project:
 //!
-//! - **utoipa**: Compile-time OpenAPI documentation generation via derive macros.
-//!   Enable with the `utoipa` feature.
+//! - **`utoipa` — primary, recommended**. Compile-time OpenAPI generation via
+//!   derive macros, mature ecosystem, broad community use. Enable with the
+//!   `utoipa` cargo feature.
+//! - **`vespera` — legacy / advanced**. Hand-rolled OpenAPI 3.1 builder plus
+//!   route discovery. Kept opt-in for users who need the runtime spec model
+//!   that `utoipa` does not provide. Enable with the `vespera` feature.
 //!
-//! - **vespera**: OpenAPI 3.1 specification structures and route discovery.
-//!   Enable with the `vespera` feature.
+//! Both backends share the same [`RouteOpenApi`] metadata attached on the
+//! `Router::route(...)` builder via `summary` / `description` / `tag` /
+//! `response`. The OpenAPI documents themselves are produced by whichever
+//! backend the application enables; do not enable both unless you are
+//! intentionally cross-validating the output.
 //!
 //! # Route-Level Integration
 //!

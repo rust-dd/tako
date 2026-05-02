@@ -21,8 +21,12 @@ async fn sse_response_headers() {
     resp.headers().get("content-type").unwrap(),
     "text/event-stream"
   );
-  assert_eq!(resp.headers().get("cache-control").unwrap(), "no-cache");
+  assert_eq!(
+    resp.headers().get("cache-control").unwrap(),
+    "no-cache, no-store, must-revalidate"
+  );
   assert_eq!(resp.headers().get("connection").unwrap(), "keep-alive");
+  assert_eq!(resp.headers().get("x-accel-buffering").unwrap(), "no");
 }
 
 #[tokio::test]

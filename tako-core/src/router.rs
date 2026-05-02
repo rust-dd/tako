@@ -688,6 +688,13 @@ impl Router {
         req.extensions_mut().insert(params);
       }
 
+      // Inject the matched route template (e.g. `/users/{id}`) so handlers
+      // and middleware can label metrics/logs by the routing key, not the
+      // concrete URI.
+      req
+        .extensions_mut()
+        .insert(crate::router_state::MatchedPath(route.path.clone()));
+
       // Determine effective timeout: route-level overrides router-level
       let effective_timeout = route.get_timeout().or(self.timeout);
 

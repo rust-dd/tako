@@ -39,6 +39,7 @@ serde_bytes.workspace = true
 serde_json.workspace = true
 serde_urlencoded.workspace = true
 sha1.workspace = true
+sha2.workspace = true
 smallvec.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -54,6 +55,8 @@ arc-swap = "1"
 ahash = { workspace = true, optional = true }
 async-graphql = { version = "7.0.17", optional = true }
 brotli = { workspace = true, optional = true }
+chrono = { version = "0.4", optional = true }
+cron = { workspace = true, optional = true }
 compio = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
 flate2 = { workspace = true, optional = true }
@@ -94,7 +97,7 @@ compio-ws = ["compio", "compio/io", "compio/ws"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
-client = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
+client = ["tls", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots", "hyper-util/client", "hyper-util/client-legacy", "hyper-util/http1"]
 default = []
 file-stream = []
 http2 = []
@@ -106,6 +109,7 @@ signals = []
 simd = ["dep:simd-json", "dep:sonic-rs", "jemalloc"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
 grpc = ["protobuf"]
+queue-cron = ["dep:cron", "dep:chrono"]
 http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
 webtransport = ["http3"]
 ahash = ["dep:ahash"]

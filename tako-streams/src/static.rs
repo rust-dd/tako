@@ -1,31 +1,10 @@
 //! Static file serving utilities for web applications.
 //!
-//! This module provides functionality for serving static files and directories over HTTP.
-//! It includes `ServeDir` for serving entire directories with optional fallback files,
-//! and `ServeFile` for serving individual files. Both support automatic MIME type
-//! detection, security path validation, and builder patterns for configuration.
+//! `ServeDir` serves files from a directory tree with index resolution,
+//! precompressed-asset preference (`*.br` / `*.gz`), an SPA fallback rewrite,
+//! and a canonicalize + prefix-check guard against path traversal.
 //!
-//! # Examples
-//!
-//! ```rust
-//! use tako::r#static::{ServeDir, ServeFile};
-//! use tako::types::Request;
-//! use tako::body::TakoBody;
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Serve a directory with fallback
-//! let serve_dir = ServeDir::builder("./public")
-//!     .fallback("./public/index.html")
-//!     .build();
-//!
-//! // Serve a single file
-//! let serve_file = ServeFile::builder("./assets/logo.png").build();
-//!
-//! let request = Request::builder().body(TakoBody::empty())?;
-//! let _response = serve_dir.handle(request).await;
-//! # Ok(())
-//! # }
-//! ```
+//! `ServeFile` serves a single file.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -33,6 +12,7 @@ use std::path::PathBuf;
 #[cfg(feature = "compio")]
 use compio::fs;
 use http::StatusCode;
+use http::header;
 use tako_core::body::TakoBody;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
@@ -46,6 +26,45 @@ use tokio::fs;
 pub struct ServeDir {
   base_dir: PathBuf,
   fallback: Option<PathBuf>,
+  index_files: Vec<String>,
+  precompressed: PrecompressedPolicy,
+  sanitized_base: Option<PathBuf>,
+}
+
+/// Which precompressed sidecar files (if any) `ServeDir` should prefer when
+/// the client advertises support via `Accept-Encoding`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PrecompressedPolicy {
+  /// Serve `<file>.br` when the client accepts `br`.
+  pub brotli: bool,
+  /// Serve `<file>.gz` when the client accepts `gzip`.
+  pub gzip: bool,
+}
+
+impl PrecompressedPolicy {
+  /// Both `br` and `gzip` enabled.
+  pub const fn both() -> Self {
+    Self {
+      brotli: true,
+      gzip: true,
+    }
+  }
+
+  /// `br` only.
+  pub const fn brotli_only() -> Self {
+    Self {
+      brotli: true,
+      gzip: false,
+    }
+  }
+
+  /// `gzip` only.
+  pub const fn gzip_only() -> Self {
+    Self {
+      brotli: false,
+      gzip: true,
+    }
+  }
 }
 
 /// Builder for configuring a `ServeDir` instance.
@@ -53,6 +72,8 @@ pub struct ServeDir {
 pub struct ServeDirBuilder {
   base_dir: PathBuf,
   fallback: Option<PathBuf>,
+  index_files: Vec<String>,
+  precompressed: PrecompressedPolicy,
 }
 
 impl ServeDirBuilder {
@@ -63,6 +84,8 @@ impl ServeDirBuilder {
     Self {
       base_dir: base_dir.into(),
       fallback: None,
+      index_files: vec!["index.html".into(), "index.htm".into()],
+      precompressed: PrecompressedPolicy::default(),
     }
   }
 
@@ -74,13 +97,38 @@ impl ServeDirBuilder {
     self
   }
 
+  /// Replace the index resolution priority list (defaults to
+  /// `["index.html", "index.htm"]`).
+  #[inline]
+  #[must_use]
+  pub fn index_files<I, S>(mut self, names: I) -> Self
+  where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+  {
+    self.index_files = names.into_iter().map(Into::into).collect();
+    self
+  }
+
+  /// Configure preference for precompressed sidecar files.
+  #[inline]
+  #[must_use]
+  pub fn precompressed(mut self, policy: PrecompressedPolicy) -> Self {
+    self.precompressed = policy;
+    self
+  }
+
   /// Builds and returns the configured `ServeDir` instance.
   #[inline]
   #[must_use]
   pub fn build(self) -> ServeDir {
+    let sanitized_base = self.base_dir.canonicalize().ok();
     ServeDir {
       base_dir: self.base_dir,
       fallback: self.fallback,
+      index_files: self.index_files,
+      precompressed: self.precompressed,
+      sanitized_base,
     }
   }
 }
@@ -94,24 +142,130 @@ impl ServeDir {
   /// Sanitizes the requested path to prevent directory traversal attacks.
   fn sanitize_path(&self, req_path: &str) -> Option<PathBuf> {
     let rel_path = req_path.trim_start_matches('/');
+    // Refuse explicit `..` traversal segments before touching the FS.
+    if rel_path
+      .split(['/', '\\'])
+      .any(|seg| seg == ".." || seg == ".")
+    {
+      return None;
+    }
     let joined = self.base_dir.join(rel_path);
     let canonical = joined.canonicalize().ok()?;
-    if canonical.starts_with(self.base_dir.canonicalize().ok()?) {
+    let base = self
+      .sanitized_base
+      .clone()
+      .or_else(|| self.base_dir.canonicalize().ok())?;
+    if canonical.starts_with(&base) {
       Some(canonical)
     } else {
       None
     }
   }
 
-  /// Serves a file from the given path with appropriate MIME type.
-  async fn serve_file(&self, file_path: &Path) -> Option<Response> {
+  fn accepts(headers: &http::HeaderMap, encoding: &str) -> bool {
+    let Some(v) = headers
+      .get(header::ACCEPT_ENCODING)
+      .and_then(|v| v.to_str().ok())
+    else {
+      return false;
+    };
+    for part in v.split(',') {
+      let part = part.trim();
+      // Strip any q-value parameter; reject q=0 explicitly.
+      let mut name_q = part.split(';');
+      let name = name_q.next().unwrap_or("").trim();
+      let q_zero = name_q
+        .any(|p| p.trim().strip_prefix("q=").is_some_and(|q| q.trim() == "0"));
+      if q_zero {
+        continue;
+      }
+      if name.eq_ignore_ascii_case(encoding) || name == "*" {
+        return true;
+      }
+    }
+    false
+  }
+
+  fn precompressed_variant(&self, file_path: &Path, headers: &http::HeaderMap) -> Option<(PathBuf, &'static str)> {
+    if self.precompressed.brotli && Self::accepts(headers, "br") {
+      let mut p = file_path.as_os_str().to_owned();
+      p.push(".br");
+      let p = PathBuf::from(p);
+      if p.is_file() {
+        return Some((p, "br"));
+      }
+    }
+    if self.precompressed.gzip && Self::accepts(headers, "gzip") {
+      let mut p = file_path.as_os_str().to_owned();
+      p.push(".gz");
+      let p = PathBuf::from(p);
+      if p.is_file() {
+        return Some((p, "gzip"));
+      }
+    }
+    None
+  }
+
+  async fn resolve_existing(
+    &self,
+    file_path: PathBuf,
+    headers: &http::HeaderMap,
+  ) -> Option<(Response, &'static str)> {
+    // Index resolution if pointing at a directory.
+    let target = if file_path.is_dir() {
+      let mut chosen: Option<PathBuf> = None;
+      for idx in &self.index_files {
+        let cand = file_path.join(idx);
+        if cand.is_file() {
+          chosen = Some(cand);
+          break;
+        }
+      }
+      chosen?
+    } else {
+      file_path
+    };
+
+    if let Some((compressed, encoding)) = self.precompressed_variant(&target, headers) {
+      return Some((
+        Self::serve_file_with_encoding(&compressed, &target, encoding).await?,
+        encoding,
+      ));
+    }
+
+    Some((Self::serve_file(&target).await?, "identity"))
+  }
+
+  async fn serve_file(file_path: &Path) -> Option<Response> {
     match fs::read(file_path).await {
       Ok(contents) => {
         let mime = mime_guess::from_path(file_path).first_or_octet_stream();
         Some(
           http::Response::builder()
             .status(StatusCode::OK)
-            .header(http::header::CONTENT_TYPE, mime.to_string())
+            .header(header::CONTENT_TYPE, mime.to_string())
+            .body(TakoBody::from(contents))
+            .unwrap(),
+        )
+      }
+      Err(_) => None,
+    }
+  }
+
+  async fn serve_file_with_encoding(
+    compressed: &Path,
+    original: &Path,
+    encoding: &'static str,
+  ) -> Option<Response> {
+    match fs::read(compressed).await {
+      Ok(contents) => {
+        let mime = mime_guess::from_path(original).first_or_octet_stream();
+        Some(
+          http::Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, mime.to_string())
+            .header(header::CONTENT_ENCODING, encoding)
+            .header(header::VARY, "Accept-Encoding")
             .body(TakoBody::from(contents))
             .unwrap(),
         )
@@ -123,15 +277,18 @@ impl ServeDir {
   /// Handles an HTTP request to serve a static file from the directory.
   pub async fn handle(&self, req: Request) -> impl Responder {
     let path = req.uri().path();
+    let headers = req.headers().clone();
 
     if let Some(file_path) = self.sanitize_path(path)
-      && let Some(resp) = self.serve_file(&file_path).await
+      && let Some((resp, _enc)) = self.resolve_existing(file_path, &headers).await
     {
       return resp;
     }
 
     if let Some(fallback) = &self.fallback
-      && let Some(resp) = self.serve_file(fallback).await
+      && let Some((resp, _)) = self
+        .resolve_existing(fallback.clone(), &headers)
+        .await
     {
       return resp;
     }

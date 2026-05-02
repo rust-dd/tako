@@ -53,6 +53,9 @@ client = ["tako-core/client"]
 multipart = ["tako-extractors/multipart", "tako-core/multipart"]
 protobuf = ["tako-extractors/protobuf", "tako-core/protobuf"]
 simd = ["tako-extractors/simd", "tako-core/simd"]
+typed-header = ["tako-extractors/typed-header"]
+validator = ["tako-extractors/validator"]
+garde = ["tako-extractors/garde"]
 zero-copy-extractors = ["tako-extractors/zero-copy-extractors", "tako-core/zero-copy-extractors"]
 ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
 jwt-simple = ["tako-extractors/jwt-simple", "tako-plugins/jwt-simple", "tako-core/jwt-simple"]
@@ -92,6 +95,8 @@ serde_json.workspace = true
 base64.workspace = true
 futures-util.workspace = true
 anyhow.workspace = true
+smallvec.workspace = true
+tako-core.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
