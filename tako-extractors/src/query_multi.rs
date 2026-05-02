@@ -8,10 +8,11 @@
 //! It also recognises CSV-style multi values inside a single key
 //! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_keys`].
 
+use std::borrow::Cow;
+
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use std::borrow::Cow;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;

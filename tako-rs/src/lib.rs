@@ -201,14 +201,18 @@ pub mod extractors {
   pub use tako_extractors::basic;
   pub use tako_extractors::bearer;
   pub use tako_extractors::bytes;
+  pub use tako_extractors::connect_info;
+  pub use tako_extractors::content_length_limit;
   pub use tako_extractors::cookie_jar;
   pub use tako_extractors::cookie_key_expansion;
   pub use tako_extractors::cookie_private;
   pub use tako_extractors::cookie_signed;
+  pub use tako_extractors::extension;
   pub use tako_extractors::form;
   pub use tako_extractors::header_map;
   pub use tako_extractors::ipaddr;
   pub use tako_extractors::jwt;
+  pub use tako_extractors::matched_path;
   #[cfg(feature = "multipart")]
   #[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
   pub use tako_extractors::multipart;
@@ -218,21 +222,17 @@ pub mod extractors {
   pub use tako_extractors::protobuf;
   pub use tako_extractors::query;
   pub use tako_extractors::query_multi;
-  pub use tako_extractors::connect_info;
-  pub use tako_extractors::content_length_limit;
-  pub use tako_extractors::extension;
-  pub use tako_extractors::matched_path;
-  pub use tako_extractors::uri_parts;
-  #[cfg(feature = "typed-header")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "typed-header")))]
-  pub use tako_extractors::typed_header;
-  #[cfg(any(feature = "validator", feature = "garde"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "validator", feature = "garde"))))]
-  pub use tako_extractors::validate;
   #[cfg(feature = "simd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "simd")))]
   pub use tako_extractors::simdjson;
   pub use tako_extractors::state;
+  #[cfg(feature = "typed-header")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "typed-header")))]
+  pub use tako_extractors::typed_header;
+  pub use tako_extractors::uri_parts;
+  #[cfg(any(feature = "validator", feature = "garde"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "validator", feature = "garde"))))]
+  pub use tako_extractors::validate;
 }
 
 /// Middleware for processing requests and responses in a pipeline.

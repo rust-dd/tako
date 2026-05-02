@@ -174,8 +174,7 @@ impl ServeDir {
       // Strip any q-value parameter; reject q=0 explicitly.
       let mut name_q = part.split(';');
       let name = name_q.next().unwrap_or("").trim();
-      let q_zero = name_q
-        .any(|p| p.trim().strip_prefix("q=").is_some_and(|q| q.trim() == "0"));
+      let q_zero = name_q.any(|p| p.trim().strip_prefix("q=").is_some_and(|q| q.trim() == "0"));
       if q_zero {
         continue;
       }
@@ -186,7 +185,11 @@ impl ServeDir {
     false
   }
 
-  fn precompressed_variant(&self, file_path: &Path, headers: &http::HeaderMap) -> Option<(PathBuf, &'static str)> {
+  fn precompressed_variant(
+    &self,
+    file_path: &Path,
+    headers: &http::HeaderMap,
+  ) -> Option<(PathBuf, &'static str)> {
     if self.precompressed.brotli && Self::accepts(headers, "br") {
       let mut p = file_path.as_os_str().to_owned();
       p.push(".br");
@@ -286,9 +289,7 @@ impl ServeDir {
     }
 
     if let Some(fallback) = &self.fallback
-      && let Some((resp, _)) = self
-        .resolve_existing(fallback.clone(), &headers)
-        .await
+      && let Some((resp, _)) = self.resolve_existing(fallback.clone(), &headers).await
     {
       return resp;
     }

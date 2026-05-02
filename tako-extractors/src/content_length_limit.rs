@@ -40,11 +40,9 @@ where
         format!("payload too large: declared {declared} bytes, limit {limit} bytes"),
       )
         .into_response(),
-      Self::Malformed => (
-        StatusCode::BAD_REQUEST,
-        "malformed Content-Length header",
-      )
-        .into_response(),
+      Self::Malformed => {
+        (StatusCode::BAD_REQUEST, "malformed Content-Length header").into_response()
+      }
       Self::Inner(e) => e.into_response(),
     }
   }

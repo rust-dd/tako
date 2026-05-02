@@ -34,14 +34,14 @@
 //! // router.route(Method::POST, "/helloworld.Greeter/SayHello", say_hello);
 //! ```
 
-/// `grpc.reflection.v1` scaffolding.
-pub mod reflection;
 /// `grpc.health.v1` scaffolding.
 pub mod health;
-/// gRPC-Web bridge translating browser-friendly framing to canonical gRPC.
-pub mod web;
 /// gRPC-specific interceptor pattern.
 pub mod interceptor;
+/// `grpc.reflection.v1` scaffolding.
+pub mod reflection;
+/// gRPC-Web bridge translating browser-friendly framing to canonical gRPC.
+pub mod web;
 
 use std::convert::Infallible;
 use std::pin::Pin;

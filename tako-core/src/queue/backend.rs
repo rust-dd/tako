@@ -127,7 +127,12 @@ impl QueueBackend for MemoryBackend {
       // Treat as a successful idempotent no-op; report a synthetic id.
       return Ok(JobId(0));
     }
-    let id = JobId(self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1);
+    let id = JobId(
+      self
+        .next_id
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1,
+    );
     inner.pending.push(MemoryJob {
       id,
       queue: queue.to_string(),

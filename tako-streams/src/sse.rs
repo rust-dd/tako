@@ -252,10 +252,7 @@ fn build_sse_response(body: TakoBody) -> Response {
   http::Response::builder()
     .status(StatusCode::OK)
     .header(header::CONTENT_TYPE, "text/event-stream")
-    .header(
-      header::CACHE_CONTROL,
-      "no-cache, no-store, must-revalidate",
-    )
+    .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
     .header(header::CONNECTION, "keep-alive")
     .header("X-Accel-Buffering", "no")
     .body(body)

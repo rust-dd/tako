@@ -67,8 +67,9 @@ pub mod ids {
 /// (Redis pub/sub, NATS, Kafka, …). Companion crates provide concrete impls;
 /// this trait is the contract.
 pub mod bus {
-  use super::Signal;
   use async_trait::async_trait;
+
+  use super::Signal;
 
   /// Inbound + outbound bridge between an in-process arbiter and a remote
   /// pub/sub topic. Implementations should be cheap to clone (`Arc`-based).
