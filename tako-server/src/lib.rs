@@ -278,7 +278,7 @@ pub mod proxy_protocol;
 pub mod socket_activation;
 
 /// Linux vsock transport for VM-host bridges.
-#[cfg(all(target_os = "linux", feature = "vsock"))]
+#[cfg(all(target_os = "linux", feature = "vsock", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "vsock")))]
 pub mod server_vsock;
 
