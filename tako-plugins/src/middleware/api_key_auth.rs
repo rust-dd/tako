@@ -101,11 +101,14 @@ impl Default for ApiKeyLocation {
 ///     key.len() == 32 && key.chars().all(|c| c.is_ascii_hexdigit())
 /// });
 /// ```
+/// Custom verification closure for [`ApiKeyAuth`].
+pub type ApiKeyVerifyFn = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+
 pub struct ApiKeyAuth {
   /// Static API keys (raw bytes, scanned in constant time).
   keys: Option<Vec<Vec<u8>>>,
   /// Custom verification function for dynamic key validation.
-  verify: Option<Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
+  verify: Option<ApiKeyVerifyFn>,
   /// Location to extract the API key from.
   location: ApiKeyLocation,
 }
@@ -267,17 +270,17 @@ impl IntoMiddleware for ApiKeyAuth {
         };
 
         // Validate against static keys (constant-time scan)
-        if let Some(set) = &keys {
-          if constant_time_contains(api_key.as_bytes(), set) {
-            return next.run(req).await.into_response();
-          }
+        if let Some(set) = &keys
+          && constant_time_contains(api_key.as_bytes(), set)
+        {
+          return next.run(req).await.into_response();
         }
 
         // Validate using custom verification function
-        if let Some(v) = verify.as_ref() {
-          if v(api_key.as_ref()) {
-            return next.run(req).await.into_response();
-          }
+        if let Some(v) = verify.as_ref()
+          && v(api_key.as_ref())
+        {
+          return next.run(req).await.into_response();
         }
 
         // Return 401 Unauthorized for invalid keys

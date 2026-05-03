@@ -312,14 +312,14 @@ impl SignalArbiter {
     let id = id.into();
     let handler: SignalHandler = Arc::new(move |signal: Signal| {
       let fut = handler(signal);
-      Box::pin(async move { fut.await })
+      Box::pin(fut)
     });
 
     self
       .inner
       .handlers
       .entry_sync(id)
-      .or_insert_with(Vec::new)
+      .or_default()
       .push(handler);
   }
 
@@ -363,10 +363,10 @@ impl SignalArbiter {
 
     // Prefix subscribers: keys ending with '*'
     self.inner.topics.iter_sync(|key, v| {
-      if let Some(prefix) = key.strip_suffix('*') {
-        if signal.id.starts_with(prefix) {
-          let _ = v.send(signal.clone());
-        }
+      if let Some(prefix) = key.strip_suffix('*')
+        && signal.id.starts_with(prefix)
+      {
+        let _ = v.send(signal.clone());
       }
 
       true
@@ -388,10 +388,8 @@ impl SignalArbiter {
     #[cfg(not(feature = "compio"))]
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
-        if filter(&signal) {
-          if tx.send(signal).is_err() {
-            break;
-          }
+        if filter(&signal) && tx.send(signal).is_err() {
+          break;
         }
       }
     });
@@ -399,10 +397,8 @@ impl SignalArbiter {
     #[cfg(feature = "compio")]
     compio::runtime::spawn(async move {
       while let Ok(signal) = rx.recv().await {
-        if filter(&signal) {
-          if tx.send(signal).is_err() {
-            break;
-          }
+        if filter(&signal) && tx.send(signal).is_err() {
+          break;
         }
       }
     })
@@ -470,10 +466,7 @@ impl SignalArbiter {
     let raw_req: Arc<dyn Any + Send + Sync> = Arc::new(req);
     let raw_res = handler(raw_req).await;
 
-    match raw_res.downcast::<Res>() {
-      Ok(res) => Some(res),
-      Err(_) => None,
-    }
+    raw_res.downcast::<Res>().ok()
   }
 
   /// Calls a typed RPC handler and returns an owned response with an error type.
@@ -607,7 +600,7 @@ impl SignalArbiter {
         .inner
         .handlers
         .entry_sync(k.clone())
-        .or_insert_with(Vec::new)
+        .or_default()
         .extend(v.clone());
 
       true
@@ -624,7 +617,7 @@ impl SignalArbiter {
     });
 
     other.inner.exporters.iter_sync(|k, v| {
-      let _ = self.inner.exporters.insert_sync(k.clone(), v.clone());
+      let _ = self.inner.exporters.insert_sync(*k, v.clone());
       true
     });
   }

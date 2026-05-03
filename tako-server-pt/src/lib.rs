@@ -182,12 +182,11 @@ fn worker_main(
   shutdown: PerThreadShutdown,
 ) {
   #[cfg(feature = "affinity")]
-  if cfg.pin_to_core {
-    if let Some(ids) = core_affinity::get_core_ids() {
-      if let Some(id) = ids.get(worker_id) {
-        let _ = core_affinity::set_for_current(*id);
-      }
-    }
+  if cfg.pin_to_core
+    && let Some(ids) = core_affinity::get_core_ids()
+    && let Some(id) = ids.get(worker_id)
+  {
+    let _ = core_affinity::set_for_current(*id);
   }
   let _ = (worker_id, &cfg.pin_to_core);
 
@@ -302,12 +301,11 @@ fn worker_main_compio(
   use cyper_core::HyperStream;
 
   #[cfg(feature = "affinity")]
-  if cfg.pin_to_core {
-    if let Some(ids) = core_affinity::get_core_ids() {
-      if let Some(id) = ids.get(worker_id) {
-        let _ = core_affinity::set_for_current(*id);
-      }
-    }
+  if cfg.pin_to_core
+    && let Some(ids) = core_affinity::get_core_ids()
+    && let Some(id) = ids.get(worker_id)
+  {
+    let _ = core_affinity::set_for_current(*id);
   }
   let _ = (worker_id, &cfg.pin_to_core);
 

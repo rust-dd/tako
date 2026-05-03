@@ -119,10 +119,10 @@ impl Store {
       if now.duration_since(v.last_seen_at) > idle {
         return false;
       }
-      if let Some(abs) = absolute {
-        if now.duration_since(v.created_at) > abs {
-          return false;
-        }
+      if let Some(abs) = absolute
+        && now.duration_since(v.created_at) > abs
+      {
+        return false;
       }
       true
     });
@@ -335,6 +335,7 @@ fn extract_cookie_value<'a>(req: &'a Request, cookie_name: &str) -> Option<&'a s
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_cookie(
   cookie_name: &str,
   sid: &str,

@@ -95,11 +95,14 @@ pub type IntrospectionFn =
 /// verifier's decoded claims. Required when wiring up [`JwtAuth::revocation`].
 pub type JtiExtractorFn<C> = Arc<dyn Fn(&C) -> Option<String> + Send + Sync + 'static>;
 
+/// Pair of [`RevocationList`] and a JTI extractor used to wire revocation onto a verifier.
+pub type RevocationCheck<C> = (Arc<dyn RevocationList>, JtiExtractorFn<C>);
+
 /// JWT authentication middleware.
 pub struct JwtAuth<V: JwtVerifier> {
   verifier: V,
   constraints: VerifyConstraints,
-  revocation: Option<(Arc<dyn RevocationList>, JtiExtractorFn<V::Claims>)>,
+  revocation: Option<RevocationCheck<V::Claims>>,
   introspect: Option<IntrospectionFn>,
 }
 
@@ -196,18 +199,17 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
         // configured with `VerificationOptions::default()`.
         let _ = constraints;
 
-        if let Some((list, extractor)) = revocation.as_ref() {
-          if let Some(jti) = extractor(&claims) {
-            if list.is_revoked(&jti) {
-              return (StatusCode::UNAUTHORIZED, "token revoked").into_response();
-            }
-          }
+        if let Some((list, extractor)) = revocation.as_ref()
+          && let Some(jti) = extractor(&claims)
+          && list.is_revoked(&jti)
+        {
+          return (StatusCode::UNAUTHORIZED, "token revoked").into_response();
         }
 
-        if let Some(introspect) = introspect.as_ref() {
-          if !introspect(&token).await {
-            return (StatusCode::UNAUTHORIZED, "token introspection failed").into_response();
-          }
+        if let Some(introspect) = introspect.as_ref()
+          && !introspect(&token).await
+        {
+          return (StatusCode::UNAUTHORIZED, "token introspection failed").into_response();
         }
 
         req.extensions_mut().insert(claims);
@@ -394,10 +396,12 @@ mod jwt_simple_impl {
           .ok_or_else(|| format!("Algorithm {alg} not allowed"))?,
       };
 
-      let mut opts = VerificationOptions::default();
-      opts.time_tolerance = Some(::jwt_simple::prelude::Duration::from_secs(
-        self.constraints.leeway_secs,
-      ));
+      let mut opts = VerificationOptions {
+        time_tolerance: Some(::jwt_simple::prelude::Duration::from_secs(
+          self.constraints.leeway_secs,
+        )),
+        ..Default::default()
+      };
       if let Some(iss) = &self.constraints.issuer {
         let mut set = std::collections::HashSet::new();
         set.insert(iss.clone());

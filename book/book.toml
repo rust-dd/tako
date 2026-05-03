@@ -1,0 +1,19 @@
+[book]
+title = "Tako Handbook"
+authors = ["Daniel Boros <dancixx@gmail.com>"]
+description = "User guide and reference for the Tako framework."
+language = "en"
+multilingual = false
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/rust-dd/tako"
+edit-url-template = "https://github.com/rust-dd/tako/edit/main/book/{path}"
+no-section-label = false
+mathjax-support = false
+
+[output.html.fold]
+enable = true
+level = 1

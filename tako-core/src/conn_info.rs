@@ -137,3 +137,92 @@ impl ConnInfo {
     }
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn peer_addr_as_socket_returns_socket_for_ip_variant() {
+    let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let peer = PeerAddr::Ip(addr);
+    assert_eq!(peer.as_socket(), Some(&addr));
+  }
+
+  #[test]
+  fn peer_addr_as_socket_returns_none_for_unix_variant() {
+    let peer = PeerAddr::Unix(Some(PathBuf::from("/tmp/sock")));
+    assert!(peer.as_socket().is_none());
+  }
+
+  #[test]
+  fn peer_addr_as_socket_returns_none_for_other_variant() {
+    let peer = PeerAddr::Other("vsock:42:9999".to_string());
+    assert!(peer.as_socket().is_none());
+  }
+
+  #[test]
+  fn peer_addr_from_socket_addr() {
+    let addr: SocketAddr = "[::1]:443".parse().unwrap();
+    let peer: PeerAddr = addr.into();
+    assert!(matches!(peer, PeerAddr::Ip(_)));
+    assert_eq!(peer.as_socket(), Some(&addr));
+  }
+
+  #[test]
+  fn conn_info_tcp_helper() {
+    let addr: SocketAddr = "10.0.0.1:80".parse().unwrap();
+    let info = ConnInfo::tcp(addr);
+    assert_eq!(info.transport, Transport::Http1);
+    assert!(info.tls.is_none());
+    assert!(info.local.is_none());
+    assert_eq!(info.peer.as_socket(), Some(&addr));
+  }
+
+  #[test]
+  fn conn_info_h2_tls_helper() {
+    let addr: SocketAddr = "10.0.0.2:443".parse().unwrap();
+    let tls = TlsInfo {
+      alpn: Some(b"h2".to_vec()),
+      sni: Some("example.com".to_string()),
+      version: Some("TLSv1.3"),
+    };
+    let info = ConnInfo::h2_tls(addr, tls.clone());
+    assert_eq!(info.transport, Transport::Http2);
+    let info_tls = info.tls.expect("tls present");
+    assert_eq!(info_tls.alpn, Some(b"h2".to_vec()));
+    assert_eq!(info_tls.sni.as_deref(), Some("example.com"));
+    assert_eq!(info_tls.version, Some("TLSv1.3"));
+  }
+
+  #[test]
+  fn conn_info_h1_tls_helper_keeps_http1_label() {
+    let addr: SocketAddr = "10.0.0.3:443".parse().unwrap();
+    let info = ConnInfo::h1_tls(addr, TlsInfo::default());
+    assert_eq!(info.transport, Transport::Http1);
+    assert!(info.tls.is_some());
+  }
+
+  #[test]
+  fn conn_info_h3_helper() {
+    let addr: SocketAddr = "10.0.0.4:443".parse().unwrap();
+    let info = ConnInfo::h3(addr, TlsInfo::default());
+    assert_eq!(info.transport, Transport::Http3);
+    assert!(info.tls.is_some());
+  }
+
+  #[test]
+  fn conn_info_unix_helper() {
+    let info = ConnInfo::unix(Some(PathBuf::from("/var/run/x.sock")));
+    assert_eq!(info.transport, Transport::Unix);
+    assert!(info.tls.is_none());
+    matches!(info.peer, PeerAddr::Unix(Some(_)));
+  }
+
+  #[test]
+  fn conn_info_unix_helper_without_path() {
+    let info = ConnInfo::unix(None);
+    assert_eq!(info.transport, Transport::Unix);
+    matches!(info.peer, PeerAddr::Unix(None));
+  }
+}

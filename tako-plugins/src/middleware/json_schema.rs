@@ -42,6 +42,10 @@ pub struct JsonSchema {
   max_bytes: usize,
 }
 
+// `jsonschema::ValidationError<'static>` is a few hundred bytes; boxing it on
+// every constructor would be churn for callers. The constructors are cold-path
+// startup code, so size on the error variant doesn't matter.
+#[allow(clippy::result_large_err)]
 impl JsonSchema {
   /// Builds a validator that runs against the request body.
   pub fn for_request(schema: Value) -> Result<Self, jsonschema::ValidationError<'static>> {
@@ -61,7 +65,7 @@ impl JsonSchema {
     Ok(Self {
       validator: Arc::new(validator),
       target,
-      max_bytes: 1 * 1024 * 1024,
+      max_bytes: 1024 * 1024,
     })
   }
 

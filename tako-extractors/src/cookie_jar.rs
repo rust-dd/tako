@@ -56,6 +56,12 @@ use tako_core::types::Request;
 /// ```
 pub struct CookieJar(RawJar);
 
+impl Default for CookieJar {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl CookieJar {
   /// Creates a new, empty `CookieJar` instance.
   pub fn new() -> Self {

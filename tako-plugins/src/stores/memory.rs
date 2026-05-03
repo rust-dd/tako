@@ -223,7 +223,11 @@ impl StaticJwksProvider {
   /// Adds a key under `kid`. Multiple keys per kid are supported (rotation).
   pub fn insert(&self, kid: impl Into<String>, key: Vec<u8>) {
     let kid = kid.into();
-    if let Some(_) = self.by_kid.update_sync(&kid, |_, v| v.push(key.clone())) {
+    if self
+      .by_kid
+      .update_sync(&kid, |_, v| v.push(key.clone()))
+      .is_some()
+    {
       return;
     }
     let _ = self.by_kid.insert_sync(kid, vec![key]);

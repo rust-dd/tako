@@ -1,4 +1,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// `FromRequest::from_request` and `FromRequestParts::from_request_parts` use the
+// `fn(...) -> impl Future + Send + 'a` shape on purpose: the explicit `+ Send`
+// bound is what lets handlers be hosted by the hyper service trait. Rewriting
+// these as `async fn` would drop the bound.
+#![allow(clippy::manual_async_fn)]
 
 //! Internal core for the Tako framework.
 //!

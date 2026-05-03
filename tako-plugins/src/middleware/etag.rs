@@ -56,7 +56,7 @@ impl ETag {
   /// Creates the middleware with a 1 MiB body cap.
   pub fn new() -> Self {
     Self {
-      max_bytes: 1 * 1024 * 1024,
+      max_bytes: 1024 * 1024,
     }
   }
 
@@ -89,7 +89,7 @@ fn build_304(
     .body(TakoBody::empty())
     .expect("valid 304 response");
   for (k, v) in status_headers.iter() {
-    if k == &CONTENT_LENGTH {
+    if k == CONTENT_LENGTH {
       continue;
     }
     let _ = resp.headers_mut().insert(k.clone(), v.clone());
@@ -159,11 +159,11 @@ impl IntoMiddleware for ETag {
           .and_then(|v| v.to_str().ok())
           .map(str::to_string)
         {
-          if let Some(req_etag) = if_none_match.as_ref() {
-            if weak_match(req_etag, &existing_etag) {
-              let headers = resp.headers().clone();
-              return build_304(headers, None);
-            }
+          if let Some(req_etag) = if_none_match.as_ref()
+            && weak_match(req_etag, &existing_etag)
+          {
+            let headers = resp.headers().clone();
+            return build_304(headers, None);
           }
           // Last-Modified fast path.
           if let Some(lm) = resp
@@ -171,13 +171,11 @@ impl IntoMiddleware for ETag {
             .get(LAST_MODIFIED)
             .and_then(|v| v.to_str().ok())
             .map(str::to_string)
+            && let Some(ims) = if_modified_since.as_ref()
+            && not_modified_since(ims, &lm)
           {
-            if let Some(ims) = if_modified_since.as_ref() {
-              if not_modified_since(ims, &lm) {
-                let headers = resp.headers().clone();
-                return build_304(headers, None);
-              }
-            }
+            let headers = resp.headers().clone();
+            return build_304(headers, None);
           }
           return resp;
         }
@@ -196,11 +194,11 @@ impl IntoMiddleware for ETag {
         if let Ok(v) = HeaderValue::from_str(&etag) {
           resp.headers_mut().insert(ETAG, v);
         }
-        if let Some(req_etag) = if_none_match.as_ref() {
-          if weak_match(req_etag, &etag) {
-            let headers = resp.headers().clone();
-            return build_304(headers, None);
-          }
+        if let Some(req_etag) = if_none_match.as_ref()
+          && weak_match(req_etag, &etag)
+        {
+          let headers = resp.headers().clone();
+          return build_304(headers, None);
         }
         resp
       })

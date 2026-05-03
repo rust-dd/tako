@@ -146,17 +146,9 @@ pub enum GraphQLError {
 }
 
 /// Per-request or global options for GraphQL extraction.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GraphQLOptions {
   pub multipart: MultipartOptions,
-}
-
-impl Default for GraphQLOptions {
-  fn default() -> Self {
-    Self {
-      multipart: MultipartOptions::default(),
-    }
-  }
 }
 
 impl Responder for GraphQLError {
@@ -242,11 +234,11 @@ impl<'a> FromRequest<'a> for GraphQLProtocol {
 fn resolve_opts(req: &Request) -> MultipartOptions {
   // Prefer per-request options in extensions
   if let Some(opts) = req.extensions().get::<GraphQLOptions>() {
-    return opts.multipart.clone();
+    return opts.multipart;
   }
   // Fallback to global state
   if let Some(global) = crate::state::get_state::<GraphQLOptions>() {
-    return global.as_ref().multipart.clone();
+    return global.as_ref().multipart;
   }
   MultipartOptions::default()
 }

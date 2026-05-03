@@ -336,6 +336,28 @@ impl Router {
   /// thunks register the same `(method, path)` pair, the second call will
   /// panic, matching the behavior of [`Router::route`].
   ///
+  /// # Why `linkme` and not explicit registration
+  ///
+  /// We keep the `linkme` distributed-slice strategy on purpose. The
+  /// alternative — an explicit `register_routes!(my_crate::routes)` invocation
+  /// per crate — was considered and rejected because:
+  ///
+  /// * Adding a handler would require touching three places (the handler
+  ///   itself, the per-crate registration list, and the call site that
+  ///   imports it) instead of one. The macro authoring story is the main
+  ///   reason teams pick attribute routing in the first place.
+  /// * Cross-crate path collisions panic at startup either way; explicit
+  ///   registration does not buy any extra safety.
+  /// * Link-order non-determinism only matters when two routes share a
+  ///   `(method, path)` pair — that is already a hard failure and a CI test
+  ///   catches it deterministically.
+  /// * Prefix grouping is already covered by [`Router::mount_all_into`], so
+  ///   "I want all my routes under `/api`" does not require explicit
+  ///   registration.
+  ///
+  /// Callers that need stable, deterministic ordering should call
+  /// [`Router::route`] directly.
+  ///
   /// # Examples
   ///
   /// ```ignore
@@ -851,10 +873,10 @@ impl Router {
       if let Some(handler) = &self.error_handler {
         return handler(response);
       }
-    } else if status.is_client_error() {
-      if let Some(handler) = &self.client_error_handler {
-        return handler(response);
-      }
+    } else if status.is_client_error()
+      && let Some(handler) = &self.client_error_handler
+    {
+      return handler(response);
     }
     response
   }
@@ -1353,10 +1375,10 @@ impl Router {
 
     for (method, weak_vec) in self.routes.iter() {
       for weak in weak_vec {
-        if let Some(route) = weak.upgrade() {
-          if let Some(openapi) = route.openapi_metadata() {
-            result.push((method.clone(), route.path.clone(), openapi));
-          }
+        if let Some(route) = weak.upgrade()
+          && let Some(openapi) = route.openapi_metadata()
+        {
+          result.push((method.clone(), route.path.clone(), openapi));
         }
       }
     }

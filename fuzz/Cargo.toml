@@ -1,0 +1,41 @@
+[package]
+name = "tako-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tako-core = { path = "../tako-core", features = ["grpc"] }
+tako-server = { path = "../tako-server" }
+tokio = { version = "1", features = ["rt", "io-util", "macros"] }
+http = "1"
+smallvec = "1"
+serde = { version = "1", features = ["derive"] }
+
+[[bin]]
+name = "proxy_protocol_parser"
+path = "fuzz_targets/proxy_protocol_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path_params_deserializer"
+path = "fuzz_targets/path_params_deserializer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "grpc_timeout_parser"
+path = "fuzz_targets/grpc_timeout_parser.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

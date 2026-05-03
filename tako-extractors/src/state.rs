@@ -53,10 +53,10 @@ impl Responder for MissingState {
 /// Reads `T` from the per-router typed state first (when the router was set
 /// up via `Router::with_state`), falling back to the process-global registry.
 fn lookup<T: Send + Sync + 'static>(extensions: &http::Extensions) -> Option<Arc<T>> {
-  if let Some(rs) = extensions.get::<Arc<RouterState>>() {
-    if let Some(arc) = rs.get::<T>() {
-      return Some(arc);
-    }
+  if let Some(rs) = extensions.get::<Arc<RouterState>>()
+    && let Some(arc) = rs.get::<T>()
+  {
+    return Some(arc);
   }
   get_state::<T>()
 }

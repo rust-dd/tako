@@ -68,7 +68,7 @@ impl QueryMultiOptions {
         Some(idx) => (&pair[..idx], &pair[idx + 1..]),
         None => (pair, ""),
       };
-      if self.csv_keys.iter().any(|k| *k == key) && value.contains(',') {
+      if self.csv_keys.contains(&key) && value.contains(',') {
         for part in value.split(',') {
           if !first {
             out.push('&');

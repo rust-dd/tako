@@ -187,12 +187,11 @@ impl IntoMiddleware for Traceparent {
         if let Ok(v) = HeaderValue::from_str(&header_value) {
           resp.headers_mut().insert(TRACEPARENT, v);
         }
-        if emit_tracestate {
-          if let Some(state) = inbound_state {
-            if let Ok(v) = HeaderValue::from_str(&state) {
-              resp.headers_mut().insert(TRACESTATE, v);
-            }
-          }
+        if emit_tracestate
+          && let Some(state) = inbound_state
+          && let Ok(v) = HeaderValue::from_str(&state)
+        {
+          resp.headers_mut().insert(TRACESTATE, v);
         }
 
         resp

@@ -92,11 +92,14 @@ use tako_core::types::Response;
 ///     }
 /// });
 /// ```
+/// Custom verification closure for [`BasicAuth`].
+pub type BasicAuthVerifyFn = Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>;
+
 pub struct BasicAuth {
   /// Static user credentials map (username -> password).
   users: Option<Arc<HashMap<String, String, BuildHasher>>>,
   /// Custom verification function for dynamic authentication.
-  verify: Option<Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>>,
+  verify: Option<BasicAuthVerifyFn>,
   /// Authentication realm for WWW-Authenticate header.
   realm: &'static str,
 }
@@ -224,7 +227,7 @@ impl IntoMiddleware for BasicAuth {
 
             // Use custom verification function if available
             if let Some(cb) = &verify
-              && cb(&u, &p)
+              && cb(u, p)
             {
               return next.run(req).await.into_response();
             }

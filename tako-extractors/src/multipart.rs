@@ -164,7 +164,7 @@ pub enum MultipartError {
 impl Responder for MultipartError {
   /// Converts the error into an HTTP response.
   fn into_response(self) -> tako_core::types::Response {
-    let message = match self {
+    match self {
       MultipartError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
       }
@@ -191,8 +191,7 @@ impl Responder for MultipartError {
         "too many multipart parts in request",
       )
         .into_response(),
-    };
-    message
+    }
   }
 }
 

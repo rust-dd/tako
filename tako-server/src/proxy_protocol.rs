@@ -207,6 +207,7 @@ fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
       PP2_TYPE_SSL => {
         // PP2_TYPE_SSL container layout: 1 byte client flags, 4 bytes verify
         // (BE), then nested sub-TLVs.
+        #[allow(clippy::collapsible_match)]
         if value.len() >= 5 {
           let mut tls = ProxyTlsInfo {
             client_flags: value[0],

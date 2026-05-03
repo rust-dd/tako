@@ -11,6 +11,16 @@
 //! middleware exists for cases where the deadline is dynamic (per-tenant,
 //! per-IP, …) or composes with other middleware (e.g. retry).
 //!
+//! # Compio runtime
+//!
+//! The compio runtime ships `!Send` futures. The `IntoMiddleware` contract is
+//! `+ Send + 'static`, which means we cannot host `compio::time::sleep` here —
+//! the wrapping `Box::pin(async move { ... })` would not satisfy `Send`. When
+//! the `compio` cargo feature is active, the [`IntoMiddleware`] impl is
+//! gated off and `Timeout::into_middleware` is a compile error. Use
+//! [`Route::timeout`](tako_core::route::Route::timeout) (per-route deadline,
+//! runtime-agnostic) on the compio path instead.
+//!
 //! # Examples
 //!
 //! ```rust,ignore
@@ -21,23 +31,38 @@
 //! let mw = Timeout::new(Duration::from_secs(30)).into_middleware();
 //! ```
 
+#[cfg(not(feature = "compio"))]
 use std::future::Future;
+#[cfg(not(feature = "compio"))]
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use http::StatusCode;
+#[cfg(not(feature = "compio"))]
 use tako_core::body::TakoBody;
+#[cfg(not(feature = "compio"))]
 use tako_core::middleware::IntoMiddleware;
+#[cfg(not(feature = "compio"))]
 use tako_core::middleware::Next;
 use tako_core::types::Request;
+#[cfg(not(feature = "compio"))]
 use tako_core::types::Response;
 
+/// Per-request override closure for [`Timeout`].
+pub type TimeoutDynamicFn = Arc<dyn Fn(&Request) -> Option<Duration> + Send + Sync + 'static>;
+
 /// Per-request timeout middleware configuration.
+///
+/// All three fields stay populated even on the compio build so the struct
+/// remains constructible — there is just no [`IntoMiddleware`] adapter for
+/// it. The `expect_used` allow keeps the compio compile clean while the
+/// fields wait for a `compio`-runtime adapter.
+#[cfg_attr(feature = "compio", allow(dead_code))]
 pub struct Timeout {
   duration: Duration,
   status: StatusCode,
-  dynamic: Option<Arc<dyn Fn(&Request) -> Option<Duration> + Send + Sync + 'static>>,
+  dynamic: Option<TimeoutDynamicFn>,
 }
 
 impl Timeout {
@@ -67,6 +92,7 @@ impl Timeout {
   }
 }
 
+#[cfg(not(feature = "compio"))]
 impl IntoMiddleware for Timeout {
   fn into_middleware(
     self,
@@ -89,31 +115,13 @@ impl IntoMiddleware for Timeout {
 
         let fut = next.run(req);
         match deadline {
-          Some(d) => {
-            #[cfg(not(feature = "compio"))]
-            {
-              match tokio::time::timeout(d, fut).await {
-                Ok(resp) => resp,
-                Err(_) => http::Response::builder()
-                  .status(status)
-                  .body(TakoBody::empty())
-                  .expect("valid timeout response"),
-              }
-            }
-            #[cfg(feature = "compio")]
-            {
-              use futures_util::future::Either;
-              let timer = compio::time::sleep(d);
-              futures_util::pin_mut!(timer);
-              match futures_util::future::select(std::pin::pin!(fut), timer).await {
-                Either::Left((resp, _)) => resp,
-                Either::Right((_, _)) => http::Response::builder()
-                  .status(status)
-                  .body(TakoBody::empty())
-                  .expect("valid timeout response"),
-              }
-            }
-          }
+          Some(d) => match tokio::time::timeout(d, fut).await {
+            Ok(resp) => resp,
+            Err(_) => http::Response::builder()
+              .status(status)
+              .body(TakoBody::empty())
+              .expect("valid timeout response"),
+          },
           None => fut.await,
         }
       })

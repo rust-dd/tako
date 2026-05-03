@@ -2,34 +2,285 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_BACKTRACE: short
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D rustdoc::broken-intra-doc-links
+  RUSTUP_MAX_RETRIES: 10
 
 jobs:
-  build-and-test:
-    name: Build, Test, and Validate Examples
+  fmt:
+    name: rustfmt
     runs-on: ubuntu-latest
-
     steps:
-      # Checkout the repository
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      # Install Rust
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      # rustfmt.toml uses `imports_granularity` and `group_imports`, both
+      # nightly-only options — fmt has to run on nightly.
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: stable
-          override: true
+          components: rustfmt
+      - run: cargo fmt --all -- --check
 
-      - name: Build release
-        run: cargo build --release
+  clippy:
+    name: clippy (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: default
+            features: ""
+          - label: tokio-rich
+            features: --features "tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
+          - label: all-features
+            features: --all-features
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.label }}
+      - run: cargo clippy --workspace --no-deps ${{ matrix.features }} -- -D warnings
 
-      - name: Build all features
-        run: cargo build --release --all-features
+  test:
+    name: test (${{ matrix.os }} / ${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        label: [default]
+        features: [""]
+        include:
+          - os: ubuntu-latest
+            label: rich
+            features: --features "tls,http2,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,typed-header,zero-copy-extractors,jwt-simple,file-stream"
+          - os: ubuntu-latest
+            label: http3
+            features: --features "tls,http2,http3,plugins,signals"
+    env:
+      # Tests don't need to break on every clippy nit; only enforce build-warnings
+      # in build/clippy/doc jobs.
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test-${{ matrix.os }}-${{ matrix.label }}
+      - run: cargo test --workspace ${{ matrix.features }}
 
-      - name: Build all examples
-        run: cargo build --release --examples
+  msrv:
+    name: MSRV (latest stable)
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-stable
+      - run: cargo build --workspace
+
+  doc:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: doc
+      - run: cargo doc --no-deps --workspace --features "tls,http2,http3,plugins,signals,multipart,simd,client,typed-header,zero-copy-extractors,utoipa,async-graphql,grpc"
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  examples:
+    name: examples build
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: examples
+      - name: Build every example
+        run: |
+          set -euo pipefail
+          # `examples/*` are excluded from the workspace, so iterate manifest by
+          # manifest. Failures in any single example fail the job.
+          for manifest in examples/*/Cargo.toml; do
+            echo "::group::Building ${manifest}"
+            cargo build --release --manifest-path "${manifest}"
+            echo "::endgroup::"
+          done
+
+  bench-build:
+    name: bench compile check
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bench
+      # Verify the criterion harnesses still compile. We do not run them in
+      # CI by default — bench numbers are PR-noise. A scheduled job runs the
+      # full suite and posts the comparison.
+      - run: cargo bench --no-run -p tako-core
+
+  autobahn:
+    name: autobahn websocket suite
+    runs-on: ubuntu-latest
+    # The suite is heavy (4-7 minutes) and depends on docker. Run it on
+    # PRs that touch streams + on main. PRs that don't touch the WS path
+    # opt out via path filter.
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-autobahn'))
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: autobahn
+      - name: Run Autobahn fuzzingclient
+        run: ci/autobahn/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: autobahn-report
+          path: ci/autobahn/reports/
+
+  fuzz-build:
+    name: fuzz harness compile check
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fuzz-build
+      # cargo-fuzz needs the host nightly target with libfuzzer; we only
+      # check that the targets compile here. Actual fuzz runs are
+      # scheduled separately and post their findings to the issue tracker.
+      - run: cargo install cargo-fuzz --version "^0.13"
+      - run: cargo +nightly fuzz build --manifest-path fuzz/Cargo.toml
+
+  fuzz-smoke:
+    name: fuzz smoke (60s per target)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-fuzz')
+    env:
+      RUSTFLAGS: ""
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - proxy_protocol_parser
+          - path_params_deserializer
+          - grpc_timeout_parser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fuzz-${{ matrix.target }}
+      - run: cargo install cargo-fuzz --version "^0.13"
+      - name: smoke
+        run: |
+          cargo +nightly fuzz run ${{ matrix.target }} \
+            --manifest-path fuzz/Cargo.toml \
+            -- -max_total_time=60
+
+  miri:
+    name: miri (tako-core + tako-extractors)
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri
+      # Miri can't see most async I/O — keep the run scoped to the pure-Rust
+      # subset that fits its execution model. The body extractor / params
+      # deserializer / problem responder / signals registry suite is the
+      # critical-correctness slice we want UB-checked.
+      - run: |
+          cargo +nightly miri test \
+            -p tako-core \
+            -p tako-extractors \
+            --no-default-features \
+            --features simd \
+            -- \
+            --skip server_ \
+            --skip tcp_ \
+            --skip udp_ \
+            --skip h3_ \
+            --skip tls_
+
+  mdbook:
+    name: mdbook build
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: "latest"
+      - run: mdbook build book
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: collect coverage
+        run: |
+          cargo llvm-cov --workspace \
+            --features "tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,client,typed-header" \
+            --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false

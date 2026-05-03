@@ -194,7 +194,7 @@ impl IntoMiddleware for CircuitBreaker {
 
         let cur = state.state.load(Ordering::Acquire);
         if cur == STATE_OPEN {
-          let opened = state.opened_at.lock().clone();
+          let opened = *state.opened_at.lock();
           if let Some(at) = opened {
             if at.elapsed() < cool_down {
               return build_open_response(open_status, retry_after_secs);
@@ -217,14 +217,13 @@ impl IntoMiddleware for CircuitBreaker {
 
         // Half-open: allow exactly one probe at a time.
         let cur = state.state.load(Ordering::Acquire);
-        if cur == STATE_HALF_OPEN {
-          if state
+        if cur == STATE_HALF_OPEN
+          && state
             .probe_in_flight
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
-          {
-            return build_open_response(open_status, retry_after_secs);
-          }
+        {
+          return build_open_response(open_status, retry_after_secs);
         }
 
         let resp = next.run(req).await;

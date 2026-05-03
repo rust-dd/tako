@@ -1,0 +1,23 @@
+FROM rust:1.92-slim-bookworm AS builder
+
+WORKDIR /work
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev cmake build-essential ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY examples/bench-ntex /work/bench-ntex
+
+RUN cd /work/bench-ntex && cargo build --release
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wrk curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /work/bench-ntex/target/release/bench-ntex /usr/local/bin/bench-ntex
+COPY Dockerfile.bench-ntex.runner /usr/local/bin/bench-runner.sh
+RUN chmod +x /usr/local/bin/bench-runner.sh
+
+ENTRYPOINT ["/usr/local/bin/bench-runner.sh"]

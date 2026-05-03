@@ -48,6 +48,10 @@ compio-ws = ["tako-streams/compio-ws", "tako-core/compio-ws"]
 # Body/streaming features
 file-stream = ["tako-streams/file-stream", "tako-core/file-stream"]
 client = ["tako-core/client"]
+# Use the operating-system trust store via `rustls-native-certs`.
+# Implies `client`. Without this feature the bundled `webpki-roots` snapshot
+# is used (the historical default).
+native-certs = ["tako-core/native-certs"]
 
 # Extractors
 multipart = ["tako-extractors/multipart", "tako-core/multipart"]

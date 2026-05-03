@@ -337,10 +337,8 @@ fn ensure_csrf_cookie(
     return;
   }
   let token = preferred_token.clone().unwrap_or_else(generate_csrf_token);
-  if bind_to_session {
-    if let Some(session) = resp.extensions_mut().get::<Session>().cloned() {
-      session.set(session_key, token.clone());
-    }
+  if bind_to_session && let Some(session) = resp.extensions_mut().get::<Session>().cloned() {
+    session.set(session_key, token.clone());
   }
   let cookie = build_cookie(cookie_name, &token, secure, same_site);
   if let Ok(v) = HeaderValue::from_str(&cookie) {

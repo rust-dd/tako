@@ -1,4 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// `FromRequest`/`FromRequestParts` implementations keep the explicit
+// `fn(...) -> impl Future + Send + 'a` form so the returned future stays `Send`
+// for hyper's service bound. See the matching allow on `tako-core`.
+#![allow(clippy::manual_async_fn)]
 
 //! Concrete request extractor implementations for the Tako framework.
 //!

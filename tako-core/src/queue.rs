@@ -111,9 +111,10 @@ impl std::fmt::Display for QueueError {
 impl std::error::Error for QueueError {}
 
 /// Retry policy for failed jobs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum RetryPolicy {
   /// No retries — failed jobs go straight to the dead letter queue.
+  #[default]
   None,
   /// Fixed delay between retries.
   Fixed {
@@ -158,12 +159,6 @@ impl RetryPolicy {
       Self::Fixed { delay, .. } => *delay,
       Self::Exponential { base_delay, .. } => *base_delay * 2u32.saturating_pow(attempt),
     }
-  }
-}
-
-impl Default for RetryPolicy {
-  fn default() -> Self {
-    Self::None
   }
 }
 

@@ -38,8 +38,11 @@ pub enum TenantStrategy {
   /// Zero-based path segment index (e.g. `1` selects `acme` in `/t/acme/...`).
   PathPrefix(usize),
   /// Caller-defined closure.
-  Custom(Arc<dyn Fn(&Request) -> Option<String> + Send + Sync + 'static>),
+  Custom(TenantCustomFn),
 }
+
+/// Closure that extracts a tenant identifier from the request.
+pub type TenantCustomFn = Arc<dyn Fn(&Request) -> Option<String> + Send + Sync + 'static>;
 
 /// Multi-tenant middleware.
 pub struct TenantMiddleware {
@@ -96,9 +99,7 @@ fn extract_subdomain(host: &str) -> Option<String> {
   let mut labels = host.split('.');
   let first = labels.next()?;
   // Need at least one further label so we don't return the whole apex domain.
-  if labels.next().is_none() {
-    return None;
-  }
+  labels.next()?;
   if first.is_empty() {
     return None;
   }

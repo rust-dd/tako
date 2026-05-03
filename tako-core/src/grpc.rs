@@ -284,10 +284,10 @@ fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -> Response 
   if let Ok(val) = http::HeaderValue::from_str(&(status as u8).to_string()) {
     resp.headers_mut().insert("grpc-status", val);
   }
-  if !message.is_empty() {
-    if let Ok(val) = http::HeaderValue::from_str(message) {
-      resp.headers_mut().insert("grpc-message", val);
-    }
+  if !message.is_empty()
+    && let Ok(val) = http::HeaderValue::from_str(message)
+  {
+    resp.headers_mut().insert("grpc-message", val);
   }
   resp
 }
@@ -334,10 +334,10 @@ impl GrpcStatus {
     if let Ok(v) = http::HeaderValue::from_str(&(self.code as u8).to_string()) {
       t.insert("grpc-status", v);
     }
-    if let Some(msg) = self.message.as_deref() {
-      if let Ok(v) = http::HeaderValue::from_str(msg) {
-        t.insert("grpc-message", v);
-      }
+    if let Some(msg) = self.message.as_deref()
+      && let Ok(v) = http::HeaderValue::from_str(msg)
+    {
+      t.insert("grpc-message", v);
     }
     t
   }
@@ -427,7 +427,7 @@ where
       // Take the body out of the request — `into_body` is not directly
       // available without owning the request; we drain incrementally instead.
       // Collect a one-shot producer and parse multiple frames out of it.
-      let body = std::mem::replace(req.body_mut(), TakoBody::empty());
+      let body = std::mem::take(req.body_mut());
       let stream = GrpcFrameStream::new(body);
       Ok(GrpcClientStream {
         stream: Box::pin(stream),

@@ -86,10 +86,10 @@ fn parse_cidr(cidr: &str) -> Result<IpNet, ipnet::AddrParseError> {
 }
 
 fn peer_ip(req: &Request) -> Option<IpAddr> {
-  if let Some(info) = req.extensions().get::<ConnInfo>() {
-    if let PeerAddr::Ip(sa) = &info.peer {
-      return Some(sa.ip());
-    }
+  if let Some(info) = req.extensions().get::<ConnInfo>()
+    && let PeerAddr::Ip(sa) = &info.peer
+  {
+    return Some(sa.ip());
   }
   if let Some(sa) = req.extensions().get::<SocketAddr>() {
     return Some(sa.ip());

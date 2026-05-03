@@ -252,10 +252,8 @@ where
         .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
         .to_bytes();
 
-      let mut owned = bytes.to_vec();
-
       // SIMD-accelerated deserialization.
-      let data = sonic_rs::from_slice::<T>(&mut owned)
+      let data = sonic_rs::from_slice::<T>(&bytes)
         .map_err(|e| SimdJsonError::DeserializationError(e.to_string()))?;
 
       Ok(SonicJson(data))

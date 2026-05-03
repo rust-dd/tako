@@ -79,7 +79,6 @@ pub struct ServeDirBuilder {
 impl ServeDirBuilder {
   /// Creates a new builder with the specified base directory.
   #[inline]
-  #[must_use]
   pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
     Self {
       base_dir: base_dir.into(),
@@ -91,7 +90,6 @@ impl ServeDirBuilder {
 
   /// Sets a fallback file to serve when requested files are not found.
   #[inline]
-  #[must_use]
   pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
     self.fallback = Some(fallback.into());
     self
@@ -100,7 +98,6 @@ impl ServeDirBuilder {
   /// Replace the index resolution priority list (defaults to
   /// `["index.html", "index.htm"]`).
   #[inline]
-  #[must_use]
   pub fn index_files<I, S>(mut self, names: I) -> Self
   where
     I: IntoIterator<Item = S>,
@@ -112,7 +109,6 @@ impl ServeDirBuilder {
 
   /// Configure preference for precompressed sidecar files.
   #[inline]
-  #[must_use]
   pub fn precompressed(mut self, policy: PrecompressedPolicy) -> Self {
     self.precompressed = policy;
     self
@@ -120,7 +116,6 @@ impl ServeDirBuilder {
 
   /// Builds and returns the configured `ServeDir` instance.
   #[inline]
-  #[must_use]
   pub fn build(self) -> ServeDir {
     let sanitized_base = self.base_dir.canonicalize().ok();
     ServeDir {
@@ -316,7 +311,6 @@ pub struct ServeFileBuilder {
 impl ServeFileBuilder {
   /// Creates a new builder with the specified file path.
   #[inline]
-  #[must_use]
   pub fn new<P: Into<PathBuf>>(path: P) -> Self {
     Self { path: path.into() }
   }

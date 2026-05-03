@@ -89,10 +89,10 @@ impl OriginMatcher {
       Self::Suffix(s) => {
         // Match against the host portion (`scheme://host[:port]`).
         let host = origin
-          .splitn(4, '/')
+          .split('/')
           .nth(2)
           .unwrap_or(origin)
-          .splitn(2, ':')
+          .split(':')
           .next()
           .unwrap_or("");
         host == s.as_str() || host.ends_with(&format!(".{s}"))
@@ -253,14 +253,12 @@ impl Default for CorsBuilder {
 impl CorsBuilder {
   /// Creates a new CORS configuration builder with default settings.
   #[inline]
-  #[must_use]
   pub fn new() -> Self {
     Self(Config::default())
   }
 
   /// Adds an allowed origin to the CORS policy.
   #[inline]
-  #[must_use]
   pub fn allow_origin(mut self, o: impl Into<String>) -> Self {
     self.0.origins.push(o.into());
     self
@@ -268,7 +266,6 @@ impl CorsBuilder {
 
   /// Sets the allowed HTTP methods for cross-origin requests.
   #[inline]
-  #[must_use]
   pub fn allow_methods(mut self, m: &[Method]) -> Self {
     self.0.methods = m.to_vec();
     self
@@ -276,7 +273,6 @@ impl CorsBuilder {
 
   /// Sets the allowed request headers for cross-origin requests.
   #[inline]
-  #[must_use]
   pub fn allow_headers(mut self, h: &[HeaderName]) -> Self {
     self.0.headers = h.to_vec();
     self
@@ -284,7 +280,6 @@ impl CorsBuilder {
 
   /// Enables or disables credential sharing in cross-origin requests.
   #[inline]
-  #[must_use]
   pub fn allow_credentials(mut self, allow: bool) -> Self {
     self.0.allow_credentials = allow;
     self
@@ -292,7 +287,6 @@ impl CorsBuilder {
 
   /// Sets the maximum age for preflight request caching.
   #[inline]
-  #[must_use]
   pub fn max_age_secs(mut self, secs: u32) -> Self {
     self.0.max_age_secs = Some(secs);
     self
@@ -301,7 +295,6 @@ impl CorsBuilder {
   /// Adds a suffix-style origin match (e.g. `example.com` accepts every
   /// subdomain). Combine with [`Self::allow_origin`] for hybrid policies.
   #[inline]
-  #[must_use]
   pub fn allow_origin_suffix(mut self, suffix: impl Into<String>) -> Self {
     self
       .0
@@ -312,7 +305,6 @@ impl CorsBuilder {
 
   /// Plug a custom origin predicate.
   #[inline]
-  #[must_use]
   pub fn allow_origin_predicate<F>(mut self, f: F) -> Self
   where
     F: Fn(&str) -> bool + Send + Sync + 'static,
@@ -326,7 +318,6 @@ impl CorsBuilder {
 
   /// Enables Private Network Access (Chrome PNA) preflight handling.
   #[inline]
-  #[must_use]
   pub fn allow_private_network(mut self, yes: bool) -> Self {
     self.0.allow_private_network = yes;
     self
@@ -340,7 +331,6 @@ impl CorsBuilder {
   /// is combined with an empty origin list. Use [`CorsBuilder::try_build`] to handle
   /// the error explicitly.
   #[inline]
-  #[must_use]
   pub fn build(self) -> CorsPlugin {
     self.try_build().expect("invalid CORS configuration")
   }

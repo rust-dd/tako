@@ -148,10 +148,10 @@ fn extract_scheme(headers: &http::HeaderMap, uri: &Uri, ext: &http::Extensions) 
   if let Some(s) = uri.scheme_str() {
     return s.to_ascii_lowercase();
   }
-  if let Some(info) = ext.get::<tako_core::conn_info::ConnInfo>() {
-    if info.tls.is_some() {
-      return "https".into();
-    }
+  if let Some(info) = ext.get::<tako_core::conn_info::ConnInfo>()
+    && info.tls.is_some()
+  {
+    return "https".into();
   }
   "http".into()
 }

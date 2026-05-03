@@ -78,13 +78,11 @@ pub trait Handler<T>: Send + Sync + 'static {
   fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static;
 }
 
-/// Implements `Handler` for functions returning responder types using extractor arguments.
+/// Type-erased handler wrapper for dynamic storage and composition.
 ///
 /// Handlers can now be written with or without extractor parameters, similar to Axum.
 /// For example: `async fn handler() -> impl Responder`, `async fn handler(Json<T>) -> _`,
 /// or `async fn handler(Path(p): Path<'_>, Query<Q>) -> _`.
-
-/// Type-erased handler wrapper for dynamic storage and composition.
 #[derive(Clone)]
 pub struct BoxHandler {
   /// The inner function that processes requests and produces responses.

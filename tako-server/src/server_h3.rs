@@ -72,7 +72,6 @@ use crate::ServerConfig;
 /// * `addr` - The socket address to bind to (e.g., "[::]:4433")
 /// * `certs` - Optional path to the TLS certificate file (defaults to "cert.pem")
 /// * `key` - Optional path to the TLS private key file (defaults to "key.pem")
-
 pub async fn serve_h3(router: Router, addr: &str, certs: Option<&str>, key: Option<&str>) {
   if let Err(e) = run(
     router,
@@ -188,10 +187,10 @@ fn transport_config_from(config: &ServerConfig) -> quinn::TransportConfig {
   let mut tc = quinn::TransportConfig::default();
   tc.max_concurrent_bidi_streams(VarInt::from_u32(config.h3_max_concurrent_bidi_streams));
   tc.max_concurrent_uni_streams(VarInt::from_u32(config.h3_max_concurrent_uni_streams));
-  if let Some(idle) = config.h3_max_idle_timeout {
-    if let Ok(idle) = idle.try_into() {
-      tc.max_idle_timeout(Some(idle));
-    }
+  if let Some(idle) = config.h3_max_idle_timeout
+    && let Ok(idle) = idle.try_into()
+  {
+    tc.max_idle_timeout(Some(idle));
   }
   // QUIC datagrams (RFC 9221). Required for downstream WebTransport-style
   // traffic. Send buffer is left at the quinn default.
@@ -565,11 +564,11 @@ where
           {
             send_stream.send_data(data).await?;
           }
-        } else if frame.is_trailers() {
-          if let Ok(t) = frame.into_trailers() {
-            // Last trailer frame wins; HTTP responses are not expected to emit multiple.
-            response_trailers = Some(t);
-          }
+        } else if frame.is_trailers()
+          && let Ok(t) = frame.into_trailers()
+        {
+          // Last trailer frame wins; HTTP responses are not expected to emit multiple.
+          response_trailers = Some(t);
         }
       }
       Err(e) => {

@@ -105,11 +105,14 @@ fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
 ///     }
 /// });
 /// ```
+/// Custom verification closure for [`BearerAuth`].
+pub type BearerAuthVerifyFn = Box<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+
 pub struct BearerAuth {
   /// Static tokens (raw bytes, scanned in constant time).
   tokens: Option<Vec<Vec<u8>>>,
   /// Custom verification function for dynamic token validation.
-  verify: Option<Box<dyn Fn(&str) -> bool + Send + Sync + 'static>>,
+  verify: Option<BearerAuthVerifyFn>,
 }
 
 /// Implementation of the `BearerAuth` struct, providing methods to configure

@@ -117,9 +117,10 @@ impl Encoding {
 }
 
 /// Content-type matching policy.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub enum ContentTypePolicy {
   /// Default heuristic: text/*, anything containing `json`, `javascript`, `xml`.
+  #[default]
   Default,
   /// Exact MIME types (case-insensitive). E.g. `["application/json", "text/html"]`.
   Exact(Vec<String>),
@@ -127,12 +128,6 @@ pub enum ContentTypePolicy {
   Prefix(Vec<String>),
   /// Caller-provided predicate. Receives the verbatim header value.
   Custom(std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>),
-}
-
-impl Default for ContentTypePolicy {
-  fn default() -> Self {
-    Self::Default
-  }
 }
 
 impl ContentTypePolicy {
@@ -221,6 +216,12 @@ impl Default for Config {
 ///     .build();
 /// ```
 pub struct CompressionBuilder(Config);
+
+impl Default for CompressionBuilder {
+  fn default() -> Self {
+    Self::new()
+  }
+}
 
 impl CompressionBuilder {
   /// Creates a new compression configuration builder with default settings.
@@ -403,18 +404,16 @@ impl TakoPlugin for CompressionPlugin {
     let cfg = self.cfg.clone();
     router.middleware(move |req, next| {
       let cfg = cfg.clone();
-      let stream = cfg.stream.clone();
+      let stream = cfg.stream;
       async move {
-        if stream == false {
-          return CompressionResponse::Plain(
-            compress_middleware(req, next, cfg).await.into_response(),
-          );
+        if !stream {
+          CompressionResponse::Plain(compress_middleware(req, next, cfg).await.into_response())
         } else {
-          return CompressionResponse::Stream(
+          CompressionResponse::Stream(
             compress_stream_middleware(req, next, cfg)
               .await
               .into_response(),
-          );
+          )
         }
       }
     });
@@ -472,7 +471,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     }
   };
   if body_bytes.len() < cfg.min_size {
-    *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
+    *resp.body_mut() = TakoBody::from(body_bytes);
     return resp.into_response();
   }
 
@@ -499,7 +498,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
       .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
     resp.headers_mut().remove(CONTENT_LENGTH);
   } else {
-    *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
+    *resp.body_mut() = TakoBody::from(body_bytes);
   }
 
   resp.into_response()
@@ -551,10 +550,9 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
     .get(CONTENT_LENGTH)
     .and_then(|v| v.to_str().ok())
     .and_then(|v| v.parse::<usize>().ok())
+    && len < cfg.min_size
   {
-    if len < cfg.min_size {
-      return resp.into_response();
-    }
+    return resp.into_response();
   }
 
   if let Some(enc) = chosen {
@@ -675,7 +673,7 @@ fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
   let mut out = Vec::new();
   brotli::CompressorReader::new(data, 4096, lvl, 22)
     .read_to_end(&mut out)
-    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Failed to compress data"))?;
+    .map_err(|_| std::io::Error::other("Failed to compress data"))?;
   Ok(out)
 }
 

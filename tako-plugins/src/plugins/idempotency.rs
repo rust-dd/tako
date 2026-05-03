@@ -92,8 +92,8 @@ impl Default for Config {
       scope: Scope::MethodAndPath,
       coalesce_inflight: true,
       inflight_wait_timeout_ms: None,
-      max_cached_body_bytes: 1 * 1024 * 1024,
-      max_request_body_bytes: 1 * 1024 * 1024,
+      max_cached_body_bytes: 1024 * 1024,
+      max_request_body_bytes: 1024 * 1024,
       verify_payload: true,
       cache_error_statuses: true,
     }
@@ -102,6 +102,12 @@ impl Default for Config {
 
 /// Builder for the idempotency plugin.
 pub struct IdempotencyBuilder(Config);
+
+impl Default for IdempotencyBuilder {
+  fn default() -> Self {
+    Self::new()
+  }
+}
 
 impl IdempotencyBuilder {
   /// Start with sensible defaults.
@@ -274,7 +280,7 @@ impl TakoPlugin for IdempotencyPlugin {
 
       #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(ttl.max(60).min(3600)));
+        let mut tick = tokio::time::interval(Duration::from_secs(ttl.clamp(60, 3600)));
         loop {
           tick.tick().await;
           store.retain_expired();
@@ -283,7 +289,7 @@ impl TakoPlugin for IdempotencyPlugin {
 
       #[cfg(feature = "compio")]
       compio::runtime::spawn(async move {
-        let interval = Duration::from_secs(ttl.max(60).min(3600));
+        let interval = Duration::from_secs(ttl.clamp(60, 3600));
         loop {
           compio::time::sleep(interval).await;
           store.retain_expired();
@@ -340,7 +346,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
   };
 
   // Put body back
-  let new_req = http::Request::from_parts(parts, TakoBody::from(Bytes::from(body_bytes)));
+  let new_req = http::Request::from_parts(parts, TakoBody::from(body_bytes));
 
   // Compose cache key by scope
   let cache_key = match cfg.scope {
@@ -443,14 +449,14 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     store.complete(cache_key.clone(), completed);
     notify.notify_waiters();
     // Replace body to return to the current caller
-    *resp.body_mut() = TakoBody::from(Bytes::from(cached.body.clone()));
-    return resp.into_response();
+    *resp.body_mut() = TakoBody::from(cached.body.clone());
+    resp.into_response()
   } else {
     // Not caching: clean up and return original response with collected body
     store.remove(&cache_key);
     notify.notify_waiters();
-    *resp.body_mut() = TakoBody::from(Bytes::from(body_bytes));
-    return resp.into_response();
+    *resp.body_mut() = TakoBody::from(body_bytes);
+    resp.into_response()
   }
 }
 
@@ -479,7 +485,7 @@ fn build_response_from_cache(c: &CachedResponse) -> Response {
     let _ = headers.insert(k, v.clone());
   }
   headers.remove(CONTENT_LENGTH);
-  b.body(TakoBody::from(Bytes::from(c.body.clone()))).unwrap()
+  b.body(TakoBody::from(c.body.clone())).unwrap()
 }
 
 fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
@@ -500,11 +506,11 @@ fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
     if EXCLUDE.contains(&name_lc.as_str()) {
       continue;
     }
-    if name == &CONTENT_LENGTH {
+    if name == CONTENT_LENGTH {
       continue;
     }
     // Persist common safe headers
-    if name == &CONTENT_TYPE || name == &LOCATION {
+    if name == CONTENT_TYPE || name == LOCATION {
       out.push((name.clone(), v.clone()));
       continue;
     }

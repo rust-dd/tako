@@ -1,0 +1,13 @@
+[package]
+name = "autobahn-echo"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[dependencies]
+futures-util = "0.3"
+tako-rs = { path = "../../tako-rs" }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.29"
+
+[workspace]

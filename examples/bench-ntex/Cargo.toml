@@ -1,0 +1,17 @@
+[package]
+name = "bench-ntex"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "bench-ntex"
+path = "src/main.rs"
+
+[dependencies]
+ntex = { version = "3", features = ["tokio"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[workspace]

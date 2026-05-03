@@ -206,8 +206,7 @@ where
         };
 
         if use_simd {
-          let mut owned = body_bytes.to_vec();
-          sonic_rs::from_slice::<T>(&mut owned)
+          sonic_rs::from_slice::<T>(&body_bytes)
             .map_err(|e| JsonError::DeserializationError(e.to_string()))?
         } else {
           serde_json::from_slice(&body_bytes)

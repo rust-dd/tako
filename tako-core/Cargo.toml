@@ -80,7 +80,8 @@ tracing-subscriber = { version = "0.3.19", optional = true }
 utoipa = { version = "5.4", optional = true }
 uuid = { workspace = true, optional = true }
 vespera_core = { version = "0.1.43", optional = true }
-webpki-roots = { version = "1.0.1", optional = true }
+webpki-roots = { workspace = true, optional = true }
+rustls-native-certs = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
@@ -98,6 +99,10 @@ metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
 client = ["tls", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots", "hyper-util/client", "hyper-util/client-legacy", "hyper-util/http1"]
+# Use the operating-system trust store (`rustls-native-certs`) instead of, or
+# in addition to, the bundled `webpki-roots` snapshot. When both feature gates
+# are active the native store is loaded first and `webpki-roots` is appended.
+native-certs = ["client", "dep:rustls-native-certs"]
 default = []
 file-stream = []
 http2 = []
@@ -124,3 +129,15 @@ zstd = ["dep:zstd", "plugins"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[bench]]
+name = "router_dispatch"
+harness = false
+
+[[bench]]
+name = "json_extract"
+harness = false

@@ -140,6 +140,8 @@ where
     + Sync
     + 'static,
 {
+  // compio is thread-per-core; the Arc<UdpSocket> never crosses threads.
+  #[allow(clippy::arc_with_non_send_sync)]
   let socket = Arc::new(compio::net::UdpSocket::bind(addr).await?);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
@@ -170,6 +172,8 @@ where
     + 'static,
   S: Future<Output = ()> + 'static,
 {
+  // compio is thread-per-core; the Arc<UdpSocket> never crosses threads.
+  #[allow(clippy::arc_with_non_send_sync)]
   let socket = Arc::new(compio::net::UdpSocket::bind(addr).await?);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 

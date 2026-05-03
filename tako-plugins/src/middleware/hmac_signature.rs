@@ -52,7 +52,7 @@ impl HmacSignature {
     Self {
       header,
       secret: secret.into(),
-      max_body_bytes: 1 * 1024 * 1024,
+      max_body_bytes: 1024 * 1024,
       canonical: Arc::new(default_canonical),
       hex: true,
     }
@@ -92,7 +92,7 @@ fn default_canonical(parts: &http::request::Parts, body: &[u8]) -> Vec<u8> {
 }
 
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
-  if s.len() % 2 != 0 {
+  if !s.len().is_multiple_of(2) {
     return None;
   }
   let bytes: Result<Vec<u8>, _> = (0..s.len())

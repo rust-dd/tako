@@ -148,6 +148,123 @@ where
   }
 }
 
+#[cfg(test)]
+mod tests {
+  use serde::Deserialize;
+
+  use super::*;
+
+  fn deserialize<T: DeserializeOwned>(slots: &[(&str, &str)]) -> Result<T, PathParamsDeError> {
+    let owned: SmallVec<[(String, String); 4]> = slots
+      .iter()
+      .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+      .collect();
+    T::deserialize(PathParamsDeserializer(&owned))
+  }
+
+  #[derive(Debug, Deserialize, PartialEq)]
+  struct UserParams {
+    id: u64,
+    name: String,
+  }
+
+  #[test]
+  fn deserialize_struct_with_typed_fields() {
+    let value: UserParams = deserialize(&[("id", "42"), ("name", "alice")]).unwrap();
+    assert_eq!(
+      value,
+      UserParams {
+        id: 42,
+        name: "alice".to_string(),
+      }
+    );
+  }
+
+  #[test]
+  fn deserialize_struct_reports_missing_field() {
+    let err = deserialize::<UserParams>(&[("id", "42")]).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("name") || msg.contains("missing"));
+  }
+
+  #[test]
+  fn deserialize_single_primitive_via_one_slot() {
+    let value: u64 = deserialize(&[("id", "1234")]).unwrap();
+    assert_eq!(value, 1234);
+  }
+
+  #[test]
+  fn deserialize_string_value() {
+    let value: String = deserialize(&[("name", "alice")]).unwrap();
+    assert_eq!(value, "alice");
+  }
+
+  #[test]
+  fn deserialize_tuple_two_slots() {
+    let value: (u64, String) = deserialize(&[("a", "7"), ("b", "x")]).unwrap();
+    assert_eq!(value, (7, "x".to_string()));
+  }
+
+  #[test]
+  fn deserialize_vec_string() {
+    let value: Vec<String> = deserialize(&[("a", "1"), ("b", "2"), ("c", "3")]).unwrap();
+    assert_eq!(
+      value,
+      vec!["1".to_string(), "2".to_string(), "3".to_string()]
+    );
+  }
+
+  #[test]
+  fn deserialize_option_present() {
+    let value: Option<u64> = deserialize(&[("id", "9")]).unwrap();
+    assert_eq!(value, Some(9));
+  }
+
+  #[test]
+  fn deserialize_rejects_non_integer_into_u64() {
+    let err = deserialize::<u64>(&[("id", "not_a_number")]).unwrap_err();
+    assert!(!err.to_string().is_empty());
+  }
+
+  #[test]
+  fn extract_params_returns_missing_when_extension_absent() {
+    let extensions = http::Extensions::new();
+    match Params::<UserParams>::extract_params(&extensions) {
+      Err(e) => assert_eq!(e, ParamsError::MissingPathParams),
+      Ok(_) => panic!("expected MissingPathParams"),
+    }
+  }
+
+  #[test]
+  fn extract_params_returns_value_when_extension_present() {
+    let mut extensions = http::Extensions::new();
+    let mut params = SmallVec::<[(String, String); 4]>::new();
+    params.push(("id".to_string(), "5".to_string()));
+    params.push(("name".to_string(), "bob".to_string()));
+    extensions.insert(PathParams(params));
+
+    let extracted = Params::<UserParams>::extract_params(&extensions).expect("extract ok");
+    assert_eq!(
+      extracted.0,
+      UserParams {
+        id: 5,
+        name: "bob".to_string(),
+      }
+    );
+  }
+
+  #[test]
+  fn params_error_responder_status_codes() {
+    // Missing PathParams in request extensions is a routing-internal bug,
+    // so the responder maps it to 500 rather than 400. Deserialization
+    // failure is caller-visible and stays at 400.
+    let resp = ParamsError::MissingPathParams.into_response();
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let resp = ParamsError::DeserializationError("bad".to_string()).into_response();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  }
+}
+
 struct PathParamsDeserializer<'de>(&'de [(String, String)]);
 
 impl<'de> PathParamsDeserializer<'de> {
