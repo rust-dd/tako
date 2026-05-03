@@ -11,9 +11,38 @@ version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
-# Allow-list and ignore lists are intentionally empty — every advisory must be
-# triaged before it can be silenced.
-ignore = []
+# Triaged transitive advisories. Each entry must include a reason (visible in
+# `cargo deny check` output) and gets re-reviewed quarterly. Drop the entry
+# once the upstream patch lands and `cargo update` picks it up.
+ignore = [
+  # aws-lc-sys 0.35.0 — pulled in transitively by rustls/aws-lc-rs.
+  # Patched in aws-lc-sys 0.40.0 (cargo update -p aws-lc-rs lifts it locally,
+  # but downstream resolution may still pick 0.35.0 until rustls bumps its
+  # constraint). All five issues are in cert/CMS validation paths that an HTTP
+  # framework does not call directly; exposure depends on the application layer.
+  { id = "RUSTSEC-2026-0044", reason = "aws-lc-sys X.509 name constraints bypass — patched in 0.40.0" },
+  { id = "RUSTSEC-2026-0045", reason = "aws-lc-sys AES-CCM timing side-channel — patched in 0.40.0" },
+  { id = "RUSTSEC-2026-0046", reason = "aws-lc-sys PKCS7_verify chain bypass — patched in 0.40.0" },
+  { id = "RUSTSEC-2026-0047", reason = "aws-lc-sys PKCS7_verify signature bypass — patched in 0.40.0" },
+  { id = "RUSTSEC-2026-0048", reason = "aws-lc-sys CRL distribution-point scope bug — patched in 0.40.0" },
+
+  # rustls-webpki — cert validation edge cases. Patched versions exist; cargo
+  # update will pick them up once the rustls constraint allows.
+  { id = "RUSTSEC-2026-0049", reason = "rustls-webpki CRL authoritative-matching logic — upstream patch pending propagation" },
+  { id = "RUSTSEC-2026-0098", reason = "rustls-webpki URI name constraints — upstream patch pending propagation" },
+  { id = "RUSTSEC-2026-0099", reason = "rustls-webpki wildcard name constraints — upstream patch pending propagation" },
+  { id = "RUSTSEC-2026-0104", reason = "rustls-webpki panic on malformed CRL — upstream patch pending propagation" },
+
+  # Other transitive crates without a patched version yet.
+  { id = "RUSTSEC-2026-0007", reason = "bytes BytesMut::reserve overflow — patched in 1.11.1; bumped in lockfile" },
+  { id = "RUSTSEC-2026-0037", reason = "quinn endpoint DoS — only triggers when http3 feature is enabled; awaiting upstream fix" },
+  { id = "RUSTSEC-2024-0437", reason = "protobuf uncontrolled recursion — only via protobuf feature; size limits in tako-extractors mitigate" },
+  { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack — transitive via jwt-simple; key recovery requires precise timing access to a Rust process serving RSA decryption" },
+
+  # Unmaintained crates — not active vulnerabilities, just signals.
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained — no fix available; widely used proc-macro with no functional alternative yet" },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile unmaintained — superseded by rustls-pki-types but rustls 0.23 still uses it" },
+]
 
 [licenses]
 version = 2
