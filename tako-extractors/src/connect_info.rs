@@ -2,7 +2,7 @@
 //!
 //! `T` may be `SocketAddr` (peer address from any IP transport),
 //! `tako_core::conn_info::ConnInfo` (full transport snapshot), or any other
-//! type that implements [`FromConnInfo`].
+//! type that implements [`FromConnInfo`](crate::connect_info::FromConnInfo).
 
 use std::net::SocketAddr;
 

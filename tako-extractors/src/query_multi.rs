@@ -2,11 +2,11 @@
 //!
 //! `serde_urlencoded` (the parser behind [`crate::query::Query`]) treats each
 //! key as scalar, so `?tag=a&tag=b` becomes a single `tag` value (the last one
-//! wins). This module exposes [`QueryMulti<T>`] backed by `serde_html_form`,
+//! wins). This module exposes [`QueryMulti<T>`](crate::query_multi::QueryMulti) backed by `serde_html_form`,
 //! which preserves repeated keys and decodes them into `Vec`-shaped fields.
 //!
 //! It also recognises CSV-style multi values inside a single key
-//! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_keys`].
+//! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_keys`](crate::query_multi::QueryMultiOptions::csv_keys).
 
 use std::borrow::Cow;
 

@@ -885,7 +885,7 @@ impl Router {
   ///
   /// Global state allows sharing data across different routes and middleware.
   /// Values are stored by their concrete type and retrieved via the
-  /// [`State`](crate::extractors::state::State) extractor or with
+  /// `State` extractor (from `tako-extractors`) or with
   /// [`crate::state::get_state`].
   ///
   /// # Examples
@@ -914,7 +914,7 @@ impl Router {
   /// therefore allows only one value per `T` per process), `with_state` is
   /// per-router — multiple routers can hold distinct `T`s without collisions.
   ///
-  /// The [`crate::extractors::state::State`] extractor reads the per-router
+  /// The `State` extractor (from `tako-extractors`) reads the per-router
   /// store first and falls back to the global store if no per-router value
   /// exists, so existing code that uses `set_state` / `Router::state`
   /// continues to work unchanged.

@@ -260,8 +260,7 @@ impl TlsCert {
 }
 
 /// A `ResolvesServerCert` whose backing [`rustls::sign::CertifiedKey`] can be
-/// swapped at runtime via [`ReloadableResolver::reload_from_pem`] or
-/// [`ReloadableResolver::reload_from_der`].
+/// swapped at runtime via [`ReloadableResolver::reload_from_pem`].
 ///
 /// Backed by [`arc_swap::ArcSwap`], the swap is atomic and lock-free on the
 /// hot path (one `Arc` clone per TLS handshake). Use it via

@@ -2,7 +2,7 @@
 //!
 //! `QueueBackend` is the v2 trait that lets a `Queue` swap its in-process
 //! storage for an external broker (Redis, Postgres, NATS, …). The bundled
-//! [`MemoryBackend`] keeps the existing in-process `Queue` semantics behind
+//! [`MemoryBackend`](crate::queue::backend::MemoryBackend) keeps the existing in-process `Queue` semantics behind
 //! the same trait so consumer code can move to the trait at its own pace.
 
 use std::sync::Arc;

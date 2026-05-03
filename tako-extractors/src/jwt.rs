@@ -2,8 +2,8 @@
 //!
 //! This module provides extractors for parsing JWT (JSON Web Token) tokens from HTTP
 //! Authorization headers and extracting claims into strongly-typed Rust structures.
-//! It supports both raw JWT access through [`Jwt`](crate::extractors::jwt::Jwt) and automatic claims deserialization
-//! through [`JwtClaims`](crate::extractors::jwt::JwtClaims), with built-in token validation and error handling for malformed
+//! It supports both raw JWT access through [`Jwt`](crate::jwt::Jwt) and automatic claims deserialization
+//! through [`JwtClaims`](crate::jwt::JwtClaims), with built-in token validation and error handling for malformed
 //! or expired tokens.
 //!
 //! # Examples
@@ -63,7 +63,7 @@ pub struct Jwt {
 /// `tako_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
 /// signature for this request.
 ///
-/// For a verifying extractor that consults a [`tako_plugins::stores::JwksProvider`]
+/// For a verifying extractor that consults a `tako_plugins::stores::JwksProvider`
 /// or a `JwtVerifier` from state, prefer
 /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
 #[doc(alias = "jwt_claims_unverified")]

@@ -2,15 +2,15 @@
 //! SIMD-accelerated JSON extraction from HTTP request bodies.
 //!
 //! This module provides two extractors behind the `simd` feature:
-//! - [`SimdJson`](crate::extractors::simdjson::SimdJson) uses the `simd_json` crate.
-//! - [`SonicJson`](crate::extractors::simdjson::SonicJson) uses the `sonic_rs` crate.
+//! - [`SimdJson`](crate::simdjson::SimdJson) uses the `simd_json` crate.
+//! - [`SonicJson`](crate::simdjson::SonicJson) uses the `sonic_rs` crate.
 //!
 //! Both extractors validate the `Content-Type` header, read the full request body into an owned buffer,
 //! and deserialize it into the requested type.
 //!
 //! # Examples
 //!
-//! Using [`SimdJson`](crate::extractors::simdjson::SimdJson):
+//! Using [`SimdJson`](crate::simdjson::SimdJson):
 //!
 //! ```
 //! use tako::extractors::simdjson::SimdJson;
@@ -30,7 +30,7 @@
 //! }
 //! ```
 //!
-//! Using [`SonicJson`](crate::extractors::simdjson::SonicJson):
+//! Using [`SonicJson`](crate::simdjson::SonicJson):
 //!
 //! ```
 //! use tako::extractors::simdjson::SonicJson;

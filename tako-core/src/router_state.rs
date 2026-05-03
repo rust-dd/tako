@@ -1,12 +1,12 @@
 //! Per-router typed state container.
 //!
-//! Each [`crate::router::Router`] owns one [`RouterState`] (an `Arc<…>`
+//! Each [`crate::router::Router`] owns one [`RouterState`](crate::router_state::RouterState) (an `Arc<…>`
 //! internally). Values inserted via [`crate::router::Router::with_state`] live
 //! on the router instance — multiple `Router`s in the same process can hold
 //! distinct state values for the same `T`, which the historical process-wide
 //! [`crate::state::set_state`] cannot do.
 //!
-//! [`crate::extractors::state::State`] reads from the request-scoped
+//! The `State` extractor (from `tako-extractors`) reads from the request-scoped
 //! `Arc<RouterState>` first (inserted by [`crate::router::Router::dispatch`])
 //! and falls back to [`crate::state::get_state`] if the per-router slot is
 //! empty. Existing code that uses the global store keeps working unchanged.

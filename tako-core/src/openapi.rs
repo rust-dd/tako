@@ -9,7 +9,7 @@
 //!   route discovery. Kept opt-in for users who need the runtime spec model
 //!   that `utoipa` does not provide. Enable with the `vespera` feature.
 //!
-//! Both backends share the same [`RouteOpenApi`] metadata attached on the
+//! Both backends share the same [`RouteOpenApi`](crate::openapi::RouteOpenApi) metadata attached on the
 //! `Router::route(...)` builder via `summary` / `description` / `tag` /
 //! `response`. The OpenAPI documents themselves are produced by whichever
 //! backend the application enables; do not enable both unless you are

@@ -62,7 +62,7 @@ pub enum Scope {
 pub struct Config {
   /// Header that carries the idempotency key.
   pub header: HeaderName,
-  /// Methods to protect. Default: [POST].
+  /// Methods to protect. Default: `[POST]`.
   pub methods: Vec<Method>,
   /// Time-to-live for cached results (seconds). Default: 86400 (24h).
   pub ttl_secs: u64,

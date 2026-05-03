@@ -11,10 +11,10 @@
 //!
 //! This module exposes:
 //!
-//! - [`GrpcInterceptor`] — async trait whose `intercept` runs before the
+//! - [`GrpcInterceptor`](crate::grpc::interceptor::GrpcInterceptor) — async trait whose `intercept` runs before the
 //!   handler with a typed view of metadata; can short-circuit with a
-//!   [`super::GrpcStatus`] error.
-//! - [`InterceptorChain`] — sequence of interceptors run in order. Wraps a
+//!   [`GrpcStatus`](crate::grpc::GrpcStatus) error.
+//! - [`InterceptorChain`](crate::grpc::interceptor::InterceptorChain) — sequence of interceptors run in order. Wraps a
 //!   gRPC handler so the call surface is uniform.
 //!
 //! ⚠️ **Status:** wiring into `Router::route` will land alongside the

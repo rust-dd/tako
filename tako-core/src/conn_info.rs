@@ -1,6 +1,6 @@
 //! Unified connection-info extension shared by every Tako transport.
 //!
-//! Every `serve_*` implementation inserts a [`ConnInfo`] into the request's
+//! Every `serve_*` implementation inserts a [`ConnInfo`](crate::conn_info::ConnInfo) into the request's
 //! extensions before dispatch, so handlers and middleware can read peer / TLS
 //! metadata without branching on transport-specific extension types
 //! (`SocketAddr`, `UnixPeerAddr`, `ProxyHeader`, …).

@@ -69,7 +69,7 @@ use crate::ServerConfig;
 /// # Arguments
 ///
 /// * `router` - The Tako router containing route definitions
-/// * `addr` - The socket address to bind to (e.g., "[::]:4433")
+/// * `addr` - The socket address to bind to (e.g., `"[::]:4433"` for IPv6)
 /// * `certs` - Optional path to the TLS certificate file (defaults to "cert.pem")
 /// * `key` - Optional path to the TLS private key file (defaults to "key.pem")
 pub async fn serve_h3(router: Router, addr: &str, certs: Option<&str>, key: Option<&str>) {

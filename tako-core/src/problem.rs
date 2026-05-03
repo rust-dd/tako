@@ -1,6 +1,6 @@
 //! RFC 7807 / RFC 9457 `application/problem+json` error responses.
 //!
-//! Provides a typed [`Problem`] struct, a [`Responder`] implementation that
+//! Provides a typed [`Problem`](crate::problem::Problem) struct, a [`Responder`](crate::responder::Responder) implementation that
 //! emits `application/problem+json`, and a helper that builds a default
 //! problem response from a status code. Hook the helper into
 //! [`Router::error_handler`](crate::router::Router::error_handler) /

@@ -4,14 +4,14 @@
 //!
 //! 1. Client sends `{extensions: {persistedQuery: {sha256Hash, version: 1}}}`
 //!    without a `query` field.
-//! 2. Server looks up the hash in a [`PersistedQueryStore`].
+//! 2. Server looks up the hash in a [`PersistedQueryStore`](crate::graphql::apq::PersistedQueryStore).
 //!    - **Hit:** populate the request `query` from the cache and execute.
 //!    - **Miss:** respond with `PERSISTED_QUERY_NOT_FOUND`. Client retries
 //!      with the full `query`.
 //! 3. Server caches the `(hash, query)` pair on first full submission.
 //!
-//! This module exposes the [`PersistedQueryStore`] trait, an in-memory
-//! implementation, and the [`process`] helper that walks an `async_graphql`
+//! This module exposes the [`PersistedQueryStore`](crate::graphql::apq::PersistedQueryStore) trait, an in-memory
+//! implementation, and the [`process`](crate::graphql::apq::process) helper that walks an `async_graphql`
 //! request through the lookup-or-store flow. It is a thin wrapper — the
 //! actual GraphQL execution still goes through the `async-graphql` schema.
 

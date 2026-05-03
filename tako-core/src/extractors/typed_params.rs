@@ -4,7 +4,7 @@
 //! macro from `tako-macros`: place the attribute on an async handler and the
 //! macro generates a sibling struct whose fields exactly mirror the path
 //! placeholders, associated `METHOD`/`PATH` consts, and a
-//! [`TypedParamsStruct`] impl that pulls each value from the request's
+//! [`TypedParamsStruct`](crate::extractors::typed_params::TypedParamsStruct) impl that pulls each value from the request's
 //! [`PathParams`] extension and parses it via [`core::str::FromStr`]. The
 //! struct name defaults to the handler's name in PascalCase plus a `Params`
 //! suffix (e.g. `get_user` → `GetUserParams`).

@@ -3,8 +3,8 @@
 //!
 //! This module provides extractors for parsing `multipart/form-data` request bodies,
 //! commonly used for file uploads and complex form submissions. It supports both
-//! raw multipart access through [`TakoMultipart`](crate::extractors::multipart::TakoMultipart) and strongly-typed extraction
-//! through [`TakoTypedMultipart`](crate::extractors::multipart::TakoTypedMultipart), with built-in support for file uploads to disk
+//! raw multipart access through [`TakoMultipart`](crate::multipart::TakoMultipart) and strongly-typed extraction
+//! through [`TakoTypedMultipart`](crate::multipart::TakoTypedMultipart), with built-in support for file uploads to disk
 //! or memory.
 //!
 //! # Examples

@@ -1,6 +1,6 @@
 //! Signed cookie extraction and management for HTTP requests.
 //!
-//! This module provides the [`CookieSigned`](crate::extractors::cookie_signed::CookieSigned) extractor that manages HMAC-signed cookies
+//! This module provides the [`CookieSigned`](crate::cookie_signed::CookieSigned) extractor that manages HMAC-signed cookies
 //! using a master key. Signed cookies use HMAC (Hash-based Message Authentication Code)
 //! to ensure that cookie values haven't been tampered with, while keeping the content
 //! readable. This provides integrity protection without confidentiality.
@@ -44,7 +44,7 @@ use tako_core::types::Request;
 /// `active` is used to sign new cookies; `previous` keys are tried for
 /// verification only, letting old cookies remain valid through a rotation.
 /// Each key carries a string `kid` so callers can log which key admitted a
-/// given cookie when [`KeyRing::sign_jar`] / [`CookieSigned::get_with_kid`] is used.
+/// given cookie when [`CookieSigned::get_with_kid`] is used.
 #[derive(Clone)]
 pub struct KeyRing {
   pub(crate) active_kid: String,

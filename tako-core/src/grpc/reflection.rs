@@ -1,9 +1,8 @@
 //! `grpc.reflection.v1.ServerReflection` scaffolding.
 //!
-//! Provides a [`ReflectionRegistry`] that callers populate with the
-//! `FileDescriptorProto` blobs they want to expose, and a [`ReflectionService`]
-//! handler that answers `list_services`, `file_by_filename`, and
-//! `file_containing_symbol` queries.
+//! Provides a [`ReflectionRegistry`](crate::grpc::reflection::ReflectionRegistry) that callers populate with the
+//! `FileDescriptorProto` blobs they want to expose; the registry answers
+//! `list_services`, `file_by_filename`, and `file_containing_symbol` queries.
 //!
 //! ⚠️ **Status:** the encoder/decoder for `ServerReflectionRequest` /
 //! `ServerReflectionResponse` is intentionally minimal — it covers the three

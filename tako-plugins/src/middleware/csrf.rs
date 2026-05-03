@@ -98,7 +98,7 @@ impl Csrf {
   }
 
   /// Origins to accept as fallback when cookie/header verification fails.
-  /// Both `Origin` and `Referer` are matched (scheme + host[:port]).
+  /// Both `Origin` and `Referer` are matched (scheme + host\[:port\]).
   pub fn trust_origin(mut self, origin: impl Into<String>) -> Self {
     self.trusted_origins.push(origin.into());
     self

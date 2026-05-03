@@ -8,7 +8,7 @@
 //! v2 additions:
 //!
 //! - **JWKS rotation** via [`stores::JwksProvider`](crate::stores::JwksProvider).
-//!   The bundled [`MultiKeyVerifier`] selects keys by `kid`, falling back to
+//!   The bundled `MultiKeyVerifier` (under the `jwt-simple` feature) selects keys by `kid`, falling back to
 //!   the configured static map when the provider returns no match.
 //! - **Configurable issuer / audience / leeway** through
 //!   [`VerifyConstraints`]. Applied uniformly across every algorithm.

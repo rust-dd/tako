@@ -11,9 +11,9 @@
 //!
 //! Two entry points:
 //!
-//! - [`serve_per_thread`] — uses the existing thread-safe [`tako::router::Router`]
-//!   from `tako-core`. Drop-in alternative to [`tako::serve`]; no API changes.
-//! - [`serve_per_thread_compio`] (under the `compio` feature) — same SO_REUSEPORT
+//! - [`serve_per_thread`] — uses the existing thread-safe [`tako_core::router::Router`]
+//!   from `tako-core`. Drop-in alternative to `tako::serve`; no API changes.
+//! - `serve_per_thread_compio` (under the `compio` feature) — same SO_REUSEPORT
 //!   bootstrap but each worker runs a `compio` runtime (io_uring on Linux,
 //!   IOCP on Windows, kqueue on macOS).
 
@@ -38,7 +38,7 @@ use tokio::runtime::Builder;
 use tokio::sync::Notify;
 use tokio::task::LocalSet;
 
-/// Configuration for [`serve_per_thread`] and [`serve_per_thread_local`].
+/// Configuration for [`serve_per_thread`] (and the `compio` variant when enabled).
 #[derive(Debug, Clone)]
 pub struct PerThreadConfig {
   /// Number of worker threads. Defaults to the number of logical CPUs.

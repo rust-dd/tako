@@ -10,7 +10,7 @@
 //! - configurable initial `WebSocketConfig` (forwarded to tokio-tungstenite)
 //!
 //! Application-level keep-alive (`ping_interval` / `pong_timeout`) is exposed
-//! as a [`WsKeepAlive`] config value the handler can read; the framework
+//! as a [`WsKeepAlive`](crate::ws::WsKeepAlive) config value the handler can read; the framework
 //! itself does not run the ping loop because the handler owns the stream.
 
 use std::future::Future;
