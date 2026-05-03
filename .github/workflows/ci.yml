@@ -189,7 +189,7 @@ jobs:
       # check that the targets compile here. Actual fuzz runs are
       # scheduled separately and post their findings to the issue tracker.
       - run: cargo install cargo-fuzz --version "^0.13"
-      - run: cargo +nightly fuzz build --manifest-path fuzz/Cargo.toml
+      - run: cargo +nightly fuzz build
 
   fuzz-smoke:
     name: fuzz smoke (60s per target)
@@ -214,7 +214,6 @@ jobs:
       - name: smoke
         run: |
           cargo +nightly fuzz run ${{ matrix.target }} \
-            --manifest-path fuzz/Cargo.toml \
             -- -max_total_time=60
 
   miri:
