@@ -74,6 +74,7 @@ fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
   if is_abstract_path(path) {
     #[cfg(target_os = "linux")]
     {
+      use std::os::linux::net::SocketAddrExt;
       let name = &path.to_str().unwrap().as_bytes()[1..];
       let addr = std::os::unix::net::SocketAddr::from_abstract_name(name)?;
       let std_listener = std::os::unix::net::UnixListener::bind_addr(&addr)?;
