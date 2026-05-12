@@ -8,8 +8,9 @@
 //! - `bytes=-LENGTH` — suffix ("last LENGTH bytes").
 //!
 //! Multi-range requests (`bytes=0-100,200-300`) parse into the full
-//! [`Range::specs`] list; responders that only support a single range can
-//! call [`Range::single`] to fetch the first spec.
+//! [`Range::specs`](struct.Range.html#structfield.specs) list; responders that
+//! only support a single range can call
+//! [`Range::single`](struct.Range.html#method.single) to fetch the first spec.
 
 use http::HeaderMap;
 use http::StatusCode;

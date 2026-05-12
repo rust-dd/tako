@@ -10,7 +10,7 @@
 //! # Examples
 //!
 //! ```rust,ignore
-//! use tako::openapi::ui::{SwaggerUi, Scalar, `RapiDoc`};
+//! use tako::openapi::ui::{SwaggerUi, Scalar, RapiDoc};
 //! use tako::{router::Router, Method};
 //!
 //! let mut router = Router::new();
@@ -25,9 +25,9 @@
 //!     Scalar::new("/openapi.json")
 //! });
 //!
-//! // Serve `RapiDoc` at /rapidoc
+//! // Serve RapiDoc at /rapidoc
 //! router.route(Method::GET, "/rapidoc", |_| async {
-//!     `RapiDoc`::new("/openapi.json")
+//!     RapiDoc::new("/openapi.json")
 //! });
 //! ```
 
@@ -217,10 +217,10 @@ impl Responder for Scalar {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use tako::openapi::ui::`RapiDoc`;
+/// use tako::openapi::ui::RapiDoc;
 ///
-/// async fn rapidoc_handler(_: tako::types::Request) -> `RapiDoc` {
-///     `RapiDoc`::new("/openapi.json")
+/// async fn rapidoc_handler(_: tako::types::Request) -> RapiDoc {
+///     RapiDoc::new("/openapi.json")
 ///         .title("My API")
 ///         .theme(RapiDocTheme::Dark)
 /// }
@@ -339,10 +339,10 @@ impl Responder for RapiDoc {
 /// # Examples
 ///
 /// ```rust,ignore
-/// use tako::openapi::ui::`Redoc`;
+/// use tako::openapi::ui::Redoc;
 ///
-/// async fn redoc_handler(_: tako::types::Request) -> `Redoc` {
-///     `Redoc`::new("/openapi.json")
+/// async fn redoc_handler(_: tako::types::Request) -> Redoc {
+///     Redoc::new("/openapi.json")
 ///         .title("My API")
 /// }
 /// ```

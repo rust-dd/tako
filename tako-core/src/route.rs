@@ -392,12 +392,12 @@ impl Route {
   /// # Examples
   ///
   /// ```rust,ignore
-  /// use tako::openapi::{OpenApiParameter, `ParameterLocation`};
+  /// use tako::openapi::{OpenApiParameter, ParameterLocation};
   ///
   /// router.route(Method::GET, "/users", list_users)
   ///     .parameter(OpenApiParameter {
   ///         name: "limit".to_string(),
-  ///         location: `ParameterLocation`::Query,
+  ///         location: ParameterLocation::Query,
   ///         description: Some("Maximum number of results".to_string()),
   ///         required: false,
   ///     });

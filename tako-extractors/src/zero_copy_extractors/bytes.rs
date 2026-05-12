@@ -70,10 +70,10 @@ pub struct BodySliceBorrowed<'a>(pub &'a [u8]);
 
 impl<'a> FromRequest<'a> for BodySliceBorrowed<'a> {
   /// Mirrors [`BytesBorrowed::Error`]. Previously this extractor returned
-  /// [`Infallible`] and swallowed a body-read failure by caching an empty
-  /// slice, which made downstream parsers report "empty body" for what was
-  /// really a transport-level error. Propagate the underlying read failure
-  /// so the caller can distinguish the two.
+  /// [`std::convert::Infallible`] and swallowed a body-read failure by caching
+  /// an empty slice, which made downstream parsers report "empty body" for
+  /// what was really a transport-level error. Propagate the underlying read
+  /// failure so the caller can distinguish the two.
   type Error = BytesReadError;
 
   fn from_request(

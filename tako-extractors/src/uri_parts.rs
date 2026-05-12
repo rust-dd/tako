@@ -9,8 +9,8 @@
 //!
 //! `Host` and `Scheme` honor `Forwarded` / `X-Forwarded-*` headers **only** when
 //! the connection's peer IP appears in a configured trusted-proxy list. Insert
-//! a [`UriPartsConfig`] into the application state (or request extensions) to
-//! enable that path. Without configuration the extractors fall back to the
+//! a `UriPartsConfig` (see [`UriPartsConfig`](crate::uri_parts::UriPartsConfig))
+//! into the application state (or request extensions) to enable that path. Without configuration the extractors fall back to the
 //! `Host` header and the transport-resolved scheme — never an attacker-supplied
 //! `X-Forwarded-Host`, which previously enabled cache-poisoning and open
 //! redirect classes when the server was directly reachable.

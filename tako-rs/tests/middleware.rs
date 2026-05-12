@@ -978,6 +978,7 @@ async fn tenant_extracted_from_header() {
   assert_eq!(body_str(resp).await, "acme");
 }
 
+#[cfg(feature = "plugins")]
 #[tokio::test]
 async fn compression_compresses_plain_response() {
   use tako::plugins::TakoPlugin;
@@ -1012,6 +1013,7 @@ async fn compression_compresses_plain_response() {
   );
 }
 
+#[cfg(feature = "plugins")]
 #[tokio::test]
 async fn compression_skips_when_request_authenticated() {
   use tako::plugins::TakoPlugin;
@@ -1046,6 +1048,7 @@ async fn compression_skips_when_request_authenticated() {
   );
 }
 
+#[cfg(feature = "plugins")]
 #[tokio::test]
 async fn compression_skips_when_response_sets_cookie() {
   use tako::plugins::TakoPlugin;
@@ -1078,6 +1081,7 @@ async fn compression_skips_when_response_sets_cookie() {
   );
 }
 
+#[cfg(feature = "plugins")]
 #[tokio::test]
 async fn compression_opt_out_of_crime_mitigation() {
   use tako::plugins::TakoPlugin;
