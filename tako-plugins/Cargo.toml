@@ -35,6 +35,7 @@ scc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
+sha2.workspace = true
 smallvec.workspace = true
 subtle.workspace = true
 tokio.workspace = true
@@ -57,7 +58,6 @@ prometheus = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
@@ -79,7 +79,7 @@ zstd = ["dep:zstd", "plugins"]
 # CIDR-aware IP filter middleware.
 ip-filter = ["dep:ipnet"]
 # HMAC signature verifier (Stripe / AWS-style request signing).
-hmac-signature = ["dep:hmac", "dep:sha2"]
+hmac-signature = ["dep:hmac"]
 # JSON-schema body validator middleware.
 json-schema = ["dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.

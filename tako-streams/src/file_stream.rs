@@ -219,6 +219,11 @@ where
     let meta = file.metadata().await?;
     let total_size = meta.len();
 
+    // Empty file: any byte range is unsatisfiable. Guard before computing
+    // `total_size - 1` so a zero-sized file does not underflow `u64`.
+    if total_size == 0 {
+      return Ok((StatusCode::RANGE_NOT_SATISFIABLE, "Range not satisfiable").into_response());
+    }
     if end == 0 {
       end = total_size - 1;
     }
@@ -241,6 +246,9 @@ where
     let data = compio::fs::read(&path).await?;
     let total_size = data.len() as u64;
 
+    if total_size == 0 {
+      return Ok((StatusCode::RANGE_NOT_SATISFIABLE, "Range not satisfiable").into_response());
+    }
     if end == 0 {
       end = total_size - 1;
     }
@@ -427,68 +435,17 @@ fn format_http_date(unix_secs: u64) -> String {
   )
 }
 
-/// Reverse of `format_http_date` accepting `IMF-fixdate` only. Returns the
-/// epoch second value or `None` for unsupported formats.
+/// Parse an HTTP-date header value into Unix epoch seconds.
+///
+/// Delegates to the `httpdate` crate which accepts every format RFC 9110
+/// §5.6.7 lists: IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`), RFC 850
+/// (`Sunday, 06-Nov-94 08:49:37 GMT`), and asctime (`Sun Nov 6 08:49:37 1994`).
+/// The previous hand-rolled IMF-fixdate-only parser rejected legitimate
+/// clients (Java/.NET defaults still emit RFC 850 in places) and forced the
+/// server to ship full bodies on `If-Modified-Since` despite a fresh cache.
 fn parse_http_date(header: &str) -> Option<u64> {
-  let header = header.trim();
-  // "Sun, 06 Nov 1994 08:49:37 GMT"
-  let bytes = header.as_bytes();
-  if bytes.len() < 29 {
-    return None;
-  }
-  let day: u64 = std::str::from_utf8(&bytes[5..7]).ok()?.parse().ok()?;
-  let month_str = std::str::from_utf8(&bytes[8..11]).ok()?;
-  let month = match month_str {
-    "Jan" => 1,
-    "Feb" => 2,
-    "Mar" => 3,
-    "Apr" => 4,
-    "May" => 5,
-    "Jun" => 6,
-    "Jul" => 7,
-    "Aug" => 8,
-    "Sep" => 9,
-    "Oct" => 10,
-    "Nov" => 11,
-    "Dec" => 12,
-    _ => return None,
-  };
-  let year: i64 = std::str::from_utf8(&bytes[12..16]).ok()?.parse().ok()?;
-  let h: u64 = std::str::from_utf8(&bytes[17..19]).ok()?.parse().ok()?;
-  let m: u64 = std::str::from_utf8(&bytes[20..22]).ok()?.parse().ok()?;
-  let s: u64 = std::str::from_utf8(&bytes[23..25]).ok()?.parse().ok()?;
-
-  let days = ymd_to_epoch_days(year, month, day as i64);
-  Some((days as u64) * 86400 + h * 3600 + m * 60 + s)
-}
-
-fn is_leap(y: i64) -> bool {
-  (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
-}
-
-fn ymd_to_epoch_days(year: i64, month: i64, day: i64) -> i64 {
-  let mut days: i64 = 0;
-  let cmp = |a: i64, b: i64| (a > b) as i64;
-
-  if year >= 1970 {
-    for y in 1970..year {
-      days += if is_leap(y) { 366 } else { 365 };
-    }
-  } else {
-    for y in year..1970 {
-      days -= if is_leap(y) { 366 } else { 365 };
-    }
-  }
-  let mdays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  for m in 1..month {
-    days += mdays[(m - 1) as usize];
-    if m == 2 && is_leap(year) {
-      days += 1;
-    }
-  }
-  days += day - 1;
-  let _ = cmp;
-  days
+  let st = httpdate::parse_http_date(header.trim()).ok()?;
+  st.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
 }
 
 fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {

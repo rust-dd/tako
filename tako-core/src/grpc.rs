@@ -118,6 +118,11 @@ pub enum GrpcError {
   InvalidFrame,
   /// Protobuf decoding failed.
   DecodeError(String),
+  /// Frame's compressed flag was set but the server does not advertise
+  /// any compression codec. Mapped to gRPC status `Unimplemented` per
+  /// the spec (https://grpc.io/docs/guides/wire/) so clients fall back
+  /// to uncompressed.
+  CompressionUnsupported,
 }
 
 impl Responder for GrpcError {
@@ -132,6 +137,10 @@ impl Responder for GrpcError {
       GrpcError::DecodeError(_) => (
         GrpcStatusCode::InvalidArgument,
         "failed to decode protobuf message",
+      ),
+      GrpcError::CompressionUnsupported => (
+        GrpcStatusCode::Unimplemented,
+        "frame is compressed but no codec is configured",
       ),
     };
 
@@ -173,7 +182,9 @@ where
         return Err(GrpcError::InvalidFrame);
       }
 
-      let _compressed = body_bytes[0];
+      if body_bytes[0] != 0 {
+        return Err(GrpcError::CompressionUnsupported);
+      }
       let msg_len =
         u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]]) as usize;
 
@@ -273,6 +284,9 @@ pub fn grpc_decode<T: Message + Default>(data: &[u8]) -> Result<(T, bool), GrpcE
   }
 
   let compressed = data[0] != 0;
+  if compressed {
+    return Err(GrpcError::CompressionUnsupported);
+  }
   let msg_len = u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
 
   if msg_len > MAX_GRPC_MESSAGE_SIZE {
@@ -514,7 +528,9 @@ where
           return Poll::Ready(Some(Err(GrpcError::InvalidFrame)));
         }
         if this.buffer.len() >= 5 + msg_len {
-          let _compressed = this.buffer[0];
+          if this.buffer[0] != 0 {
+            return Poll::Ready(Some(Err(GrpcError::CompressionUnsupported)));
+          }
           let payload = this.buffer.split_to(5 + msg_len);
           let msg_bytes = &payload[5..5 + msg_len];
           return match T::decode(msg_bytes) {

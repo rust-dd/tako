@@ -373,9 +373,14 @@ impl Queue {
 
     // Hold the pending lock across the check-and-insert so two concurrent
     // `push_dedup` callers cannot both observe "no duplicate" and then both
-    // enqueue their own copy of the job.
+    // enqueue their own copy of the job. Re-check `shutdown` inside the lock
+    // so a concurrent `shutdown()` (which itself grabs this lock around the
+    // flag flip) cannot slip in between the early check above and the push.
     let id = {
       let mut pending = self.inner.pending.lock();
+      if self.inner.shutdown.load(Ordering::SeqCst) {
+        return Err(QueueError::Shutdown);
+      }
       for j in pending.iter() {
         if j.dedup_key.as_deref() == Some(key.as_str()) {
           return Ok(j.id);
@@ -414,14 +419,23 @@ impl Queue {
 
     #[cfg(feature = "signals")]
     let job_name = name.clone();
-    self.inner.pending.lock().push_back(PendingJob {
-      id,
-      name,
-      payload: bytes,
-      attempt: 0,
-      run_after,
-      dedup_key: None,
-    });
+    {
+      let mut pending = self.inner.pending.lock();
+      // Re-check shutdown inside the lock — `shutdown()` flips the flag under
+      // the same lock, so this turns the check-and-push into an atomic test
+      // that cannot race with concurrent shutdown.
+      if self.inner.shutdown.load(Ordering::SeqCst) {
+        return Err(QueueError::Shutdown);
+      }
+      pending.push_back(PendingJob {
+        id,
+        name,
+        payload: bytes,
+        attempt: 0,
+        run_after,
+        dedup_key: None,
+      });
+    }
 
     self.inner.notify.notify_one();
     #[cfg(feature = "signals")]
@@ -475,7 +489,15 @@ impl Queue {
   /// Stops accepting new jobs and waits for in-flight jobs to complete
   /// (up to the given timeout).
   pub async fn shutdown(&self, timeout: Duration) {
-    self.inner.shutdown.store(true, Ordering::SeqCst);
+    // Acquire the pending lock before flipping the flag so any concurrent
+    // `push_inner` / `push_dedup` (which re-check `shutdown` while holding
+    // the same lock) reliably observes the flip and rejects with
+    // `QueueError::Shutdown` instead of silently enqueuing a job into a
+    // queue whose workers are about to exit.
+    {
+      let _guard = self.inner.pending.lock();
+      self.inner.shutdown.store(true, Ordering::SeqCst);
+    }
     // Wake all workers so they see the shutdown flag
     for _ in 0..self.inner.num_workers {
       self.inner.notify.notify_one();

@@ -384,16 +384,23 @@ impl SignalArbiter {
       let _ = sender.send(signal.clone());
     }
 
-    // Prefix subscribers: keys ending with '*'
+    // Prefix subscribers: keys ending with '*'.
+    // Snapshot matching senders before sending so the SCC entry locks are
+    // released by the time we deliver — even though `broadcast::Sender::send`
+    // is non-blocking, this also bounds inconsistency to the moment of the
+    // snapshot rather than spreading it across every per-entry send.
+    let mut targets: Vec<broadcast::Sender<Signal>> = Vec::new();
     self.inner.topics.iter_sync(|key, v| {
       if let Some(prefix) = key.strip_suffix('*')
         && signal.id.starts_with(prefix)
       {
-        let _ = v.send(signal.clone());
+        targets.push(v.clone());
       }
-
       true
     });
+    for sender in targets {
+      let _ = sender.send(signal.clone());
+    }
   }
 
   /// Subscribes using a filter function on top of an id-based subscription.

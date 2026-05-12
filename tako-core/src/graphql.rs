@@ -143,6 +143,7 @@ pub enum GraphQLError {
   BodyRead(String),
   InvalidJson(String),
   Parse(String),
+  UnsupportedMediaType(String),
 }
 
 /// Per-request or global options for GraphQL extraction.
@@ -166,8 +167,38 @@ impl Responder for GraphQLError {
       GraphQLError::Parse(e) => {
         (StatusCode::BAD_REQUEST, format!("Invalid request: {e}")).into_response()
       }
+      GraphQLError::UnsupportedMediaType(ct) => (
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        format!("Unsupported GraphQL content-type: {ct}"),
+      )
+        .into_response(),
     }
   }
+}
+
+/// Returns the GraphQL POST body media-type bucket if the request's
+/// `Content-Type` header advertises one async-graphql understands, or
+/// `Err(UnsupportedMediaType)` otherwise. Used to fail fast before buffering
+/// a body that the parser would reject anyway with a confusing message.
+fn classify_graphql_content_type(ct: Option<&str>) -> Result<GraphQLBodyKind, GraphQLError> {
+  let raw = ct.unwrap_or("").trim();
+  if raw.is_empty() {
+    return Err(GraphQLError::UnsupportedMediaType("<missing>".to_string()));
+  }
+  let essence = raw.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+  match essence.as_str() {
+    "application/json" => Ok(GraphQLBodyKind::Json),
+    "application/graphql" | "application/graphql-response+json" => Ok(GraphQLBodyKind::Graphql),
+    "multipart/form-data" => Ok(GraphQLBodyKind::Multipart),
+    _ => Err(GraphQLError::UnsupportedMediaType(raw.to_string())),
+  }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum GraphQLBodyKind {
+  Json,
+  Graphql,
+  Multipart,
 }
 
 /// Extracted WebSocket protocol for GraphQL subscriptions.
@@ -271,12 +302,17 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
       // Resolve MultipartOptions: request extensions -> global state -> default
       let opts = resolve_opts(req);
 
-      let body = read_body_bytes(req).await?;
       let content_type = req
         .headers()
         .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+      classify_graphql_content_type(content_type.as_deref())?;
+
+      let body = read_body_bytes(req).await?;
+      if body.is_empty() {
+        return Err(GraphQLError::Parse("empty request body".to_string()));
+      }
 
       let reader = futures_util::io::Cursor::new(body.to_vec());
       let req = async_graphql::http::receive_body(content_type.as_deref(), reader, opts)
@@ -326,12 +362,16 @@ pub async fn receive_graphql_batch(
     let single = parse_get_request(req)?;
     return Ok(GqlBatchRequest::Single(single));
   }
-  let body = read_body_bytes(req).await?;
   let content_type = req
     .headers()
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
     .map(|s| s.to_string());
+  classify_graphql_content_type(content_type.as_deref())?;
+  let body = read_body_bytes(req).await?;
+  if body.is_empty() {
+    return Err(GraphQLError::Parse("empty request body".to_string()));
+  }
   let reader = futures_util::io::Cursor::new(body.to_vec());
   async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
     .await
@@ -354,12 +394,16 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
       // Resolve MultipartOptions: request extensions -> global state -> default
       let opts = resolve_opts(req);
 
-      let body = read_body_bytes(req).await?;
       let content_type = req
         .headers()
         .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
+      classify_graphql_content_type(content_type.as_deref())?;
+      let body = read_body_bytes(req).await?;
+      if body.is_empty() {
+        return Err(GraphQLError::Parse("empty request body".to_string()));
+      }
       let reader = futures_util::io::Cursor::new(body.to_vec());
       let batch = async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
         .await

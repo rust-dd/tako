@@ -87,9 +87,32 @@ where
 /// Starts a raw TCP server with a shutdown signal (tokio runtime).
 ///
 /// The server stops accepting new connections when the shutdown signal completes.
-/// In-flight connections are drained with a 30 second timeout.
+/// In-flight connections are drained with a 30 second timeout. Use
+/// [`serve_tcp_with_shutdown_and_drain`] to override this bound.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_tcp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::TcpStream,
+      SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30))
+    .await
+}
+
+/// Same as [`serve_tcp_with_shutdown`] but with an explicit drain timeout.
+#[cfg(not(feature = "compio"))]
+pub async fn serve_tcp_with_shutdown_and_drain<F, S>(
+  addr: &str,
+  handler: F,
+  signal: S,
+  drain_timeout: std::time::Duration,
+) -> std::io::Result<()>
 where
   F: Fn(
       tokio::net::TcpStream,
@@ -128,8 +151,7 @@ where
     }
   }
 
-  // Drain in-flight connections with timeout
-  let drain_timeout = std::time::Duration::from_secs(30);
+  // Drain in-flight connections with the caller-supplied timeout
   let _ = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
@@ -176,6 +198,24 @@ where
     + 'static,
   S: Future<Output = ()> + 'static,
 {
+  serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30)).await
+}
+
+/// Same as [`serve_tcp_with_shutdown`] but with an explicit drain timeout.
+#[cfg(feature = "compio")]
+pub async fn serve_tcp_with_shutdown_and_drain<F, S>(
+  addr: &str,
+  handler: F,
+  signal: S,
+  drain_timeout: std::time::Duration,
+) -> std::io::Result<()>
+where
+  F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + 'static,
+{
   use std::sync::atomic::AtomicUsize;
   use std::sync::atomic::Ordering;
 
@@ -207,9 +247,12 @@ where
           if let Err(e) = handler(stream, peer_addr).await {
             tracing::error!("TCP connection error from {peer_addr}: {e}");
           }
-          if inflight.fetch_sub(1, Ordering::SeqCst) == 1 {
-            drain_notify.notify_one();
-          }
+          inflight.fetch_sub(1, Ordering::SeqCst);
+          // Use `notify_waiters` (not `notify_one`) for consistency with the
+          // other accept-loops in this crate; pair it with a re-check loop on
+          // the drain side so we cannot miss the wake registered between
+          // `inflight.load()` and `notified().await`.
+          drain_notify.notify_waiters();
         })
         .detach();
       }
@@ -223,10 +266,21 @@ where
     }
   }
 
-  // Wait for in-flight connections
-  if inflight.load(Ordering::SeqCst) > 0 {
-    let drain_timeout = std::time::Duration::from_secs(30);
-    let _ = compio::time::timeout(drain_timeout, drain_notify.notified()).await;
+  // Drain in-flight connections — re-check `inflight` after every wake and
+  // bail when the overall deadline elapses, mirroring `server_compio.rs`.
+  let drain_deadline = std::time::Instant::now() + drain_timeout;
+  while inflight.load(Ordering::SeqCst) > 0 {
+    let now = std::time::Instant::now();
+    if now >= drain_deadline {
+      break;
+    }
+    let remaining = drain_deadline - now;
+    if compio::time::timeout(remaining, drain_notify.notified())
+      .await
+      .is_err()
+    {
+      break;
+    }
   }
 
   Ok(())

@@ -49,12 +49,35 @@ struct State {
   opened_at: Mutex<Option<Instant>>,
   /// Whether a half-open probe is currently in flight (one at a time).
   probe_in_flight: AtomicU8,
+  /// Start of the current accounting window. Counts reset to zero each
+  /// time the window rolls over so a long-running closed breaker doesn't
+  /// dilute its failure ratio with months-old data.
+  window_start: Mutex<Option<Instant>>,
 }
 
 impl State {
   fn reset_window(&self) {
     self.successes.store(0, Ordering::Relaxed);
     self.failures.store(0, Ordering::Relaxed);
+    *self.window_start.lock() = Some(Instant::now());
+  }
+
+  /// Tumbling-window roll-over. Called before each accounting update in the
+  /// closed/half-open paths so the failure ratio observes only the most
+  /// recent `window_duration` of traffic.
+  fn maybe_roll_window(&self, window_duration: Duration) {
+    let now = Instant::now();
+    let mut start_guard = self.window_start.lock();
+    let should_roll = match *start_guard {
+      Some(start) => now.duration_since(start) >= window_duration,
+      None => true,
+    };
+    if should_roll {
+      *start_guard = Some(now);
+      drop(start_guard);
+      self.successes.store(0, Ordering::Relaxed);
+      self.failures.store(0, Ordering::Relaxed);
+    }
   }
 }
 
@@ -73,6 +96,9 @@ pub struct CircuitBreaker {
   open_status: StatusCode,
   /// `Retry-After` header value (seconds) appended on rejection.
   retry_after_secs: u32,
+  /// Length of the tumbling failure-ratio window. Counters reset on each
+  /// roll-over so a closed breaker doesn't dilute its ratio with old data.
+  window: Duration,
   /// Keys requests for separate breakers.
   key_fn: KeyFn,
   /// Decides whether a response counts as a failure.
@@ -89,7 +115,7 @@ impl Default for CircuitBreaker {
 
 impl CircuitBreaker {
   /// Creates a breaker with sensible defaults: trip at 50% failures over the
-  /// last 20 requests, cool down for 30s.
+  /// last 20 requests (within a 60s window), cool down for 30s.
   pub fn new() -> Self {
     Self {
       min_requests: 20,
@@ -97,10 +123,17 @@ impl CircuitBreaker {
       cool_down: Duration::from_secs(30),
       open_status: StatusCode::SERVICE_UNAVAILABLE,
       retry_after_secs: 30,
+      window: Duration::from_secs(60),
       key_fn: Arc::new(|req: &Request| req.uri().path().to_string()),
       classifier: Arc::new(|resp: &Response| resp.status().is_server_error()),
       states: Arc::new(SccHashMap::new()),
     }
+  }
+
+  /// Sets the tumbling window length over which failures are counted.
+  pub fn window(mut self, d: Duration) -> Self {
+    self.window = d.max(Duration::from_secs(1));
+    self
   }
 
   /// Sets the minimum sample size before the breaker can open.
@@ -176,6 +209,7 @@ impl IntoMiddleware for CircuitBreaker {
     let cool_down = self.cool_down;
     let open_status = self.open_status;
     let retry_after_secs = self.retry_after_secs;
+    let window = self.window;
     let key_fn = self.key_fn;
     let classifier = self.classifier;
     let states = self.states;
@@ -233,6 +267,13 @@ impl IntoMiddleware for CircuitBreaker {
         if cur == STATE_HALF_OPEN {
           state.probe_in_flight.store(0, Ordering::Release);
         }
+
+        // Tumbling window: zero the counters when the current window has
+        // elapsed so a long-running closed breaker compares the failure
+        // ratio against recent traffic, not against accumulated history.
+        // The roll-over only fires in the closed/half-open accounting
+        // branches — open-state never updates these counters.
+        state.maybe_roll_window(window);
 
         if failed {
           let f = state.failures.fetch_add(1, Ordering::Relaxed) + 1;

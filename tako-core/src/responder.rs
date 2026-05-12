@@ -249,30 +249,29 @@ impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
   }
 }
 
-impl<T> Responder for anyhow::Result<T>
-where
-  T: Responder,
-{
+impl Responder for anyhow::Error {
   fn into_response(self) -> Response {
-    match self {
-      Ok(ok) => ok.into_response(),
-      Err(err) => {
-        let mut res = Response::new(TakoBody::from(err.to_string()));
-        *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-        res.headers_mut().insert(
-          http::header::CONTENT_TYPE,
-          HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
-        );
-        res
-      }
-    }
+    let mut res = Response::new(TakoBody::from(self.to_string()));
+    *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+    res.headers_mut().insert(
+      http::header::CONTENT_TYPE,
+      HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
+    );
+    res
   }
 }
+
+impl ResponderError for anyhow::Error {}
 
 /// Native `Result<R, E>` support for handler returns where both arms implement
 /// [`Responder`]. The `Ok` value renders normally; the `Err` value is rendered
 /// via its own [`Responder`] impl so error types stay typed instead of being
 /// forced through a single panic-or-string path.
+///
+/// `anyhow::Result<T>` is `Result<T, anyhow::Error>` and falls into this blanket
+/// via the [`Responder`]/[`ResponderError`] impls on [`anyhow::Error`] just above.
+/// There is intentionally only one `Result<_, _>` blanket so future changes cannot
+/// introduce overlap between two specialised impls.
 impl<T, E> Responder for Result<T, E>
 where
   T: Responder,
@@ -290,8 +289,6 @@ where
 /// handler-returned `Result<_, E>`.
 ///
 /// Implement [`Responder`] on your error type, then add `impl ResponderError for MyErr {}`
-/// to make it usable as `Result<_, MyErr>`. The marker prevents the blanket
-/// `Result<_, E>` impl from colliding with [`Responder for anyhow::Result<T>`]
-/// — `anyhow::Error` does not implement `ResponderError`, so the dedicated
-/// `anyhow::Result<T>` impl above keeps applying to `anyhow`-flavoured handlers.
+/// to make it usable as `Result<_, MyErr>`. `anyhow::Error` already implements both,
+/// so `anyhow::Result<T>` works out of the box.
 pub trait ResponderError: Responder {}

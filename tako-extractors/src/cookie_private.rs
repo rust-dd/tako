@@ -32,7 +32,6 @@ use cookie::CookieJar;
 use cookie::Key;
 use http::HeaderMap;
 use http::StatusCode;
-use http::header::COOKIE;
 use http::request::Parts;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
@@ -134,14 +133,7 @@ impl CookiePrivate {
   /// Creates a `CookiePrivate` instance from HTTP headers and a master key.
   pub fn from_headers(headers: &HeaderMap, key: Key) -> Self {
     let mut jar = CookieJar::new();
-
-    if let Some(cookie_header) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) {
-      for cookie_str in cookie_header.split(';') {
-        if let Ok(cookie) = Cookie::parse(cookie_str.trim()) {
-          jar.add_original(cookie.into_owned());
-        }
-      }
-    }
+    crate::cookie_jar::fill_jar_from_header(&mut jar, headers);
 
     Self {
       jar,

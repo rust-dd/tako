@@ -114,8 +114,15 @@ where
   T: DeserializeOwned,
 {
   /// Extracts and deserializes query parameters from a URI query string.
+  ///
+  /// **Repeated keys**: `serde_urlencoded` uses last-write-wins, so a query
+  /// like `?a=1&a=2` deserializes `a = 2` and silently drops the earlier
+  /// value. Use [`QueryMulti`](crate::query_multi::QueryMulti) when repeated
+  /// keys must be preserved.
   fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
-    let query = query_string.unwrap_or_default();
+    let Some(query) = query_string else {
+      return Err(QueryError::MissingQueryString);
+    };
 
     let query_data = serde_urlencoded::from_str::<T>(query)
       .map_err(|e| QueryError::DeserializationError(e.to_string()))?;

@@ -159,14 +159,36 @@ struct StoredIdempotency {
 }
 
 /// In-memory idempotency cache.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct MemoryIdempotencyStore {
   inner: Arc<SccHashMap<String, StoredIdempotency>>,
+  inflight_ttl: Duration,
+}
+
+impl Default for MemoryIdempotencyStore {
+  fn default() -> Self {
+    Self {
+      inner: Arc::new(SccHashMap::new()),
+      // Long enough to outlive a typical synchronous handler but short
+      // enough to drop crashed in-flight entries before they leak. Override
+      // with `with_inflight_ttl` for slow uploads / long-running handlers.
+      inflight_ttl: Duration::from_secs(300),
+    }
+  }
 }
 
 impl MemoryIdempotencyStore {
   pub fn new() -> Self {
     Self::default()
+  }
+
+  /// Override the TTL used for in-flight `begin` entries. Default 300s.
+  /// Set this to be at least as long as the slowest handler that may
+  /// register an idempotency key — anything shorter risks an in-flight
+  /// entry expiring before the handler completes, breaking coalescing.
+  pub fn with_inflight_ttl(mut self, ttl: Duration) -> Self {
+    self.inflight_ttl = ttl;
+    self
   }
 }
 
@@ -190,7 +212,7 @@ impl IdempotencyStore for MemoryIdempotencyStore {
     };
     let stored = StoredIdempotency {
       entry: entry.clone(),
-      expires_at: Instant::now() + Duration::from_secs(60),
+      expires_at: Instant::now() + self.inflight_ttl,
     };
     let _ = self.inner.upsert_async(key.to_string(), stored).await;
     entry
@@ -293,9 +315,21 @@ impl CsrfTokenStore for MemoryCsrfTokenStore {
       return false;
     }
     if single_use {
-      let prev = record.uses_left.fetch_sub(1, Ordering::AcqRel);
-      if prev == 0 {
-        return false;
+      // CAS decrement: `fetch_sub(1)` on a zero counter underflows to
+      // `u32::MAX`, which would silently re-arm the credential. Loop with
+      // `compare_exchange` so we only consume an actually-positive count.
+      loop {
+        let cur = record.uses_left.load(Ordering::Acquire);
+        if cur == 0 {
+          return false;
+        }
+        if record
+          .uses_left
+          .compare_exchange(cur, cur - 1, Ordering::AcqRel, Ordering::Acquire)
+          .is_ok()
+        {
+          break;
+        }
       }
     }
     true

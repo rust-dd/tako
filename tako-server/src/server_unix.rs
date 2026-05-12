@@ -139,11 +139,32 @@ where
 /// Starts a raw Unix domain socket server with a shutdown signal.
 ///
 /// The server stops accepting new connections when the shutdown signal completes.
-/// In-flight connections are drained with a 30 second timeout.
+/// In-flight connections are drained with a 30 second timeout. Use
+/// [`serve_unix_with_shutdown_and_drain`] to override this bound.
 pub async fn serve_unix_with_shutdown<F, S>(
   path: impl AsRef<Path>,
   handler: F,
   signal: S,
+) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::UnixStream,
+      tokio::net::unix::SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  serve_unix_with_shutdown_and_drain(path, handler, signal, Duration::from_secs(30)).await
+}
+
+/// Same as [`serve_unix_with_shutdown`] but with an explicit drain timeout.
+pub async fn serve_unix_with_shutdown_and_drain<F, S>(
+  path: impl AsRef<Path>,
+  handler: F,
+  signal: S,
+  drain_timeout: Duration,
 ) -> std::io::Result<()>
 where
   F: Fn(
@@ -183,7 +204,6 @@ where
     }
   }
 
-  let drain_timeout = Duration::from_secs(30);
   let _ = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
@@ -378,10 +398,12 @@ async fn run_http(
 /// runtime worker isn't blocked by the previous synchronous `connect()`
 /// while another peer's accept queue is draining.
 ///
-/// Note: this remains TOCTOU-prone between two parallel `bind` attempts —
-/// the connect-then-remove-then-bind sequence allows a sibling process to
-/// race in between. Callers that need stronger guarantees should arrange
-/// out-of-band coordination (file lock, supervisor sequencing).
+/// **Concurrency**: a sibling process may remove the same stale file in
+/// parallel. The kernel's `bind(2)` is the authoritative race-resolver — it
+/// rejects the second binder with `EADDRINUSE`. This helper therefore treats
+/// a `remove_file` that races against a sibling (`NotFound`) as success and
+/// lets the caller proceed to `bind`. For stronger guarantees use an
+/// out-of-band lock (supervisor sequencing, advisory file lock).
 async fn cleanup_stale_socket(path: &Path) -> std::io::Result<()> {
   if !path.exists() {
     return Ok(());
@@ -391,9 +413,12 @@ async fn cleanup_stale_socket(path: &Path) -> std::io::Result<()> {
       std::io::ErrorKind::AddrInUse,
       format!("Unix socket {} is already in use", path.display()),
     )),
-    Err(_) => {
-      std::fs::remove_file(path)?;
-      Ok(())
-    }
+    Err(_) => match std::fs::remove_file(path) {
+      Ok(()) => Ok(()),
+      // Another process removed the same stale file between our `exists()`
+      // probe and the unlink syscall — bind() will resolve the rest.
+      Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+      Err(e) => Err(e),
+    },
   }
 }

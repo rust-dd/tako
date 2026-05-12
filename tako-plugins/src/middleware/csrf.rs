@@ -148,9 +148,48 @@ fn extract_cookie<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
 }
 
 fn origin_allowed(value: &str, allow: &[String]) -> bool {
-  // Match by exact scheme://host[:port] prefix, ignoring path.
-  let target = value.splitn(4, '/').take(3).collect::<Vec<_>>().join("/");
-  allow.iter().any(|o| o == &target)
+  // Match by normalized scheme://host[:port] — lowercase scheme/host, drop
+  // default ports, drop any path/query that leaked into the header. The byte-
+  // equality version we used previously rejected `https://EXAMPLE.com` vs
+  // `https://example.com:443/` even when both should match, and worse, let a
+  // case-mismatched allow-list entry bypass the comparison entirely.
+  let target = normalize_origin(value);
+  if target.is_empty() {
+    return false;
+  }
+  allow.iter().any(|o| normalize_origin(o) == target)
+}
+
+/// Normalises an Origin / Referer header (or an allow-list entry) into
+/// `scheme://host[:port]` with lowercase scheme + host and default ports
+/// dropped. Returns an empty string when parsing fails. Mirrors the helper
+/// in `tako-streams::ws` so the two CORS-style checks stay consistent.
+fn normalize_origin(raw: &str) -> String {
+  let raw = raw.trim();
+  if raw.is_empty() || raw.eq_ignore_ascii_case("null") {
+    return String::new();
+  }
+  let Some((scheme, rest)) = raw.split_once("://") else {
+    return String::new();
+  };
+  let scheme = scheme.to_ascii_lowercase();
+  let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+  let (host, port) = match authority.rsplit_once(':') {
+    Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => (h, Some(p)),
+    _ => (authority, None),
+  };
+  let host = host.to_ascii_lowercase();
+  let default_port = matches!(
+    (scheme.as_str(), port),
+    ("http", Some("80")) | ("https", Some("443"))
+  );
+  if let Some(p) = port
+    && !default_port
+  {
+    format!("{scheme}://{host}:{p}")
+  } else {
+    format!("{scheme}://{host}")
+  }
 }
 
 fn build_cookie(name: &str, token: &str, secure: bool, same_site: SameSite) -> String {
@@ -212,7 +251,18 @@ impl IntoMiddleware for Csrf {
         let exempt = exempt_paths.iter().any(|p| path.starts_with(p.as_str()));
         if safe_method || exempt {
           let mut resp = next.run(req).await;
-          let seed = req_session_token(&resp);
+          // If the handler called `Session::rotate()` we must mint a fresh
+          // CSRF token to invalidate any stolen pair from the pre-rotation
+          // identity. Otherwise a privilege transition (login, role change)
+          // would leave the CSRF cookie usable against the new session id.
+          let rotated = session
+            .as_ref()
+            .is_some_and(|s| s.rotation_requested());
+          let seed = if rotated {
+            None
+          } else {
+            req_session_token(&resp)
+          };
           ensure_csrf_cookie(
             &mut resp,
             &cookie_name,
@@ -262,6 +312,14 @@ impl IntoMiddleware for Csrf {
 
         if cookie_header_match && session_match {
           let mut resp = next.run(req).await;
+          let rotated = session
+            .as_ref()
+            .is_some_and(|s| s.rotation_requested());
+          let preferred = if rotated {
+            None
+          } else {
+            session_token.or(cookie_token)
+          };
           ensure_csrf_cookie(
             &mut resp,
             &cookie_name,
@@ -269,7 +327,7 @@ impl IntoMiddleware for Csrf {
             same_site,
             &session_key,
             bind_to_session,
-            &session_token.or(cookie_token),
+            &preferred,
             session.as_ref(),
           );
           return resp;
@@ -301,6 +359,14 @@ impl IntoMiddleware for Csrf {
 
         if trust_hit {
           let mut resp = next.run(req).await;
+          let rotated = session
+            .as_ref()
+            .is_some_and(|s| s.rotation_requested());
+          let preferred = if rotated {
+            None
+          } else {
+            session_token.or(cookie_token)
+          };
           ensure_csrf_cookie(
             &mut resp,
             &cookie_name,
@@ -308,7 +374,7 @@ impl IntoMiddleware for Csrf {
             same_site,
             &session_key,
             bind_to_session,
-            &session_token.or(cookie_token),
+            &preferred,
             session.as_ref(),
           );
           return resp;

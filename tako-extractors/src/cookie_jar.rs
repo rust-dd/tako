@@ -34,6 +34,20 @@ use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::types::Request;
 
+/// Shared `Cookie:` header parser: pulls every well-formed cookie out of the
+/// `Cookie:` header on `headers` and registers it as an *original* entry on
+/// `jar`. Centralised because the same logic was previously inlined verbatim
+/// in `cookie_jar`, `cookie_signed`, and `cookie_private`.
+pub(crate) fn fill_jar_from_header(jar: &mut RawJar, headers: &HeaderMap) {
+  if let Some(val) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) {
+    for s in val.split(';') {
+      if let Ok(c) = Cookie::parse(s.trim()) {
+        jar.add_original(c.into_owned());
+      }
+    }
+  }
+}
+
 /// A wrapper around the `cookie::CookieJar` that provides methods for managing cookies
 /// in HTTP requests and responses.
 ///
@@ -71,15 +85,7 @@ impl CookieJar {
   /// Initializes a `CookieJar` instance from the `Cookie` header in the provided HTTP headers.
   pub fn from_headers(headers: &HeaderMap) -> Self {
     let mut jar = RawJar::new();
-
-    if let Some(val) = headers.get(COOKIE).and_then(|v| v.to_str().ok()) {
-      for s in val.split(';') {
-        if let Ok(c) = Cookie::parse(s.trim()) {
-          jar.add_original(c.into_owned());
-        }
-      }
-    }
-
+    fill_jar_from_header(&mut jar, headers);
     Self(jar)
   }
 
@@ -89,8 +95,24 @@ impl CookieJar {
   }
 
   /// Deletes a cookie from the `CookieJar` by its name.
+  ///
+  /// Copies the existing cookie's `Path` and `Domain` attributes into the
+  /// removal marker when present so the browser actually invalidates the
+  /// original cookie. Without this the emitted `Set-Cookie: name=;
+  /// Max-Age=0` is rooted at the request path and leaves an identically-
+  /// named cookie on `/another/path` (or on the apex domain) in place.
   pub fn remove(&mut self, name: &str) {
-    self.0.remove(Cookie::from(name.to_owned()));
+    let owned_name = name.to_owned();
+    let mut marker = Cookie::from(owned_name);
+    if let Some(existing) = self.0.get(name) {
+      if let Some(path) = existing.path() {
+        marker.set_path(path.to_owned());
+      }
+      if let Some(domain) = existing.domain() {
+        marker.set_domain(domain.to_owned());
+      }
+    }
+    self.0.remove(marker);
   }
 
   /// Fetches a cookie from the `CookieJar` by its name.

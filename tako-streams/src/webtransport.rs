@@ -58,22 +58,26 @@ const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A raw QUIC session.
 ///
-/// Despite the name, this is **not** a W3C WebTransport session — see the
-/// module-level docs for the trust model. The session exposes
-/// bi/unidirectional streams and unreliable datagrams from the underlying
-/// `quinn::Connection`.
-pub struct WebTransportSession {
+/// Raw QUIC session. **Not** a W3C WebTransport session — see the
+/// module-level docs for the trust model. Exposes bi/unidirectional streams
+/// and unreliable datagrams from the underlying `quinn::Connection`.
+pub struct RawQuicSession {
   conn: quinn::Connection,
 }
 
-/// Alias that names this for what it actually is — a raw QUIC session.
+/// Deprecated name for [`RawQuicSession`] kept for source compatibility.
 ///
-/// Prefer this name in new code so the lack of W3C WebTransport handshake
-/// stays visible at the call site. `WebTransportSession` is kept as an alias
-/// for source compatibility.
-pub type RawQuicSession = WebTransportSession;
+/// The original name suggested a W3C WebTransport handshake that this type
+/// does not perform — only the underlying QUIC connection. New code should
+/// refer to `RawQuicSession` directly so the trust boundary stays visible at
+/// the call site.
+#[deprecated(
+  since = "1.2.0",
+  note = "name was misleading: this is a raw QUIC session, not a W3C WebTransport session. Use `RawQuicSession`."
+)]
+pub type WebTransportSession = RawQuicSession;
 
-impl WebTransportSession {
+impl RawQuicSession {
   /// Creates a new session from a QUIC connection.
   pub fn new(conn: quinn::Connection) -> Self {
     Self { conn }
@@ -129,9 +133,9 @@ impl WebTransportSession {
   }
 }
 
-/// Handler function type for WebTransport sessions.
+/// Handler function type for raw QUIC sessions.
 pub type WebTransportHandler =
-  Arc<dyn Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+  Arc<dyn Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Starts a WebTransport server on the given address.
 ///
@@ -139,7 +143,7 @@ pub type WebTransportHandler =
 /// dispatched to the handler.
 pub async fn serve_webtransport<F>(addr: &str, cert_path: &str, key_path: &str, handler: F)
 where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+  F: Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
 {
   if let Err(e) = run(
     addr,
@@ -162,7 +166,7 @@ pub async fn serve_webtransport_with_shutdown<F, S>(
   handler: F,
   signal: S,
 ) where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+  F: Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
   if let Err(e) = run(addr, cert_path, key_path, handler, Some(signal)).await {
@@ -178,7 +182,7 @@ async fn run<F>(
   signal: Option<impl Future<Output = ()>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
-  F: Fn(WebTransportSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
+  F: Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
 {
   // Use the consolidated PEM loaders from tako-core::tls so this crate does
   // not reach across into another transport crate's private surface.
@@ -235,7 +239,7 @@ where
             Ok(conn) => {
               let remote = conn.remote_address();
               tracing::debug!("WebTransport connection from {remote}");
-              let session = WebTransportSession::new(conn);
+              let session = RawQuicSession::new(conn);
               handler(session).await;
               tracing::debug!("WebTransport session closed: {remote}");
             }

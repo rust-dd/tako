@@ -171,7 +171,24 @@ impl RateLimiterBuilder {
     self
   }
 
+  /// Build the plugin.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `refill_rate == 0`. A zero rate poisons the GCRA path
+  /// (`rate_per_sec=0` → division-by-zero → `INFINITY`/`NaN` arithmetic that
+  /// silently bypasses the limiter) and is also nonsensical for the token
+  /// bucket (the bucket would never refill). Use a deliberately tiny rate
+  /// like `1` with a long `refill_interval` if you want hard throttling.
   pub fn build(self) -> RateLimiterPlugin {
+    assert!(
+      self.cfg.refill_rate > 0,
+      "RateLimiter::refill_rate must be > 0 (zero rate produces INFINITY in GCRA)"
+    );
+    assert!(
+      self.cfg.refill_interval_ms > 0,
+      "RateLimiter::refill_interval_ms must be > 0 (zero interval is divide-by-zero)"
+    );
     RateLimiterPlugin {
       cfg: self.cfg,
       key_fn: self.key_fn,
@@ -399,6 +416,11 @@ async fn handle(
         last_refill: Instant::now(),
       })
     });
+    // `parking_lot::Mutex` (sync lock) is deliberate here: we hold it across
+    // a strictly synchronous `evaluate` call and never `.await` under the
+    // guard. A `tokio::sync::Mutex` would force this hot path through a
+    // Notify-backed wait list with no contention benefit, and would prevent
+    // running the limiter outside an async runtime context.
     let mut bucket = entry.get().lock();
     evaluate(&cfg, &mut bucket, Instant::now())
   };

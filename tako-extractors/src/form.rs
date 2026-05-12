@@ -157,13 +157,18 @@ where
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Check content type
+      // Check content type. `starts_with` matches both the bare media type
+      // and the common `; charset=utf-8` variant; the zero-copy `FormBorrowed`
+      // already used the looser check, so anchoring both extractors at the
+      // same string keeps clients from getting random InvalidContentType
+      // rejects based on which extractor a route picked.
       let content_type = req
         .headers()
         .get(http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok());
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
 
-      if content_type != Some("application/x-www-form-urlencoded") {
+      if !content_type.starts_with("application/x-www-form-urlencoded") {
         return Err(FormError::InvalidContentType);
       }
 

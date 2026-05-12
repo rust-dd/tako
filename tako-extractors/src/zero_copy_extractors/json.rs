@@ -22,22 +22,26 @@ where
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       // Collect the body once and cache it in request extensions so the parsed
-      // value can borrow from it for the lifetime of the request.
-      if req.extensions().get::<Bytes>().is_none() {
+      // value can borrow from it for the lifetime of the request. Keyed by the
+      // `CachedRequestBody` newtype to avoid colliding with other middleware
+      // that might stash a raw `Bytes` value in extensions.
+      use crate::zero_copy_extractors::bytes::CachedRequestBody;
+      if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = req
           .body_mut()
           .collect()
           .await
           .map_err(|e| JsonError::BodyReadError(e.to_string()))?
           .to_bytes();
-        req.extensions_mut().insert(buf);
+        req.extensions_mut().insert(CachedRequestBody(buf));
       }
 
       // SAFETY: We just inserted it above if it was missing.
-      let body_bytes: &'a Bytes = req
+      let body_bytes: &'a Bytes = &req
         .extensions()
-        .get::<Bytes>()
-        .expect("body bytes must be present in request extensions");
+        .get::<CachedRequestBody>()
+        .expect("body bytes must be present in request extensions")
+        .0;
 
       let value = serde_json::from_slice::<T>(body_bytes.as_ref())
         .map_err(|e| JsonError::DeserializationError(e.to_string()))?;

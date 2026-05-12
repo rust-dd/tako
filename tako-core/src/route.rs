@@ -466,7 +466,15 @@ impl Route {
   ///     .timeout(Duration::from_secs(60));
   /// ```
   pub fn timeout(&self, duration: Duration) -> &Self {
-    let _ = self.timeout.set(duration);
+    if let Err(_existing) = self.timeout.set(duration) {
+      tracing::warn!(
+        path = %self.path,
+        method = ?self.method,
+        existing_ms = self.timeout.get().copied().unwrap_or_default().as_millis() as u64,
+        requested_ms = duration.as_millis() as u64,
+        "Route::timeout called twice; subsequent calls are ignored (OnceLock first-wins)",
+      );
+    }
     self
   }
 

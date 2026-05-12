@@ -165,11 +165,16 @@ async fn query_missing_required_field() {
 
   let result = Query::<SearchQuery>::from_request(&mut req).await;
   match result {
-    Err(QueryError::DeserializationError(_)) => {
-      let resp = QueryError::DeserializationError("test".into()).into_response();
+    // Pre-M31: a URI with no query string used to round-trip an empty `""`
+    // into `serde_urlencoded::from_str`, which surfaced as
+    // `DeserializationError`. After M31 the absence of a query string is
+    // reported explicitly as `MissingQueryString` so the caller can
+    // distinguish "no query supplied" from "query failed to parse".
+    Err(QueryError::MissingQueryString) => {
+      let resp = QueryError::MissingQueryString.into_response();
       assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
-    _ => panic!("expected DeserializationError"),
+    _ => panic!("expected MissingQueryString"),
   }
 }
 

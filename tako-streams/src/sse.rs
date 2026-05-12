@@ -341,12 +341,32 @@ where
 /// `Last-Event-ID` request header helper.
 ///
 /// Handlers building an SSE stream can call this to honor client-side
-/// reconnection ranges. Returns the trimmed header value when present.
+/// reconnection ranges. Returns the trimmed header value when present and
+/// well-formed UTF-8. Use [`last_event_id_bytes`] when the application
+/// emits non-UTF-8 ids (e.g. binary cursors) so they round-trip through
+/// reconnects intact.
 pub fn last_event_id(headers: &http::HeaderMap) -> Option<String> {
   headers
     .get("last-event-id")
     .and_then(|v| v.to_str().ok())
     .map(|s| s.trim().to_string())
+}
+
+/// Byte-preserving variant of [`last_event_id`].
+///
+/// Returns the raw header bytes (with surrounding ASCII whitespace trimmed)
+/// regardless of UTF-8 validity. Useful when the server emits opaque binary
+/// cursors as `id:` values — the UTF-8-only helper silently drops those on
+/// reconnect, breaking event continuity.
+pub fn last_event_id_bytes(headers: &http::HeaderMap) -> Option<Vec<u8>> {
+  let bytes = headers.get("last-event-id")?.as_bytes();
+  let start = bytes.iter().position(|b| !b.is_ascii_whitespace())?;
+  let end = bytes
+    .iter()
+    .rposition(|b| !b.is_ascii_whitespace())
+    .map(|i| i + 1)
+    .unwrap_or(start);
+  Some(bytes[start..end].to_vec())
 }
 
 #[cfg(test)]

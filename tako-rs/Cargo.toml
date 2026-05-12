@@ -71,7 +71,10 @@ async-graphql = ["tako-core/async-graphql"]
 graphiql = ["tako-core/graphiql"]
 grpc = ["tako-core/grpc"]
 utoipa = ["tako-core/utoipa"]
-utoipa-yaml = ["tako-core/utoipa-yaml"]
+# `utoipa-yaml` implies `utoipa` (here and in `tako-core`) so the
+# `tako::openapi` re-export — gated on `any(utoipa, vespera)` — stays
+# visible whenever the YAML-only feature is enabled.
+utoipa-yaml = ["utoipa", "tako-core/utoipa-yaml"]
 vespera = ["tako-core/vespera"]
 tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
 zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]

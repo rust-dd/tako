@@ -97,6 +97,14 @@ pub struct Router {
   /// Map of registered routes keyed by method (O(1) array lookup).
   inner: MethodMap<matchit::Router<Arc<Route>>>,
   /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values.
+  ///
+  /// Holds `Weak<Route>` (not `Arc`) so an external holder of an `Arc<Route>`
+  /// returned from [`Router::route`] can release it without keeping the router
+  /// graph alive past its useful lifetime. All current code paths that store a
+  /// `Weak` here also store the matching `Arc` in `inner`, so upgrades always
+  /// succeed today; [`Router::compact_routes`] sweeps dangling weaks lazily so
+  /// any future API that removes from `inner` does not cause this index to
+  /// grow without bound.
   routes: MethodMap<Vec<Weak<Route>>>,
   /// Optional path prefix prepended to every `route()` call while it is set.
   /// Used by [`Router::mount_all_into`] and [`Router::scope`] (see v2 roadmap).
@@ -1416,6 +1424,22 @@ impl Router {
 
     result
   }
+
+  /// Drops dangling `Weak<Route>` entries from the per-method `routes` index.
+  ///
+  /// All current routes stay live for the router's lifetime, so this is a
+  /// no-op in well-behaved code. It exists as a safety valve: if any future
+  /// API ever removes from `inner` (hot reload, route deregistration), or if
+  /// downstream code holds the `Arc<Route>` returned from [`Router::route`]
+  /// past the router's lifetime, this method bounds the size of the index.
+  ///
+  /// Cold path; safe to call repeatedly. Linear in the total number of
+  /// registered routes.
+  pub fn compact_routes(&mut self) {
+    for weak_vec in self.routes.iter_mut() {
+      weak_vec.retain(|w| w.strong_count() > 0);
+    }
+  }
 }
 
 /// Joins a path prefix and a child path, normalising the boundary slash.
@@ -1556,5 +1580,14 @@ impl<V> MethodMap<V> {
       .enumerate()
       .filter_map(|(idx, slot)| slot.as_ref().map(|v| (method_from_slot(idx), v)))
       .chain(self.custom.iter().map(|(m, v)| (m.clone(), v)))
+  }
+
+  /// Mutable counterpart of [`MethodMap::iter`]. Used by router GC paths.
+  fn iter_mut(&mut self) -> impl Iterator<Item = &mut V> {
+    self
+      .standard
+      .iter_mut()
+      .filter_map(|slot| slot.as_mut())
+      .chain(self.custom.iter_mut().map(|(_, v)| v))
   }
 }

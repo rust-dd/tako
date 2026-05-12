@@ -5,11 +5,17 @@
 //! same body can drive several zero-copy parses (form, json, custom) without
 //! re-collecting or cloning.
 
-use std::convert::Infallible;
-
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use tako_core::extractors::FromRequest;
+
+/// Wrapper around the cached request body inserted into request extensions.
+///
+/// Using a newtype prevents collisions with other middleware that might also
+/// stash a raw [`Bytes`] in extensions for unrelated purposes — both inserts
+/// would otherwise share the same `TypeId` and clobber each other.
+#[derive(Clone)]
+pub struct CachedRequestBody(pub Bytes);
 
 /// Zero-copy access to the cached request body bytes.
 ///
@@ -38,20 +44,21 @@ impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
     req: &'a mut tako_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      if req.extensions().get::<Bytes>().is_none() {
+      if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = req
           .body_mut()
           .collect()
           .await
           .map_err(|e| BytesReadError(e.to_string()))?
           .to_bytes();
-        req.extensions_mut().insert(buf);
+        req.extensions_mut().insert(CachedRequestBody(buf));
       }
 
-      let body_bytes: &'a Bytes = req
+      let body_bytes: &'a Bytes = &req
         .extensions()
-        .get::<Bytes>()
-        .expect("body bytes must be present in request extensions");
+        .get::<CachedRequestBody>()
+        .expect("body bytes must be present in request extensions")
+        .0;
 
       Ok(BytesBorrowed(body_bytes))
     }
@@ -62,25 +69,33 @@ impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
 pub struct BodySliceBorrowed<'a>(pub &'a [u8]);
 
 impl<'a> FromRequest<'a> for BodySliceBorrowed<'a> {
-  type Error = Infallible;
+  /// Mirrors [`BytesBorrowed::Error`]. Previously this extractor returned
+  /// [`Infallible`] and swallowed a body-read failure by caching an empty
+  /// slice, which made downstream parsers report "empty body" for what was
+  /// really a transport-level error. Propagate the underlying read failure
+  /// so the caller can distinguish the two.
+  type Error = BytesReadError;
 
   fn from_request(
     req: &'a mut tako_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Drive the same caching path as `BytesBorrowed`, but surface a slice.
-      if req.extensions().get::<Bytes>().is_none() {
-        if let Ok(collected) = req.body_mut().collect().await {
-          req.extensions_mut().insert(collected.to_bytes());
-        } else {
-          req.extensions_mut().insert(Bytes::new());
-        }
+      if req.extensions().get::<CachedRequestBody>().is_none() {
+        let collected = req
+          .body_mut()
+          .collect()
+          .await
+          .map_err(|e| BytesReadError(e.to_string()))?;
+        req
+          .extensions_mut()
+          .insert(CachedRequestBody(collected.to_bytes()));
       }
 
-      let bytes: &'a Bytes = req
+      let bytes: &'a Bytes = &req
         .extensions()
-        .get::<Bytes>()
-        .expect("body bytes must be present in request extensions");
+        .get::<CachedRequestBody>()
+        .expect("body bytes must be present in request extensions")
+        .0;
 
       Ok(BodySliceBorrowed(bytes.as_ref()))
     }

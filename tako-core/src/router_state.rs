@@ -66,8 +66,13 @@ impl RouterState {
 /// `Router::dispatch` inserts a `MatchedPath` into request extensions before
 /// running middleware and the handler so that metrics, logs, and extractors
 /// can label by the route template (e.g. `/users/{id}`) rather than the
-/// concrete URI (`/users/42`). Use the `tako_extractors::matched_path::MatchedPath`
-/// extractor in handlers — this struct is the underlying request extension.
+/// concrete URI (`/users/42`).
+///
+/// This is also the public extractor type — `tako-extractors` re-exports it
+/// from this module so the extension key and the user-facing extractor share
+/// one canonical type. Previously the extractor was a separate newtype with
+/// the same name, which made it easy to insert the wrong type into request
+/// extensions and have lookups silently miss.
 #[derive(Debug, Clone)]
 pub struct MatchedPath(pub String);
 
@@ -76,5 +81,51 @@ impl MatchedPath {
   #[inline]
   pub fn as_str(&self) -> &str {
     &self.0
+  }
+}
+
+impl<'a> crate::extractors::FromRequest<'a> for MatchedPath {
+  type Error = MatchedPathMissing;
+
+  fn from_request(
+    req: &'a mut crate::types::Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    futures_util::future::ready(
+      req
+        .extensions()
+        .get::<MatchedPath>()
+        .cloned()
+        .ok_or(MatchedPathMissing),
+    )
+  }
+}
+
+impl<'a> crate::extractors::FromRequestParts<'a> for MatchedPath {
+  type Error = MatchedPathMissing;
+
+  fn from_request_parts(
+    parts: &'a mut http::request::Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    futures_util::future::ready(
+      parts
+        .extensions
+        .get::<MatchedPath>()
+        .cloned()
+        .ok_or(MatchedPathMissing),
+    )
+  }
+}
+
+/// Rejection when no [`MatchedPath`] extension is on the request.
+#[derive(Debug)]
+pub struct MatchedPathMissing;
+
+impl crate::responder::Responder for MatchedPathMissing {
+  fn into_response(self) -> crate::types::Response {
+    let mut res = crate::types::Response::new(crate::body::TakoBody::from(
+      "matched path is unavailable on this request",
+    ));
+    *res.status_mut() = http::StatusCode::INTERNAL_SERVER_ERROR;
+    res
   }
 }

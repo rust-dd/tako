@@ -231,7 +231,11 @@ impl Session {
     self.dirty.load(Ordering::Relaxed)
   }
 
-  fn rotation_requested(&self) -> bool {
+  /// True if [`Session::rotate`] has been called on this handle since the
+  /// session middleware created it. Surfaced as public API so paired
+  /// middleware (notably CSRF) can mint fresh derivative tokens on the same
+  /// response that emits the rotated session id.
+  pub fn rotation_requested(&self) -> bool {
     self.rotation_counter.load(Ordering::Acquire) > 0
   }
 

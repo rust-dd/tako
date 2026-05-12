@@ -576,6 +576,14 @@ impl FromMultipartField for BufferedUploadedFile {
       if let Some((_, ref mut f, _)) = spilled {
         f.write_all(&chunk).await?;
       } else {
+        // Try-reserve: a hostile client could send a series of small chunks
+        // whose cumulative size eventually exceeds available memory.
+        // `extend_from_slice` would abort the process on alloc failure;
+        // `try_reserve` lets us bail out with a normal error and a 4xx-style
+        // response from the caller.
+        buffer
+          .try_reserve(chunk.len())
+          .map_err(|e| anyhow::anyhow!("multipart buffer alloc failed: {e}"))?;
         buffer.extend_from_slice(&chunk);
         if let Some(t) = threshold
           && (buffer.len() as u64) > t

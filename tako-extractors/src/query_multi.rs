@@ -56,6 +56,12 @@ impl QueryMultiOptions {
 
   /// Internal: rewrite the query string by expanding CSV values for the
   /// configured keys. Skips keys not in `csv_keys` (passes them through).
+  ///
+  /// CSV detection works on the URL-decoded value so `?tags=hello%2Cworld`
+  /// (a percent-encoded comma) splits the same way as `?tags=hello,world` —
+  /// previously only literal commas triggered the split, which was an
+  /// interop bug because the percent-encoded form is what well-behaved
+  /// clients produce.
   fn rewrite<'a>(&self, query: &'a str) -> Cow<'a, str> {
     if self.csv_keys.is_empty() {
       return Cow::Borrowed(query);
@@ -68,15 +74,19 @@ impl QueryMultiOptions {
         Some(idx) => (&pair[..idx], &pair[idx + 1..]),
         None => (pair, ""),
       };
-      if self.csv_keys.contains(&key) && value.contains(',') {
-        for part in value.split(',') {
+      let decoded_value = urlencoding::decode(value).unwrap_or(Cow::Borrowed(value));
+      if self.csv_keys.contains(&key) && decoded_value.contains(',') {
+        for part in decoded_value.split(',') {
           if !first {
             out.push('&');
           }
           first = false;
           out.push_str(key);
           out.push('=');
-          out.push_str(part);
+          // Re-encode the part so the rewritten query string remains a
+          // valid `application/x-www-form-urlencoded` payload that the
+          // downstream parser will decode again identically.
+          out.push_str(&urlencoding::encode(part));
         }
       } else {
         if !first {

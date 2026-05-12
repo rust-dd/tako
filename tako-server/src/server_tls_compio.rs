@@ -248,6 +248,8 @@ pub async fn run_with_config(
   let h2_max_send_buf_size = config.h2_max_send_buf_size;
   #[cfg(feature = "http2")]
   let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
+  #[cfg(feature = "http2")]
+  let h2_keep_alive_interval = config.h2_keep_alive_interval;
   // C14 (compio TLS): honor `max_connections` instead of silently ignoring it.
   let max_conn_semaphore = config
     .max_connections
@@ -297,13 +299,14 @@ pub async fn run_with_config(
 
         let acceptor = acceptor.clone();
         let router = router.clone();
-        let inflight = inflight.clone();
-        let drain_notify = drain_notify.clone();
-
-        inflight.fetch_add(1, Ordering::SeqCst);
+        let guard = crate::server_compio::ConnectionGuard::new(inflight.clone(), drain_notify.clone());
 
         compio::runtime::spawn(async move {
           let _permit = permit;
+          // RAII guard. Dropping `_guard` decrements `inflight` and wakes
+          // drain waiters on any exit path — error, timeout, panic, or
+          // success — so we no longer need manual `fetch_sub` calls.
+          let _guard = guard;
           // Bound the TLS handshake against slowloris-style holds on the
           // `max_connections` permit. compio has no `tokio::time::timeout`
           // adapter, so race the accept future against an explicit
@@ -315,16 +318,12 @@ pub async fn run_with_config(
             Either::Left((Ok(s), _)) => s,
             Either::Left((Err(e), _)) => {
               tracing::error!("TLS error: {e}");
-              inflight.fetch_sub(1, Ordering::SeqCst);
-              drain_notify.notify_waiters();
               return;
             }
             Either::Right(_) => {
               tracing::warn!(
                 "TLS handshake timeout after {tls_handshake_timeout:?} from {addr}"
               );
-              inflight.fetch_sub(1, Ordering::SeqCst);
-              drain_notify.notify_waiters();
               return;
             }
           };
@@ -334,6 +333,11 @@ pub async fn run_with_config(
 
           let alpn_proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
           let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
+          // SNI is not exposed by `compio-tls::TlsStream` (only
+          // `negotiated_alpn()` is public). Until upstream adds a
+          // `server_name()` accessor like `tokio-rustls` has, SNI stays
+          // `None` here — mTLS / virtual-host routing that depends on it
+          // must use the tokio-rustls path (`server_tls.rs`).
           let conn_info = if is_h2 {
             ConnInfo::h2_tls(
               addr,
@@ -378,6 +382,9 @@ pub async fn run_with_config(
               .max_header_list_size(h2_max_header_list_size)
               .max_send_buf_size(h2_max_send_buf_size)
               .max_pending_accept_reset_streams(h2_max_pending_accept_reset_streams);
+            if let Some(interval) = h2_keep_alive_interval {
+              h2.keep_alive_interval(Some(interval));
+            }
 
             if let Err(e) = h2.serve_connection(io, ServiceSendWrapper::new(svc)).await {
               tracing::error!("HTTP/2 error: {e}");
@@ -385,9 +392,7 @@ pub async fn run_with_config(
 
             #[cfg(feature = "signals")]
             signal_tx::emit_connection_closed(&addr.to_string(), true, None).await;
-
-            inflight.fetch_sub(1, Ordering::SeqCst);
-            drain_notify.notify_waiters();
+            // `_guard` drops here on the H2 success/error path.
             return;
           }
 
@@ -404,9 +409,7 @@ pub async fn run_with_config(
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), true, None).await;
-
-          inflight.fetch_sub(1, Ordering::SeqCst);
-          drain_notify.notify_waiters();
+          // `_guard` drops here on the H1 path, decrementing `inflight`.
         })
         .detach();
       }

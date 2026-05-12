@@ -236,11 +236,23 @@ fn worker_main(
   shutdown: PerThreadShutdown,
 ) {
   #[cfg(feature = "affinity")]
-  if cfg.pin_to_core
-    && let Some(ids) = core_affinity::get_core_ids()
-    && let Some(id) = ids.get(worker_id)
-  {
-    let _ = core_affinity::set_for_current(*id);
+  if cfg.pin_to_core {
+    if let Some(ids) = core_affinity::get_core_ids() {
+      if let Some(id) = ids.get(worker_id) {
+        let _ = core_affinity::set_for_current(*id);
+      } else {
+        tracing::warn!(
+          worker_id,
+          available_cores = ids.len(),
+          "pin_to_core: worker_id exceeds available cores; running without affinity"
+        );
+      }
+    } else {
+      tracing::warn!(
+        worker_id,
+        "pin_to_core: core_affinity::get_core_ids() returned None; running without affinity"
+      );
+    }
   }
   let _ = (worker_id, &cfg.pin_to_core);
 
@@ -372,11 +384,23 @@ fn worker_main_compio(
   use cyper_core::HyperStream;
 
   #[cfg(feature = "affinity")]
-  if cfg.pin_to_core
-    && let Some(ids) = core_affinity::get_core_ids()
-    && let Some(id) = ids.get(worker_id)
-  {
-    let _ = core_affinity::set_for_current(*id);
+  if cfg.pin_to_core {
+    if let Some(ids) = core_affinity::get_core_ids() {
+      if let Some(id) = ids.get(worker_id) {
+        let _ = core_affinity::set_for_current(*id);
+      } else {
+        tracing::warn!(
+          worker_id,
+          available_cores = ids.len(),
+          "pin_to_core: worker_id exceeds available cores; running without affinity"
+        );
+      }
+    } else {
+      tracing::warn!(
+        worker_id,
+        "pin_to_core: core_affinity::get_core_ids() returned None; running without affinity"
+      );
+    }
   }
   let _ = (worker_id, &cfg.pin_to_core);
 
@@ -429,7 +453,14 @@ fn worker_main_compio(
 
       compio::runtime::spawn(async move {
         let svc = service_fn(move |mut req| async move {
+          // Match the tokio variant: insert both the raw `SocketAddr`
+          // (legacy lookup key) and the typed `ConnInfo` so extractors that
+          // key off either type observe the same runtime regardless of
+          // whether the build is `compio` or `tokio`. The compio path used
+          // to insert only `peer`, breaking extractors that look up
+          // `ConnInfo` (notably the IP-trust / forwarded-host helpers).
           req.extensions_mut().insert(peer);
+          req.extensions_mut().insert(ConnInfo::tcp(peer));
           let resp = router
             .dispatch(req.map(tako_core::body::TakoBody::new))
             .await;

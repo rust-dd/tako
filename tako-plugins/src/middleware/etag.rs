@@ -31,8 +31,8 @@ use http::header::IF_NONE_MATCH;
 use http::header::LAST_MODIFIED;
 use http_body::Body;
 use http_body_util::BodyExt;
-use sha1::Digest;
-use sha1::Sha1;
+use sha2::Digest;
+use sha2::Sha256;
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
@@ -102,15 +102,18 @@ fn build_304(
 
 /// Computes a weak ETag (`W/"…"`) from a body slice.
 ///
-/// SHA-1 over a body alone cannot distinguish two bodies that differ only by
-/// metadata the validator should also cover (e.g. content-type negotiation
-/// over the same path). Emitting as `W/` keeps clients honest about that:
-/// they may not assume byte-for-byte equality, only semantic equivalence.
+/// Uses SHA-256 for collision resistance: SHA-1 was upgrade-flagged here
+/// because two bodies with a colliding hash would be served with the same
+/// validator (cache poisoning). Emitted as `W/` (weak) because hashing the
+/// body alone cannot distinguish two responses that differ only by metadata
+/// the validator should also cover (e.g. content-type negotiation on the same
+/// path) — clients may not assume byte-for-byte equality, only semantic
+/// equivalence.
 fn make_etag(bytes: &[u8]) -> String {
-  let mut hasher = Sha1::new();
+  let mut hasher = Sha256::new();
   hasher.update(bytes);
   let digest = hasher.finalize();
-  let mut hex = String::with_capacity(4 + 40);
+  let mut hex = String::with_capacity(4 + 64);
   hex.push_str("W/\"");
   for b in digest {
     use std::fmt::Write;

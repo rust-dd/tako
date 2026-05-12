@@ -68,20 +68,22 @@ where
         return Err(FormBorrowedError::InvalidContentType);
       }
 
-      if req.extensions().get::<Bytes>().is_none() {
+      use crate::zero_copy_extractors::bytes::CachedRequestBody;
+      if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = req
           .body_mut()
           .collect()
           .await
           .map_err(|e| FormBorrowedError::BodyReadError(e.to_string()))?
           .to_bytes();
-        req.extensions_mut().insert(buf);
+        req.extensions_mut().insert(CachedRequestBody(buf));
       }
 
-      let body_bytes: &'a Bytes = req
+      let body_bytes: &'a Bytes = &req
         .extensions()
-        .get::<Bytes>()
-        .expect("body bytes must be present in request extensions");
+        .get::<CachedRequestBody>()
+        .expect("body bytes must be present in request extensions")
+        .0;
 
       let value: T = serde_urlencoded::from_bytes(body_bytes.as_ref())
         .map_err(|e| FormBorrowedError::DeserializationError(e.to_string()))?;

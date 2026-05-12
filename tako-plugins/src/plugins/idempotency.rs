@@ -318,7 +318,7 @@ impl TakoPlugin for IdempotencyPlugin {
 
       #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(ttl.clamp(60, 3600)));
+        let mut tick = tokio::time::interval(Duration::from_secs(ttl.clamp(5, 3600)));
         loop {
           tick.tick().await;
           store.retain_expired();
@@ -327,7 +327,7 @@ impl TakoPlugin for IdempotencyPlugin {
 
       #[cfg(feature = "compio")]
       compio::runtime::spawn(async move {
-        let interval = Duration::from_secs(ttl.clamp(60, 3600));
+        let interval = Duration::from_secs(ttl.clamp(5, 3600));
         loop {
           compio::time::sleep(interval).await;
           store.retain_expired();
@@ -398,7 +398,13 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
   if let Some(entry) = store.get(&cache_key) {
     match entry {
       Entry::Completed(c) => {
-        if cfg.verify_payload && c.payload_sig != sig {
+        // Skip the sig-equality check when the cached entry was recorded
+        // under `verify_payload=false` (its `payload_sig` is the placeholder
+        // `[0; 20]`) — flipping the flag on at runtime would otherwise turn
+        // every pre-existing cached entry into a spurious 409 for clients
+        // replaying the same Idempotency-Key.
+        let legacy_unverified = c.payload_sig == [0u8; 20];
+        if cfg.verify_payload && !legacy_unverified && c.payload_sig != sig {
           return conflict();
         }
         return build_response_from_cache(&c.cached);
@@ -411,7 +417,8 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
         if !cfg.coalesce_inflight {
           return conflict_inflight();
         }
-        if cfg.verify_payload && payload_sig != sig {
+        let legacy_unverified = payload_sig == [0u8; 20];
+        if cfg.verify_payload && !legacy_unverified && payload_sig != sig {
           return conflict();
         }
         // Wait for completion, honoring the optional timeout on both runtimes.
@@ -472,35 +479,34 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     collected
   };
 
-  // Build cached value (cache selection by status)
+  // Build cached value (cache selection by status). Errors are cached too —
+  // either for the full TTL when `cache_error_statuses=true`, or briefly
+  // (1s) when `cache_error_statuses=false` so any coalesced waiter sees the
+  // same response instead of getting a confusing 409 replay. Fresh requests
+  // after the brief TTL bypass the cache as the flag intends.
   let status = resp.status();
-  let should_cache = status.is_success() || status.is_redirection() || cfg.cache_error_statuses;
-
-  if should_cache {
-    let cached = Arc::new(CachedResponse {
-      status,
-      headers: filter_headers(resp.headers()),
-      body: body_bytes.clone(),
-    });
-    let completed = Completed {
-      payload_sig: sig,
-      cached: cached.clone(),
-      expires_at: Instant::now() + Duration::from_secs(cfg.ttl_secs),
-    };
-    store.complete(cache_key.clone(), completed);
-    notify.notify_waiters();
-    inflight_guard.disarm();
-    // Replace body to return to the current caller
-    *resp.body_mut() = TakoBody::from(cached.body.clone());
-    resp.into_response()
+  let is_error = status.is_client_error() || status.is_server_error();
+  let cached = Arc::new(CachedResponse {
+    status,
+    headers: filter_headers(resp.headers()),
+    body: body_bytes.clone(),
+  });
+  let ttl = if is_error && !cfg.cache_error_statuses {
+    Duration::from_secs(1)
   } else {
-    // Not caching: clean up and return original response with collected body
-    store.remove(&cache_key);
-    notify.notify_waiters();
-    inflight_guard.disarm();
-    *resp.body_mut() = TakoBody::from(body_bytes);
-    resp.into_response()
-  }
+    Duration::from_secs(cfg.ttl_secs)
+  };
+  let completed = Completed {
+    payload_sig: sig,
+    cached: cached.clone(),
+    expires_at: Instant::now() + ttl,
+  };
+  store.complete(cache_key.clone(), completed);
+  notify.notify_waiters();
+  inflight_guard.disarm();
+  // Replace body to return to the current caller
+  *resp.body_mut() = TakoBody::from(cached.body.clone());
+  resp.into_response()
 }
 
 fn conflict() -> Response {
@@ -522,13 +528,31 @@ fn conflict_inflight() -> Response {
 }
 
 fn build_response_from_cache(c: &CachedResponse) -> Response {
+  // `Response::builder().status(...).headers_mut()` returns `None` and panics
+  // on `.unwrap()` whenever the builder is in an error state (the same way
+  // `Response::builder().status(0u16)` would be). We never reach that path
+  // because `c.status` is a real `StatusCode`, but go through a fallible
+  // emit and fall back to an internal-error response so future refactors
+  // that change `CachedResponse::status` to a free-form integer don't
+  // re-introduce a panic on the cache replay path.
   let mut b = http::Response::builder().status(c.status);
-  let headers = b.headers_mut().unwrap();
+  let Some(headers) = b.headers_mut() else {
+    return http::Response::builder()
+      .status(StatusCode::INTERNAL_SERVER_ERROR)
+      .body(TakoBody::empty())
+      .expect("static 500 builder");
+  };
   for (k, v) in &c.headers {
     let _ = headers.insert(k, v.clone());
   }
   headers.remove(CONTENT_LENGTH);
-  b.body(TakoBody::from(c.body.clone())).unwrap()
+  b.body(TakoBody::from(c.body.clone()))
+    .unwrap_or_else(|_| {
+      http::Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
+        .body(TakoBody::empty())
+        .expect("static 500 builder")
+    })
 }
 
 fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {

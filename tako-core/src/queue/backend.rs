@@ -93,6 +93,17 @@ struct MemoryInner {
   pending: Vec<MemoryJob>,
   reserved: Vec<MemoryJob>,
   dlq: Vec<MemoryJob>,
+  /// Active dedup keys.
+  ///
+  /// **Window semantics**: a key is inserted by [`MemoryBackend::push`] when
+  /// the caller supplied `PushOptions::dedup_key`, and is removed only by
+  /// [`MemoryBackend::complete`] (success) or [`MemoryBackend::dead_letter`]
+  /// (terminal failure). [`MemoryBackend::fail`] (transient retry) deliberately
+  /// keeps the key alive so a duplicate push during the retry window is
+  /// idempotent — the original job is still going to run.
+  ///
+  /// Callers that need a shorter window can call
+  /// [`MemoryBackend::purge_dedup_key`] explicitly.
   dedup: std::collections::HashSet<String>,
 }
 
@@ -226,5 +237,18 @@ impl MemoryBackend {
   /// Number of currently reserved jobs.
   pub fn reserved_count(&self) -> usize {
     self.inner.lock().reserved.len()
+  }
+
+  /// Number of active dedup keys. Useful for diagnostics — if this grows
+  /// unboundedly your jobs are not reaching `complete`/`dead_letter`.
+  pub fn dedup_size(&self) -> usize {
+    self.inner.lock().dedup.len()
+  }
+
+  /// Drop a single dedup key out of band. Returns `true` if the key was
+  /// present. Use this when a long retry tail needs to be cut short and a
+  /// fresh push (same key) should be allowed to enqueue immediately.
+  pub fn purge_dedup_key(&self, key: &str) -> bool {
+    self.inner.lock().dedup.remove(key)
   }
 }

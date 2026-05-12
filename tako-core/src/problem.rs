@@ -107,18 +107,32 @@ impl Responder for Problem {
 /// [`Router::error_handler`](crate::router::Router::error_handler) and/or
 /// [`Router::client_error_handler`](crate::router::Router::client_error_handler).
 ///
-/// Behavior: if the incoming response already carries a JSON or `problem+json`
-/// `Content-Type` header it is returned unchanged (handlers that produce their
-/// own structured error stay authoritative). Otherwise the body is replaced
-/// with a problem document built from the status code and any inline reason.
+/// Behavior:
+/// - Successful responses (1xx/2xx/3xx) pass through unchanged so callers may
+///   reuse this function as a wrapper without stripping non-error bodies.
+/// - Error responses (4xx/5xx) that already carry an `application/json` or
+///   `application/problem+json` `Content-Type` pass through (the handler
+///   produced its own structured error and stays authoritative).
+/// - Every other error response is rewritten into a [`Problem`] document
+///   built from the status code, replacing the body and forcing
+///   `Content-Type: application/problem+json`.
 pub fn default_problem_responder(response: Response) -> Response {
   let status = response.status();
+
+  if !status.is_client_error() && !status.is_server_error() {
+    return response;
+  }
 
   if let Some(ct) = response.headers().get(http::header::CONTENT_TYPE)
     && let Ok(s) = ct.to_str()
   {
-    let s_lower = s.to_ascii_lowercase();
-    if s_lower.contains("json") {
+    let essence = s
+      .split(';')
+      .next()
+      .unwrap_or("")
+      .trim()
+      .to_ascii_lowercase();
+    if essence == "application/json" || essence == "application/problem+json" {
       return response;
     }
   }

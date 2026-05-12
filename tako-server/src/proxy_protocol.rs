@@ -556,6 +556,15 @@ fn parse_unix_path(bytes: &[u8]) -> Option<std::path::PathBuf> {
     .map(|s| std::path::PathBuf::from(s.to_string()))
 }
 
+/// Build an RFC 7239 `Forwarded` header value from the PROXY-protocol-supplied
+/// peer address. IPv6 addresses get bracketed per the RFC's `node` ABNF.
+fn format_forwarded(addr: SocketAddr) -> String {
+  match addr {
+    SocketAddr::V4(v4) => format!("for=\"{}:{}\"", v4.ip(), v4.port()),
+    SocketAddr::V6(v6) => format!("for=\"[{}]:{}\"", v6.ip(), v6.port()),
+  }
+}
+
 /// Starts an HTTP server that parses PROXY protocol headers on each connection.
 ///
 /// The real client address from the PROXY header is inserted into request
@@ -695,15 +704,23 @@ async fn run_proxy_http(
             let proxy_header = proxy_header.clone();
             let real_addr = real_addr;
             async move {
-              // Strip any inbound X-Forwarded-For: clients behind a PROXY-protocol
-              // hop must not be able to spoof their address through the header.
-              // The PROXY-protocol-supplied source becomes the authoritative one.
+              // Strip any inbound X-Forwarded-* / Forwarded: clients behind a
+              // PROXY-protocol hop must not be able to spoof their address
+              // through the header. The PROXY-protocol-supplied source becomes
+              // the authoritative one; we re-emit a single `Forwarded` header
+              // built from it so downstream middleware that follows RFC 7239
+              // sees a consistent view instead of having to read the
+              // `ConnInfo`/`SocketAddr` extension out of band.
               req.headers_mut().remove(http::header::FORWARDED);
               req.headers_mut().remove("x-forwarded-for");
               req.headers_mut().remove("x-forwarded-host");
               req.headers_mut().remove("x-forwarded-proto");
 
               if let Some(addr) = real_addr {
+                let forwarded_value = format_forwarded(addr);
+                if let Ok(v) = http::HeaderValue::from_str(&forwarded_value) {
+                  req.headers_mut().insert(http::header::FORWARDED, v);
+                }
                 req.extensions_mut().insert(addr);
                 req.extensions_mut().insert(ConnInfo::tcp(addr));
               }

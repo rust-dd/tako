@@ -55,7 +55,6 @@ use tako_core::router::Router;
 #[cfg(feature = "signals")]
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
-use tokio::sync::Notify;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::H3Congestion;
@@ -420,6 +419,7 @@ async fn handle_connection(
 ) -> Result<(), BoxError> {
   let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn)).await?;
   let mut request_tasks = tokio::task::JoinSet::new();
+  let body_tracker = Arc::new(H3BodyTracker::default());
 
   loop {
     tokio::select! {
@@ -427,10 +427,11 @@ async fn handle_connection(
         match accepted {
           Ok(Some(resolver)) => {
             let router = router.clone();
+            let body_tracker = body_tracker.clone();
             request_tasks.spawn(async move {
               match resolver.resolve_request().await {
                 Ok((req, stream)) => {
-                  if let Err(e) = handle_request(req, stream, router, remote_addr).await {
+                  if let Err(e) = handle_request(req, stream, router, remote_addr, body_tracker).await {
                     tracing::error!("HTTP/3 request error: {e}");
                   }
                 }
@@ -461,7 +462,8 @@ async fn handle_connection(
   }
 
   // Drain in-flight request handlers within the per-connection grace.
-  let drain = tokio::time::timeout(goaway_grace, async {
+  let drain_deadline = tokio::time::Instant::now() + goaway_grace;
+  let drain = tokio::time::timeout_at(drain_deadline, async {
     while request_tasks.join_next().await.is_some() {}
   });
   if drain.await.is_err() {
@@ -471,6 +473,27 @@ async fn handle_connection(
       request_tasks.len()
     );
     request_tasks.abort_all();
+  }
+
+  // Also wait for body-forwarder tasks spawned by `build_h3_body`. They were
+  // previously detached via `tokio::spawn`, so a forwarder still polling
+  // `recv_data` after its handler returned could run past the connection
+  // drain. Bounded by the same `goaway_grace` deadline.
+  while body_tracker
+    .active
+    .load(std::sync::atomic::Ordering::SeqCst)
+    > 0
+  {
+    let now = tokio::time::Instant::now();
+    if now >= drain_deadline {
+      break;
+    }
+    if tokio::time::timeout_at(drain_deadline, body_tracker.drained.notified())
+      .await
+      .is_err()
+    {
+      break;
+    }
   }
 
   Ok(())
@@ -483,18 +506,55 @@ async fn handle_connection(
 /// growing memory unboundedly.
 const H3_BODY_CHANNEL_CAPACITY: usize = 8;
 
+/// Tracks live H3 body-forwarder tasks per connection.
+///
+/// `build_h3_body` spawns a detached forwarder for every accepted stream. The
+/// connection drain (`handle_connection`) waits on `request_tasks` for handler
+/// completion, but the forwarders run in independent `tokio::spawn` tasks so
+/// they were previously not joined before the connection returned. This tracker
+/// (counter + Notify) lets the drain wait until every forwarder has finished
+/// emitting frames/trailers, bounded by the per-connection grace.
+#[derive(Default)]
+pub(crate) struct H3BodyTracker {
+  active: std::sync::atomic::AtomicUsize,
+  drained: tokio::sync::Notify,
+}
+
+pub(crate) struct H3BodyGuard {
+  tracker: Arc<H3BodyTracker>,
+}
+
+impl Drop for H3BodyGuard {
+  fn drop(&mut self) {
+    if self.tracker.active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+      self.tracker.drained.notify_waiters();
+    }
+  }
+}
+
+impl H3BodyTracker {
+  pub(crate) fn guard(self: &Arc<Self>) -> H3BodyGuard {
+    self.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    H3BodyGuard {
+      tracker: self.clone(),
+    }
+  }
+}
+
 /// Builds a streaming `TakoBody` backed by an HTTP/3 receive stream.
 ///
 /// Spawns a forwarder task that pulls QUIC chunks via `recv_data`, emits them as
 /// `Frame::data`, and then pulls trailers via `recv_trailers` to emit a
 /// `Frame::trailers`. The bounded channel provides natural backpressure.
-fn build_h3_body<R>(mut recv: RequestStream<R, Bytes>) -> TakoBody
+fn build_h3_body<R>(mut recv: RequestStream<R, Bytes>, tracker: Arc<H3BodyTracker>) -> TakoBody
 where
   R: RecvStream + Send + 'static,
 {
   let (tx, rx) =
     tokio::sync::mpsc::channel::<Result<Frame<Bytes>, BoxError>>(H3_BODY_CHANNEL_CAPACITY);
+  let guard = tracker.guard();
   tokio::spawn(async move {
+    let _guard = guard;
     loop {
       match recv.recv_data().await {
         Ok(Some(mut chunk)) => {
@@ -536,6 +596,7 @@ async fn handle_request<S>(
   stream: RequestStream<S, Bytes>,
   router: Arc<Router>,
   remote_addr: SocketAddr,
+  body_tracker: Arc<H3BodyTracker>,
 ) -> Result<(), BoxError>
 where
   S: BidiStream<Bytes> + Send + 'static,
@@ -550,7 +611,7 @@ where
 
   // Build request with a streaming body (data + trailers).
   let (parts, _) = req.into_parts();
-  let body = build_h3_body(recv_stream);
+  let body = build_h3_body(recv_stream, body_tracker);
   let mut tako_req = Request::from_parts(parts, body);
   tako_req.extensions_mut().insert(remote_addr);
   tako_req.extensions_mut().insert(ConnInfo::h3(

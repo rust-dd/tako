@@ -504,28 +504,31 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     return resp.into_response();
   }
 
-  // Compress the response body if a suitable encoding is chosen.
+  // Compress the response body if a suitable encoding is chosen. If the
+  // encoder fails (out-of-memory, malformed input, etc.) we MUST NOT set
+  // `Content-Encoding` to the chosen scheme while serving the raw body —
+  // the client would attempt to decode plain bytes as gzip/brotli and
+  // fail. Track success explicitly and only advertise the encoding when
+  // the compressed buffer was produced.
   if let Some(enc) = chosen {
     let compressed = match enc {
-      Encoding::Gzip => {
-        compress_gzip(&body_bytes, cfg.gzip_level).unwrap_or_else(|_| body_bytes.to_vec())
-      }
-      Encoding::Brotli => {
-        compress_brotli(&body_bytes, cfg.brotli_level).unwrap_or_else(|_| body_bytes.to_vec())
-      }
-      Encoding::Deflate => {
-        compress_deflate(&body_bytes, cfg.deflate_level).unwrap_or_else(|_| body_bytes.to_vec())
-      }
+      Encoding::Gzip => compress_gzip(&body_bytes, cfg.gzip_level).ok(),
+      Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level).ok(),
+      Encoding::Deflate => compress_deflate(&body_bytes, cfg.deflate_level).ok(),
       #[cfg(feature = "zstd")]
-      Encoding::Zstd => {
-        compress_zstd(&body_bytes, cfg.zstd_level).unwrap_or_else(|_| body_bytes.to_vec())
-      }
+      Encoding::Zstd => compress_zstd(&body_bytes, cfg.zstd_level).ok(),
     };
-    *resp.body_mut() = TakoBody::from(Bytes::from(compressed));
-    resp
-      .headers_mut()
-      .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
-    resp.headers_mut().remove(CONTENT_LENGTH);
+    if let Some(buf) = compressed {
+      *resp.body_mut() = TakoBody::from(Bytes::from(buf));
+      resp
+        .headers_mut()
+        .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
+      resp.headers_mut().remove(CONTENT_LENGTH);
+    } else {
+      tracing::warn!(encoding = enc.as_str(), "compression failed; serving identity");
+      *resp.body_mut() = TakoBody::from(body_bytes);
+      resp.headers_mut().remove(CONTENT_ENCODING);
+    }
   } else {
     *resp.body_mut() = TakoBody::from(body_bytes);
   }

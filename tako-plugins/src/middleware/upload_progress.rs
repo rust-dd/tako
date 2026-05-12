@@ -210,17 +210,19 @@ where
       Poll::Ready(None) => {
         // Fire a final callback exactly once when the body ends, so callers see
         // the closing total even if the last interval did not trigger a notify.
+        // Empty uploads (CL=0) used to slip through here because
+        // `bytes_read == last_notified_at == 0` skipped the call. Fire it
+        // unconditionally on EOF so callers always observe a terminal event.
         if let Some(cb) = this.callback.as_ref() {
           let mut guard = this.final_notified.lock();
           if !*guard {
             *guard = true;
             let final_read = this.bytes_read.load(Ordering::Relaxed);
-            if final_read != *this.last_notified_at {
-              cb(ProgressState {
-                bytes_read: final_read,
-                total_bytes: *this.total_bytes,
-              });
-            }
+            cb(ProgressState {
+              bytes_read: final_read,
+              total_bytes: *this.total_bytes,
+            });
+            *this.last_notified_at = final_read;
           }
         }
         Poll::Ready(None)

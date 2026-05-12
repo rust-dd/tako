@@ -503,6 +503,19 @@ fn add_cors_headers(
   //     so the preflight succeeds without a footgun.
   if cfg.headers.is_empty() {
     if cfg.allow_credentials {
+      // Security best-practice: with `Access-Control-Allow-Credentials: true`
+      // the allow-list should be an explicit, server-controlled set. The
+      // pre-flight `Access-Control-Request-Headers` value is attacker-
+      // influenced; reflecting it blindly lets a compromised origin probe
+      // any header against the credentialed endpoint. Emit a one-time
+      // warning and continue with the legacy reflection for BC — apps
+      // should set explicit `headers(...)` to silence this.
+      static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+      let _ = WARNED.get_or_init(|| {
+        tracing::warn!(
+          "CORS reflects `Access-Control-Request-Headers` while `allow_credentials=true` and no explicit `headers(...)` list is configured — set an explicit allow-list to harden the preflight policy",
+        );
+      });
       if let Some(req_h) = request_headers {
         resp
           .headers_mut()

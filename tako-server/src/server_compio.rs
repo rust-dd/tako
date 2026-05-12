@@ -19,6 +19,34 @@ use tokio::sync::Notify;
 
 use crate::ServerConfig;
 
+/// RAII guard that increments `inflight` on construction and decrements it on
+/// drop, then wakes drain waiters. Captured into the spawned connection task
+/// so the counter stays consistent under panic, spawn failure, or any control
+/// flow that does not reach an explicit `fetch_sub`. Replaces the previous
+/// "fetch_add before spawn + manual fetch_sub at the end" pattern which leaked
+/// counts on any panic between the two operations.
+pub(crate) struct ConnectionGuard {
+  inflight: Arc<AtomicUsize>,
+  drain_notify: Arc<Notify>,
+}
+
+impl ConnectionGuard {
+  pub(crate) fn new(inflight: Arc<AtomicUsize>, drain_notify: Arc<Notify>) -> Self {
+    inflight.fetch_add(1, Ordering::SeqCst);
+    Self {
+      inflight,
+      drain_notify,
+    }
+  }
+}
+
+impl Drop for ConnectionGuard {
+  fn drop(&mut self) {
+    self.inflight.fetch_sub(1, Ordering::SeqCst);
+    self.drain_notify.notify_waiters();
+  }
+}
+
 pub async fn serve(listener: TcpListener, router: Router) {
   if let Err(e) = run(
     listener,
@@ -137,13 +165,13 @@ async fn run(
 
         let io = HyperStream::new(stream);
         let router = router.clone();
-        let inflight = inflight.clone();
-        let drain_notify = drain_notify.clone();
-
-        inflight.fetch_add(1, Ordering::SeqCst);
+        let guard = ConnectionGuard::new(inflight.clone(), drain_notify.clone());
 
         compio::runtime::spawn(async move {
           let _permit = permit;
+          // RAII: dropping `_guard` (on normal completion, panic, or task
+          // cancellation) decrements `inflight` and wakes drain waiters.
+          let _guard = guard;
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 
@@ -171,11 +199,6 @@ async fn run(
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), false, None).await;
-
-          inflight.fetch_sub(1, Ordering::SeqCst);
-          // Wake every drainer waiter — notify_one() races against waiters
-          // registered between the load and the await on the coordinator side.
-          drain_notify.notify_waiters();
         })
         .detach();
       }

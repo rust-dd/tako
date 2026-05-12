@@ -42,6 +42,14 @@ pub struct HmacSignature {
   /// When true, the literal hex digest is expected; when false, the value is
   /// expected to be base64-encoded.
   hex: bool,
+  /// Optional timestamp header for replay protection. When set, both the
+  /// header value is included in the default canonical string *and* its
+  /// value is checked against the current wall clock with a tolerance of
+  /// `max_clock_skew`. Defaults to `None` for BC; configure it via
+  /// [`timestamp_header`].
+  timestamp_header: Option<HeaderName>,
+  /// Allowed wall-clock skew for the timestamp header. Defaults to 5 min.
+  max_clock_skew: std::time::Duration,
 }
 
 impl HmacSignature {
@@ -54,6 +62,8 @@ impl HmacSignature {
       max_body_bytes: 1024 * 1024,
       canonical: Arc::new(default_canonical),
       hex: true,
+      timestamp_header: None,
+      max_clock_skew: std::time::Duration::from_secs(300),
     }
   }
 
@@ -64,6 +74,13 @@ impl HmacSignature {
   }
 
   /// Plug a custom canonicalization closure.
+  ///
+  /// **Replay-protection**: the default canonical (`METHOD\nPATH\nBODY`)
+  /// gives no protection against an attacker replaying a captured request.
+  /// If you keep the default, also call [`timestamp_header`] so the
+  /// middleware additionally binds the signature to a freshness window. A
+  /// custom closure is responsible for incorporating its own freshness
+  /// inputs (timestamp, nonce, etc.).
   pub fn canonical<F>(mut self, f: F) -> Self
   where
     F: Fn(&http::request::Parts, &[u8]) -> Vec<u8> + Send + Sync + 'static,
@@ -77,15 +94,48 @@ impl HmacSignature {
     self.hex = hex;
     self
   }
+
+  /// Bind the signature to a timestamp header for replay protection.
+  ///
+  /// The default canonical adds the header's value as a new line between the
+  /// path and the body, and the middleware rejects requests whose timestamp
+  /// (Unix seconds, integer) is more than `max_clock_skew` away from `now`.
+  /// Pair this with [`max_clock_skew`] to tune tolerance.
+  pub fn timestamp_header(mut self, header: HeaderName) -> Self {
+    self.timestamp_header = Some(header);
+    self
+  }
+
+  /// Tolerance for [`timestamp_header`] validation. Default 5 min.
+  pub fn max_clock_skew(mut self, d: std::time::Duration) -> Self {
+    self.max_clock_skew = d;
+    self
+  }
 }
 
 fn default_canonical(parts: &http::request::Parts, body: &[u8]) -> Vec<u8> {
   let mut out =
-    Vec::with_capacity(parts.method.as_str().len() + parts.uri.path().len() + 1 + body.len());
+    Vec::with_capacity(parts.method.as_str().len() + parts.uri.path().len() + 2 + body.len());
   out.extend_from_slice(parts.method.as_str().as_bytes());
   out.push(b' ');
   out.extend_from_slice(parts.uri.path().as_bytes());
   out.push(b'\n');
+  // Bind the signature to the timestamp header if the request supplies one,
+  // so the default canonical participates in [`timestamp_header`]-based
+  // replay protection automatically. The header name to look up is
+  // discovered by scanning common conventions; custom canonical closures
+  // can override this for vendor-specific schemes.
+  for name in ["x-timestamp", "x-signature-timestamp", "date"] {
+    if let Some(v) = parts
+      .headers
+      .get(name)
+      .and_then(|v| v.to_str().ok().map(str::trim))
+    {
+      out.extend_from_slice(v.as_bytes());
+      out.push(b'\n');
+      break;
+    }
+  }
   out.extend_from_slice(body);
   out
 }
@@ -119,12 +169,45 @@ impl IntoMiddleware for HmacSignature {
     let canonical = self.canonical;
     let max_body_bytes = self.max_body_bytes;
     let hex = self.hex;
+    let timestamp_header = self.timestamp_header;
+    let max_clock_skew = self.max_clock_skew;
 
     move |req: Request, next: Next| {
       let header = header.clone();
       let secret = secret.clone();
       let canonical = canonical.clone();
+      let timestamp_header = timestamp_header.clone();
       Box::pin(async move {
+        // Replay protection: when `timestamp_header` is configured, reject
+        // requests outside the allowed skew window BEFORE checking the
+        // signature so the rejection cost stays cheap.
+        if let Some(ts_header) = timestamp_header.as_ref() {
+          let ts_str = req
+            .headers()
+            .get(ts_header)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim);
+          let ts = ts_str.and_then(|s| s.parse::<i64>().ok());
+          let ts = match ts {
+            Some(t) => t,
+            None => {
+              return http::Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .body(TakoBody::from("missing or malformed timestamp header"))
+                .expect("valid response");
+            }
+          };
+          let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+          if (now - ts).unsigned_abs() > max_clock_skew.as_secs() {
+            return http::Response::builder()
+              .status(StatusCode::UNAUTHORIZED)
+              .body(TakoBody::from("timestamp outside allowed skew"))
+              .expect("valid response");
+          }
+        }
         let provided = req
           .headers()
           .get(&header)
