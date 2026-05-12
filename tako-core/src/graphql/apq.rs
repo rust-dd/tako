@@ -31,16 +31,41 @@ pub trait PersistedQueryStore: Send + Sync + 'static {
   async fn put(&self, hash: String, query: String);
 }
 
-/// Default in-memory store backed by `scc::HashMap`. Rotate by replacing the
-/// `Arc` at runtime when you want to evict everything.
-#[derive(Clone, Default)]
+/// Default in-memory store backed by `scc::HashMap` with a hard-capped entry
+/// count. The previous implementation was unbounded, which let any client
+/// flood the cache with `(unique-hash, full-query)` pairs and OOM the
+/// process. Use [`Self::with_max_entries`] to size the cap; the default is
+/// 1024 entries.
+///
+/// When the cap is reached, the store performs a bulk flush rather than LRU
+/// eviction (the underlying `scc::HashMap` does not expose ordering hooks).
+/// Callers that need finer-grained eviction should wrap their own store
+/// implementing [`PersistedQueryStore`].
+#[derive(Clone)]
 pub struct MemoryPersistedQueryStore {
   inner: Arc<SccHashMap<String, String>>,
+  max_entries: usize,
+}
+
+impl Default for MemoryPersistedQueryStore {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl MemoryPersistedQueryStore {
+  /// Create a store with the default 1024-entry cap.
   pub fn new() -> Self {
-    Self::default()
+    Self::with_max_entries(1024)
+  }
+
+  /// Create a store that admits at most `max_entries` cached `(hash, query)`
+  /// pairs before the next insert triggers a full flush.
+  pub fn with_max_entries(max_entries: usize) -> Self {
+    Self {
+      inner: Arc::new(SccHashMap::new()),
+      max_entries: max_entries.max(1),
+    }
   }
 }
 
@@ -51,6 +76,9 @@ impl PersistedQueryStore for MemoryPersistedQueryStore {
   }
 
   async fn put(&self, hash: String, query: String) {
+    if self.inner.len() >= self.max_entries {
+      self.inner.clear_async().await;
+    }
     let _ = self.inner.insert_async(hash, query).await;
   }
 }

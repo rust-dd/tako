@@ -138,7 +138,7 @@ async fn run(
         join_set.spawn(async move {
           let svc = service_fn(move |mut req| async move {
             req.extensions_mut().insert(addr);
-            req.extensions_mut().insert(ConnInfo::tcp(addr));
+            req.extensions_mut().insert(ConnInfo::h2c(addr));
             let resp = router.dispatch(req.map(TakoBody::incoming)).await;
             Ok::<_, Infallible>(resp)
           });

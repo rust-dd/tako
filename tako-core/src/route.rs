@@ -540,8 +540,11 @@ impl Route {
         }
         lock
       },
+      // Preserve the source route's signal handlers across `cloned_with_path`
+      // (nest/mount): allocating a fresh `SignalArbiter` here used to silently
+      // drop every handler the caller had registered on the original route.
       #[cfg(feature = "signals")]
-      signals: SignalArbiter::new(),
+      signals: self.signals.clone(),
       #[cfg(any(feature = "utoipa", feature = "vespera"))]
       openapi: RwLock::new(self.openapi.read().clone()),
       timeout: {

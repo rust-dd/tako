@@ -91,7 +91,10 @@ where
     }
   }
 
-  /// Attach a strong ETag (caller-provided digest, no quotes around the value).
+  /// Attach an ETag validator. The value must be fully formed per RFC 9110
+  /// §8.8.3 — i.e. quoted (`"abc"`) for a strong validator or weak-prefixed
+  /// (`W/"abc"`) for a weak one. Use [`weak_etag_from_metadata`] to derive a
+  /// weak validator from `(size, mtime)`.
   pub fn with_etag(mut self, etag: impl Into<String>) -> Self {
     self.etag = Some(etag.into());
     self
@@ -281,7 +284,7 @@ where
     }
 
     if let Some(ref etag) = self.etag {
-      response = response.header(http::header::ETAG, format!("\"{}\"", etag));
+      response = response.header(http::header::ETAG, etag.as_str());
     }
 
     if let Some(ts) = self.last_modified
@@ -307,22 +310,53 @@ where
   }
 }
 
-/// Conditional GET evaluator.
+/// Conditional GET / PUT evaluator (RFC 9110 §13.1).
 ///
-/// Evaluates `If-None-Match` against `etag` and `If-Modified-Since` against
-/// `last_modified`. Returns `Some(304 Not Modified response)` when the cache
-/// hit is honored; `None` to proceed with the full response.
+/// Returns:
+/// - `Some(412 Precondition Failed)` when `If-Match` or `If-Unmodified-Since`
+///   would not be satisfied — caller must abort writes / state-changes.
+/// - `Some(304 Not Modified)` for safe-method cache hits.
+/// - `None` to proceed with the full response.
 pub fn evaluate_conditional(
   request_headers: &HeaderMap,
   etag: Option<&str>,
   last_modified: Option<SystemTime>,
 ) -> Option<Response> {
+  // Step 1 (RFC 9110 §13.2.2): `If-Match` — if any listed validator matches
+  // the current ETag, proceed; otherwise 412.
+  if let Some(req) = request_headers.get(http::header::IF_MATCH) {
+    let req = req.to_str().unwrap_or("");
+    let satisfied = match etag {
+      Some(e) => etag_match(req, e),
+      None => req.trim() == "*",
+    };
+    if !satisfied {
+      return Some(precondition_failed());
+    }
+  }
+
+  // Step 2: `If-Unmodified-Since` — caller-provided lower bound on the
+  // file's mtime; if the file is newer, 412.
+  if let (Some(req), Some(ts)) = (
+    request_headers.get(http::header::IF_UNMODIFIED_SINCE),
+    last_modified,
+  ) && let Ok(req) = req.to_str()
+    && let Some(req_ts) = parse_http_date(req)
+    && let Ok(file_ts) = ts.duration_since(UNIX_EPOCH)
+    && file_ts.as_secs() > req_ts
+  {
+    return Some(precondition_failed());
+  }
+
+  // Step 3: `If-None-Match` — same-validator → 304.
   if let (Some(req), Some(etag)) = (request_headers.get(http::header::IF_NONE_MATCH), etag) {
     let req = req.to_str().unwrap_or("");
     if etag_match(req, etag) {
       return Some(not_modified(etag, last_modified));
     }
   }
+
+  // Step 4: `If-Modified-Since` — coarse mtime check.
   if let (Some(req), Some(ts)) = (
     request_headers.get(http::header::IF_MODIFIED_SINCE),
     last_modified,
@@ -336,10 +370,17 @@ pub fn evaluate_conditional(
   None
 }
 
+fn precondition_failed() -> Response {
+  http::Response::builder()
+    .status(StatusCode::PRECONDITION_FAILED)
+    .body(TakoBody::empty())
+    .expect("valid 412 response")
+}
+
 fn not_modified(etag: &str, last_modified: Option<SystemTime>) -> Response {
   let mut builder = http::Response::builder().status(StatusCode::NOT_MODIFIED);
   if !etag.is_empty() {
-    builder = builder.header(http::header::ETAG, format!("\"{}\"", etag));
+    builder = builder.header(http::header::ETAG, etag);
   }
   if let Some(ts) = last_modified
     && let Ok(s) = ts.duration_since(UNIX_EPOCH)
@@ -465,8 +506,14 @@ fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {
   (y, m, d)
 }
 
-/// Helper that hashes a file path's canonicalized name + size + mtime into a
-/// SHA-1 strong ETag. Cheap (no body read) but stable across restarts.
+/// Helper that hashes (size + mtime) into a **weak** ETag (`W/"…"`).
+///
+/// SHA-1 over coarse metadata cannot prove byte-for-byte equivalence — two
+/// files written within the same wall-clock second with the same size will
+/// hash to the same digest. Returning the value pre-wrapped in `W/"…"` keeps
+/// downstream callers honest about that limitation: clients (and caches)
+/// won't assume strong validation semantics. Callers should pass the value
+/// straight to `Response.header(ETAG, …)` without re-quoting.
 pub fn weak_etag_from_metadata(size: u64, mtime: SystemTime) -> String {
   let mtime_secs = mtime
     .duration_since(UNIX_EPOCH)
@@ -476,9 +523,11 @@ pub fn weak_etag_from_metadata(size: u64, mtime: SystemTime) -> String {
   hasher.update(size.to_le_bytes());
   hasher.update(mtime_secs.to_le_bytes());
   let digest = hasher.finalize();
-  let mut hex = String::with_capacity(40);
+  let mut out = String::with_capacity(44);
+  out.push_str("W/\"");
   for b in digest {
-    hex.push_str(&format!("{:02x}", b));
+    out.push_str(&format!("{:02x}", b));
   }
-  hex
+  out.push('"');
+  out
 }

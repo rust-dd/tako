@@ -114,6 +114,25 @@ fn extract_path_segment(path: &str, index: usize) -> Option<String> {
     .map(str::to_string)
 }
 
+/// Restrictive tenant-id charset. Tenant identifiers commonly flow into file
+/// paths, database keys, log labels and metrics labels; any segment that can
+/// be confused with `..`, contain a `/`, or smuggle whitespace would let a
+/// client cross those boundaries.
+///
+/// Allowed: ASCII alphanumerics plus `_-.` (with `.` rejected as the whole
+/// value to keep `.` and `..` out). Max length: 64 bytes.
+fn is_valid_tenant_id(id: &str) -> bool {
+  const MAX_LEN: usize = 64;
+  if id.is_empty() || id.len() > MAX_LEN {
+    return false;
+  }
+  if id == "." || id == ".." {
+    return false;
+  }
+  id.bytes()
+    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
 impl IntoMiddleware for TenantMiddleware {
   fn into_middleware(
     self,
@@ -144,6 +163,8 @@ impl IntoMiddleware for TenantMiddleware {
           TenantStrategy::PathPrefix(idx) => extract_path_segment(req.uri().path(), *idx),
           TenantStrategy::Custom(f) => f(&req),
         };
+
+        let tenant = tenant.filter(|t| is_valid_tenant_id(t));
 
         match tenant {
           Some(t) => {

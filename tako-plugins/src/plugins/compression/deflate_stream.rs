@@ -55,7 +55,6 @@ pin_project! {
     pub struct DeflateStream<S> {
         #[pin] inner: S,
         encoder: DeflateEncoder<Vec<u8>>,
-        pos: usize,
         done: bool,
     }
 }
@@ -66,7 +65,6 @@ impl<S> DeflateStream<S> {
     Self {
       inner,
       encoder: DeflateEncoder::new(Vec::new(), Compression::new(level)),
-      pos: 0,
       done: false,
     }
   }
@@ -83,22 +81,20 @@ where
     let mut this = self.project();
 
     loop {
-      // If there is data in the encoder's buffer, return it.
-      if *this.pos < this.encoder.get_ref().len() {
-        let buf = &this.encoder.get_ref()[*this.pos..];
-        *this.pos = this.encoder.get_ref().len();
-        return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
+      // Drain anything the encoder has produced so far so its internal Vec
+      // doesn't accumulate the entire compressed body for the lifetime of
+      // the stream.
+      if !this.encoder.get_ref().is_empty() {
+        let chunk: Vec<u8> = this.encoder.get_mut().drain(..).collect();
+        return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
 
-      // If the stream is done, return None to indicate completion.
       if *this.done {
         return Poll::Ready(None);
       }
 
-      // Poll the inner stream for the next chunk of data.
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(Ok(chunk))) => {
-          // Compress the chunk and flush the encoder.
           if let Err(e) = this
             .encoder
             .write_all(&chunk)
@@ -109,11 +105,9 @@ where
           continue;
         }
         Poll::Ready(Some(Err(e))) => {
-          // Propagate errors from the inner stream.
           return Poll::Ready(Some(Err(e)));
         }
         Poll::Ready(None) => {
-          // Finalize the compression when the inner stream is finished.
           *this.done = true;
           if let Err(e) = this.encoder.try_finish() {
             return Poll::Ready(Some(Err(e.into())));
@@ -121,7 +115,6 @@ where
           continue;
         }
         Poll::Pending => {
-          // Indicate that the stream is not ready yet.
           return Poll::Pending;
         }
       }

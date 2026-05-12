@@ -13,7 +13,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use hmac::Hmac;
 use hmac::Mac;
 use http::HeaderName;
@@ -157,16 +156,16 @@ impl IntoMiddleware for HmacSignature {
         };
 
         let (parts, body) = req.into_parts();
-        let collected = match body.collect().await {
+        let limited = http_body_util::Limited::new(body, max_body_bytes);
+        let collected = match limited.collect().await {
           Ok(c) => c.to_bytes(),
-          Err(_) => Bytes::new(),
+          Err(_) => {
+            return http::Response::builder()
+              .status(StatusCode::PAYLOAD_TOO_LARGE)
+              .body(TakoBody::empty())
+              .expect("valid response");
+          }
         };
-        if collected.len() > max_body_bytes {
-          return http::Response::builder()
-            .status(StatusCode::PAYLOAD_TOO_LARGE)
-            .body(TakoBody::empty())
-            .expect("valid response");
-        }
         let canonical_bytes = (canonical)(&parts, &collected);
 
         let mut mac = match HmacSha256::new_from_slice(&secret) {

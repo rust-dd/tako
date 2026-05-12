@@ -238,6 +238,7 @@ pub async fn run_with_config(
   let inflight = Arc::new(AtomicUsize::new(0));
   let drain_notify = Arc::new(Notify::new());
   let drain_timeout = config.drain_timeout;
+  let tls_handshake_timeout = config.tls_handshake_timeout;
   let keep_alive = config.keep_alive;
   #[cfg(feature = "http2")]
   let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
@@ -303,10 +304,25 @@ pub async fn run_with_config(
 
         compio::runtime::spawn(async move {
           let _permit = permit;
-          let tls_stream = match acceptor.accept(stream).await {
-            Ok(s) => s,
-            Err(e) => {
+          // Bound the TLS handshake against slowloris-style holds on the
+          // `max_connections` permit. compio has no `tokio::time::timeout`
+          // adapter, so race the accept future against an explicit
+          // `compio::time::sleep` deadline.
+          let handshake_deadline = std::pin::pin!(compio::time::sleep(tls_handshake_timeout));
+          let accept_fut = std::pin::pin!(acceptor.accept(stream));
+          let tls_stream = match futures_util::future::select(accept_fut, handshake_deadline).await
+          {
+            Either::Left((Ok(s), _)) => s,
+            Either::Left((Err(e), _)) => {
               tracing::error!("TLS error: {e}");
+              inflight.fetch_sub(1, Ordering::SeqCst);
+              drain_notify.notify_waiters();
+              return;
+            }
+            Either::Right(_) => {
+              tracing::warn!(
+                "TLS handshake timeout after {tls_handshake_timeout:?} from {addr}"
+              );
               inflight.fetch_sub(1, Ordering::SeqCst);
               drain_notify.notify_waiters();
               return;

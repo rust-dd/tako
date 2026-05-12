@@ -4,6 +4,19 @@
 //! validator before handing it to the handler. Validation failures produce
 //! 422 with an `application/problem+json` body that lists the violated rules.
 //!
+//! Two wrappers are exposed so callers can pick a validator deterministically
+//! when both crates are linked:
+//!
+//! - [`Validated<T>`] — uses [`validator::Validate`] when the `validator`
+//!   feature is on, falls back to [`garde::Validate`] when only `garde` is on.
+//! - [`Garded<T>`] — always uses [`garde::Validate`]. Available whenever the
+//!   `garde` feature is on, regardless of whether `validator` is also active.
+//!
+//! Previously enabling both features silently dropped the `garde` blanket
+//! impl: callers thought their `#[derive(garde::Validate)]` types were being
+//! checked when in fact only `validator`-annotated rules ran. Use
+//! [`Garded<T>`] to make the choice explicit.
+//!
 //! # Examples
 //!
 //! ```rust,ignore
@@ -141,6 +154,55 @@ where
       Validate::validate(&inner)
         .map_err(|e| ValidatedError::Failed(e.to_string()))
         .map(|()| Validated(inner))
+    }
+  }
+}
+
+// -- garde-specific wrapper -------------------------------------------------
+
+/// Wraps an inner extractor and runs [`garde::Validate`] on the produced
+/// value. Use when both `validator` and `garde` features are enabled and you
+/// want the garde rules to run; otherwise prefer the generic [`Validated<T>`].
+#[cfg(feature = "garde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "garde")))]
+pub struct Garded<T>(pub T);
+
+#[cfg(feature = "garde")]
+impl<'a, T> FromRequest<'a> for Garded<T>
+where
+  T: FromRequest<'a> + garde::Validate<Context = ()> + Send + 'a,
+{
+  type Error = ValidatedError<<T as FromRequest<'a>>::Error>;
+
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    async move {
+      let inner = T::from_request(req).await.map_err(ValidatedError::Inner)?;
+      garde::Validate::validate(&inner)
+        .map_err(|e| ValidatedError::Failed(e.to_string()))
+        .map(|()| Garded(inner))
+    }
+  }
+}
+
+#[cfg(feature = "garde")]
+impl<'a, T> FromRequestParts<'a> for Garded<T>
+where
+  T: FromRequestParts<'a> + garde::Validate<Context = ()> + Send + 'a,
+{
+  type Error = ValidatedError<<T as FromRequestParts<'a>>::Error>;
+
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    async move {
+      let inner = T::from_request_parts(parts)
+        .await
+        .map_err(ValidatedError::Inner)?;
+      garde::Validate::validate(&inner)
+        .map_err(|e| ValidatedError::Failed(e.to_string()))
+        .map(|()| Garded(inner))
     }
   }
 }

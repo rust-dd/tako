@@ -100,6 +100,12 @@ pub struct V2Client {
   max_retries: u32,
   retry_backoff: Duration,
   user_agent: Option<String>,
+  /// When `true` (default) retries only fire for idempotent methods —
+  /// `GET`, `HEAD`, `PUT`, `DELETE`, `OPTIONS`, `TRACE`. Re-issuing a `POST`
+  /// or `PATCH` could double-charge a payment, double-send a webhook, etc.
+  /// Set with [`V2ClientBuilder::retry_non_idempotent`] when you know the
+  /// upstream is idempotent.
+  retry_only_idempotent: bool,
 }
 
 /// Builder for [`V2Client`].
@@ -110,6 +116,7 @@ pub struct V2ClientBuilder {
   max_retries: u32,
   retry_backoff: Duration,
   user_agent: Option<String>,
+  retry_only_idempotent: bool,
 }
 
 impl V2ClientBuilder {
@@ -121,6 +128,7 @@ impl V2ClientBuilder {
       max_retries: 0,
       retry_backoff: Duration::from_millis(100),
       user_agent: Some(format!("tako/{}", env!("CARGO_PKG_VERSION"))),
+      retry_only_idempotent: true,
     }
   }
 
@@ -136,9 +144,19 @@ impl V2ClientBuilder {
     self
   }
 
-  /// Backoff between retries (exponential `attempt * backoff`).
+  /// Base backoff between retries — applied exponentially:
+  /// `backoff * 2^(attempt - 1)` (plus a tiny attempt-derived jitter to avoid
+  /// thundering-herd retries from a single client pool).
   pub fn retry_backoff(mut self, d: Duration) -> Self {
     self.retry_backoff = d;
+    self
+  }
+
+  /// Allow retries on non-idempotent methods (`POST`/`PATCH`/etc.). Off by
+  /// default — only set this when the upstream you call is genuinely
+  /// idempotent (e.g. it honours an `Idempotency-Key` header).
+  pub fn retry_non_idempotent(mut self, allow: bool) -> Self {
+    self.retry_only_idempotent = !allow;
     self
   }
 
@@ -178,6 +196,7 @@ impl V2ClientBuilder {
       max_retries: self.max_retries,
       retry_backoff: self.retry_backoff,
       user_agent: self.user_agent,
+      retry_only_idempotent: self.retry_only_idempotent,
     }
   }
 }
@@ -200,16 +219,46 @@ impl V2Client {
       req.headers_mut().insert(http::header::USER_AGENT, v);
     }
 
-    let attempt_max = self.max_retries.saturating_add(1);
+    let method_idempotent = matches!(
+      *req.method(),
+      http::Method::GET
+        | http::Method::HEAD
+        | http::Method::PUT
+        | http::Method::DELETE
+        | http::Method::OPTIONS
+        | http::Method::TRACE
+    );
+    let retries_allowed = !self.retry_only_idempotent || method_idempotent;
+    let attempt_max = if retries_allowed {
+      self.max_retries.saturating_add(1)
+    } else {
+      1
+    };
     let mut last_err: Option<Box<dyn Error + Send + Sync>> = None;
     for attempt in 0..attempt_max {
-      let mut req_clone = clone_request_full(&req);
+      let req_clone = match clone_request_full(&req) {
+        Some(c) => c,
+        None => {
+          // Clone failed (e.g. an invalid header value re-built somewhere).
+          // Surface as an error rather than panicking via `expect()`.
+          last_err = Some("failed to clone request for retry".into());
+          break;
+        }
+      };
       if attempt > 0 {
-        let backoff = self.retry_backoff * attempt;
+        // Exponential backoff: base * 2^(attempt-1), plus a 1-ms-per-attempt
+        // jitter so a saturated pool doesn't fire every retry in lock-step.
+        let factor = 1u32
+          .checked_shl(attempt.saturating_sub(1))
+          .unwrap_or(u32::MAX);
+        let backoff = self
+          .retry_backoff
+          .saturating_mul(factor)
+          .saturating_add(Duration::from_millis(attempt as u64));
         tokio::time::sleep(backoff).await;
       }
 
-      let send = self.inner.request(req_clone.take().expect("non-empty req"));
+      let send = self.inner.request(req_clone);
       let result = if let Some(t) = self.default_timeout {
         match tokio::time::timeout(t, send).await {
           Ok(r) => r.map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>),

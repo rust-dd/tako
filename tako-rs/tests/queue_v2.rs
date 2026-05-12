@@ -11,6 +11,7 @@ use tako_core::queue::backend::MemoryBackend;
 use tako_core::queue::backend::PushOptions;
 use tako_core::queue::backend::QueueBackend;
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn dedup_key_collapses_in_pending() {
   let counter = Arc::new(AtomicU32::new(0));
@@ -40,6 +41,7 @@ async fn dedup_key_collapses_in_pending() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_push_and_reserve_round_trip() {
   let backend = MemoryBackend::new();
@@ -56,6 +58,7 @@ async fn memory_backend_push_and_reserve_round_trip() {
   assert!(backend.reserve("emails").await.unwrap().is_none());
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_dead_letter_path() {
   let backend = MemoryBackend::new();
@@ -70,6 +73,7 @@ async fn memory_backend_dead_letter_path() {
   assert_eq!(dlq[0].0, id);
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_fail_requeues_with_attempt_increment() {
   let backend = MemoryBackend::new();

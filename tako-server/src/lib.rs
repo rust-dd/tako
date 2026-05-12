@@ -82,6 +82,10 @@ pub struct ServerConfig {
   pub max_connections: Option<usize>,
   /// Read deadline applied before the PROXY protocol header is parsed.
   pub proxy_read_timeout: Duration,
+  /// Maximum time the TLS acceptor waits for the client to complete its
+  /// handshake. A slow / stalled handshake holds a `max_connections` permit
+  /// open indefinitely otherwise — TLS slowloris. Default 10 seconds.
+  pub tls_handshake_timeout: Duration,
   /// Backoff schedule for `accept()` errors (typically EMFILE/ENFILE).
   pub accept_backoff: AcceptBackoff,
 }
@@ -107,6 +111,7 @@ impl Default for ServerConfig {
       h3_goaway_grace: Duration::from_secs(10),
       max_connections: None,
       proxy_read_timeout: Duration::from_secs(10),
+      tls_handshake_timeout: Duration::from_secs(10),
       accept_backoff: AcceptBackoff::new(),
     }
   }
@@ -315,7 +320,16 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpLi
       }
       Err(err) if err.kind() == ErrorKind::AddrInUse => {
         let next_port = socket_addr.port().saturating_add(1);
-        if !ask_to_use_next_port(socket_addr.port(), next_port)? {
+        let curr_port = socket_addr.port();
+        // Synchronous stdin read on a blocking pool — the previous call
+        // ran the read inline and blocked the async runtime worker until
+        // the user typed Enter.
+        let proceed = tokio::task::spawn_blocking(move || {
+          ask_to_use_next_port(curr_port, next_port)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        if !proceed {
           return Err(err);
         }
         socket_addr.set_port(next_port);
@@ -348,7 +362,15 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpL
       }
       Err(err) if err.kind() == ErrorKind::AddrInUse => {
         let next_port = socket_addr.port().saturating_add(1);
-        if !ask_to_use_next_port(socket_addr.port(), next_port)? {
+        let curr_port = socket_addr.port();
+        // compio variant: dedicate a blocking-pool task for the stdin read
+        // so the io_uring/IOCP reactor isn't held by the prompt.
+        let proceed = compio::runtime::spawn_blocking(move || {
+          ask_to_use_next_port(curr_port, next_port)
+        })
+        .await
+        .map_err(|_| io::Error::other("compio spawn_blocking panicked"))??;
+        if !proceed {
           return Err(err);
         }
         socket_addr.set_port(next_port);

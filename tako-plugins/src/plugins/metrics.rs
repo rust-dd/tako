@@ -178,15 +178,16 @@ pub mod prometheus_backend {
     }
   }
 
-  /// Prefer the matched route template (`route`) over the raw URI path (`path`)
-  /// to keep label cardinality bounded by the number of registered routes.
+  /// Use the matched route template (`route`) when present; fall back to a
+  /// fixed `"unmatched"` literal otherwise. Using the raw URI path here would
+  /// let any client (e.g. a 404-scanner) produce unbounded distinct label
+  /// values and blow up Prometheus memory.
   fn route_label(signal: &Signal) -> &str {
     signal
       .metadata
       .get("route")
-      .or_else(|| signal.metadata.get("path"))
       .map(String::as_str)
-      .unwrap_or("")
+      .unwrap_or("unmatched")
   }
 
   /// Basic Prometheus metrics backend that tracks HTTP request counts
@@ -398,12 +399,13 @@ pub mod opentelemetry_backend {
 
   /// Prefer the matched route template (`route`) over the raw URI path (`path`).
   fn route_label(signal: &Signal) -> String {
+    // Bound label cardinality: a matched route template is finite; the raw
+    // URI path is attacker-controlled and would explode label space.
     signal
       .metadata
       .get("route")
-      .or_else(|| signal.metadata.get("path"))
       .cloned()
-      .unwrap_or_default()
+      .unwrap_or_else(|| "unmatched".to_string())
   }
 
   impl MetricsBackend for OtelMetricsBackend {

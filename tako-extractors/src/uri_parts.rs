@@ -4,6 +4,18 @@
 //! header, and the underlying transport. `OriginalUri` is captured on first
 //! observation so middleware that mutates the request URI (e.g. `nest` /
 //! `scope` rewrites) cannot lose the original.
+//!
+//! ## Trust model
+//!
+//! `Host` and `Scheme` honor `Forwarded` / `X-Forwarded-*` headers **only** when
+//! the connection's peer IP appears in a configured trusted-proxy list. Insert
+//! a [`UriPartsConfig`] into the application state (or request extensions) to
+//! enable that path. Without configuration the extractors fall back to the
+//! `Host` header and the transport-resolved scheme — never an attacker-supplied
+//! `X-Forwarded-Host`, which previously enabled cache-poisoning and open
+//! redirect classes when the server was directly reachable.
+
+use std::net::IpAddr;
 
 use http::StatusCode;
 use http::Uri;
@@ -12,6 +24,45 @@ use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
+
+/// Configuration governing which forwarding headers `Host` / `Scheme` are
+/// allowed to consult. The extractors only honor `Forwarded` /
+/// `X-Forwarded-Host` / `X-Forwarded-Proto` when the peer address (from the
+/// transport's `ConnInfo`) appears in [`Self::trusted_proxies`].
+#[derive(Debug, Clone, Default)]
+pub struct UriPartsConfig {
+  /// Peer addresses (immediate TCP/UDS counter-party) whose forwarded
+  /// headers may be trusted. Empty means "trust no forwarded headers".
+  pub trusted_proxies: Vec<IpAddr>,
+}
+
+impl UriPartsConfig {
+  /// Builder convenience for the common "trust this single proxy" setup.
+  pub fn with_trusted_proxy(mut self, ip: IpAddr) -> Self {
+    self.trusted_proxies.push(ip);
+    self
+  }
+}
+
+fn peer_is_trusted(ext: &http::Extensions, cfg: Option<&UriPartsConfig>) -> bool {
+  let cfg = match cfg {
+    Some(c) => c,
+    None => return false,
+  };
+  if cfg.trusted_proxies.is_empty() {
+    return false;
+  }
+  let peer_ip = ext
+    .get::<tako_core::conn_info::ConnInfo>()
+    .and_then(|info| match &info.peer {
+      tako_core::conn_info::PeerAddr::Ip(sa) => Some(sa.ip()),
+      _ => None,
+    });
+  match peer_ip {
+    Some(ip) => cfg.trusted_proxies.contains(&ip),
+    None => false,
+  }
+}
 
 /// Marker stored in request extensions to preserve the URI as it first
 /// arrived at the dispatcher. `OriginalUri` reads from this.
@@ -73,26 +124,28 @@ impl Responder for HostMissing {
   }
 }
 
-fn extract_host(headers: &http::HeaderMap, uri: &Uri) -> Option<String> {
-  if let Some(forwarded) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
-    for pair in forwarded.split(';') {
-      let pair = pair.trim();
-      if let Some(rest) = pair.strip_prefix("host=") {
-        let host = rest.trim_matches('"');
-        if !host.is_empty() {
-          return Some(host.to_string());
+fn extract_host(headers: &http::HeaderMap, uri: &Uri, trust_forwarded: bool) -> Option<String> {
+  if trust_forwarded {
+    if let Some(forwarded) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
+      for pair in forwarded.split(';') {
+        let pair = pair.trim();
+        if let Some(rest) = pair.strip_prefix("host=") {
+          let host = rest.trim_matches('"');
+          if !host.is_empty() {
+            return Some(host.to_string());
+          }
         }
       }
     }
-  }
-  if let Some(xfh) = headers
-    .get("x-forwarded-host")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.split(',').next())
-    .map(|s| s.trim().to_string())
-    && !xfh.is_empty()
-  {
-    return Some(xfh);
+    if let Some(xfh) = headers
+      .get("x-forwarded-host")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.split(',').next())
+      .map(|s| s.trim().to_string())
+      && !xfh.is_empty()
+    {
+      return Some(xfh);
+    }
   }
   if let Some(host) = headers
     .get(http::header::HOST)
@@ -109,8 +162,9 @@ impl<'a> FromRequest<'a> for Host {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    let trust = peer_is_trusted(req.extensions(), req.extensions().get::<UriPartsConfig>());
     futures_util::future::ready(
-      extract_host(req.headers(), req.uri())
+      extract_host(req.headers(), req.uri(), trust)
         .map(Host)
         .ok_or(HostMissing),
     )
@@ -123,8 +177,9 @@ impl<'a> FromRequestParts<'a> for Host {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    let trust = peer_is_trusted(&parts.extensions, parts.extensions.get::<UriPartsConfig>());
     futures_util::future::ready(
-      extract_host(&parts.headers, &parts.uri)
+      extract_host(&parts.headers, &parts.uri, trust)
         .map(Host)
         .ok_or(HostMissing),
     )
@@ -135,12 +190,18 @@ impl<'a> FromRequestParts<'a> for Host {
 /// transport-injected `ConnInfo`.
 pub struct Scheme(pub String);
 
-fn extract_scheme(headers: &http::HeaderMap, uri: &Uri, ext: &http::Extensions) -> String {
-  if let Some(p) = headers
-    .get("x-forwarded-proto")
-    .and_then(|v| v.to_str().ok())
-    .and_then(|v| v.split(',').next())
-    .map(|s| s.trim())
+fn extract_scheme(
+  headers: &http::HeaderMap,
+  uri: &Uri,
+  ext: &http::Extensions,
+  trust_forwarded: bool,
+) -> String {
+  if trust_forwarded
+    && let Some(p) = headers
+      .get("x-forwarded-proto")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.split(',').next())
+      .map(|s| s.trim())
     && !p.is_empty()
   {
     return p.to_ascii_lowercase();
@@ -162,7 +223,8 @@ impl<'a> FromRequest<'a> for Scheme {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let scheme = extract_scheme(req.headers(), req.uri(), req.extensions());
+    let trust = peer_is_trusted(req.extensions(), req.extensions().get::<UriPartsConfig>());
+    let scheme = extract_scheme(req.headers(), req.uri(), req.extensions(), trust);
     futures_util::future::ready(Ok(Scheme(scheme)))
   }
 }
@@ -173,7 +235,8 @@ impl<'a> FromRequestParts<'a> for Scheme {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let scheme = extract_scheme(&parts.headers, &parts.uri, &parts.extensions);
+    let trust = peer_is_trusted(&parts.extensions, parts.extensions.get::<UriPartsConfig>());
+    let scheme = extract_scheme(&parts.headers, &parts.uri, &parts.extensions, trust);
     futures_util::future::ready(Ok(Scheme(scheme)))
   }
 }

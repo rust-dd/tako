@@ -225,8 +225,13 @@ async fn run(
   #[cfg(feature = "tako-tracing")]
   tako_core::tracing::init_tracing();
 
-  // Install default crypto provider for rustls (required for QUIC/TLS)
-  let _ = rustls::crypto::ring::default_provider().install_default();
+  // Install default crypto provider for rustls (required for QUIC/TLS).
+  // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
+  // different providers in the same process was order-dependent and the
+  // loser silently dropped its `Err`, leaving connections to fail later.
+  if rustls::crypto::CryptoProvider::get_default().is_none() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  }
 
   let certs_vec = load_certs(certs.unwrap_or("cert.pem"))?;
   let key = load_key(key.unwrap_or("key.pem"))?;
@@ -256,8 +261,13 @@ async fn run_with_rustls_config(
   #[cfg(feature = "tako-tracing")]
   tako_core::tracing::init_tracing();
 
-  // Install default crypto provider for rustls (required for QUIC/TLS)
-  let _ = rustls::crypto::ring::default_provider().install_default();
+  // Install default crypto provider for rustls (required for QUIC/TLS).
+  // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
+  // different providers in the same process was order-dependent and the
+  // loser silently dropped its `Err`, leaving connections to fail later.
+  if rustls::crypto::CryptoProvider::get_default().is_none() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  }
 
   // QuicServerConfig wraps a rustls::ServerConfig; it requires the underlying
   // config to set ALPN to h3. Calling `try_from` errors otherwise, so we trust

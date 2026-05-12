@@ -156,6 +156,7 @@ pub struct Session {
   data: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
   dirty: Arc<AtomicBool>,
   rotation_counter: Arc<AtomicU64>,
+  destroyed: Arc<AtomicBool>,
 }
 
 impl Session {
@@ -164,6 +165,7 @@ impl Session {
       data: Arc::new(Mutex::new(data)),
       dirty: Arc::new(AtomicBool::new(false)),
       rotation_counter: Arc::new(AtomicU64::new(0)),
+      destroyed: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -191,14 +193,30 @@ impl Session {
     }
   }
 
-  /// Empties the session keeping its id stable. Use this for logout flows
-  /// where the cookie should still come back.
+  /// Empties the session keeping its id stable. Use this when you want the
+  /// session to live on (e.g. clearing temporary state) but the cookie should
+  /// keep being refreshed. For logout flows that should remove the cookie
+  /// from the browser, use [`Self::destroy`] instead.
   pub fn clear(&self) {
     let mut guard = self.data.lock();
     if !guard.is_empty() {
       guard.clear();
       self.dirty.store(true, Ordering::Relaxed);
     }
+  }
+
+  /// Marks the session for destruction: the server-side entry is removed and
+  /// the response Set-Cookie carries `Max-Age=0` with a past `Expires` so the
+  /// user agent drops it. Pair this with whatever logout response your
+  /// application returns.
+  pub fn destroy(&self) {
+    self.data.lock().clear();
+    self.destroyed.store(true, Ordering::Release);
+    self.dirty.store(true, Ordering::Relaxed);
+  }
+
+  fn is_destroyed(&self) -> bool {
+    self.destroyed.load(Ordering::Acquire)
   }
 
   /// Forces a fresh session id on the next response. Call this after
@@ -363,6 +381,33 @@ fn build_cookie(
   s
 }
 
+fn build_expired_cookie(
+  cookie_name: &str,
+  path: &str,
+  domain: Option<&str>,
+  secure: bool,
+  http_only: bool,
+  same_site: SameSite,
+) -> String {
+  // Empty value + Max-Age=0 + far-past Expires covers every major UA
+  // (some only honor one of the two attributes).
+  let mut s = format!("{}=; Path={}", cookie_name, path);
+  if let Some(d) = domain {
+    s.push_str("; Domain=");
+    s.push_str(d);
+  }
+  s.push_str("; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  if http_only {
+    s.push_str("; HttpOnly");
+  }
+  if secure {
+    s.push_str("; Secure");
+  }
+  s.push_str("; SameSite=");
+  s.push_str(same_site.as_str());
+  s
+}
+
 impl IntoMiddleware for SessionMiddleware {
   fn into_middleware(
     self,
@@ -443,6 +488,29 @@ impl IntoMiddleware for SessionMiddleware {
 
         let dirty = session.is_dirty();
         let rotated = session.rotation_requested();
+        let destroyed = session.is_destroyed();
+
+        // Destruction (logout) takes precedence over rotation/refresh: drop
+        // the server entry and emit a Set-Cookie that the UA will treat as
+        // an immediate delete.
+        if destroyed {
+          if was_existing {
+            store.remove(&sid);
+          }
+          let expired = build_expired_cookie(
+            &cookie_name,
+            &path,
+            domain.as_deref().map(String::as_str),
+            secure,
+            http_only,
+            same_site,
+          );
+          if let Ok(v) = HeaderValue::from_str(&expired) {
+            resp.headers_mut().append(http::header::SET_COOKIE, v);
+          }
+          let _ = dirty;
+          return resp;
+        }
 
         // Effective session id: rotate if requested.
         let effective_sid = if rotated {
@@ -456,8 +524,7 @@ impl IntoMiddleware for SessionMiddleware {
 
         // Always touch on every request — rolling refresh keeps the cookie
         // alive while the user is active. Caller-side logout uses
-        // `Session::clear` and the handler can pair it with explicit cookie
-        // expiry by setting a `Set-Cookie` header itself.
+        // `Session::destroy` which short-circuits this path.
         let updated_entry = SessionEntry {
           data: session.snapshot(),
           created_at,
@@ -491,9 +558,6 @@ impl IntoMiddleware for SessionMiddleware {
           resp.headers_mut().append(http::header::SET_COOKIE, v);
         }
 
-        // Suppress unused-variable warning on older toolchains; `dirty` is
-        // intentionally read above to skip storage churn for unchanged
-        // sessions in future when the API gains `if !dirty && !rotated`.
         let _ = dirty;
 
         resp

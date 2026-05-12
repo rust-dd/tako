@@ -244,10 +244,17 @@ impl ServeDir {
     };
 
     if let Some((compressed, encoding)) = self.precompressed_variant(&target, headers) {
-      return Some((
-        Self::serve_file_with_encoding(&compressed, &target, encoding).await?,
+      if let Some(resp) = Self::serve_file_with_encoding(&compressed, &target, encoding).await {
+        return Some((resp, encoding));
+      }
+      // Sidecar read failed (deleted between resolve and open, permission
+      // glitch, etc.) — fall through to the identity file instead of
+      // 404-ing the whole request.
+      tracing::debug!(
+        target = %target.display(),
         encoding,
-      ));
+        "precompressed sidecar read failed, falling back to identity"
+      );
     }
 
     Some((Self::serve_file(&target).await?, "identity"))

@@ -21,7 +21,6 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use bytes::Bytes;
 use http::HeaderValue;
 use http::Method;
 use http::StatusCode;
@@ -30,6 +29,7 @@ use http::header::ETAG;
 use http::header::IF_MODIFIED_SINCE;
 use http::header::IF_NONE_MATCH;
 use http::header::LAST_MODIFIED;
+use http_body::Body;
 use http_body_util::BodyExt;
 use sha1::Digest;
 use sha1::Sha1;
@@ -100,13 +100,18 @@ fn build_304(
   resp
 }
 
-/// Computes a strong ETag from a body slice.
+/// Computes a weak ETag (`W/"…"`) from a body slice.
+///
+/// SHA-1 over a body alone cannot distinguish two bodies that differ only by
+/// metadata the validator should also cover (e.g. content-type negotiation
+/// over the same path). Emitting as `W/` keeps clients honest about that:
+/// they may not assume byte-for-byte equality, only semantic equivalence.
 fn make_etag(bytes: &[u8]) -> String {
   let mut hasher = Sha1::new();
   hasher.update(bytes);
   let digest = hasher.finalize();
-  let mut hex = String::with_capacity(2 + 40);
-  hex.push('"');
+  let mut hex = String::with_capacity(4 + 40);
+  hex.push_str("W/\"");
   for b in digest {
     use std::fmt::Write;
     let _ = write!(hex, "{b:02x}");
@@ -115,12 +120,21 @@ fn make_etag(bytes: &[u8]) -> String {
   hex
 }
 
-/// Compares an `If-Modified-Since` value against `Last-Modified`. We do byte
-/// equality after trimming surrounding ASCII whitespace; full HTTP-date
-/// parsing would require an extra dependency and the spec allows servers to
-/// fall back to the byte comparison on parse failure.
+/// Compares an `If-Modified-Since` value against `Last-Modified` using
+/// semantic HTTP-date comparison: RFC 9110 §5.6.7 / §13.1.3 allows
+/// IMF-fixdate, RFC 850 and asctime formats; comparing byte-for-byte would
+/// reject legitimate clients and force the server to send a full body.
 fn not_modified_since(if_modified_since: &str, last_modified: &str) -> bool {
-  if_modified_since.trim() == last_modified.trim()
+  match (
+    httpdate::parse_http_date(if_modified_since.trim()),
+    httpdate::parse_http_date(last_modified.trim()),
+  ) {
+    (Ok(ims), Ok(lm)) => ims >= lm,
+    // Parsing failure on either side falls back to byte equality so a
+    // malformed Last-Modified the server itself emitted still produces a
+    // stable result — but the typical RFC 850/asctime client now succeeds.
+    _ => if_modified_since.trim() == last_modified.trim(),
+  }
 }
 
 impl IntoMiddleware for ETag {
@@ -180,15 +194,28 @@ impl IntoMiddleware for ETag {
           return resp;
         }
 
-        // No handler ETag: compute one if the body is bounded.
+        // No handler ETag: compute one if the body is bounded. Cap on both
+        // sides: skip when the body advertises an exact size over `max_bytes`,
+        // and wrap with `Limited` so streaming bodies that lie about their
+        // size can't OOM the process.
         let (parts, body) = resp.into_parts();
-        let collected = match body.collect().await {
-          Ok(c) => c.to_bytes(),
-          Err(_) => Bytes::new(),
-        };
-        if collected.len() > max_bytes {
-          return http::Response::from_parts(parts, TakoBody::from(collected));
+        if let Some(n) = body.size_hint().exact()
+          && (n as usize) > max_bytes
+        {
+          return http::Response::from_parts(parts, body);
         }
+        let limited = http_body_util::Limited::new(body, max_bytes);
+        let collected = match limited.collect().await {
+          Ok(c) => c.to_bytes(),
+          Err(_) => {
+            // The body exceeded the cap mid-stream. Surface as 500 — the
+            // body has been partially consumed and cannot be replayed.
+            return http::Response::builder()
+              .status(StatusCode::INTERNAL_SERVER_ERROR)
+              .body(TakoBody::empty())
+              .expect("valid 500 response");
+          }
+        };
         let etag = make_etag(&collected);
         let mut resp = http::Response::from_parts(parts, TakoBody::from(collected));
         if let Ok(v) = HeaderValue::from_str(&etag) {

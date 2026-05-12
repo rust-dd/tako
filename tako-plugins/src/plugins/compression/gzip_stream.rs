@@ -55,7 +55,6 @@ pin_project! {
     pub struct GzipStream<S> {
         #[pin] inner: S,
         encoder: GzEncoder<Vec<u8>>,
-        pos: usize,
         done: bool,
     }
 }
@@ -66,7 +65,6 @@ impl<S> GzipStream<S> {
     Self {
       inner: stream,
       encoder: GzEncoder::new(Vec::new(), Compression::new(level)),
-      pos: 0,
       done: false,
     }
   }
@@ -83,12 +81,13 @@ where
     let mut this = self.project();
 
     loop {
-      // 1) Do we still have unread bytes in the encoder buffer?
-      if *this.pos < this.encoder.get_ref().len() {
-        let buf = &this.encoder.get_ref()[*this.pos..];
-        *this.pos = this.encoder.get_ref().len();
-        // Immediately send the chunk and return Ready.
-        return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
+      // 1) Drain anything the encoder buffered so far so its internal Vec
+      //    doesn't accumulate the entire compressed body for the lifetime
+      //    of the stream (the earlier `pos`-cursor pattern only skipped
+      //    already-read bytes — it never freed them).
+      if !this.encoder.get_ref().is_empty() {
+        let chunk: Vec<u8> = this.encoder.get_mut().drain(..).collect();
+        return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
       // 2) If we already finished and nothing is left, end the stream.
       if *this.done {
@@ -96,8 +95,6 @@ where
       }
       // 3) Poll the inner stream for more input data.
       match this.inner.as_mut().poll_next(cx) {
-        // New chunk arrived: compress it, then loop again
-        // (now the buffer certainly contains data).
         Poll::Ready(Some(Ok(chunk))) => {
           if let Err(e) = this
             .encoder
@@ -108,12 +105,9 @@ where
           }
           continue;
         }
-        // Error from the inner stream — propagate it.
         Poll::Ready(Some(Err(e))) => {
           return Poll::Ready(Some(Err(e)));
         }
-        // Inner stream finished: finalize the encoder,
-        // then loop to drain the remaining bytes.
         Poll::Ready(None) => {
           *this.done = true;
           if let Err(e) = this.encoder.flush() {
@@ -121,7 +115,6 @@ where
           }
           continue;
         }
-        // No new input and no buffered output: we must wait.
         Poll::Pending => {
           return Poll::Pending;
         }

@@ -55,13 +55,21 @@ use uuid::Uuid;
 /// Insert into request extensions (or set as global state) to constrain how
 /// `TakoMultipart` / `TakoTypedMultipart` consume request bodies. Defaults
 /// are permissive — opt in to limits explicitly.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct MultipartConfig {
   /// Total request body cap, in bytes. `None` = no whole-payload limit.
   pub total_size_limit: Option<u64>,
   /// Per-part body cap, in bytes. `None` = no per-part limit.
+  ///
+  /// Defaults to 1 MiB to keep text-field deserialization (`from_utf8` on a
+  /// fully-collected `Vec<u8>`) bounded; raise it explicitly when handling
+  /// genuinely large fields.
   pub per_part_size_limit: Option<u64>,
   /// Maximum number of parts. Reaching this returns an error mid-parse.
+  ///
+  /// Enforced by [`TakoTypedMultipart`]; the raw [`TakoMultipart`] does not
+  /// enforce this because users may consume the inner `multer::Multipart`
+  /// directly. Prefer the typed extractor when you need the cap.
   pub max_parts: Option<usize>,
   /// Allow-list of part content-types (e.g. `image/png`, `application/pdf`).
   /// `None` (or empty) = accept any.
@@ -69,6 +77,26 @@ pub struct MultipartConfig {
   /// When uploading via `UploadedFile`, switch from in-memory buffering to a
   /// temp file once the part exceeds this many bytes. `None` = always disk.
   pub disk_spill_threshold: Option<u64>,
+  /// Maximum time to wait for a single chunk from a multipart field before
+  /// aborting the request. Protects against slow-read style DoS where the
+  /// client drips a few bytes per second to hold a parser permit open.
+  /// `None` = no per-chunk timeout. Applied by [`TakoTypedMultipart`].
+  pub field_chunk_timeout: Option<std::time::Duration>,
+}
+
+impl Default for MultipartConfig {
+  fn default() -> Self {
+    Self {
+      total_size_limit: None,
+      // Bound the per-part allocation by default so an unconfigured
+      // application doesn't OOM on a hostile multipart upload.
+      per_part_size_limit: Some(1024 * 1024),
+      max_parts: None,
+      allowed_content_types: None,
+      disk_spill_threshold: None,
+      field_chunk_timeout: None,
+    }
+  }
 }
 
 impl MultipartConfig {
@@ -92,6 +120,13 @@ impl MultipartConfig {
   /// Set the maximum number of parts.
   pub fn max_parts(mut self, n: usize) -> Self {
     self.max_parts = Some(n);
+    self
+  }
+
+  /// Maximum time to wait for a single chunk from any multipart field. See
+  /// [`Self::field_chunk_timeout`].
+  pub fn field_chunk_timeout(mut self, d: std::time::Duration) -> Self {
+    self.field_chunk_timeout = Some(d);
     self
   }
 
@@ -623,11 +658,26 @@ where
       let mut map = Map::<String, Value>::new();
       let mut count: usize = 0;
 
-      while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?
-      {
+      let field_timeout = cfg.field_chunk_timeout;
+      loop {
+        let next_field_fut = multipart.next_field();
+        let field = match field_timeout {
+          Some(d) => match tokio::time::timeout(d, next_field_fut).await {
+            Ok(Ok(field)) => field,
+            Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+            Err(_) => {
+              return Err(TypedMultipartError::FieldError(
+                "multipart slow-read timeout".to_string(),
+              ));
+            }
+          },
+          None => next_field_fut
+            .await
+            .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+        };
+        let Some(field) = field else {
+          break;
+        };
         count += 1;
         if let Some(max) = cfg.max_parts
           && count > max
@@ -647,19 +697,41 @@ where
           .to_owned();
 
         if field.file_name().is_some() {
-          let file_value: F = F::from_field(field)
-            .await
-            .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?;
+          let file_value: F = match field_timeout {
+            Some(d) => match tokio::time::timeout(d, F::from_field(field)).await {
+              Ok(Ok(v)) => v,
+              Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+              Err(_) => {
+                return Err(TypedMultipartError::FieldError(
+                  "multipart slow-read timeout".to_string(),
+                ));
+              }
+            },
+            None => F::from_field(field)
+              .await
+              .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+          };
 
           let json_value = serde_json::to_value(file_value)
             .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
 
           map.insert(field_name, json_value);
         } else {
-          let field_bytes = field
-            .bytes()
-            .await
-            .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?;
+          let field_bytes = match field_timeout {
+            Some(d) => match tokio::time::timeout(d, field.bytes()).await {
+              Ok(Ok(b)) => b,
+              Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+              Err(_) => {
+                return Err(TypedMultipartError::FieldError(
+                  "multipart slow-read timeout".to_string(),
+                ));
+              }
+            },
+            None => field
+              .bytes()
+              .await
+              .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+          };
 
           let text = String::from_utf8(field_bytes.to_vec())
             .map_err(|_| TypedMultipartError::InvalidUtf8)?;
@@ -678,3 +750,4 @@ where
     }
   }
 }
+

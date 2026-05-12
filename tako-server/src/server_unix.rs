@@ -70,7 +70,7 @@ fn is_abstract_path(path: &Path) -> bool {
 /// Bind a `tokio::net::UnixListener` for either a filesystem path or a Linux
 /// abstract path (`@`-prefixed). Filesystem paths get the stale-socket
 /// cleanup; abstract paths don't.
-fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
+async fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
   if is_abstract_path(path) {
     #[cfg(target_os = "linux")]
     {
@@ -89,7 +89,7 @@ fn bind_unix_listener(path: &Path) -> io::Result<tokio::net::UnixListener> {
       ));
     }
   }
-  cleanup_stale_socket(path)?;
+  cleanup_stale_socket(path).await?;
   tokio::net::UnixListener::bind(path)
 }
 
@@ -119,7 +119,7 @@ where
     + 'static,
 {
   let path = path.as_ref();
-  let listener = bind_unix_listener(path)?;
+  let listener = bind_unix_listener(path).await?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
   let handler = Arc::new(handler);
@@ -156,7 +156,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   let path = path.as_ref();
-  let listener = bind_unix_listener(path)?;
+  let listener = bind_unix_listener(path).await?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
   let handler = Arc::new(handler);
@@ -256,7 +256,7 @@ async fn run_http(
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
-  let listener = bind_unix_listener(path)?;
+  let listener = bind_unix_listener(path).await?;
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -373,22 +373,27 @@ async fn run_http(
 }
 
 /// Removes a stale socket file if it exists and is not actively in use.
-fn cleanup_stale_socket(path: &Path) -> std::io::Result<()> {
-  if path.exists() {
-    // Try connecting to see if the socket is active
-    match std::os::unix::net::UnixStream::connect(path) {
-      Ok(_) => {
-        // Socket is active — don't remove it
-        return Err(std::io::Error::new(
-          std::io::ErrorKind::AddrInUse,
-          format!("Unix socket {} is already in use", path.display()),
-        ));
-      }
-      Err(_) => {
-        // Socket is stale — safe to remove
-        std::fs::remove_file(path)?;
-      }
+///
+/// Probes the socket via the async `tokio::net::UnixStream::connect` so the
+/// runtime worker isn't blocked by the previous synchronous `connect()`
+/// while another peer's accept queue is draining.
+///
+/// Note: this remains TOCTOU-prone between two parallel `bind` attempts —
+/// the connect-then-remove-then-bind sequence allows a sibling process to
+/// race in between. Callers that need stronger guarantees should arrange
+/// out-of-band coordination (file lock, supervisor sequencing).
+async fn cleanup_stale_socket(path: &Path) -> std::io::Result<()> {
+  if !path.exists() {
+    return Ok(());
+  }
+  match tokio::net::UnixStream::connect(path).await {
+    Ok(_) => Err(std::io::Error::new(
+      std::io::ErrorKind::AddrInUse,
+      format!("Unix socket {} is already in use", path.display()),
+    )),
+    Err(_) => {
+      std::fs::remove_file(path)?;
+      Ok(())
     }
   }
-  Ok(())
 }

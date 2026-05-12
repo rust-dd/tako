@@ -21,7 +21,6 @@ use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use hyper::server::conn::http1;
@@ -35,7 +34,6 @@ use tako_core::conn_info::ConnInfo;
 use tako_core::router::Router;
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
-use tokio::sync::Notify;
 use tokio::task::LocalSet;
 
 /// Configuration for [`serve_per_thread`] (and the `compio` variant when enabled).
@@ -67,9 +65,14 @@ impl Default for PerThreadConfig {
 /// (and friends). Workers `select!` against [`Self::notified`] in their accept
 /// loop, so triggering [`PerThreadShutdown::trigger`] cleanly exits each
 /// worker's `loop { accept }` instead of leaking the OS thread on shutdown.
+///
+/// Backed by a [`tokio_util::sync::CancellationToken`] so the signal is
+/// sticky: workers that register `notified()` after `trigger()` was called
+/// still observe the request immediately, fixing the `Notify::notify_waiters`
+/// race where late subscribers would miss the shutdown.
 #[derive(Clone, Default)]
 pub struct PerThreadShutdown {
-  inner: Arc<Notify>,
+  inner: tokio_util::sync::CancellationToken,
 }
 
 impl PerThreadShutdown {
@@ -80,13 +83,14 @@ impl PerThreadShutdown {
   }
 
   /// Notify every worker waiter that it should exit its accept loop.
+  /// Idempotent — calling it more than once is a no-op.
   pub fn trigger(&self) {
-    self.inner.notify_waiters();
+    self.inner.cancel();
   }
 
   /// Future a worker awaits to learn that shutdown has been requested.
   pub async fn notified(&self) {
-    self.inner.notified().await;
+    self.inner.cancelled().await;
   }
 }
 
@@ -94,6 +98,11 @@ fn num_cpus() -> usize {
   std::thread::available_parallelism()
     .map(|n| n.get())
     .unwrap_or(1)
+}
+
+#[cfg(feature = "compio")]
+fn compio_accept_backoff() -> Duration {
+  Duration::from_millis(5)
 }
 
 /// One-shot platform-capability warning. SO_REUSEPORT behaves like
@@ -167,9 +176,19 @@ fn bind_reuseport_compio(addr: SocketAddr, backlog: i32) -> io::Result<compio::n
 /// handle.
 pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
   let (handle, shutdown) = spawn_per_thread(addr, router, cfg)?;
-  // Without an external trigger this just blocks until every worker exits
-  // (which currently means until the process is signalled).
-  drop(shutdown);
+  // Wait for SIGINT (Ctrl+C) on a dedicated mini-runtime and then trigger
+  // graceful shutdown. The earlier `drop(shutdown)` was a no-op — dropping
+  // one clone of the `CancellationToken` does not cancel anything; only
+  // `trigger()` does. Without this, the function would never return on a
+  // healthy process.
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .map_err(|e| io::Error::other(format!("ctrl-c runtime: {e}")))?;
+  rt.block_on(async {
+    let _ = tokio::signal::ctrl_c().await;
+  });
+  shutdown.trigger();
   for h in handle {
     let _ = h.join();
   }
@@ -247,6 +266,8 @@ fn worker_main(
     let shutdown_fut = shutdown.notified();
     tokio::pin!(shutdown_fut);
 
+    let mut connection_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+
     loop {
       tokio::select! {
         accept = listener.accept() => {
@@ -260,7 +281,7 @@ fn worker_main(
           let _ = stream.set_nodelay(true);
           let io = hyper_util::rt::TokioIo::new(stream);
 
-          tokio::task::spawn_local(async move {
+          let handle = tokio::task::spawn_local(async move {
             let svc = service_fn(move |mut req| async move {
               req.extensions_mut().insert(peer);
               req.extensions_mut().insert(ConnInfo::tcp(peer));
@@ -279,6 +300,7 @@ fn worker_main(
               }
             }
           });
+          connection_handles.push(handle);
         }
         () = &mut shutdown_fut => {
           tracing::info!("worker {worker_id}: shutdown signalled, draining");
@@ -286,13 +308,15 @@ fn worker_main(
         }
       }
     }
-    // LocalSet drops here; in-flight tasks get cfg.drain_timeout to finish
-    // before the runtime is dropped on function exit.
-    let _ = tokio::time::timeout(cfg.drain_timeout, async {
-      // No external waiter on the LocalSet; rely on the runtime's pending
-      // task drain when block_on returns.
-    })
-    .await;
+    // Real graceful drain: wait on every in-flight connection handle up to
+    // `drain_timeout`. The earlier implementation `timeout(d, async {})`'d
+    // an immediately-ready future, which let the runtime abort pending
+    // connections the moment the loop exited.
+    let drain = tokio::time::timeout(
+      cfg.drain_timeout,
+      futures_util::future::join_all(connection_handles),
+    );
+    let _ = drain.await;
   });
 }
 
@@ -310,16 +334,27 @@ pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig)
 
   let router: &'static Router = Box::leak(Box::new(router));
 
+  let shutdown = PerThreadShutdown::new();
   let mut handles = Vec::with_capacity(cfg.workers);
   for worker_id in 0..cfg.workers {
     let cfg = cfg.clone();
+    let shutdown = shutdown.clone();
     let h = std::thread::Builder::new()
       .name(format!("tako-pt-compio-{worker_id}"))
-      .spawn(move || worker_main_compio(worker_id, socket_addr, router, cfg))
+      .spawn(move || worker_main_compio(worker_id, socket_addr, router, cfg, shutdown))
       .expect("spawn tako-pt-compio worker");
     handles.push(h);
   }
 
+  // Same Ctrl+C / shutdown discipline as `serve_per_thread`.
+  let rt = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .map_err(|e| io::Error::other(format!("ctrl-c runtime: {e}")))?;
+  rt.block_on(async {
+    let _ = tokio::signal::ctrl_c().await;
+  });
+  shutdown.trigger();
   for h in handles {
     let _ = h.join();
   }
@@ -332,6 +367,7 @@ fn worker_main_compio(
   addr: SocketAddr,
   router: &'static Router,
   cfg: PerThreadConfig,
+  shutdown: PerThreadShutdown,
 ) {
   use cyper_core::HyperStream;
 
@@ -362,15 +398,33 @@ fn worker_main_compio(
     };
     tracing::debug!("tako-pt-compio worker {worker_id} listening on {addr}");
 
+    let cancel = shutdown.inner.clone();
+    let mut backoff = compio_accept_backoff();
+
     loop {
-      let accept = match listener.accept().await {
-        Ok(v) => v,
-        Err(e) => {
-          tracing::error!("worker {worker_id}: accept failed: {e}");
+      let accept_fut = listener.accept();
+      let cancel_fut = cancel.cancelled();
+      tokio::pin!(accept_fut, cancel_fut);
+      let accept = futures_util::future::select(accept_fut, cancel_fut).await;
+      let (stream, peer) = match accept {
+        futures_util::future::Either::Left((Ok(v), _)) => {
+          backoff = compio_accept_backoff();
+          v
+        }
+        futures_util::future::Either::Left((Err(e), _)) => {
+          let delay = backoff;
+          tracing::warn!(
+            "worker {worker_id}: accept failed: {e}; backing off {delay:?}"
+          );
+          compio::time::sleep(delay).await;
+          backoff = std::cmp::min(backoff * 2, Duration::from_secs(1));
           continue;
         }
+        futures_util::future::Either::Right(_) => {
+          tracing::info!("worker {worker_id}: shutdown signalled, draining");
+          break;
+        }
       };
-      let (stream, peer) = accept;
       let io = HyperStream::new(stream);
 
       compio::runtime::spawn(async move {

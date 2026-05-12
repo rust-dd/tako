@@ -61,8 +61,10 @@ pin_project! {
     pub struct ZstdStream<S> {
         #[pin] inner: S,
         encoder: Option<Encoder<'static, Vec<u8>>>,
-        buffer: Vec<u8>,
-        pos: usize,
+        // Bytes already produced by `encoder.finish()` once the upstream
+        // closed — held separately because the encoder is consumed at that
+        // point.
+        tail: Vec<u8>,
         done: bool,
     }
 }
@@ -73,8 +75,7 @@ impl<S> ZstdStream<S> {
     Self {
       inner: stream,
       encoder: Some(Encoder::new(Vec::new(), level).expect("zstd encoder")),
-      buffer: Vec::new(),
-      pos: 0,
+      tail: Vec::new(),
       done: false,
     }
   }
@@ -91,50 +92,41 @@ where
     let mut this = self.project();
 
     loop {
-      // 1) Drain the buffer first, if there is unread output.
-      if *this.pos < this.buffer.len() {
-        let chunk = &this.buffer[*this.pos..];
-        *this.pos = this.buffer.len();
-        return Poll::Ready(Some(Ok(Bytes::copy_from_slice(chunk))));
+      // 1) Drain the encoder's internal buffer (live) or the tail (post-finish)
+      //    rather than copying out and then growing the original Vec forever.
+      if let Some(enc) = this.encoder.as_mut() {
+        if !enc.get_ref().is_empty() {
+          let chunk: Vec<u8> = enc.get_mut().drain(..).collect();
+          return Poll::Ready(Some(Ok(Bytes::from(chunk))));
+        }
+      } else if !this.tail.is_empty() {
+        let chunk: Vec<u8> = this.tail.drain(..).collect();
+        return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
-      // 2) If we are done and the encoder is already consumed,
-      //    the stream is finished.
+
       if *this.done && this.encoder.is_none() {
         return Poll::Ready(None);
       }
-      // 3) Poll the inner stream for more input data.
+
       match this.inner.as_mut().poll_next(cx) {
-        // — New chunk arrived: compress it, then loop to drain.
         Poll::Ready(Some(Ok(data))) => {
-          if let Some(enc) = this.encoder.as_mut() {
-            if let Err(e) = enc.write_all(&data).and_then(|_| enc.flush()) {
-              return Poll::Ready(Some(Err(e.into())));
-            }
-            // Copy freshly compressed bytes into our buffer.
-            let out = enc.get_ref();
-            if !out.is_empty() {
-              this.buffer.clear();
-              this.buffer.extend_from_slice(out);
-              *this.pos = 0;
-            }
+          if let Some(enc) = this.encoder.as_mut()
+            && let Err(e) = enc.write_all(&data).and_then(|_| enc.flush())
+          {
+            return Poll::Ready(Some(Err(e.into())));
           }
-          continue; // go back to step 1
+          continue;
         }
-        // — Propagate an error from the inner stream.
         Poll::Ready(Some(Err(e))) => {
           return Poll::Ready(Some(Err(e)));
         }
-        // — Inner stream ended: finalise the encoder,
-        //   then loop to emit the remaining bytes.
         Poll::Ready(None) => {
           *this.done = true;
           if let Some(enc) = this.encoder.take() {
             match enc.finish() {
-              Ok(mut vec) => {
-                this.buffer.clear();
-                this.buffer.append(&mut vec);
-                *this.pos = 0;
-                continue; // step 1 will send the tail bytes
+              Ok(vec) => {
+                *this.tail = vec;
+                continue;
               }
               Err(e) => {
                 return Poll::Ready(Some(Err(e.into())));
@@ -144,7 +136,6 @@ where
             return Poll::Ready(None);
           }
         }
-        // — No new input and nothing buffered.
         Poll::Pending => {
           return Poll::Pending;
         }

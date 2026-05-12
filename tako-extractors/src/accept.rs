@@ -48,9 +48,16 @@ impl Accept {
   /// Returns true if the client accepts the given media type.
   pub fn accepts(&self, media_type: &str) -> bool {
     self.media_types.iter().any(|mt| {
-      mt.essence == media_type
-        || mt.essence == "*/*"
-        || (mt.essence.ends_with("/*") && media_type.starts_with(mt.essence.trim_end_matches("/*")))
+      if mt.essence == media_type || mt.essence == "*/*" {
+        return true;
+      }
+      // `image/*` must match `image/png` but **not** `imagezzz`. Keep the
+      // trailing slash in the prefix so substring confusion is impossible.
+      if let Some(prefix) = mt.essence.strip_suffix("/*") {
+        let needle = format!("{prefix}/");
+        return media_type.starts_with(&needle);
+      }
+      false
     })
   }
 
@@ -83,8 +90,12 @@ fn parse_accept(header: &str) -> Vec<MediaType> {
 
       if let Some(idx) = part.find(";q=") {
         essence = part[..idx].trim();
+        // Clamp the parsed quality to RFC 9110's [0.0, 1.0] range and treat
+        // NaN as 0 — without this an attacker can force an arbitrary sort
+        // order via `;q=999.0` or `;q=NaN` and bypass server preference
+        // logic that depends on the values being well-ordered.
         if let Ok(q) = part[idx + 3..].trim().parse::<f32>() {
-          quality = q;
+          quality = if q.is_nan() { 0.0 } else { q.clamp(0.0, 1.0) };
         }
       } else if let Some(idx) = part.find(';') {
         essence = part[..idx].trim();
@@ -120,5 +131,36 @@ impl<'a> FromRequestParts<'a> for Accept {
     let media_types = parse_accept(accept_header);
 
     futures_util::future::ready(Ok(Accept { media_types }))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn wildcard_matches_subtype_not_prefix() {
+    let a = Accept {
+      media_types: parse_accept("image/*"),
+    };
+    assert!(a.accepts("image/png"));
+    assert!(a.accepts("image/svg+xml"));
+    // The fix: `imagezzz` must not pass through `image/*`.
+    assert!(!a.accepts("imagezzz"));
+    assert!(!a.accepts("imageX/png"));
+  }
+
+  #[test]
+  fn quality_values_are_clamped() {
+    // Out-of-range and NaN qualities must collapse into [0.0, 1.0] so the
+    // sort order is well-defined.
+    let parsed = parse_accept("a/a;q=999.0, b/b;q=0.5, c/c;q=NaN, d/d;q=-1.0");
+    let qualities: Vec<f32> = parsed.iter().map(|mt| mt.quality).collect();
+    for q in &qualities {
+      assert!(*q >= 0.0 && *q <= 1.0, "quality {q} out of range");
+    }
+    // a/a (clamped to 1.0) wins; c/c and d/d both fall to 0.0.
+    assert_eq!(parsed[0].essence, "a/a");
+    assert!((parsed[0].quality - 1.0).abs() < 1e-6);
   }
 }

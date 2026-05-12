@@ -69,6 +69,22 @@ impl KeyRing {
     self
   }
 
+  /// Removes a previous key by `kid`. Cookies signed with that key will no
+  /// longer be accepted — call this when a key has been disclosed or
+  /// rotated past its retention window. Returns `true` if a key was removed.
+  pub fn revoke(&mut self, kid: &str) -> bool {
+    let before = self.previous.len();
+    self.previous.retain(|(k, _)| k != kid);
+    before != self.previous.len()
+  }
+
+  /// Returns the list of currently-trusted previous key ids in verification
+  /// order. Use this to confirm a revocation took effect or to plan a key
+  /// rotation.
+  pub fn previous_kids(&self) -> impl Iterator<Item = &str> {
+    self.previous.iter().map(|(k, _)| k.as_str())
+  }
+
   /// Borrow the active key.
   pub fn active(&self) -> &Key {
     &self.active
@@ -335,5 +351,62 @@ impl<'a> FromRequestParts<'a> for CookieSigned {
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     futures_util::future::ready(Self::extract_from_parts(parts))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn keyring_revoke_removes_previous_key() {
+    let active = Key::generate();
+    let old = Key::generate();
+    let older = Key::generate();
+    let mut ring = KeyRing::new("v3", active)
+      .with_previous("v2", old)
+      .with_previous("v1", older);
+
+    assert_eq!(
+      ring.previous_kids().collect::<Vec<_>>(),
+      vec!["v2", "v1"]
+    );
+
+    assert!(ring.revoke("v2"));
+    assert_eq!(ring.previous_kids().collect::<Vec<_>>(), vec!["v1"]);
+
+    // No-op for non-existent kid.
+    assert!(!ring.revoke("v99"));
+
+    assert!(ring.revoke("v1"));
+    assert_eq!(ring.previous_kids().count(), 0);
+  }
+
+  #[test]
+  fn revoked_key_no_longer_verifies() {
+    let active = Key::generate();
+    let old = Key::generate();
+    let mut ring = KeyRing::new("v2", active.clone()).with_previous("v1", old.clone());
+
+    // Sign with the old key, then revoke it.
+    let mut signing = CookieSigned::with_ring(ring.clone());
+    signing.key = old.clone();
+    signing.add(Cookie::new("hello", "world"));
+    let cookie_str = signing.jar.iter().next().unwrap().to_string();
+
+    let headers = {
+      let mut h = HeaderMap::new();
+      h.insert(http::header::COOKIE, cookie_str.parse().unwrap());
+      h
+    };
+
+    // Before revocation: lookup succeeds via the previous key.
+    let signed_before = CookieSigned::from_headers_with_ring(&headers, ring.clone());
+    assert!(signed_before.get("hello").is_some());
+
+    // After revocation: lookup fails.
+    ring.revoke("v1");
+    let signed_after = CookieSigned::from_headers_with_ring(&headers, ring);
+    assert!(signed_after.get("hello").is_none());
   }
 }

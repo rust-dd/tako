@@ -104,6 +104,19 @@ impl ConnInfo {
     }
   }
 
+  /// Helper for HTTP/2 cleartext (prior-knowledge) connections — h2c. No TLS,
+  /// but the wire protocol is HTTP/2 not HTTP/1, so observability and policy
+  /// hooks that key on `Transport` must distinguish the two.
+  #[inline]
+  pub fn h2c(peer: SocketAddr) -> Self {
+    Self {
+      peer: PeerAddr::Ip(peer),
+      local: None,
+      transport: Transport::Http2,
+      tls: None,
+    }
+  }
+
   /// Helper for plain HTTP/1 over TLS connections.
   #[inline]
   pub fn h1_tls(peer: SocketAddr, tls: TlsInfo) -> Self {

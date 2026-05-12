@@ -35,6 +35,11 @@ use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 /// Application-level keep-alive hints attached to the `TakoWs` builder.
+///
+/// The framework does not drive these intervals itself — they're surfaced
+/// to the handler via request extensions so handlers can implement their
+/// own ping logic. For unconditional disconnection of an idle peer, prefer
+/// the `max_lifetime` cap on the builder.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WsKeepAlive {
   /// Period between server-initiated pings; `None` disables.
@@ -59,6 +64,12 @@ where
   allowed_origins: Option<Vec<String>>,
   upgrade_timeout: Option<Duration>,
   keep_alive: WsKeepAlive,
+  /// Hard cap on how long a single WebSocket conversation may live after a
+  /// successful upgrade. When set, the handler future is wrapped in
+  /// `tokio::time::timeout(max_lifetime, …)`; expiry drops the connection.
+  /// Defends against slowloris-style holders that never send data after
+  /// upgrade.
+  max_lifetime: Option<Duration>,
 }
 
 impl<H, Fut> TakoWs<H, Fut>
@@ -77,7 +88,15 @@ where
       allowed_origins: None,
       upgrade_timeout: None,
       keep_alive: WsKeepAlive::default(),
+      max_lifetime: None,
     }
+  }
+
+  /// Hard-cap on total connection lifetime after upgrade. See
+  /// [`Self::max_lifetime`]-field docs.
+  pub fn max_lifetime(mut self, d: Duration) -> Self {
+    self.max_lifetime = Some(d);
+    self
   }
 
   /// Configure accepted subprotocols.
@@ -145,9 +164,13 @@ where
     let header = headers
       .get(header::SEC_WEBSOCKET_PROTOCOL)
       .and_then(|v| v.to_str().ok())?;
-    for offered in header.split(',').map(str::trim) {
-      if let Some(matched) = self.protocols.iter().copied().find(|p| *p == offered) {
-        return Some(matched);
+    let offered: Vec<&str> = header.split(',').map(str::trim).collect();
+    // Iterate server preference order first: the first server-preferred
+    // subprotocol that the client also offers wins. The previous loop
+    // iterated client order, letting a downgrade-favoring client choose.
+    for &server_pref in &self.protocols {
+      if offered.iter().any(|o| *o == server_pref) {
+        return Some(server_pref);
       }
     }
     None
@@ -160,7 +183,44 @@ where
     let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else {
       return false;
     };
-    allowed.iter().any(|a| a == origin)
+    let observed = normalize_origin(origin);
+    allowed
+      .iter()
+      .any(|a| normalize_origin(a) == observed && !observed.is_empty())
+  }
+}
+
+/// Normalize an `Origin` value to `scheme://host[:port]` for comparison.
+/// The scheme and host are lowercased; the default port (80/443 for
+/// http/https) is stripped so callers don't have to spell it out. Returns an
+/// empty string when parsing fails, which `origin_allowed` treats as
+/// non-matching.
+fn normalize_origin(raw: &str) -> String {
+  let raw = raw.trim();
+  if raw.is_empty() || raw.eq_ignore_ascii_case("null") {
+    return String::new();
+  }
+  let Some((scheme, rest)) = raw.split_once("://") else {
+    return String::new();
+  };
+  let scheme = scheme.to_ascii_lowercase();
+  // Cut off path/query if any leaked into the header.
+  let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+  let (host, port) = match authority.rsplit_once(':') {
+    Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => (h, Some(p)),
+    _ => (authority, None),
+  };
+  let host = host.to_ascii_lowercase();
+  let default_port = matches!(
+    (scheme.as_str(), port),
+    ("http", Some("80")) | ("https", Some("443"))
+  );
+  if let Some(p) = port
+    && !default_port
+  {
+    format!("{scheme}://{host}:{p}")
+  } else {
+    format!("{scheme}://{host}")
   }
 }
 
@@ -179,6 +239,7 @@ where
     }
     let selected_proto = self.negotiate_subprotocol(self.request.headers());
     let upgrade_timeout = self.upgrade_timeout;
+    let max_lifetime = self.max_lifetime;
 
     let TakoWs {
       request, handler, ..
@@ -230,12 +291,60 @@ where
         };
         let upgraded = TokioIo::new(upgraded);
         let ws = WebSocketStream::from_raw_socket(upgraded, Role::Server, ws_config).await;
-        let _ = std::panic::AssertUnwindSafe(handler(ws))
-          .catch_unwind()
-          .await;
+        let handler_fut = std::panic::AssertUnwindSafe(handler(ws)).catch_unwind();
+        match max_lifetime {
+          Some(d) => {
+            let _ = tokio::time::timeout(d, handler_fut).await;
+          }
+          None => {
+            let _ = handler_fut.await;
+          }
+        }
       });
     }
 
     response
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::normalize_origin;
+
+  #[test]
+  fn normalize_origin_lowercases_scheme_and_host() {
+    assert_eq!(normalize_origin("HTTPS://Example.COM"), "https://example.com");
+  }
+
+  #[test]
+  fn normalize_origin_strips_default_ports() {
+    assert_eq!(normalize_origin("http://example.com:80"), "http://example.com");
+    assert_eq!(
+      normalize_origin("https://example.com:443"),
+      "https://example.com"
+    );
+  }
+
+  #[test]
+  fn normalize_origin_keeps_nondefault_ports() {
+    assert_eq!(
+      normalize_origin("https://example.com:8443"),
+      "https://example.com:8443"
+    );
+  }
+
+  #[test]
+  fn normalize_origin_rejects_malformed_or_null() {
+    assert_eq!(normalize_origin(""), "");
+    assert_eq!(normalize_origin("null"), "");
+    assert_eq!(normalize_origin("not-an-origin"), "");
+  }
+
+  #[test]
+  fn normalize_origin_ignores_trailing_path() {
+    assert_eq!(
+      normalize_origin("https://example.com/path?x=1"),
+      "https://example.com"
+    );
   }
 }

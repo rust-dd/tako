@@ -52,6 +52,12 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use bytes::BytesMut;
+
+/// Cap on the `length` prefix of a single gRPC frame. Without it any client
+/// can advertise a 4 GiB message and force the parser to either pre-allocate
+/// that much space or treat the body as well-formed-but-truncated. 4 MiB
+/// matches the default `grpc-go` and `tonic` server limits.
+pub const MAX_GRPC_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 use futures_util::Stream;
 use futures_util::StreamExt;
 use http::HeaderMap;
@@ -171,6 +177,9 @@ where
       let msg_len =
         u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]]) as usize;
 
+      if msg_len > MAX_GRPC_MESSAGE_SIZE {
+        return Err(GrpcError::InvalidFrame);
+      }
       if body_bytes.len() < 5 + msg_len {
         return Err(GrpcError::InvalidFrame);
       }
@@ -266,6 +275,9 @@ pub fn grpc_decode<T: Message + Default>(data: &[u8]) -> Result<(T, bool), GrpcE
   let compressed = data[0] != 0;
   let msg_len = u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
 
+  if msg_len > MAX_GRPC_MESSAGE_SIZE {
+    return Err(GrpcError::InvalidFrame);
+  }
   if data.len() < 5 + msg_len {
     return Err(GrpcError::InvalidFrame);
   }
@@ -367,18 +379,45 @@ where
   T: Message + Send + 'static,
 {
   fn into_response(self) -> Response {
-    let stream = self.stream.map(|item| match item {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    // Track whether the user stream already emitted a terminal `grpc-status`
+    // trailer (i.e. ended in `Err(status)`). Without this, the unconditional
+    // OK trailer below would double the trailer headers — RFC §8.1 / the
+    // gRPC HTTP/2 mapping disallows two `grpc-status` values per response.
+    let error_emitted = Arc::new(AtomicBool::new(false));
+    let mark_err = error_emitted.clone();
+    let stream = self.stream.map(move |item| match item {
       Ok(msg) => {
         let bytes = grpc_encode(&msg);
         Ok::<_, Infallible>(Frame::data(Bytes::from(bytes)))
       }
-      Err(status) => Ok(Frame::trailers(status.write_trailers())),
+      Err(status) => {
+        mark_err.store(true, Ordering::Release);
+        Ok(Frame::trailers(status.write_trailers()))
+      }
     });
 
-    // After the user stream exhausts, append a final `grpc-status: 0` trailer.
-    let trailer = futures_util::stream::once(async {
-      Ok::<_, Infallible>(Frame::trailers(GrpcStatus::ok().write_trailers()))
-    });
+    // After the user stream exhausts, append a final `grpc-status: 0`
+    // trailer — but only if no error trailer was emitted upstream.
+    let check_err = error_emitted.clone();
+    let mut once = false;
+    let trailer = futures_util::stream::iter(std::iter::from_fn(move || {
+      if once {
+        None
+      } else {
+        once = true;
+        if check_err.load(Ordering::Acquire) {
+          None
+        } else {
+          Some(Ok::<_, Infallible>(Frame::trailers(
+            GrpcStatus::ok().write_trailers(),
+          )))
+        }
+      }
+    }));
     let combined = stream.chain(trailer);
 
     let mut resp = http::Response::builder()
@@ -471,6 +510,9 @@ where
           this.buffer[3],
           this.buffer[4],
         ]) as usize;
+        if msg_len > MAX_GRPC_MESSAGE_SIZE {
+          return Poll::Ready(Some(Err(GrpcError::InvalidFrame)));
+        }
         if this.buffer.len() >= 5 + msg_len {
           let _compressed = this.buffer[0];
           let payload = this.buffer.split_to(5 + msg_len);
@@ -544,6 +586,10 @@ where
 pub struct GrpcDeadline(pub Instant);
 
 /// Parse the `grpc-timeout` header value (e.g. `"100m"`, `"5S"`, `"1H"`).
+///
+/// Uses `checked_mul` on the minute and hour units so a maliciously large
+/// numeric prefix (e.g. `"99999999999999H"`) cannot wrap to a small value
+/// and silently produce a near-zero deadline.
 pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   let value = value.trim();
   if value.is_empty() {
@@ -556,8 +602,8 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
     "u" => Duration::from_micros(num),
     "m" => Duration::from_millis(num),
     "S" => Duration::from_secs(num),
-    "M" => Duration::from_secs(num * 60),
-    "H" => Duration::from_secs(num * 3600),
+    "M" => Duration::from_secs(num.checked_mul(60)?),
+    "H" => Duration::from_secs(num.checked_mul(3600)?),
     _ => return None,
   };
   Some(dur)

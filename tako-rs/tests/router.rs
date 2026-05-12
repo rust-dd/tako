@@ -110,6 +110,7 @@ async fn global_middleware_runs() {
   assert_eq!(resp.headers().get("x-middleware").unwrap(), "applied");
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn router_timeout_returns_408() {
   let mut router = Router::new();
@@ -123,6 +124,7 @@ async fn router_timeout_returns_408() {
   assert_eq!(resp.status(), StatusCode::REQUEST_TIMEOUT);
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn router_timeout_fallback() {
   let mut router = Router::new();

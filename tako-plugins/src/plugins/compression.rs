@@ -170,6 +170,13 @@ pub struct Config {
   pub stream: bool,
   /// Which response content types are eligible for compression.
   pub content_types: ContentTypePolicy,
+  /// When true (default), responses that look like they carry authenticated
+  /// secrets (Set-Cookie present, or the request had Authorization /
+  /// Proxy-Authorization / Cookie) are *not* compressed. This is the
+  /// canonical CRIME / BREACH mitigation. Disable explicitly with
+  /// [`CompressionBuilder::protect_sensitive`] when you have other
+  /// mitigations (e.g. per-response random padding or rotated CSRF tokens).
+  pub protect_sensitive: bool,
 }
 
 impl Default for Config {
@@ -185,6 +192,7 @@ impl Default for Config {
       zstd_level: 3,
       stream: false,
       content_types: ContentTypePolicy::default(),
+      protect_sensitive: true,
     }
   }
 }
@@ -319,6 +327,16 @@ impl CompressionBuilder {
     self
   }
 
+  /// Toggle the CRIME/BREACH mitigation. Default is `true`: responses
+  /// containing `Set-Cookie`, or whose request carried `Authorization`,
+  /// `Proxy-Authorization`, or `Cookie`, are sent uncompressed. Setting this
+  /// to `false` re-enables compression unconditionally — only do so if you
+  /// have an alternative mitigation (per-response padding, rotated tokens).
+  pub fn protect_sensitive(mut self, on: bool) -> Self {
+    self.0.protect_sensitive = on;
+    self
+  }
+
   /// Builds the compression plugin with the configured settings.
   pub fn build(self) -> CompressionPlugin {
     CompressionPlugin { cfg: self.0 }
@@ -433,6 +451,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     .and_then(|v| v.to_str().ok())
     .unwrap_or("")
     .to_ascii_lowercase();
+  let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
   // Process the request and get the response.
   let mut resp = next.run(req).await;
@@ -445,6 +464,16 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   }
 
   if resp.headers().contains_key(CONTENT_ENCODING) {
+    return resp.into_response();
+  }
+
+  // CRIME/BREACH mitigation: compressing an authenticated response next to
+  // attacker-controlled body content leaks the secret via the ciphertext
+  // length. Skip compression entirely if either the request looked
+  // authenticated or the response carries credentials.
+  if cfg.protect_sensitive
+    && (request_is_authenticated || resp.headers().contains_key(http::header::SET_COOKIE))
+  {
     return resp.into_response();
   }
 
@@ -517,6 +546,7 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
     .and_then(|v| v.to_str().ok())
     .unwrap_or("")
     .to_ascii_lowercase();
+  let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
   // Process the request and get the response.
   let mut resp = next.run(req).await;
@@ -529,6 +559,13 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
   }
 
   if resp.headers().contains_key(CONTENT_ENCODING) {
+    return resp.into_response();
+  }
+
+  // CRIME/BREACH mitigation: see `compress_middleware`.
+  if cfg.protect_sensitive
+    && (request_is_authenticated || resp.headers().contains_key(http::header::SET_COOKIE))
+  {
     return resp.into_response();
   }
 
@@ -572,6 +609,15 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
   }
 
   resp.into_response()
+}
+
+/// Returns true if the request carries credentials that would make its
+/// response a CRIME/BREACH target. The check is intentionally broad: any
+/// auth header or cookie is treated as authenticated.
+fn request_carries_credentials(req: &Request) -> bool {
+  req.headers().contains_key(http::header::AUTHORIZATION)
+    || req.headers().contains_key(http::header::PROXY_AUTHORIZATION)
+    || req.headers().contains_key(http::header::COOKIE)
 }
 
 /// Appends `Accept-Encoding` to the `Vary` header without duplicating it.

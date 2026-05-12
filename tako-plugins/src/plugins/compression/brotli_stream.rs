@@ -54,7 +54,6 @@ pin_project! {
     pub struct BrotliStream<S> {
         #[pin] inner: S,
         encoder: brotli::CompressorWriter<Vec<u8>>,
-        pos: usize,
         done: bool,
     }
 }
@@ -65,7 +64,6 @@ impl<S> BrotliStream<S> {
     Self {
       inner: stream,
       encoder: brotli::CompressorWriter::new(Vec::new(), 4096, level, 22),
-      pos: 0,
       done: false,
     }
   }
@@ -82,12 +80,12 @@ where
     let mut this = self.project();
 
     loop {
-      // 1) Do we have unread bytes in the encoder's buffer?
-      if *this.pos < this.encoder.get_ref().len() {
-        let buf = &this.encoder.get_ref()[*this.pos..];
-        *this.pos = this.encoder.get_ref().len();
-        // Immediately return the data.
-        return Poll::Ready(Some(Ok(Bytes::copy_from_slice(buf))));
+      // 1) Drain anything the encoder buffered so far so its internal Vec
+      //    doesn't accumulate the entire compressed body for the lifetime
+      //    of the stream.
+      if !this.encoder.get_ref().is_empty() {
+        let chunk: Vec<u8> = this.encoder.get_mut().drain(..).collect();
+        return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
       // 2) Encoder is drained and we already finalized ⇒ stream is over.
       if *this.done {
@@ -95,7 +93,6 @@ where
       }
       // 3) Poll the inner stream for more input.
       match this.inner.as_mut().poll_next(cx) {
-        // Got a new chunk: compress it and loop to flush it out.
         Poll::Ready(Some(Ok(chunk))) => {
           if let Err(e) = this
             .encoder
@@ -104,21 +101,18 @@ where
           {
             return Poll::Ready(Some(Err(e.into())));
           }
-          continue; // encoder now contains data → step 1
+          continue;
         }
-        // Propagate an error from the inner stream.
         Poll::Ready(Some(Err(e))) => {
           return Poll::Ready(Some(Err(e)));
         }
-        // Inner stream ended: finalize the encoder, then loop to drain it.
         Poll::Ready(None) => {
           *this.done = true;
           if let Err(e) = this.encoder.flush() {
             return Poll::Ready(Some(Err(e.into())));
           }
-          continue; // encoder may hold final bytes → step 1
+          continue;
         }
-        // Still waiting for more input and nothing buffered.
         Poll::Pending => {
           return Poll::Pending;
         }

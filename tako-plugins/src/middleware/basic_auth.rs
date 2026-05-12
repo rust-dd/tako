@@ -44,6 +44,7 @@ use base64::Engine;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
+use subtle::ConstantTimeEq;
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
@@ -188,12 +189,16 @@ impl IntoMiddleware for BasicAuth {
       let www_authenticate = www_authenticate.clone();
 
       Box::pin(async move {
-        // Extract Basic credentials from Authorization header
+        // Extract Basic credentials from Authorization header. RFC 7235
+        // §2.1 makes the auth-scheme token case-insensitive.
         let creds = req
           .headers()
           .get(header::AUTHORIZATION)
           .and_then(|h| h.to_str().ok())
-          .and_then(|h| h.strip_prefix("Basic "))
+          .and_then(|h| {
+            let (scheme, rest) = h.trim_start().split_once(' ')?;
+            scheme.eq_ignore_ascii_case("Basic").then(|| rest.trim())
+          })
           .and_then(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok());
 
         match creds {
@@ -215,13 +220,20 @@ impl IntoMiddleware for BasicAuth {
               return res;
             };
 
-            // Check static user credentials first
-            if users
-              .as_ref()
-              .and_then(|map| map.get(u))
-              .map(|pw| pw == p)
-              .unwrap_or(false)
-            {
+            // Check static user credentials first. Scan every entry and
+            // constant-time-compare both the username and the password so
+            // that neither (a) the time-to-401 leaks whether the username
+            // exists, nor (b) the password compare itself short-circuits on
+            // first-byte mismatch.
+            let mut authed = false;
+            if let Some(map) = users.as_ref() {
+              for (known_user, known_pw) in map.iter() {
+                let user_match = constant_time_eq(known_user.as_bytes(), u.as_bytes());
+                let pw_match = constant_time_eq(known_pw.as_bytes(), p.as_bytes());
+                authed |= user_match & pw_match;
+              }
+            }
+            if authed {
               return next.run(req).await.into_response();
             }
 
@@ -252,4 +264,14 @@ impl IntoMiddleware for BasicAuth {
       })
     }
   }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+  // Length mismatch must short-circuit because `ct_eq` requires equal-length
+  // slices. Leaking the length of credentials is mild — actual entropy comes
+  // from value, not byte-count.
+  if a.len() != b.len() {
+    return false;
+  }
+  a.ct_eq(b).into()
 }

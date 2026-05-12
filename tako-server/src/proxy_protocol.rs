@@ -460,6 +460,19 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
 
   let addr_len = u16::from_be_bytes([hdr[2], hdr[3]]) as usize;
 
+  // Cap the advertised address length so an attacker can't pre-allocate
+  // 64 KiB per connection just by sending two unfavourable bytes. The
+  // PROXY v2 spec's typed payload for IPv6+UNIX maxes out far below this:
+  // IPv4(12) + IPv6(36) + UNIX(216) + a reasonable TLV stack (~256). 536
+  // bytes is generous; legitimate proxies should never exceed it.
+  const MAX_PROXY_ADDR_LEN: usize = 536;
+  if addr_len > MAX_PROXY_ADDR_LEN {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("PROXY v2 addr_len {addr_len} exceeds {MAX_PROXY_ADDR_LEN}"),
+    ));
+  }
+
   // Read address data
   let mut addr_buf = vec![0u8; addr_len];
   if addr_len > 0 {

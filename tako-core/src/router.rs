@@ -168,10 +168,12 @@ impl Router {
 
     #[cfg(feature = "signals")]
     {
-      // If not already present, expose router-level SignalArbiter via global state
-      if crate::state::get_state::<SignalArbiter>().is_none() {
-        set_state::<SignalArbiter>(router.signals.clone());
-      }
+      // Atomic first-write: under concurrent `Router::new` calls the
+      // previous `get_state.is_none() → set_state` pair was TOCTOU and let
+      // two threads each install their own arbiter. `get_or_init_state`
+      // resolves both to the same `Arc<SignalArbiter>`.
+      let arbiter_clone = router.signals.clone();
+      let _ = crate::state::get_or_init_state::<SignalArbiter, _>(move || arbiter_clone);
     }
 
     router
@@ -393,10 +395,17 @@ impl Router {
   pub fn mount_all_into(&mut self, prefix: &str) -> &mut Self {
     let saved = self.pending_prefix.take();
     self.pending_prefix = Some(prefix.to_string());
-    for register in TAKO_ROUTES {
-      register(self);
-    }
+    // Same panic-restore guard as `scope`: a route conflict from any
+    // registered `#[tako_route]` macro now resets `pending_prefix`.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+      for register in TAKO_ROUTES {
+        register(self);
+      }
+    }));
     self.pending_prefix = saved;
+    if let Err(payload) = result {
+      std::panic::resume_unwind(payload);
+    }
     self
   }
 
@@ -439,8 +448,15 @@ impl Router {
       None => prefix.to_string(),
     };
     self.pending_prefix = Some(new_prefix);
-    build(self);
+    // Panic-safe restore of `pending_prefix`. A route-conflict panic in the
+    // user-supplied `build` closure used to leave the temporary nested
+    // prefix in place, permanently poisoning subsequent route registrations
+    // on the same builder.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(self)));
     self.pending_prefix = saved;
+    if let Err(payload) = result {
+      std::panic::resume_unwind(payload);
+    }
     self
   }
 
@@ -1289,25 +1305,40 @@ impl Router {
 
     for (method, weak_vec) in other.routes.iter() {
       for weak in weak_vec {
-        if let Some(route) = weak.upgrade() {
-          let existing = route.middlewares.load_full();
-          let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
-          merged.extend(upstream_globals.iter().cloned());
-          merged.extend(existing.iter().cloned());
-          if !merged.is_empty() {
-            route.has_middleware.store(true, Ordering::Release);
-          }
-          route.middlewares.store(Arc::new(merged));
+        if let Some(child_route) = weak.upgrade() {
+          // Re-issue the route as a fresh `Arc<Route>` (same path) so we do
+          // not mutate the child's middleware chain in-place — other router
+          // instances may still hold the original `Arc` and would observe
+          // unrelated middleware insertions otherwise.
+          let new_route = child_route.cloned_with_path(child_route.path.clone());
 
-          let _ = self
+          if !upstream_globals.is_empty() {
+            let existing = new_route.middlewares.load_full();
+            let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
+            merged.extend(upstream_globals.iter().cloned());
+            merged.extend(existing.iter().cloned());
+            new_route.has_middleware.store(true, Ordering::Release);
+            new_route.middlewares.store(Arc::new(merged));
+          }
+
+          // Match `nest` semantics: a path conflict is a builder bug, not a
+          // silent overwrite. Returning early via `let _ = … insert` would
+          // throw away the existing route under a stable URL.
+          if let Err(err) = self
             .inner
             .get_or_default_mut(&method)
-            .insert(route.path.clone(), route.clone());
+            .insert(new_route.path.clone(), new_route.clone())
+          {
+            panic!(
+              "Failed to merge route '{}' (method {:?}): {err}",
+              new_route.path, method
+            );
+          }
 
           self
             .routes
             .get_or_default_mut(&method)
-            .push(Arc::downgrade(&route));
+            .push(Arc::downgrade(&new_route));
         }
       }
     }

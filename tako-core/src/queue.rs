@@ -363,43 +363,35 @@ impl Queue {
     payload: &(impl serde::Serialize + ?Sized),
     dedup_key: impl Into<String>,
   ) -> Result<u64, QueueError> {
+    if self.inner.shutdown.load(Ordering::SeqCst) {
+      return Err(QueueError::Shutdown);
+    }
     let key = dedup_key.into();
-    {
-      let pending = self.inner.pending.lock();
+    let name = name.into();
+    let bytes =
+      serde_json::to_vec(payload).map_err(|e| QueueError::SerializeError(e.to_string()))?;
+
+    // Hold the pending lock across the check-and-insert so two concurrent
+    // `push_dedup` callers cannot both observe "no duplicate" and then both
+    // enqueue their own copy of the job.
+    let id = {
+      let mut pending = self.inner.pending.lock();
       for j in pending.iter() {
         if j.dedup_key.as_deref() == Some(key.as_str()) {
           return Ok(j.id);
         }
       }
-    }
-    let name = name.into();
-    self.push_inner_keyed(name, payload, None, Some(key))
-  }
-
-  fn push_inner_keyed(
-    &self,
-    name: String,
-    payload: &(impl serde::Serialize + ?Sized),
-    run_after: Option<Instant>,
-    dedup_key: Option<String>,
-  ) -> Result<u64, QueueError> {
-    if self.inner.shutdown.load(Ordering::SeqCst) {
-      return Err(QueueError::Shutdown);
-    }
-
-    let bytes =
-      serde_json::to_vec(payload).map_err(|e| QueueError::SerializeError(e.to_string()))?;
-
-    let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
-
-    self.inner.pending.lock().push_back(PendingJob {
-      id,
-      name,
-      payload: bytes,
-      attempt: 0,
-      run_after,
-      dedup_key,
-    });
+      let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
+      pending.push_back(PendingJob {
+        id,
+        name,
+        payload: bytes,
+        attempt: 0,
+        run_after: None,
+        dedup_key: Some(key),
+      });
+      id
+    };
 
     self.inner.notify.notify_one();
     Ok(id)
@@ -440,7 +432,17 @@ impl Queue {
           .meta("id", id.to_string()),
       );
       // Best-effort fire-and-forget; the push API is sync for ergonomics.
-      tokio::spawn(arbiter);
+      // Both runtimes need a spawn — previously the compio branch silently
+      // dropped the arbiter future, so queue signals never fired under
+      // io_uring.
+      #[cfg(not(feature = "compio"))]
+      {
+        tokio::spawn(arbiter);
+      }
+      #[cfg(feature = "compio")]
+      {
+        compio::runtime::spawn(arbiter).detach();
+      }
     }
     Ok(id)
   }
@@ -656,7 +658,10 @@ async fn worker_loop(inner: Arc<QueueInner>) {
           payload: pending_job.payload,
           attempt: next_attempt,
           run_after: Some(Instant::now() + delay),
-          dedup_key: None,
+          // Preserve the original dedup_key so subsequent `push_dedup`
+          // callers continue to see the in-flight retry instead of
+          // re-enqueueing a duplicate while the retry sits in `pending`.
+          dedup_key: pending_job.dedup_key,
         });
 
         inner.notify.notify_one();

@@ -193,13 +193,17 @@ impl IntoMiddleware for BearerAuth {
       let bearer_authenticate = bearer_authenticate.clone();
 
       Box::pin(async move {
-        // Extract Bearer token from Authorization header
+        // Extract Bearer token from Authorization header. RFC 7235 §2.1
+        // makes the auth-scheme token case-insensitive ("Bearer" / "bearer"
+        // / "BEARER" are equivalent), so the prefix match must follow.
         let tok = req
           .headers()
           .get(header::AUTHORIZATION)
           .and_then(|h| h.to_str().ok())
-          .and_then(|h| h.strip_prefix("Bearer "))
-          .map(str::trim);
+          .and_then(|h| {
+            let (scheme, rest) = h.trim_start().split_once(' ')?;
+            scheme.eq_ignore_ascii_case("Bearer").then(|| rest.trim())
+          });
 
         // Validate extracted token
         match tok {

@@ -101,6 +101,9 @@ futures-util.workspace = true
 anyhow.workspace = true
 smallvec.workspace = true
 tako-core.workspace = true
+# Needed so `#[compio::test]` resolves on integration tests built with the
+# workspace `--all-features` flag (compio runtime on).
+compio = { workspace = true, features = ["macros"] }
 
 [package.metadata.docs.rs]
 all-features = true

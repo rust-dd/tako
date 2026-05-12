@@ -114,18 +114,21 @@ impl SseEvent {
     if let Some(c) = self.comment.as_deref() {
       for line in c.split('\n') {
         buf.extend_from_slice(b": ");
-        buf.extend_from_slice(line.as_bytes());
+        buf.extend_from_slice(strip_cr(line).as_bytes());
         buf.extend_from_slice(b"\n");
       }
     }
     if let Some(e) = self.event.as_deref() {
       buf.extend_from_slice(b"event: ");
-      buf.extend_from_slice(e.as_bytes());
+      // `event` is a single-line field per SSE spec; collapse any embedded
+      // CR/LF the caller may have included to keep an attacker from
+      // injecting synthetic fields (`event: foo\nid: hostile`).
+      buf.extend_from_slice(sanitize_single_line(e).as_bytes());
       buf.extend_from_slice(b"\n");
     }
     if let Some(i) = self.id.as_deref() {
       buf.extend_from_slice(b"id: ");
-      buf.extend_from_slice(i.as_bytes());
+      buf.extend_from_slice(sanitize_single_line(i).as_bytes());
       buf.extend_from_slice(b"\n");
     }
     if let Some(r) = self.retry_ms {
@@ -136,13 +139,25 @@ impl SseEvent {
     if let Some(d) = self.data.as_deref() {
       for line in d.split('\n') {
         buf.extend_from_slice(b"data: ");
-        buf.extend_from_slice(line.as_bytes());
+        buf.extend_from_slice(strip_cr(line).as_bytes());
         buf.extend_from_slice(b"\n");
       }
     }
     buf.extend_from_slice(b"\n");
     buf.freeze()
   }
+}
+
+/// Replace SSE-control characters with a space so single-line fields cannot
+/// smuggle extra `event:` / `id:` lines.
+fn sanitize_single_line(s: &str) -> String {
+  s.replace(['\n', '\r'], " ")
+}
+
+/// Strip lone `\r`s from a line value. (`\n` is already handled by the caller
+/// which splits on it.)
+fn strip_cr(s: &str) -> String {
+  s.replace('\r', "")
 }
 
 /// Server-Sent Events stream wrapper for real-time data broadcasting.
@@ -332,4 +347,31 @@ pub fn last_event_id(headers: &http::HeaderMap) -> Option<String> {
     .get("last-event-id")
     .and_then(|v| v.to_str().ok())
     .map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::SseEvent;
+
+  #[test]
+  fn event_and_id_strip_crlf() {
+    // Attacker-controlled string tries to inject a fake `id:` line.
+    let frame = SseEvent::data("payload")
+      .event("legit\nid: hostile")
+      .id("a\r\nb")
+      .encode();
+    let s = std::str::from_utf8(&frame).unwrap();
+    // The `event:` line must collapse the embedded newline so no synthetic
+    // SSE field appears (each \n/\r → single space).
+    assert!(
+      s.contains("event: legit id: hostile\n"),
+      "expected sanitized event line, got: {s:?}"
+    );
+    assert!(
+      s.contains("id: a  b\n"),
+      "expected sanitized id line, got: {s:?}"
+    );
+    // No raw control characters anywhere inside the value bytes.
+    assert!(!s.contains('\r'));
+  }
 }

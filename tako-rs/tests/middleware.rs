@@ -267,6 +267,51 @@ async fn bearer_auth_wrong_scheme() {
 }
 
 #[tokio::test]
+async fn bearer_auth_scheme_is_case_insensitive() {
+  use tako::middleware::bearer_auth::BearerAuth;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
+  router.middleware(BearerAuth::static_token("my-token").into_middleware());
+
+  for variant in &["Bearer my-token", "bearer my-token", "BEARER my-token", "BeArEr my-token"] {
+    let mut req = make_req(Method::GET, "/api");
+    req
+      .headers_mut()
+      .insert("authorization", variant.parse().unwrap());
+    let resp = router.dispatch(req).await;
+    assert_eq!(
+      resp.status(),
+      StatusCode::OK,
+      "scheme {variant:?} must be accepted (RFC 7235 case-insensitive)"
+    );
+  }
+}
+
+#[tokio::test]
+async fn basic_auth_scheme_is_case_insensitive() {
+  use tako::middleware::basic_auth::BasicAuth;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
+  router.middleware(BasicAuth::single("user", "pass").into_middleware());
+
+  // "user:pass" base64 = "dXNlcjpwYXNz".
+  for variant in &["Basic dXNlcjpwYXNz", "basic dXNlcjpwYXNz", "BASIC dXNlcjpwYXNz"] {
+    let mut req = make_req(Method::GET, "/api");
+    req
+      .headers_mut()
+      .insert("authorization", variant.parse().unwrap());
+    let resp = router.dispatch(req).await;
+    assert_eq!(
+      resp.status(),
+      StatusCode::OK,
+      "scheme {variant:?} must be accepted (RFC 7235 case-insensitive)"
+    );
+  }
+}
+
+#[tokio::test]
 async fn body_limit_within_limit() {
   use tako::middleware::body_limit::BodyLimit;
 
@@ -478,7 +523,7 @@ async fn csrf_post_without_token_rejected() {
 
   let mut router = Router::new();
   router.route(Method::POST, "/submit", |_req: Request| async { "ok" });
-  router.middleware(Csrf::new().into_middleware());
+  router.middleware(Csrf::new().bind_to_session(false).into_middleware());
 
   let resp = router.dispatch(make_req(Method::POST, "/submit")).await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -491,7 +536,7 @@ async fn csrf_post_with_matching_token() {
 
   let mut router = Router::new();
   router.route(Method::POST, "/submit", |_req: Request| async { "ok" });
-  router.middleware(Csrf::new().into_middleware());
+  router.middleware(Csrf::new().bind_to_session(false).into_middleware());
 
   let token = "test-csrf-token-12345";
   let mut req = make_req(Method::POST, "/submit");
@@ -512,7 +557,7 @@ async fn csrf_post_mismatched_tokens() {
 
   let mut router = Router::new();
   router.route(Method::POST, "/submit", |_req: Request| async { "ok" });
-  router.middleware(Csrf::new().into_middleware());
+  router.middleware(Csrf::new().bind_to_session(false).into_middleware());
 
   let mut req = make_req(Method::POST, "/submit");
   req
@@ -524,6 +569,34 @@ async fn csrf_post_mismatched_tokens() {
 
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn csrf_bind_to_session_without_session_rejects_post() {
+  use tako::middleware::csrf::Csrf;
+
+  let mut router = Router::new();
+  router.route(Method::POST, "/submit", |_req: Request| async { "ok" });
+  // Default `bind_to_session=true` but no Session middleware installed —
+  // cookie/header double-submit alone would be bypassable via XSS, so the
+  // middleware must fail closed.
+  router.middleware(Csrf::new().into_middleware());
+
+  let token = "test-csrf-token-12345";
+  let mut req = make_req(Method::POST, "/submit");
+  req
+    .headers_mut()
+    .insert("cookie", format!("csrf_token={token}").parse().unwrap());
+  req
+    .headers_mut()
+    .insert("x-csrf-token", token.parse().unwrap());
+
+  let resp = router.dispatch(req).await;
+  assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+  assert_eq!(
+    body_str(resp).await,
+    "CSRF: session required for token binding"
+  );
 }
 
 #[tokio::test]
@@ -540,7 +613,8 @@ async fn csrf_exempt_path() {
   assert_eq!(resp.status(), StatusCode::OK);
 }
 
-#[tokio::test]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+#[cfg_attr(feature = "compio", compio::test)]
 async fn session_new_request_sets_cookie() {
   use tako::middleware::session::SessionMiddleware;
 
@@ -559,7 +633,8 @@ async fn session_new_request_sets_cookie() {
   assert!(set_cookie.is_some(), "session cookie should be set");
 }
 
-#[tokio::test]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+#[cfg_attr(feature = "compio", compio::test)]
 async fn session_get_set_data() {
   use tako::middleware::session::Session;
   use tako::middleware::session::SessionMiddleware;
@@ -603,6 +678,58 @@ async fn session_get_set_data() {
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "counter=42");
+}
+
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+#[cfg_attr(feature = "compio", compio::test)]
+async fn session_destroy_expires_cookie() {
+  use tako::middleware::session::Session;
+  use tako::middleware::session::SessionMiddleware;
+
+  let mut router = Router::new();
+  router.route(Method::POST, "/logout", |req: Request| async move {
+    let session = req.extensions().get::<Session>().unwrap();
+    session.destroy();
+    "bye"
+  });
+  router.middleware(SessionMiddleware::new().into_middleware());
+
+  // First, get an established session.
+  let first = router
+    .dispatch(make_req(Method::GET, "/dontcare"))
+    .await
+    .headers()
+    .get_all("set-cookie")
+    .iter()
+    .filter_map(|v| v.to_str().ok())
+    .find(|s| s.starts_with("tako_session="))
+    .map(str::to_owned);
+  let inbound = first.expect("first response should set cookie");
+  let sid = inbound.split('=').nth(1).unwrap().split(';').next().unwrap();
+
+  // Now logout: destroy() must emit Max-Age=0 + far-past Expires.
+  let mut req = make_req(Method::POST, "/logout");
+  req.headers_mut().insert(
+    "cookie",
+    format!("tako_session={sid}").parse().unwrap(),
+  );
+  let resp = router.dispatch(req).await;
+
+  let expired = resp
+    .headers()
+    .get_all("set-cookie")
+    .iter()
+    .filter_map(|v| v.to_str().ok())
+    .find(|s| s.starts_with("tako_session="))
+    .expect("logout response should carry expiring cookie");
+  assert!(
+    expired.contains("Max-Age=0"),
+    "expected Max-Age=0, got: {expired}"
+  );
+  assert!(
+    expired.contains("Expires=Thu, 01 Jan 1970"),
+    "expected past Expires, got: {expired}"
+  );
 }
 
 #[tokio::test]
@@ -770,6 +897,45 @@ async fn etag_304_on_match() {
     .insert("if-none-match", etag.parse().unwrap());
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+  // ETag is emitted as weak — SHA-1 over body alone cannot prove byte-level
+  // equivalence, so we conservatively label it weak.
+  assert!(
+    etag.starts_with("W/\""),
+    "expected weak validator prefix, got: {etag}"
+  );
+}
+
+#[tokio::test]
+async fn etag_if_modified_since_rfc850() {
+  use tako::middleware::etag::ETag;
+
+  // Handler emits a Last-Modified in IMF-fixdate. A well-behaved client
+  // might send If-Modified-Since in RFC 850 format (`Sunday, 06-Nov-94
+  // 08:49:37 GMT`) — the comparison must be semantic.
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async {
+    let mut resp = http::Response::new(TakoBody::from("hello"));
+    resp
+      .headers_mut()
+      .insert("etag", "\"abc\"".parse().unwrap());
+    resp
+      .headers_mut()
+      .insert("last-modified", "Sun, 06 Nov 1994 08:49:37 GMT".parse().unwrap());
+    resp
+  });
+  router.middleware(ETag::new().into_middleware());
+
+  let mut req = make_req(Method::GET, "/");
+  req.headers_mut().insert(
+    "if-modified-since",
+    "Sunday, 06-Nov-94 08:49:37 GMT".parse().unwrap(),
+  );
+  let resp = router.dispatch(req).await;
+  assert_eq!(
+    resp.status(),
+    StatusCode::NOT_MODIFIED,
+    "RFC 850 If-Modified-Since must match IMF-fixdate Last-Modified"
+  );
 }
 
 #[tokio::test]
@@ -795,6 +961,173 @@ async fn tenant_extracted_from_header() {
     .insert("x-tenant-id", "acme".parse().unwrap());
   let resp = router.dispatch(req).await;
   assert_eq!(body_str(resp).await, "acme");
+}
+
+#[tokio::test]
+async fn compression_compresses_plain_response() {
+  use tako::plugins::TakoPlugin;
+  use tako::plugins::compression::CompressionBuilder;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async move {
+    let payload = "x".repeat(2048);
+    http::Response::builder()
+      .header("content-type", "text/plain")
+      .body(TakoBody::from(payload))
+      .unwrap()
+  });
+  CompressionBuilder::new()
+    .enable_gzip(true)
+    .min_size(512)
+    .build()
+    .setup(&router)
+    .unwrap();
+
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("accept-encoding", "gzip".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(
+    resp.headers().get("content-encoding").map(|v| v.to_str().unwrap()),
+    Some("gzip")
+  );
+}
+
+#[tokio::test]
+async fn compression_skips_when_request_authenticated() {
+  use tako::plugins::TakoPlugin;
+  use tako::plugins::compression::CompressionBuilder;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async move {
+    let payload = "x".repeat(2048);
+    http::Response::builder()
+      .header("content-type", "text/plain")
+      .body(TakoBody::from(payload))
+      .unwrap()
+  });
+  CompressionBuilder::new()
+    .enable_gzip(true)
+    .min_size(512)
+    .build()
+    .setup(&router)
+    .unwrap();
+
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("accept-encoding", "gzip".parse().unwrap());
+  req
+    .headers_mut()
+    .insert("authorization", "Bearer secret".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert!(
+    !resp.headers().contains_key("content-encoding"),
+    "authenticated request must not produce compressed response (CRIME mitigation)"
+  );
+}
+
+#[tokio::test]
+async fn compression_skips_when_response_sets_cookie() {
+  use tako::plugins::TakoPlugin;
+  use tako::plugins::compression::CompressionBuilder;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async move {
+    let payload = "x".repeat(2048);
+    http::Response::builder()
+      .header("content-type", "text/plain")
+      .header("set-cookie", "sid=abc; Path=/")
+      .body(TakoBody::from(payload))
+      .unwrap()
+  });
+  CompressionBuilder::new()
+    .enable_gzip(true)
+    .min_size(512)
+    .build()
+    .setup(&router)
+    .unwrap();
+
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("accept-encoding", "gzip".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert!(
+    !resp.headers().contains_key("content-encoding"),
+    "Set-Cookie response must not be compressed (CRIME mitigation)"
+  );
+}
+
+#[tokio::test]
+async fn compression_opt_out_of_crime_mitigation() {
+  use tako::plugins::TakoPlugin;
+  use tako::plugins::compression::CompressionBuilder;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |_req: Request| async move {
+    let payload = "x".repeat(2048);
+    http::Response::builder()
+      .header("content-type", "text/plain")
+      .body(TakoBody::from(payload))
+      .unwrap()
+  });
+  CompressionBuilder::new()
+    .enable_gzip(true)
+    .min_size(512)
+    .protect_sensitive(false)
+    .build()
+    .setup(&router)
+    .unwrap();
+
+  let mut req = make_req(Method::GET, "/");
+  req
+    .headers_mut()
+    .insert("accept-encoding", "gzip".parse().unwrap());
+  req
+    .headers_mut()
+    .insert("authorization", "Bearer secret".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(
+    resp.headers().get("content-encoding").map(|v| v.to_str().unwrap()),
+    Some("gzip"),
+    "explicit opt-out should let auth responses be compressed"
+  );
+}
+
+#[tokio::test]
+async fn tenant_invalid_ids_rejected() {
+  use tako::middleware::tenant::Tenant;
+  use tako::middleware::tenant::TenantMiddleware;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", |req: Request| async move {
+    req
+      .extensions()
+      .get::<Tenant>()
+      .map(|t| t.0.clone())
+      .unwrap_or_else(|| "no-tenant".into())
+  });
+  router.middleware(
+    TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id")).into_middleware(),
+  );
+
+  for malicious in &["..", "../etc/passwd", "a/b", "with space", ""] {
+    let mut req = make_req(Method::GET, "/");
+    // Empty header value is technically rejected at HeaderValue level; skip.
+    if !malicious.is_empty() {
+      req
+        .headers_mut()
+        .insert("x-tenant-id", malicious.parse().unwrap());
+    }
+    let resp = router.dispatch(req).await;
+    assert_eq!(
+      body_str(resp).await,
+      "no-tenant",
+      "expected rejection for malicious tenant: {malicious:?}"
+    );
+  }
 }
 
 #[tokio::test]
@@ -832,6 +1165,51 @@ async fn healthcheck_drain_blocks_ready() {
   let resp = router.dispatch(make_req(Method::GET, "/ready")).await;
   assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
   assert!(resp.headers().get("retry-after").is_some());
+}
+
+#[tokio::test]
+async fn healthcheck_drain_post_requires_token() {
+  use tako::middleware::healthcheck::Healthcheck;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
+  router.middleware(Healthcheck::new().into_middleware());
+
+  // No drain_token configured → POST /__drain must be rejected.
+  let resp = router.dispatch(make_req(Method::POST, "/__drain")).await;
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+  // GET /__drain stays open (read-only state inspection).
+  let resp = router.dispatch(make_req(Method::GET, "/__drain")).await;
+  assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn healthcheck_drain_token_required_for_state_change() {
+  use tako::middleware::healthcheck::Healthcheck;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
+  router.middleware(Healthcheck::new().drain_token("s3cret").into_middleware());
+
+  // Wrong / missing token: 401.
+  let resp = router.dispatch(make_req(Method::POST, "/__drain")).await;
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+  let mut req = make_req(Method::POST, "/__drain");
+  req
+    .headers_mut()
+    .insert("x-drain-token", "wrong".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+  // Correct token: 200.
+  let mut req = make_req(Method::POST, "/__drain");
+  req
+    .headers_mut()
+    .insert("x-drain-token", "s3cret".parse().unwrap());
+  let resp = router.dispatch(req).await;
+  assert_eq!(resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

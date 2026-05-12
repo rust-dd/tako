@@ -72,14 +72,50 @@ async fn query_multi_repeated_keys() {
 }
 
 #[tokio::test]
-async fn host_from_x_forwarded_host() {
+async fn host_ignores_x_forwarded_host_when_untrusted() {
+  // No UriPartsConfig in extensions → secure-by-default: the
+  // X-Forwarded-Host header is ignored, and with no Host header and no
+  // authority on the request URI the extractor returns HostMissing.
+  let mut req = Request::builder()
+    .uri("/")
+    .header("x-forwarded-host", "evil.example.com")
+    .body(TakoBody::empty())
+    .unwrap();
+  let res = Host::from_request(&mut req).await;
+  assert!(res.is_err(), "untrusted X-Forwarded-Host must not satisfy Host");
+}
+
+#[tokio::test]
+async fn host_uses_x_forwarded_host_when_proxy_trusted() {
+  use std::net::IpAddr;
+  use tako::conn_info::ConnInfo;
+  use tako::extractors::uri_parts::UriPartsConfig;
+
+  let peer: std::net::SocketAddr = "10.0.0.5:443".parse().unwrap();
+  let cfg = UriPartsConfig::default().with_trusted_proxy(peer.ip());
+
   let mut req = Request::builder()
     .uri("/")
     .header("x-forwarded-host", "example.com")
     .body(TakoBody::empty())
     .unwrap();
+  req.extensions_mut().insert(ConnInfo::tcp(peer));
+  req.extensions_mut().insert(cfg);
   let Host(h) = Host::from_request(&mut req).await.unwrap();
   assert_eq!(h, "example.com");
+
+  // Sanity: a peer not in the trusted list must not unlock the header.
+  let mut req = Request::builder()
+    .uri("/")
+    .header("x-forwarded-host", "example.com")
+    .body(TakoBody::empty())
+    .unwrap();
+  let untrusted_peer: std::net::SocketAddr = "203.0.113.99:443".parse().unwrap();
+  req.extensions_mut().insert(ConnInfo::tcp(untrusted_peer));
+  req
+    .extensions_mut()
+    .insert(UriPartsConfig::default().with_trusted_proxy(IpAddr::from([10, 0, 0, 5])));
+  assert!(Host::from_request(&mut req).await.is_err());
 }
 
 #[tokio::test]

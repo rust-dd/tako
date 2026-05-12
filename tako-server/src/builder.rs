@@ -27,7 +27,6 @@ use std::time::Duration;
 use tako_core::router::Router;
 #[cfg(not(feature = "compio"))]
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 
 use crate::ServerConfig;
 
@@ -41,15 +40,15 @@ use crate::ServerConfig;
 /// the underlying `serve_*` future, so the same `ServerHandle` works whether
 /// the spawned task lives on the tokio runtime or the compio runtime.
 pub struct ServerHandle {
-  shutdown: Arc<Notify>,
-  done: Arc<Notify>,
+  shutdown: tokio_util::sync::CancellationToken,
+  done: tokio_util::sync::CancellationToken,
   drain_timeout: Duration,
 }
 
 impl ServerHandle {
   /// Trigger graceful shutdown without awaiting completion.
   pub fn trigger(&self) {
-    self.shutdown.notify_waiters();
+    self.shutdown.cancel();
   }
 
   /// Await the spawned task's completion (without triggering shutdown).
@@ -58,7 +57,7 @@ impl ServerHandle {
   /// because [`ServerHandle::trigger`] / [`ServerHandle::shutdown`] was called
   /// or because the listener errored fatally.
   pub async fn join(&self) {
-    self.done.notified().await;
+    self.done.cancelled().await;
   }
 
   /// Trigger graceful shutdown and await the drain.
@@ -68,8 +67,8 @@ impl ServerHandle {
   /// [`ServerConfig`] that was handed to the builder, enforced inside
   /// `serve_*_with_shutdown`.
   pub async fn shutdown(self, _timeout: Duration) {
-    self.shutdown.notify_waiters();
-    self.done.notified().await;
+    self.shutdown.cancel();
+    self.done.cancelled().await;
   }
 
   /// Returns the drain timeout the underlying `serve_*` will honor.
@@ -845,15 +844,15 @@ fn tls_alpn_for_tcp() -> Vec<Vec<u8>> {
 fn make_handle(
   drain_timeout: Duration,
 ) -> (ServerHandle, impl Future<Output = ()> + Send + 'static) {
-  let shutdown = Arc::new(Notify::new());
-  let done = Arc::new(Notify::new());
+  let shutdown = tokio_util::sync::CancellationToken::new();
+  let done = tokio_util::sync::CancellationToken::new();
   let shutdown_for_task = shutdown.clone();
-  // Hold the Arc inside the future so it stays alive across the spawn move,
-  // and call notified() *inside* an async block so the same NotifyFuture is
-  // polled across wakeups (a fresh notified() per poll loses the racing
-  // notify_waiters() and deadlocks).
+  // `CancellationToken::cancelled()` is sticky — late subscribers still see
+  // a cancel that has already fired. Switching from `Notify::notify_waiters`
+  // closes the race window where `trigger()` could run before the spawned
+  // serve future had a chance to register its waiter.
   let fut = async move {
-    shutdown_for_task.notified().await;
+    shutdown_for_task.cancelled().await;
   };
   (
     ServerHandle {
@@ -866,24 +865,24 @@ fn make_handle(
 }
 
 #[cfg(not(feature = "compio"))]
-fn spawn_done<F>(done: Arc<Notify>, fut: F)
+fn spawn_done<F>(done: tokio_util::sync::CancellationToken, fut: F)
 where
   F: Future<Output = ()> + Send + 'static,
 {
   tokio::spawn(async move {
     fut.await;
-    done.notify_waiters();
+    done.cancel();
   });
 }
 
 #[cfg(feature = "compio")]
-fn spawn_done_compio<F>(done: Arc<Notify>, fut: F)
+fn spawn_done_compio<F>(done: tokio_util::sync::CancellationToken, fut: F)
 where
   F: Future<Output = ()> + 'static,
 {
   compio::runtime::spawn(async move {
     fut.await;
-    done.notify_waiters();
+    done.cancel();
   })
   .detach();
 }

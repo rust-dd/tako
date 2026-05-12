@@ -43,8 +43,16 @@ pub mod __private {
 }
 
 pub use tako_core::body;
+// `tako_core::client` is tokio-runtime-only (tokio-rustls + hyper-util
+// client-legacy). When `compio` is also enabled, the upstream crate refuses
+// to compile the `client` module, so we cannot re-export it either. We
+// surface this as a docs-only note rather than a `compile_error!`, because
+// the workspace `cargo check --workspace --all-features` invocation turns
+// every feature on simultaneously and we must not break that — when
+// `compio` is on, `tako::client` is intentionally absent, see the cfg
+// expression for the exact condition.
 #[cfg(all(feature = "client", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "client", not(feature = "compio")))))]
 pub use tako_core::client;
 pub use tako_core::config;
 pub use tako_core::conn_info;

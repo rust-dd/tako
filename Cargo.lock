@@ -4310,6 +4310,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "httpdate",
  "ipnet",
  "jsonschema",
  "jwt-simple",
@@ -4347,6 +4348,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "compio",
  "futures-util",
  "http",
  "http-body-util",
@@ -4412,6 +4414,7 @@ dependencies = [
  "socket2 0.5.10",
  "tako-core",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
@@ -4676,6 +4679,7 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

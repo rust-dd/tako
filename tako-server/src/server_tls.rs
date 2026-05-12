@@ -243,6 +243,7 @@ pub async fn run_with_config(
     .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
+  let tls_handshake_timeout = config.tls_handshake_timeout;
   let keep_alive = config.keep_alive;
   #[cfg(feature = "http2")]
   let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
@@ -295,10 +296,23 @@ pub async fn run_with_config(
         let router = router.clone();
 
         join_set.spawn(async move {
-          let tls_stream = match acceptor.accept(stream).await {
-            Ok(s) => s,
-            Err(e) => {
+          // Bound the TLS handshake so a slow / stalled client cannot
+          // indefinitely hold a `max_connections` permit (TLS slowloris).
+          let tls_stream = match tokio::time::timeout(
+            tls_handshake_timeout,
+            acceptor.accept(stream),
+          )
+          .await
+          {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
               tracing::error!("TLS error: {e}");
+              return;
+            }
+            Err(_) => {
+              tracing::warn!(
+                "TLS handshake timeout after {tls_handshake_timeout:?} from {addr}"
+              );
               return;
             }
           };

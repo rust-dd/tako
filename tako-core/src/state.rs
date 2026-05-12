@@ -100,3 +100,26 @@ pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
     .map(|v| v.clone())
     .and_then(|v| v.downcast::<T>().ok())
 }
+
+/// Atomically initialises the global slot for `T` if and only if it is
+/// empty, evaluating `init` exactly once across concurrent callers. Returns
+/// the resulting `Arc<T>` (either the pre-existing one or the freshly
+/// inserted one).
+///
+/// This is the right primitive for "first one wins" cross-thread setup; the
+/// pattern `if get_state::<T>().is_none() { set_state(...) }` is TOCTOU
+/// across `Router::new` calls and can write twice on the racing thread.
+pub fn get_or_init_state<T, F>(init: F) -> Arc<T>
+where
+  T: Send + Sync + 'static,
+  F: FnOnce() -> T,
+{
+  let entry = GLOBAL_STATE
+    .entry_sync(TypeId::of::<T>())
+    .or_insert_with(|| Arc::new(init()) as Arc<dyn Any + Send + Sync>);
+  entry
+    .get()
+    .clone()
+    .downcast::<T>()
+    .expect("get_or_init_state type mismatch — global slot already held a different type")
+}

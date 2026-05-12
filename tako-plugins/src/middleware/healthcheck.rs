@@ -25,6 +25,7 @@ use http::Method;
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
 use http::header::RETRY_AFTER;
+use subtle::ConstantTimeEq;
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
@@ -249,17 +250,34 @@ impl IntoMiddleware for Healthcheck {
         }
 
         if path == drain_path.as_str() {
-          if let Some(expected) = drain_token.as_ref() {
-            let provided = req
-              .headers()
-              .get("x-drain-token")
-              .and_then(|v| v.to_str().ok())
-              .unwrap_or("");
-            if provided != expected.as_str() {
-              return json_response(
-                StatusCode::UNAUTHORIZED,
-                r#"{"error":"invalid drain token"}"#.to_string(),
-              );
+          // State-changing requests (POST/DELETE) require a token.
+          // Read-only GET is allowed because the gate state is already
+          // observable through `/ready`, but writing it externally without
+          // authentication would let anyone take the service out of
+          // rotation.
+          let is_write = matches!(*req.method(), Method::POST | Method::DELETE);
+          if is_write {
+            match drain_token.as_ref() {
+              None => {
+                return json_response(
+                  StatusCode::UNAUTHORIZED,
+                  r#"{"error":"drain endpoint requires Healthcheck::drain_token(...) to be configured"}"#
+                    .to_string(),
+                );
+              }
+              Some(expected) => {
+                let provided = req
+                  .headers()
+                  .get("x-drain-token")
+                  .and_then(|v| v.to_str().ok())
+                  .unwrap_or("");
+                if !constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+                  return json_response(
+                    StatusCode::UNAUTHORIZED,
+                    r#"{"error":"invalid drain token"}"#.to_string(),
+                  );
+                }
+              }
             }
           }
           match *req.method() {
@@ -292,4 +310,15 @@ impl IntoMiddleware for Healthcheck {
       })
     }
   }
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+  // Equal-length compare is constant-time; length mismatch must short-circuit
+  // because `ct_eq` would otherwise panic. Length is not secret here (it's
+  // visible to the attacker through the response timing of the headers
+  // anyway), so length-leak is acceptable.
+  if a.len() != b.len() {
+    return false;
+  }
+  a.ct_eq(b).into()
 }

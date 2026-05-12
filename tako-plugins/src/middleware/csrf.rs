@@ -226,6 +226,19 @@ impl IntoMiddleware for Csrf {
           return resp;
         }
 
+        // When `bind_to_session=true` is configured the only thing standing
+        // between the attacker and a successful unsafe request would be the
+        // double-submit cookie pattern (cookie == header). An XSS-stolen
+        // cookie can be echoed into the matching header trivially, so without
+        // a Session the binding is non-existent. Fail closed.
+        if bind_to_session && session.is_none() {
+          return (
+            StatusCode::FORBIDDEN,
+            "CSRF: session required for token binding",
+          )
+            .into_response();
+        }
+
         // Extract candidate tokens.
         let cookie_token = extract_cookie(&req, &cookie_name).map(str::to_string);
         let header_token = req
@@ -241,7 +254,8 @@ impl IntoMiddleware for Csrf {
         );
         let session_match = match (&session_token, &cookie_token) {
           (Some(s), Some(c)) => s == c,
-          // No session present → don't enforce session match.
+          // No session present and bind_to_session is off → rely on
+          // cookie/header double-submit only.
           (None, _) => true,
           _ => false,
         };

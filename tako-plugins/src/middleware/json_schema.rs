@@ -13,7 +13,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
@@ -126,16 +125,16 @@ impl IntoMiddleware for JsonSchema {
               return next.run(req).await;
             }
             let (parts, body) = req.into_parts();
-            let collected = match body.collect().await {
+            let limited = http_body_util::Limited::new(body, max_bytes);
+            let collected = match limited.collect().await {
               Ok(c) => c.to_bytes(),
-              Err(_) => Bytes::new(),
+              Err(_) => {
+                return http::Response::builder()
+                  .status(StatusCode::PAYLOAD_TOO_LARGE)
+                  .body(TakoBody::empty())
+                  .expect("valid 413");
+              }
             };
-            if collected.len() > max_bytes {
-              return http::Response::builder()
-                .status(StatusCode::PAYLOAD_TOO_LARGE)
-                .body(TakoBody::empty())
-                .expect("valid 413");
-            }
             match serde_json::from_slice::<Value>(&collected) {
               Ok(value) => {
                 let errors: Vec<String> = validator
@@ -157,13 +156,18 @@ impl IntoMiddleware for JsonSchema {
               return resp;
             }
             let (parts, body) = resp.into_parts();
-            let collected = match body.collect().await {
+            let limited = http_body_util::Limited::new(body, max_bytes);
+            let collected = match limited.collect().await {
               Ok(c) => c.to_bytes(),
-              Err(_) => Bytes::new(),
+              Err(_) => {
+                // Response exceeded the validator budget — surface as 500;
+                // the upstream body has been partially consumed.
+                return http::Response::builder()
+                  .status(StatusCode::INTERNAL_SERVER_ERROR)
+                  .body(TakoBody::empty())
+                  .expect("valid 500");
+              }
             };
-            if collected.len() > max_bytes {
-              return http::Response::from_parts(parts, TakoBody::from(collected));
-            }
             match serde_json::from_slice::<Value>(&collected) {
               Ok(value) => {
                 let errors: Vec<String> = validator

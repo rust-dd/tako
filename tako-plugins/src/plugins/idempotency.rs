@@ -185,6 +185,44 @@ enum Entry {
 #[derive(Clone)]
 struct Store(Arc<SccHashMap<String, Entry>>);
 
+/// RAII guard that ensures a registered in-flight entry is cleaned up even if
+/// the handler future panics or is dropped before completion. Without this,
+/// coalescing waiters parked on `notify.notified()` would never observe a
+/// resolution and would hang for the lifetime of the process.
+struct InflightGuard {
+  store: Store,
+  cache_key: String,
+  notify: Arc<Notify>,
+  armed: bool,
+}
+
+impl InflightGuard {
+  fn new(store: Store, cache_key: String, notify: Arc<Notify>) -> Self {
+    Self {
+      store,
+      cache_key,
+      notify,
+      armed: true,
+    }
+  }
+
+  /// Mark the guard inactive on normal completion paths — the caller has
+  /// already either persisted a Completed entry or explicitly removed the
+  /// in-flight one.
+  fn disarm(&mut self) {
+    self.armed = false;
+  }
+}
+
+impl Drop for InflightGuard {
+  fn drop(&mut self) {
+    if self.armed {
+      self.store.remove(&self.cache_key);
+      self.notify.notify_waiters();
+    }
+  }
+}
+
 impl Store {
   fn new() -> Self {
     Self(Arc::new(SccHashMap::new()))
@@ -317,18 +355,20 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     return next.run(req).await;
   }
 
-  // Buffer and re-inject request body (for stable hashing)
+  // Buffer and re-inject request body (for stable hashing). Wrap in
+  // `Limited` so a client cannot force an unbounded allocation by lying
+  // about Content-Length or by streaming chunked.
   let (parts, body) = req.into_parts();
-  let collected = match body.collect().await {
+  let limited = http_body_util::Limited::new(body, cfg.max_request_body_bytes);
+  let collected = match limited.collect().await {
     Ok(c) => c.to_bytes(),
-    Err(_) => Bytes::new(),
+    Err(_) => {
+      return http::Response::builder()
+        .status(StatusCode::PAYLOAD_TOO_LARGE)
+        .body(TakoBody::empty())
+        .unwrap();
+    }
   };
-  if collected.len() > cfg.max_request_body_bytes {
-    return http::Response::builder()
-      .status(StatusCode::PAYLOAD_TOO_LARGE)
-      .body(TakoBody::empty())
-      .unwrap();
-  }
   let body_bytes = collected.clone();
   let mut hasher = Sha1::new();
   if cfg.verify_payload {
@@ -416,6 +456,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
 
   // Miss: register in-flight
   let notify = store.insert_inflight(cache_key.clone(), sig);
+  let mut inflight_guard = InflightGuard::new(store.clone(), cache_key.clone(), notify.clone());
 
   // Execute handler
   let mut resp = next.run(new_req).await;
@@ -448,6 +489,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     };
     store.complete(cache_key.clone(), completed);
     notify.notify_waiters();
+    inflight_guard.disarm();
     // Replace body to return to the current caller
     *resp.body_mut() = TakoBody::from(cached.body.clone());
     resp.into_response()
@@ -455,6 +497,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     // Not caching: clean up and return original response with collected body
     store.remove(&cache_key);
     notify.notify_waiters();
+    inflight_guard.disarm();
     *resp.body_mut() = TakoBody::from(body_bytes);
     resp.into_response()
   }
