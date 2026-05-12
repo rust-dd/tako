@@ -52,7 +52,7 @@ exclude = [
 resolver = "2"
 
 [workspace.package]
-version = "1.1.2"
+version = "2.0.0"
 edition = "2024"
 # Track the latest stable. We rely on let-chains, async-fn-in-trait HRTB
 # inference fixes (rustc#100013), and edition 2024. Bumping is non-breaking
@@ -64,13 +64,13 @@ authors = ["Daniel Boros <dancixx@gmail.com>"]
 
 [workspace.dependencies]
 # Internal sub-crates
-tako-core = { path = "tako-core", version = "1.1.2" }
-tako-extractors = { path = "tako-extractors", version = "1.1.2" }
-tako-macros = { path = "tako-macros", version = "1.1.2" }
-tako-plugins = { path = "tako-plugins", version = "1.1.2" }
-tako-server = { path = "tako-server", version = "1.1.2" }
-tako-server-pt = { path = "tako-server-pt", version = "1.1.2" }
-tako-streams = { path = "tako-streams", version = "1.1.2" }
+tako-core = { path = "tako-core", version = "2.0.0" }
+tako-extractors = { path = "tako-extractors", version = "2.0.0" }
+tako-macros = { path = "tako-macros", version = "2.0.0" }
+tako-plugins = { path = "tako-plugins", version = "2.0.0" }
+tako-server = { path = "tako-server", version = "2.0.0" }
+tako-server-pt = { path = "tako-server-pt", version = "2.0.0" }
+tako-streams = { path = "tako-streams", version = "2.0.0" }
 
 # Required dependencies
 anyhow = "1.0.98"

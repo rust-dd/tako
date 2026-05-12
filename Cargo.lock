@@ -4168,7 +4168,7 @@ dependencies = [
 
 [[package]]
 name = "tako-core"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4242,7 +4242,7 @@ dependencies = [
 
 [[package]]
 name = "tako-extractors"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4285,7 +4285,7 @@ dependencies = [
 
 [[package]]
 name = "tako-macros"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4294,7 +4294,7 @@ dependencies = [
 
 [[package]]
 name = "tako-plugins"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4343,7 +4343,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -4369,7 +4369,7 @@ dependencies = [
 
 [[package]]
 name = "tako-server"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4402,7 +4402,7 @@ dependencies = [
 
 [[package]]
 name = "tako-server-pt"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "compio",
  "core_affinity",
@@ -4420,7 +4420,7 @@ dependencies = [
 
 [[package]]
 name = "tako-streams"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "base64",
