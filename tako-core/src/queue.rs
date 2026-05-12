@@ -223,7 +223,13 @@ struct QueueInner {
   /// Registered job handlers by name.
   handlers: SccHashMap<String, BoxHandler>,
   /// Dead letter queue.
-  dead_letters: Mutex<Vec<DeadJob>>,
+  ///
+  /// Stored as `Vec<Arc<DeadJob>>` so the [`Queue::dead_letters_arc`]
+  /// snapshot only clones the outer `Vec` plus cheap atomic-refcount bumps
+  /// per entry, rather than deep-copying every `payload` / `name` / `error`
+  /// string. The owned [`Queue::dead_letters`] accessor still pays the deep
+  /// clone for API compatibility.
+  dead_letters: Mutex<Vec<Arc<DeadJob>>>,
   /// Notify workers when new jobs arrive.
   notify: Notify,
   /// Monotonically increasing job ID counter.
@@ -520,8 +526,34 @@ impl Queue {
   }
 
   /// Returns a snapshot of jobs in the dead letter queue.
+  ///
+  /// Allocates a new `Vec<DeadJob>` and deep-clones every entry. For
+  /// monitoring code that just iterates entries read-only, prefer
+  /// [`Self::dead_letters_arc`] (atomic refcount per entry, no payload
+  /// copies) or [`Self::dead_letter_count`] (no allocation at all).
   pub fn dead_letters(&self) -> Vec<DeadJob> {
+    self
+      .inner
+      .dead_letters
+      .lock()
+      .iter()
+      .map(|j| (**j).clone())
+      .collect()
+  }
+
+  /// Returns a cheap snapshot of the dead letter queue.
+  ///
+  /// Each entry is shared via `Arc` rather than deep-cloned, so this is
+  /// suitable for emitting from metrics endpoints or hot paths. Returned
+  /// `Arc<DeadJob>` handles remain valid even if [`Self::clear_dead_letters`]
+  /// is called concurrently.
+  pub fn dead_letters_arc(&self) -> Vec<Arc<DeadJob>> {
     self.inner.dead_letters.lock().clone()
+  }
+
+  /// Returns the number of jobs currently in the dead letter queue.
+  pub fn dead_letter_count(&self) -> usize {
+    self.inner.dead_letters.lock().len()
   }
 
   /// Clear all dead letters.
@@ -599,14 +631,14 @@ async fn worker_loop(inner: Arc<QueueInner>) {
         pending_job.attempt + 1,
       )
       .await;
-      inner.dead_letters.lock().push(DeadJob {
+      inner.dead_letters.lock().push(Arc::new(DeadJob {
         id: pending_job.id,
         name: pending_job.name,
         payload: pending_job.payload,
         attempts: pending_job.attempt + 1,
         error: "no handler registered".into(),
         failed_at: Instant::now(),
-      });
+      }));
       continue;
     };
 
@@ -705,14 +737,14 @@ async fn worker_loop(inner: Arc<QueueInner>) {
         )
         .await;
 
-        inner.dead_letters.lock().push(DeadJob {
+        inner.dead_letters.lock().push(Arc::new(DeadJob {
           id: pending_job.id,
           name: pending_job.name,
           payload: pending_job.payload,
           attempts: pending_job.attempt + 1,
           error: e.to_string(),
           failed_at: Instant::now(),
-        });
+        }));
       }
     }
 

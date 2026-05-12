@@ -328,10 +328,24 @@ pub async fn run_with_config(
             .1
             .server_name()
             .map(str::to_string);
+          // Capture the negotiated TLS protocol version (TLS 1.2 vs TLS 1.3)
+          // so `ConnInfo` consumers can branch on it for compliance /
+          // observability without going back through the rustls session.
+          let tls_version = tls_stream
+            .get_ref()
+            .1
+            .protocol_version()
+            .map(|v| match v {
+              rustls::ProtocolVersion::TLSv1_3 => "TLSv1.3",
+              rustls::ProtocolVersion::TLSv1_2 => "TLSv1.2",
+              rustls::ProtocolVersion::TLSv1_1 => "TLSv1.1",
+              rustls::ProtocolVersion::TLSv1_0 => "TLSv1.0",
+              _ => "unknown",
+            });
           let tls_info = TlsInfo {
             alpn: alpn_proto.clone(),
             sni,
-            version: None,
+            version: tls_version,
           };
           let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
           let conn_info = if is_h2 {

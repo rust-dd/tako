@@ -198,12 +198,18 @@ impl IntoMiddleware for Healthcheck {
 
       Box::pin(async move {
         let path = req.uri().path();
+        // Strip a single trailing slash so probes that hit `/livez/` or
+        // `/readyz/` (common for orchestrators that auto-append one) still
+        // resolve to the configured path. The configured path is matched
+        // verbatim, so `/livez` and `/livez/` both succeed without
+        // double-defining routes.
+        let path_norm = path.strip_suffix('/').unwrap_or(path);
 
-        if path == live_path.as_str() && req.method() == Method::GET {
+        if path_norm == live_path.as_str() && req.method() == Method::GET {
           return json_response(StatusCode::OK, r#"{"status":"alive"}"#.to_string());
         }
 
-        if path == ready_path.as_str() && req.method() == Method::GET {
+        if path_norm == ready_path.as_str() && req.method() == Method::GET {
           if drained.load(Ordering::Acquire) {
             let mut resp = json_response(
               StatusCode::SERVICE_UNAVAILABLE,
@@ -249,7 +255,7 @@ impl IntoMiddleware for Healthcheck {
           return resp;
         }
 
-        if path == drain_path.as_str() {
+        if path_norm == drain_path.as_str() {
           // State-changing requests (POST/DELETE) require a token.
           // Read-only GET is allowed because the gate state is already
           // observable through `/ready`, but writing it externally without

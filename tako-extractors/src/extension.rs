@@ -28,14 +28,37 @@ use tako_core::types::Request;
 pub struct Extension<T>(pub T);
 
 /// Rejection when no value of type `T` is present in extensions.
+///
+/// The carried `&'static str` comes from [`std::any::type_name`], which
+/// includes the full module path (e.g.
+/// `my_crate::config::MyConfig`). [`Self::short_name`] returns just the
+/// final segment for log/UI display.
 #[derive(Debug)]
 pub struct MissingExtension(pub &'static str);
 
+impl MissingExtension {
+  /// Trims the module-path prefix from the type name so the rejection is
+  /// easier to read at a glance. `"my_crate::config::MyConfig"` becomes
+  /// `"MyConfig"`. Generic arguments are preserved (the split is on the
+  /// last `::` that precedes any `<`).
+  pub fn short_name(&self) -> &'static str {
+    let s: &'static str = self.0;
+    let cutoff = s.find('<').unwrap_or(s.len());
+    match s[..cutoff].rfind("::") {
+      Some(idx) => &s[idx + 2..],
+      None => s,
+    }
+  }
+}
+
 impl Responder for MissingExtension {
   fn into_response(self) -> tako_core::types::Response {
+    // Use the short name on the wire — the fully-qualified path is internal
+    // detail that leaks crate structure and is hard to read in logs.
+    let short = self.short_name();
     (
       StatusCode::INTERNAL_SERVER_ERROR,
-      format!("missing extension: {}", self.0),
+      format!("missing extension: {short}"),
     )
       .into_response()
   }

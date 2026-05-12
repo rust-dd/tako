@@ -126,12 +126,33 @@ struct PathParam {
 /// Returns the matchit-friendly stripped path (every placeholder reduced to
 /// `{name}`) plus the list of typed `(name, type)` pairs only.
 fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
+  // Route paths are ASCII per RFC 3986 (`reserved` + `unreserved` are both
+  // ASCII subsets). Reject anything else up front rather than mojibake the
+  // byte stream into the stripped output: previously a multi-byte UTF-8
+  // char like `é` (`0xC3 0xA9`) was pushed as two distinct `char` values,
+  // both Latin-1 codepoints, breaking exact-path matching against the
+  // matchit-compiled route.
+  if !path.is_ascii() {
+    return Err(syn::Error::new(
+      span,
+      "route path must be ASCII (RFC 3986); percent-encode any non-ASCII characters",
+    ));
+  }
   let mut stripped = String::with_capacity(path.len());
   let mut typed = Vec::new();
   let bytes = path.as_bytes();
   let mut i = 0;
   while i < bytes.len() {
     let c = bytes[i];
+    if c == b'}' {
+      // Stray `}` without a preceding `{` is a path-syntax mistake. Reject
+      // explicitly so the error surfaces at macro-expansion time rather
+      // than as a downstream matchit mismatch.
+      return Err(syn::Error::new(
+        span,
+        "unexpected '}' in path (no matching '{')",
+      ));
+    }
     if c != b'{' {
       stripped.push(c as char);
       i += 1;
@@ -215,9 +236,24 @@ fn expand_route(
   };
 
   let fn_name = &func.sig.ident;
+  // Append a short fingerprint of (method + path) so two handlers that
+  // happen to share the same function identifier — common when several
+  // modules each define an `fn handler` — generate distinct linkme
+  // registrars. Without the suffix the second module's static silently
+  // overwrote the first at link time.
+  let registrar_suffix = {
+    let key = format!("{}_{path_str}", method);
+    let mut hash: u64 = 0xcbf29ce484222325; // FNV-1a 64-bit offset basis
+    for byte in key.as_bytes() {
+      hash ^= u64::from(*byte);
+      hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016X}")
+  };
   let registrar_ident = format_ident!(
-    "__TAKO_REGISTER_{}",
+    "__TAKO_REGISTER_{}_{}",
     fn_name.to_string().to_uppercase(),
+    registrar_suffix,
     span = fn_name.span()
   );
 

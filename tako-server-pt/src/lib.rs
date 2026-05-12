@@ -228,6 +228,12 @@ pub fn spawn_per_thread(
   Ok((handles, shutdown))
 }
 
+// Without the `affinity` feature, `worker_id` and `cfg.pin_to_core` aren't
+// read past this point; mark the function tolerant of those unused names so
+// we don't need the awkward `let _ = (worker_id, &cfg.pin_to_core);` trick
+// that previously sat inside the function body for the sole purpose of
+// silencing the warning.
+#[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 fn worker_main(
   worker_id: usize,
   addr: SocketAddr,
@@ -239,7 +245,12 @@ fn worker_main(
   if cfg.pin_to_core {
     if let Some(ids) = core_affinity::get_core_ids() {
       if let Some(id) = ids.get(worker_id) {
-        let _ = core_affinity::set_for_current(*id);
+        if !core_affinity::set_for_current(*id) {
+          tracing::warn!(
+            worker_id,
+            "pin_to_core: core_affinity::set_for_current returned false; running without affinity"
+          );
+        }
       } else {
         tracing::warn!(
           worker_id,
@@ -254,7 +265,6 @@ fn worker_main(
       );
     }
   }
-  let _ = (worker_id, &cfg.pin_to_core);
 
   let rt = match Builder::new_current_thread().enable_all().build() {
     Ok(rt) => rt,
@@ -290,7 +300,13 @@ fn worker_main(
               continue;
             }
           };
-          let _ = stream.set_nodelay(true);
+          // `set_nodelay` only fails for already-closed sockets (peer hung
+          // up between accept and here) or on platforms without TCP_NODELAY
+          // — either way the connection still works, but log at debug so an
+          // operator can investigate persistent failures.
+          if let Err(e) = stream.set_nodelay(true) {
+            tracing::debug!("worker {worker_id}: set_nodelay failed for {peer}: {e}");
+          }
           let io = hyper_util::rt::TokioIo::new(stream);
 
           let handle = tokio::task::spawn_local(async move {
@@ -374,6 +390,7 @@ pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig)
 }
 
 #[cfg(feature = "compio")]
+#[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 fn worker_main_compio(
   worker_id: usize,
   addr: SocketAddr,
@@ -387,7 +404,12 @@ fn worker_main_compio(
   if cfg.pin_to_core {
     if let Some(ids) = core_affinity::get_core_ids() {
       if let Some(id) = ids.get(worker_id) {
-        let _ = core_affinity::set_for_current(*id);
+        if !core_affinity::set_for_current(*id) {
+          tracing::warn!(
+            worker_id,
+            "pin_to_core: core_affinity::set_for_current returned false; running without affinity"
+          );
+        }
       } else {
         tracing::warn!(
           worker_id,
@@ -402,7 +424,6 @@ fn worker_main_compio(
       );
     }
   }
-  let _ = (worker_id, &cfg.pin_to_core);
 
   let rt = match compio::runtime::RuntimeBuilder::new().build() {
     Ok(rt) => rt,

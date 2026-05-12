@@ -75,7 +75,13 @@ pub struct ServerConfig {
   /// amplification attacks at the cost of one extra round-trip per new client.
   pub h3_use_retry: bool,
   /// Per-connection grace given to in-flight HTTP/3 streams to finish after
-  /// the per-connection GOAWAY. Bounded by the global `drain_timeout`.
+  /// the per-connection GOAWAY.
+  ///
+  /// The effective grace at runtime is `min(h3_goaway_grace, drain_timeout)`
+  /// — the server clamps this so a long per-connection grace cannot push the
+  /// total shutdown past the global drain budget. Configuring
+  /// `h3_goaway_grace` larger than `drain_timeout` is therefore a no-op
+  /// beyond the global ceiling.
   pub h3_goaway_grace: Duration,
   /// Optional ceiling on concurrent in-flight connections. Enforced via a
   /// semaphore in the accept loop; `None` disables.

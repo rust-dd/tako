@@ -196,9 +196,19 @@ async fn run(
             http.header_read_timeout(t);
           }
           if let Some(t) = keep_alive_timeout {
-            // Hyper does not expose a keep-alive idle timeout knob on http1
-            // builder yet; reserved for future plumb-through.
-            let _ = t;
+            // Hyper does not expose a keep-alive idle timeout knob on the
+            // http1 builder yet; warn once so operators do not silently
+            // assume their setting is being applied. Tracking: see
+            // `hyperium/hyper#1565` / `#1735` for the upstream feature gap.
+            // Use the standard library's `OnceLock` so this fires at most
+            // once per process even with many connections.
+            static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            WARNED.get_or_init(|| {
+              tracing::warn!(
+                "ServerConfig::keep_alive_timeout ({:?}) is not currently plumbed to hyper's http1 builder (upstream gap); the value will be ignored.",
+                t
+              );
+            });
           }
           let conn = http.serve_connection(io, svc).with_upgrades();
 

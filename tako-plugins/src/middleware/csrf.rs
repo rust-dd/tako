@@ -119,6 +119,11 @@ impl Csrf {
 }
 
 fn generate_csrf_token() -> String {
+  // UUIDv4 carries 122 bits of OS-RNG entropy (6 bits encode version + RFC
+  // 4122 variant, the rest is `getrandom`). That is enough for unguessable
+  // CSRF tokens but is *not* 128 bits — do not advertise this as
+  // 128-bit-secure. If you need a wider random space, swap this for a
+  // `rand_core::OsRng` + base64-encoded buffer.
   uuid::Uuid::new_v4().simple().to_string()
 }
 

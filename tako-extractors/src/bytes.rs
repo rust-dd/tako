@@ -32,6 +32,12 @@ use tako_core::types::Request;
 ///
 /// This extractor wraps a reference to the raw request body implementing `http_body::Body`,
 /// allowing direct access to the request body without buffering.
+///
+/// **Naming note**: this `Bytes<'a>` is distinct from the very-common
+/// [`bytes::Bytes`](https://docs.rs/bytes/) type from the `bytes` crate
+/// (which is a refcounted byte buffer, not a body reference). In handlers
+/// that need both, import this as
+/// `use tako::extractors::bytes::Bytes as BytesBody;` to avoid the clash.
 #[doc(alias = "bytes")]
 pub struct Bytes<'a>(pub &'a mut TakoBody);
 

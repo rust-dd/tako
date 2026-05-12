@@ -89,13 +89,16 @@ impl std::error::Error for ParamsError {}
 
 impl Responder for ParamsError {
   /// Converts path parameter errors into appropriate HTTP error responses.
+  ///
+  /// `MissingPathParams` is an internal-routing condition (the router did not
+  /// populate the extension), so the response body is intentionally generic
+  /// — the detailed framing ("request extensions") stays in the
+  /// `Display`/`tracing` form so it does not leak through the wire.
   fn into_response(self) -> crate::types::Response {
     match self {
-      ParamsError::MissingPathParams => (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Path parameters not found in request extensions",
-      )
-        .into_response(),
+      ParamsError::MissingPathParams => {
+        (StatusCode::INTERNAL_SERVER_ERROR, "Internal routing error").into_response()
+      }
       ParamsError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Failed to deserialize path parameters: {err}"),
@@ -333,10 +336,16 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
     visitor: V,
   ) -> Result<V::Value, Self::Error> {
     if self.0.len() != len {
+      // Include the captured parameter names so the resulting error points
+      // the user at the actual mismatch between the route pattern (e.g.
+      // `/users/{id}/posts/{post_id}` — 2 slots) and the tuple type they
+      // tried to extract.
+      let captured: Vec<&str> = self.0.iter().map(|(k, _)| k.as_str()).collect();
       return Err(de::Error::custom(format!(
-        "expected tuple of {} path parameters, got {}",
+        "expected tuple of {} path parameters, got {} (captured: [{}])",
         len,
-        self.0.len()
+        self.0.len(),
+        captured.join(", ")
       )));
     }
     self.deserialize_seq(visitor)

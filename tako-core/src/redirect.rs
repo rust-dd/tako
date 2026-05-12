@@ -81,12 +81,29 @@ impl Redirect {
 }
 
 impl Responder for Redirect {
+  /// Builds the redirect response.
+  ///
+  /// The `Location` header is constructed via the fallible
+  /// [`http::HeaderValue::try_from`], not via `.unwrap()`, so that
+  /// caller-supplied locations containing CR / LF / NUL bytes (which would
+  /// otherwise be a HTTP response-splitting / open-redirect vector) cannot
+  /// turn a redirect into a panic. Malformed locations yield a
+  /// `500 Internal Server Error` with an explanatory body instead.
   fn into_response(self) -> Response {
-    http::Response::builder()
-      .status(self.status)
-      .header(LOCATION, self.location)
-      .body(TakoBody::empty())
-      .unwrap()
+    let value = match http::HeaderValue::try_from(self.location.as_str()) {
+      Ok(v) => v,
+      Err(_) => {
+        let mut resp = http::Response::new(TakoBody::from(
+          "redirect location contains invalid header characters",
+        ));
+        *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+        return resp;
+      }
+    };
+    let mut resp = http::Response::new(TakoBody::empty());
+    *resp.status_mut() = self.status;
+    resp.headers_mut().insert(LOCATION, value);
+    resp
   }
 }
 

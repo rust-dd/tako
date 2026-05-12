@@ -161,7 +161,15 @@ where
         .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
         .to_bytes();
 
-      let mut owned = bytes.to_vec();
+      // simd_json needs `&mut [u8]` for in-place parsing. When the
+      // collected body has no other owners (typical for hyper-driven
+      // requests where the body is freshly assembled), `try_into_mut`
+      // returns the underlying `BytesMut` and we avoid a full copy.
+      // Otherwise we fall back to the previous deep clone.
+      let mut owned: Vec<u8> = match bytes.try_into_mut() {
+        Ok(bm) => bm.into(),
+        Err(b) => b.to_vec(),
+      };
 
       // SIMD-accelerated deserialization.
       let data = simd_json::from_slice::<T>(&mut owned)

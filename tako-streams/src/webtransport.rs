@@ -263,10 +263,13 @@ where
   });
 
   if drain.await.is_err() {
-    tracing::warn!(
-      "Drain timeout exceeded, aborting {} remaining sessions",
-      join_set.len()
-    );
+    // Sample `len()` once before the abort so the logged count matches the
+    // count we acted on. Reading it inside `abort_all()`'s argument list
+    // races with the runtime finishing tasks between the read and the
+    // abort, which makes log lines look like "aborting 0 remaining
+    // sessions" while the abort_all call was still meaningful.
+    let remaining = join_set.len();
+    tracing::warn!("Drain timeout exceeded, aborting {remaining} remaining sessions");
     join_set.abort_all();
   }
 

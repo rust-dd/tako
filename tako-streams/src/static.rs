@@ -394,14 +394,19 @@ impl ServeFile {
   }
 
   /// Handles an HTTP request to serve the configured static file.
+  ///
+  /// The request itself is **ignored** — `ServeFile` always serves the file
+  /// configured on the builder, regardless of `req.uri()`. Mount this
+  /// handler on a single specific route (e.g. `/manifest.json`), not on a
+  /// catch-all glob, otherwise every URL under that glob will return the
+  /// same file. Use [`ServeDir`] when you want path-aware static serving.
   pub async fn handle(&self, _req: Request) -> impl Responder {
     if let Some(resp) = self.serve_file().await {
       resp
     } else {
-      http::Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(TakoBody::from("File not found"))
-        .unwrap()
+      let mut resp = http::Response::new(TakoBody::from("File not found"));
+      *resp.status_mut() = StatusCode::NOT_FOUND;
+      resp
     }
   }
 }

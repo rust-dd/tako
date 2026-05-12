@@ -59,6 +59,17 @@ use crate::types::Response;
 ///
 /// If no config is set on a route, the default is `Threshold(2 MB)`.
 ///
+/// # Security
+///
+/// `sonic_rs` is an unsafe-SIMD-heavy JSON parser. Past releases have had
+/// bugs around malformed UTF-8 / very long numbers / pathological structures
+/// that under certain inputs could be amplified into CPU spikes or panic.
+/// For routes that take untrusted JSON from the open internet, prefer
+/// `SimdJsonMode::Never` (or pair the route with
+/// `tako::middleware::ContentLengthLimit` to bound the input first). The
+/// default `Threshold(2 MB)` keeps small inputs on the `serde_json` path
+/// where the attack surface is smaller.
+///
 /// # Examples
 ///
 /// ```rust,ignore
@@ -188,6 +199,12 @@ where
         .await
         .map_err(|e| JsonError::BodyReadError(e.to_string()))?
         .to_bytes();
+
+      if body_bytes.is_empty() {
+        return Err(JsonError::DeserializationError(
+          "request body is empty, expected JSON payload".to_string(),
+        ));
+      }
 
       // Deserialize JSON — use SIMD parser when the simd feature is enabled,
       // respecting per-route SimdJsonMode configuration from extensions.

@@ -314,3 +314,31 @@ pub use tako_server_pt::serve_per_thread_compio;
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+/// Re-exports of the types most handlers reach for in everyday code.
+///
+/// Import everything with `use tako::prelude::*;` to get `Method`,
+/// `StatusCode`, `Router`, `Responder`, `Request`, `Response`, the common
+/// body / query / form / path extractors, and the middleware traits.
+/// The prelude intentionally re-exports types only — modules stay at their
+/// canonical `tako::extractors::…` / `tako::middleware::…` paths so users
+/// can still pull individual items in qualified form when they prefer.
+pub mod prelude {
+  pub use tako_core::Method;
+  pub use tako_core::StatusCode;
+  pub use tako_core::body::TakoBody;
+  pub use tako_core::extractors::FromRequest;
+  pub use tako_core::extractors::FromRequestParts;
+  pub use tako_core::extractors::json::Json;
+  pub use tako_core::extractors::params::Params;
+  pub use tako_core::middleware::IntoMiddleware;
+  pub use tako_core::middleware::Next;
+  pub use tako_core::responder::Responder;
+  pub use tako_core::router::Router;
+  pub use tako_core::types::Request;
+  pub use tako_core::types::Response;
+  pub use tako_extractors::form::Form;
+  pub use tako_extractors::path::Path;
+  pub use tako_extractors::query::Query;
+  pub use tako_extractors::state::State;
+}

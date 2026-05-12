@@ -7,25 +7,22 @@
 //!
 //! # Examples
 //!
-//! ```rust
-//! use tako::route::Route;
-//! use tako::handler::BoxHandler;
-//! use tako::types::Request;
+//! ```rust,no_run
+//! use tako::{router::Router, types::Request};
 //! use http::Method;
 //!
-//! async fn handler(_req: Request) -> &'static str {
-//!     "Hello, World!"
+//! async fn user_handler(_req: Request) -> &'static str {
+//!   "user profile"
 //! }
 //!
-//! let route = Route::new(
-//!     "/users/{id}".to_string(),
-//!     Method::GET,
-//!     BoxHandler::new(handler),
-//!     None
-//! );
-//!
-//! let params = route.match_path("/users/123").unwrap();
-//! assert_eq!(params.get("id"), Some(&"123".to_string()));
+//! // `Route` is constructed indirectly through the router. The route's
+//! // middleware / plugin / timeout / signal configuration is then chained
+//! // off the returned `&Route` reference. Path matching happens inside the
+//! // router and is not exposed on `Route` directly.
+//! let mut router = Router::new();
+//! router
+//!   .route(Method::GET, "/users/{id}", user_handler)
+//!   .timeout(std::time::Duration::from_secs(5));
 //! ```
 
 use std::sync::Arc;
@@ -62,9 +59,19 @@ pub struct Route {
   /// HTTP method this route responds to.
   pub method: Method,
   /// Handler function to execute when route is matched.
-  pub handler: BoxHandler,
+  ///
+  /// Crate-private — `BoxHandler` is itself crate-private and external users
+  /// only see `Route` behind `Arc<Route>` via [`Router::routes`], which makes
+  /// the field unusable from downstream code regardless of visibility. Kept
+  /// crate-visible so the dispatch path in `router.rs` can clone/call it.
+  pub(crate) handler: BoxHandler,
   /// Route-specific middleware chain.
-  pub middlewares: ArcSwap<Vec<BoxMiddleware>>,
+  ///
+  /// Crate-private to protect the `has_middleware` shortcut: every mutation
+  /// must go through [`Route::middleware`] so the atomic flag stays in sync
+  /// with the `ArcSwap` contents. Direct `ArcSwap::store` from outside would
+  /// silently desynchronize the hot-path skip in the router.
+  pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Fast check: true when route middleware is registered (avoids ArcSwap load on hot path).
   pub(crate) has_middleware: AtomicBool,
   /// Whether trailing slash redirection is enabled.

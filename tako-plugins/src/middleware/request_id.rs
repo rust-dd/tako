@@ -83,11 +83,19 @@ impl IntoMiddleware for RequestId {
       let generator = generator.clone();
 
       Box::pin(async move {
-        // Use existing request ID or generate a new one
+        // Use existing request ID or generate a new one. Cap the inbound
+        // header to 256 bytes — without a limit a peer can pin an
+        // arbitrarily large `String` into the request extensions and the
+        // response headers, which both flows downstream (log lines, tracing
+        // spans, response header allocator). 256 matches the X-Request-ID
+        // hygiene most CDNs already enforce and is plenty for ULIDs, UUIDs,
+        // and traceparent fragments.
+        const MAX_INBOUND_LEN: usize = 256;
         let id = req
           .headers()
           .get(&header)
           .and_then(|v| v.to_str().ok())
+          .filter(|s| !s.is_empty() && s.len() <= MAX_INBOUND_LEN)
           .map(|s| s.to_string())
           .unwrap_or_else(|| generator());
 

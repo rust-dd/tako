@@ -61,6 +61,19 @@ use crate::types::BoxMiddleware;
 use crate::types::Request;
 use crate::types::Response;
 
+/// Builds an empty-body response with the given status code without going
+/// through `http::response::Builder`. The builder API returns `Result` to
+/// surface invalid header values, but for the router's hot-path 404 / 405 /
+/// 408 / 505 responses we have no headers to fail on, so the result is
+/// statically infallible. This helper avoids `.expect("valid …")` calls in
+/// the dispatch path.
+#[inline]
+fn empty_status_response(status: StatusCode) -> Response {
+  let mut resp = http::Response::new(TakoBody::empty());
+  *resp.status_mut() = status;
+  resp
+}
+
 /// HTTP router for managing routes, middleware, and request dispatching.
 ///
 /// The `Router` is the central component for routing HTTP requests to appropriate
@@ -655,10 +668,7 @@ impl Router {
     if let Some(handler) = &self.timeout_fallback {
       handler.call(Request::default()).await
     } else {
-      http::Response::builder()
-        .status(StatusCode::REQUEST_TIMEOUT)
-        .body(TakoBody::empty())
-        .expect("valid 408 response")
+      empty_status_response(StatusCode::REQUEST_TIMEOUT)
     }
   }
 
@@ -818,12 +828,23 @@ impl Router {
         && let Ok(matched) = method_router.at(&tsr_path)
         && matched.value.tsr
       {
-        let handler = move |_req: Request| async move {
-          http::Response::builder()
-            .status(StatusCode::TEMPORARY_REDIRECT)
-            .header("Location", tsr_path.clone())
-            .body(TakoBody::empty())
-            .expect("valid redirect response")
+        let handler = move |_req: Request| {
+          let tsr_path = tsr_path.clone();
+          async move {
+            // `tsr_path` is reconstructed from registered route segments and
+            // the incoming URI path. It can technically contain bytes that
+            // are invalid in an HTTP header value (CR/LF/NUL) if the request
+            // path is crafted maliciously — in that case fall back to a
+            // bare 308 without a `Location` header rather than panicking.
+            match http::HeaderValue::from_str(&tsr_path) {
+              Ok(loc) => {
+                let mut resp = empty_status_response(StatusCode::TEMPORARY_REDIRECT);
+                resp.headers_mut().insert(http::header::LOCATION, loc);
+                resp
+              }
+              Err(_) => empty_status_response(StatusCode::TEMPORARY_REDIRECT),
+            }
+          }
         };
 
         self
@@ -837,12 +858,20 @@ impl Router {
         let allowed = self.collect_allowed_methods(req.uri().path());
         if !allowed.is_empty() {
           let allow_value = join_methods(&allowed);
-          let handler = move |_req: Request| async move {
-            http::Response::builder()
-              .status(StatusCode::METHOD_NOT_ALLOWED)
-              .header(http::header::ALLOW, allow_value.clone())
-              .body(TakoBody::empty())
-              .expect("valid 405 response")
+          let handler = move |_req: Request| {
+            let allow_value = allow_value.clone();
+            async move {
+              // `allow_value` is built from `Method::as_str()` for the
+              // registered methods, so it only contains ASCII method tokens
+              // — `HeaderValue::from_str` is statically infallible. Use the
+              // fallible API and ignore the impossible error rather than
+              // panicking.
+              let mut resp = empty_status_response(StatusCode::METHOD_NOT_ALLOWED);
+              if let Ok(v) = http::HeaderValue::from_str(&allow_value) {
+                resp.headers_mut().insert(http::header::ALLOW, v);
+              }
+              resp
+            }
           };
           self
             .run_with_global_middlewares_for_endpoint(
@@ -855,12 +884,7 @@ impl Router {
             .run_with_global_middlewares_for_endpoint(req, handler.clone())
             .await
         } else {
-          let handler = |_req: Request| async {
-            http::Response::builder()
-              .status(StatusCode::NOT_FOUND)
-              .body(TakoBody::empty())
-              .expect("valid 404 response")
-          };
+          let handler = |_req: Request| async { empty_status_response(StatusCode::NOT_FOUND) };
 
           self
             .run_with_global_middlewares_for_endpoint(
@@ -1376,12 +1400,7 @@ impl Router {
     if let Some(guard) = route.protocol_guard()
       && guard != req.version()
     {
-      return Some(
-        http::Response::builder()
-          .status(StatusCode::HTTP_VERSION_NOT_SUPPORTED)
-          .body(TakoBody::empty())
-          .expect("valid HTTP version not supported response"),
-      );
+      return Some(empty_status_response(StatusCode::HTTP_VERSION_NOT_SUPPORTED));
     }
     None
   }
@@ -1506,6 +1525,11 @@ fn method_slot(method: &Method) -> Option<usize> {
 }
 
 /// Reconstructs a `Method` from its slot index.
+///
+/// The only caller iterates `0..9` over the `standard` array, so out-of-range
+/// indices indicate an internal invariant violation. In debug builds this
+/// trips an assertion; in release we degrade to `Method::GET` rather than
+/// panic from a hot router path.
 #[inline]
 fn method_from_slot(idx: usize) -> Method {
   match idx {
@@ -1518,7 +1542,10 @@ fn method_from_slot(idx: usize) -> Method {
     6 => Method::OPTIONS,
     7 => Method::CONNECT,
     8 => Method::TRACE,
-    _ => unreachable!(),
+    _ => {
+      debug_assert!(false, "method_from_slot called with idx={idx}");
+      Method::GET
+    }
   }
 }
 
@@ -1566,7 +1593,14 @@ impl<V> MethodMap<V> {
         Some(pos) => &mut self.custom[pos].1,
         None => {
           self.custom.push((method.clone(), V::default()));
-          &mut self.custom.last_mut().unwrap().1
+          // SAFETY-style invariant: we just pushed, so the vec is non-empty.
+          // Using `expect` over `unwrap` to surface the invariant if it ever
+          // breaks in a future refactor.
+          &mut self
+            .custom
+            .last_mut()
+            .expect("custom vec must contain the entry we just pushed")
+            .1
         }
       }
     }

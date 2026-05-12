@@ -336,6 +336,10 @@ impl SessionMiddleware {
 }
 
 fn generate_session_id() -> String {
+  // UUIDv4 from `getrandom` — 122 bits of unpredictable entropy (the other 6
+  // bits encode the RFC 4122 version + variant). Plenty for session-cookie
+  // unguessability, but document the bit count rather than claim "128 bits"
+  // since that misconception leaks into security reviews.
   uuid::Uuid::new_v4().simple().to_string()
 }
 
