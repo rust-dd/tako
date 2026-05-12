@@ -1,6 +1,8 @@
 //! v2 queue regression tests covering dedup keys and the new
 //! `MemoryBackend` exposed via the `QueueBackend` trait.
 
+#![cfg_attr(feature = "compio", allow(unused_imports))]
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;

@@ -57,6 +57,8 @@ native-certs = ["tako-core/native-certs"]
 multipart = ["tako-extractors/multipart", "tako-core/multipart"]
 protobuf = ["tako-extractors/protobuf", "tako-core/protobuf"]
 simd = ["tako-extractors/simd", "tako-core/simd"]
+simd-sonic = ["tako-extractors/simd-sonic", "tako-core/simd-sonic"]
+simd-json-impl = ["tako-extractors/simd-json-impl", "tako-core/simd-json-impl"]
 typed-header = ["tako-extractors/typed-header"]
 validator = ["tako-extractors/validator"]
 garde = ["tako-extractors/garde"]
@@ -111,3 +113,6 @@ compio = { workspace = true, features = ["macros"] }
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

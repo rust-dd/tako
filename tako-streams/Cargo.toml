@@ -58,3 +58,6 @@ compio = ["dep:compio", "dep:send_wrapper", "tako-core/compio", "tako-server/com
 compio-ws = ["compio", "compio/io", "compio/ws"]
 http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile", "tako-server/http3", "tako-core/http3"]
 webtransport = ["http3"]
+
+[lints]
+workspace = true

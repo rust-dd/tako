@@ -10,7 +10,7 @@
 //!   `PathParams` extension and parses it via [`core::str::FromStr`]
 //!
 //! The struct name is auto-derived from the handler function's name
-//! (snake_case → PascalCase + `Params`). For example, `get_user` produces
+//! (`snake_case` → `PascalCase` + `Params`). For example, `get_user` produces
 //! `GetUserParams`. Override the default with `name = "..."` if you need a
 //! different identifier.
 //!
@@ -162,43 +162,40 @@ fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
       .find(|&j| bytes[j] == b'}')
       .ok_or_else(|| syn::Error::new(span, "unclosed '{' in path"))?;
     let inner = &path[i + 1..close];
-    match inner.split_once(':') {
-      Some((name_str, ty_str)) => {
-        let name: Ident = parse_str(name_str.trim()).map_err(|e| {
-          syn::Error::new(
-            span,
-            format!("invalid placeholder name '{}': {e}", name_str.trim()),
-          )
-        })?;
-        let ty: Type = parse_str(ty_str.trim()).map_err(|e| {
-          syn::Error::new(
-            span,
-            format!("invalid placeholder type '{}': {e}", ty_str.trim()),
-          )
-        })?;
-        stripped.push('{');
-        stripped.push_str(&name.to_string());
-        stripped.push('}');
-        typed.push(PathParam { name, ty });
-      }
-      None => {
-        let name: Ident = parse_str(inner.trim()).map_err(|e| {
-          syn::Error::new(
-            span,
-            format!("invalid placeholder name '{}': {e}", inner.trim()),
-          )
-        })?;
-        stripped.push('{');
-        stripped.push_str(&name.to_string());
-        stripped.push('}');
-      }
+    if let Some((name_str, ty_str)) = inner.split_once(':') {
+      let name: Ident = parse_str(name_str.trim()).map_err(|e| {
+        syn::Error::new(
+          span,
+          format!("invalid placeholder name '{}': {e}", name_str.trim()),
+        )
+      })?;
+      let ty: Type = parse_str(ty_str.trim()).map_err(|e| {
+        syn::Error::new(
+          span,
+          format!("invalid placeholder type '{}': {e}", ty_str.trim()),
+        )
+      })?;
+      stripped.push('{');
+      stripped.push_str(&name.to_string());
+      stripped.push('}');
+      typed.push(PathParam { name, ty });
+    } else {
+      let name: Ident = parse_str(inner.trim()).map_err(|e| {
+        syn::Error::new(
+          span,
+          format!("invalid placeholder name '{}': {e}", inner.trim()),
+        )
+      })?;
+      stripped.push('{');
+      stripped.push_str(&name.to_string());
+      stripped.push('}');
     }
     i = close + 1;
   }
   Ok((stripped, typed))
 }
 
-/// snake_case → PascalCase. `get_user` → `GetUser`. ASCII only, which is
+/// `snake_case` → `PascalCase`. `get_user` → `GetUser`. ASCII only, which is
 /// fine for Rust identifiers.
 fn pascal_case(s: &str) -> String {
   let mut out = String::with_capacity(s.len());
@@ -242,11 +239,11 @@ fn expand_route(
   // registrars. Without the suffix the second module's static silently
   // overwrote the first at link time.
   let registrar_suffix = {
-    let key = format!("{}_{path_str}", method);
-    let mut hash: u64 = 0xcbf29ce484222325; // FNV-1a 64-bit offset basis
+    let key = format!("{method}_{path_str}");
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a 64-bit offset basis
     for byte in key.as_bytes() {
       hash ^= u64::from(*byte);
-      hash = hash.wrapping_mul(0x100000001b3);
+      hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{hash:016X}")
   };

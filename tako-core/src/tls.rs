@@ -17,11 +17,11 @@ use rustls_pemfile::private_key;
 /// Loads X.509 certificates from a PEM file.
 pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
   let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{}': {}", path, e))?,
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{path}': {e}"))?,
   );
   certs(&mut rd)
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{}': {}", path, e))
+    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{path}': {e}"))
 }
 
 /// Loads the first PEM-encoded private key from a file.
@@ -29,14 +29,9 @@ pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
 /// Accepts PKCS#8, PKCS#1 (RSA), and SEC1 (EC) PEM blocks.
 pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
   let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{}': {}", path, e))?,
+    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{path}': {e}"))?,
   );
   private_key(&mut rd)
-    .map_err(|e| anyhow::anyhow!("bad private key in '{}': {}", path, e))?
-    .ok_or_else(|| {
-      anyhow::anyhow!(
-        "no PEM private key (PKCS#8, PKCS#1 or SEC1) found in '{}'",
-        path
-      )
-    })
+    .map_err(|e| anyhow::anyhow!("bad private key in '{path}': {e}"))?
+    .ok_or_else(|| anyhow::anyhow!("no PEM private key (PKCS#8, PKCS#1 or SEC1) found in '{path}'"))
 }

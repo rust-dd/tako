@@ -1,6 +1,6 @@
 //! PROXY protocol v1/v2 parser for extracting real client addresses.
 //!
-//! When running behind load balancers (HAProxy, nginx, AWS ELB/NLB), the real
+//! When running behind load balancers (`HAProxy`, nginx, AWS ELB/NLB), the real
 //! client IP is communicated via the PROXY protocol header prepended to the
 //! TCP connection. This module parses both text (v1) and binary (v2) formats.
 //!
@@ -81,30 +81,37 @@ pub enum ProxyTransport {
 /// list so callers can extract custom or future-defined types.
 #[derive(Debug, Clone)]
 pub struct ProxyTlv {
-  /// PP2_TYPE_* identifier byte.
+  /// `PP2_TYPE_*` identifier byte.
   pub kind: u8,
   /// Raw TLV value bytes.
   pub value: Vec<u8>,
 }
 
-/// TLS-derived PROXY v2 sub-TLVs (PP2_TYPE_SSL container, type 0x20).
+/// TLS-derived PROXY v2 sub-TLVs (`PP2_TYPE_SSL` container, type 0x20).
 #[derive(Debug, Clone, Default)]
 pub struct ProxyTlsInfo {
-  /// PP2_CLIENT_SSL bitfield.
+  /// `PP2_CLIENT_SSL` bitfield.
   pub client_flags: u8,
   /// rustls/openssl-style verify result code.
   pub verify: u32,
-  /// PP2_SUBTYPE_SSL_VERSION (e.g. `"TLSv1.3"`).
+  /// `PP2_SUBTYPE_SSL_VERSION` (e.g. `"TLSv1.3"`).
   pub version: Option<String>,
-  /// PP2_SUBTYPE_SSL_CN (peer common name).
+  /// `PP2_SUBTYPE_SSL_CN` (peer common name).
   pub common_name: Option<String>,
-  /// PP2_SUBTYPE_SSL_CIPHER.
+  /// `PP2_SUBTYPE_SSL_CIPHER`.
   pub cipher: Option<String>,
-  /// PP2_SUBTYPE_SSL_SIG_ALG.
+  /// `PP2_SUBTYPE_SSL_SIG_ALG`.
   pub sig_alg: Option<String>,
-  /// PP2_SUBTYPE_SSL_KEY_ALG.
+  /// `PP2_SUBTYPE_SSL_KEY_ALG`.
   pub key_alg: Option<String>,
 }
+
+// Cap the advertised address length so an attacker can't pre-allocate
+// 64 KiB per connection just by sending two unfavourable bytes. The
+// PROXY v2 spec's typed payload for IPv6+UNIX maxes out far below this:
+// IPv4(12) + IPv6(36) + UNIX(216) + a reasonable TLV stack (~256). 536
+// bytes is generous; legitimate proxies should never exceed it.
+const MAX_PROXY_ADDR_LEN: usize = 536;
 
 // PP2 TLV type identifiers (per HAProxy spec).
 const PP2_TYPE_ALPN: u8 = 0x01;
@@ -137,19 +144,19 @@ pub struct ProxyHeader {
   pub source: Option<SocketAddr>,
   /// Proxy/server address (the destination the client connected to).
   pub destination: Option<SocketAddr>,
-  /// AF_UNIX source path, when the connection family is Unix.
+  /// `AF_UNIX` source path, when the connection family is Unix.
   pub source_unix: Option<std::path::PathBuf>,
-  /// AF_UNIX destination path, when the connection family is Unix.
+  /// `AF_UNIX` destination path, when the connection family is Unix.
   pub destination_unix: Option<std::path::PathBuf>,
-  /// PP2_TYPE_AUTHORITY (a.k.a. SNI) value if present.
+  /// `PP2_TYPE_AUTHORITY` (a.k.a. SNI) value if present.
   pub authority: Option<String>,
-  /// PP2_TYPE_ALPN protocol bytes if present.
+  /// `PP2_TYPE_ALPN` protocol bytes if present.
   pub alpn: Option<Vec<u8>>,
-  /// AWS VPC endpoint identifier (PP2 type 0xEA) if present.
+  /// AWS VPC endpoint identifier (`PP2` type 0xEA) if present.
   pub aws_vpc_endpoint_id: Option<String>,
-  /// Decoded PP2_TYPE_SSL sub-TLVs.
+  /// Decoded `PP2_TYPE_SSL` sub-TLVs.
   pub tls: Option<ProxyTlsInfo>,
-  /// Unique connection identifier (PP2 type 0x05).
+  /// Unique connection identifier (`PP2` type 0x05).
   pub unique_id: Option<Vec<u8>>,
   /// Raw TLV list — kept for forward-compatibility / custom types.
   pub tlvs: Vec<ProxyTlv>,
@@ -224,19 +231,19 @@ fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
             let sval = &sub[3..3 + slen];
             match sk {
               PP2_SUBTYPE_SSL_VERSION => {
-                tls.version = std::str::from_utf8(sval).ok().map(str::to_string)
+                tls.version = std::str::from_utf8(sval).ok().map(str::to_string);
               }
               PP2_SUBTYPE_SSL_CN => {
-                tls.common_name = std::str::from_utf8(sval).ok().map(str::to_string)
+                tls.common_name = std::str::from_utf8(sval).ok().map(str::to_string);
               }
               PP2_SUBTYPE_SSL_CIPHER => {
-                tls.cipher = std::str::from_utf8(sval).ok().map(str::to_string)
+                tls.cipher = std::str::from_utf8(sval).ok().map(str::to_string);
               }
               PP2_SUBTYPE_SSL_SIG_ALG => {
-                tls.sig_alg = std::str::from_utf8(sval).ok().map(str::to_string)
+                tls.sig_alg = std::str::from_utf8(sval).ok().map(str::to_string);
               }
               PP2_SUBTYPE_SSL_KEY_ALG => {
-                tls.key_alg = std::str::from_utf8(sval).ok().map(str::to_string)
+                tls.key_alg = std::str::from_utf8(sval).ok().map(str::to_string);
               }
               _ => {}
             }
@@ -408,7 +415,7 @@ fn locate_crc32c_tlv(mut buf: &[u8]) -> Option<(usize, u32)> {
 
 /// Verifies the PROXY v2 CRC32C TLV against the full reconstructed header.
 ///
-/// Per the HAProxy PROXY v2 spec the checksum is computed over the entire
+/// Per the `HAProxy` PROXY v2 spec the checksum is computed over the entire
 /// header (signature + version/command/family/protocol/length + addr + TLVs)
 /// with the 4-byte CRC32C value field replaced by zeros. Returns `None` when
 /// no CRC32C TLV is present.
@@ -460,12 +467,6 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
 
   let addr_len = u16::from_be_bytes([hdr[2], hdr[3]]) as usize;
 
-  // Cap the advertised address length so an attacker can't pre-allocate
-  // 64 KiB per connection just by sending two unfavourable bytes. The
-  // PROXY v2 spec's typed payload for IPv6+UNIX maxes out far below this:
-  // IPv4(12) + IPv6(36) + UNIX(216) + a reasonable TLV stack (~256). 536
-  // bytes is generous; legitimate proxies should never exceed it.
-  const MAX_PROXY_ADDR_LEN: usize = 536;
   if addr_len > MAX_PROXY_ADDR_LEN {
     return Err(std::io::Error::new(
       std::io::ErrorKind::InvalidData,
@@ -545,7 +546,7 @@ async fn parse_v2<R: AsyncReadExt + Unpin>(
   Ok(header)
 }
 
-/// Decode a NUL-terminated AF_UNIX path. Returns None if the path is empty.
+/// Decode a NUL-terminated `AF_UNIX` path. Returns None if the path is empty.
 fn parse_unix_path(bytes: &[u8]) -> Option<std::path::PathBuf> {
   let nul = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
   if nul == 0 {
@@ -665,7 +666,7 @@ async fn run_proxy_http(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,

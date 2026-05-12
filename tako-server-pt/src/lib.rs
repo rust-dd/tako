@@ -13,8 +13,8 @@
 //!
 //! - [`serve_per_thread`] — uses the existing thread-safe [`tako_core::router::Router`]
 //!   from `tako-core`. Drop-in alternative to `tako::serve`; no API changes.
-//! - `serve_per_thread_compio` (under the `compio` feature) — same SO_REUSEPORT
-//!   bootstrap but each worker runs a `compio` runtime (io_uring on Linux,
+//! - `serve_per_thread_compio` (under the `compio` feature) — same `SO_REUSEPORT`
+//!   bootstrap but each worker runs a `compio` runtime (`io_uring` on Linux,
 //!   IOCP on Windows, kqueue on macOS).
 
 use std::convert::Infallible;
@@ -95,9 +95,7 @@ impl PerThreadShutdown {
 }
 
 fn num_cpus() -> usize {
-  std::thread::available_parallelism()
-    .map(|n| n.get())
-    .unwrap_or(1)
+  std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
 
 #[cfg(feature = "compio")]
@@ -105,7 +103,7 @@ fn compio_accept_backoff() -> Duration {
   Duration::from_millis(5)
 }
 
-/// One-shot platform-capability warning. SO_REUSEPORT behaves like
+/// One-shot platform-capability warning. `SO_REUSEPORT` behaves like
 /// kernel-level load balancing only on Linux; macOS / *BSD ignore the load-
 /// balance semantic (last-binder-wins), and Windows lacks the option entirely.
 fn warn_reuseport_platform_once() {
@@ -350,8 +348,8 @@ fn worker_main(
 
 /// Starts a thread-per-core HTTP server with the compio runtime.
 ///
-/// Same SO_REUSEPORT bootstrap as [`serve_per_thread`] but each worker runs a
-/// single-threaded `compio` runtime — io_uring on Linux, IOCP on Windows,
+/// Same `SO_REUSEPORT` bootstrap as [`serve_per_thread`] but each worker runs a
+/// single-threaded `compio` runtime — `io_uring` on Linux, IOCP on Windows,
 /// kqueue on macOS. The router type stays the standard thread-safe
 /// [`tako::router::Router`].
 #[cfg(feature = "compio")]

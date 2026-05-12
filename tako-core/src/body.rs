@@ -112,7 +112,9 @@ impl TakoBody {
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: Into<BoxError>,
   {
-    Self(BodyInner::Boxed(body.map_err(|e| e.into()).boxed_unsync()))
+    Self(BodyInner::Boxed(
+      body.map_err(std::convert::Into::into).boxed_unsync(),
+    ))
   }
 
   /// Creates a body from a `Full<Bytes>` **without heap-boxing**.
@@ -167,7 +169,7 @@ impl Default for TakoBody {
 }
 
 impl From<()> for TakoBody {
-  fn from(_: ()) -> Self {
+  fn from((): ()) -> Self {
     Self::empty()
   }
 }

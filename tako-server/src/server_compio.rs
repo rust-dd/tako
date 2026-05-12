@@ -23,7 +23,7 @@ use crate::ServerConfig;
 /// drop, then wakes drain waiters. Captured into the spawned connection task
 /// so the counter stays consistent under panic, spawn failure, or any control
 /// flow that does not reach an explicit `fetch_sub`. Replaces the previous
-/// "fetch_add before spawn + manual fetch_sub at the end" pattern which leaked
+/// "`fetch_add` before spawn + manual `fetch_sub` at the end" pattern which leaked
 /// counts on any panic between the two operations.
 pub(crate) struct ConnectionGuard {
   inflight: Arc<AtomicUsize>,

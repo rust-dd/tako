@@ -282,7 +282,7 @@ pub async fn run_with_config(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,

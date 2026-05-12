@@ -64,3 +64,6 @@ tako-tracing = ["tako-core/tako-tracing"]
 socket-activation = ["dep:listenfd"]
 # Linux vsock transport for VM-host bridges.
 vsock = ["dep:tokio-vsock"]
+
+[lints]
+workspace = true

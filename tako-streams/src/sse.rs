@@ -364,8 +364,7 @@ pub fn last_event_id_bytes(headers: &http::HeaderMap) -> Option<Vec<u8>> {
   let end = bytes
     .iter()
     .rposition(|b| !b.is_ascii_whitespace())
-    .map(|i| i + 1)
-    .unwrap_or(start);
+    .map_or(start, |i| i + 1);
   Some(bytes[start..end].to_vec())
 }
 

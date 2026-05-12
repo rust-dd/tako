@@ -65,7 +65,7 @@ impl Responder for AcceptLanguageError {
 }
 
 impl AcceptLanguage {
-  /// Creates a new empty AcceptLanguage with no preferences.
+  /// Creates a new empty `AcceptLanguage` with no preferences.
   pub fn new() -> Self {
     Self {
       languages: Vec::new(),
@@ -146,7 +146,7 @@ impl AcceptLanguage {
 }
 
 impl Default for AcceptLanguage {
-  /// Initializes an AcceptLanguage instance with no preferences.
+  /// Initializes an `AcceptLanguage` instance with no preferences.
   fn default() -> Self {
     Self::new()
   }

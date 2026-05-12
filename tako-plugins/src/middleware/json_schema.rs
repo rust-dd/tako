@@ -79,9 +79,8 @@ impl JsonSchema {
 fn is_json(content_type: Option<&HeaderValue>) -> bool {
   content_type
     .and_then(|v| v.to_str().ok())
-    .map(|s| s.to_ascii_lowercase())
-    .map(|s| s.contains("json"))
-    .unwrap_or(false)
+    .map(str::to_ascii_lowercase)
+    .is_some_and(|s| s.contains("json"))
 }
 
 fn problem(status: StatusCode, errors: &[String]) -> Response {

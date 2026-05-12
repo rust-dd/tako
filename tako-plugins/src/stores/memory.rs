@@ -81,7 +81,8 @@ impl Bucket {
   fn refill(&mut self, now: Instant) {
     let dt = now.duration_since(self.last_refill).as_secs_f64();
     if dt > 0.0 {
-      self.available = (self.available + dt * self.refill_rate_per_sec).min(self.capacity as f64);
+      self.available =
+        (self.available + dt * self.refill_rate_per_sec).min(f64::from(self.capacity));
       self.last_refill = now;
     }
   }
@@ -118,7 +119,7 @@ impl RateLimitStore for MemoryRateLimitStore {
         .await
         .or_insert_with(|| {
           Arc::new(Mutex::new(Bucket {
-            available: capacity as f64,
+            available: f64::from(capacity),
             capacity,
             refill_rate_per_sec: refill_rate,
             last_refill: Instant::now(),
@@ -129,7 +130,7 @@ impl RateLimitStore for MemoryRateLimitStore {
     let mut bucket = mutex.lock();
     let now = Instant::now();
     bucket.refill(now);
-    let cost_f = cost as f64;
+    let cost_f = f64::from(cost);
     let allowed = bucket.available >= cost_f;
     if allowed {
       bucket.available -= cost_f;

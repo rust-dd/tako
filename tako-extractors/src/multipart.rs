@@ -78,7 +78,7 @@ pub struct MultipartConfig {
   /// temp file once the part exceeds this many bytes. `None` = always disk.
   pub disk_spill_threshold: Option<u64>,
   /// Maximum time to wait for a single chunk from a multipart field before
-  /// aborting the request. Protects against slow-read style DoS where the
+  /// aborting the request. Protects against slow-read style `DoS` where the
   /// client drips a few bytes per second to hold a parser permit open.
   /// `None` = no per-chunk timeout. Applied by [`TakoTypedMultipart`].
   pub field_chunk_timeout: Option<std::time::Duration>,
@@ -213,12 +213,12 @@ impl Responder for MultipartError {
         .into_response(),
       MultipartError::BoundaryParseError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Not multipart/form-data or boundary missing: {}", err),
+        format!("Not multipart/form-data or boundary missing: {err}"),
       )
         .into_response(),
       MultipartError::DisallowedContentType(ct) => (
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
-        format!("part content-type not allowed: {}", ct),
+        format!("part content-type not allowed: {ct}"),
       )
         .into_response(),
       MultipartError::TooManyParts => (
@@ -270,27 +270,27 @@ impl Responder for TypedMultipartError {
         .into_response(),
       TypedMultipartError::BoundaryParseError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Not multipart/form-data or boundary missing: {}", err),
+        format!("Not multipart/form-data or boundary missing: {err}"),
       )
         .into_response(),
       TypedMultipartError::FieldError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Field processing error: {}", err),
+        format!("Field processing error: {err}"),
       )
         .into_response(),
       TypedMultipartError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Deserialization error: {}", err),
+        format!("Deserialization error: {err}"),
       )
         .into_response(),
       TypedMultipartError::IoError(err) => (
         StatusCode::INTERNAL_SERVER_ERROR,
-        format!("IO error: {}", err),
+        format!("IO error: {err}"),
       )
         .into_response(),
       TypedMultipartError::DisallowedContentType(ct) => (
         StatusCode::UNSUPPORTED_MEDIA_TYPE,
-        format!("part content-type not allowed: {}", ct),
+        format!("part content-type not allowed: {ct}"),
       )
         .into_response(),
       TypedMultipartError::TooManyParts => (
@@ -498,8 +498,8 @@ impl UploadedFile {
 impl FromMultipartField for UploadedFile {
   /// Creates an `UploadedFile` instance from a multipart field.
   async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
-    let original = field.file_name().map(|s| s.to_owned());
-    let content_type = field.content_type().map(|m| m.to_string());
+    let original = field.file_name().map(std::borrow::ToOwned::to_owned);
+    let content_type = field.content_type().map(std::string::ToString::to_string);
     let tmp_path = fresh_upload_temp_path();
     // Register cleanup BEFORE opening the file so an error mid-write still
     // removes the partial file on early return.
@@ -536,8 +536,8 @@ pub struct InMemoryFile {
 impl FromMultipartField for InMemoryFile {
   /// Creates an `InMemoryFile` instance from a multipart field.
   async fn from_field(field: multer::Field<'_>) -> anyhow::Result<Self> {
-    let file_name = field.file_name().map(|s| s.to_owned());
-    let content_type = field.content_type().map(|m| m.to_string());
+    let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);
+    let content_type = field.content_type().map(std::string::ToString::to_string);
     let data = field.bytes().await?.to_vec();
 
     Ok(InMemoryFile {
@@ -565,8 +565,8 @@ impl FromMultipartField for BufferedUploadedFile {
     let cfg = tako_core::state::get_state::<MultipartConfig>().map(|a| a.as_ref().clone());
     let threshold = cfg.as_ref().and_then(|c| c.disk_spill_threshold);
 
-    let file_name = field.file_name().map(|s| s.to_owned());
-    let content_type = field.content_type().map(|m| m.to_string());
+    let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);
+    let content_type = field.content_type().map(std::string::ToString::to_string);
 
     let mut buffer: Vec<u8> = Vec::new();
     let mut spilled: Option<(PathBuf, File, TempFileCleanup)> = None;
@@ -692,7 +692,7 @@ where
         {
           return Err(TypedMultipartError::TooManyParts);
         }
-        let part_ct = field.content_type().map(|m| m.to_string());
+        let part_ct = field.content_type().map(std::string::ToString::to_string);
         if !cfg.content_type_ok(part_ct.as_deref()) {
           return Err(TypedMultipartError::DisallowedContentType(
             part_ct.unwrap_or_default(),

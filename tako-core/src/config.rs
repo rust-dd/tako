@@ -26,7 +26,7 @@ use serde::de::DeserializeOwned;
 ///
 /// `Config<T>` reads environment variables and deserializes them into a
 /// strongly-typed struct. Variable names are matched by converting struct field names
-/// to SCREAMING_SNAKE_CASE.
+/// to `SCREAMING_SNAKE_CASE`.
 #[derive(Debug, Clone)]
 pub struct Config<T: Clone>(pub T);
 

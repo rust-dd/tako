@@ -125,7 +125,7 @@ pub struct Router {
   pending_prefix: Option<String>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
-  /// Fast check: true when global middleware is registered (avoids ArcSwap load on hot path).
+  /// Fast check: true when global middleware is registered (avoids `ArcSwap` load on hot path).
   has_global_middleware: AtomicBool,
   /// Optional fallback handler executed when no route matches.
   fallback: Option<BoxHandler>,
@@ -579,9 +579,7 @@ impl Router {
   where
     H: Handler<T> + Clone + 'static,
   {
-    if path == "/" {
-      panic!("Cannot route with TSR for root path");
-    }
+    assert!(path != "/", "Cannot route with TSR for root path");
 
     let final_path = self.apply_pending_prefix(path);
     let route = Arc::new(Route::new(
@@ -616,9 +614,7 @@ impl Router {
     req: Request,
     endpoint: BoxHandler,
   ) -> Response {
-    if !self.has_global_middleware.load(Ordering::Acquire) {
-      endpoint.call(req).await
-    } else {
+    if self.has_global_middleware.load(Ordering::Acquire) {
       Next {
         global_middlewares: self.middlewares.load_full(),
         route_middlewares: Arc::default(),
@@ -627,6 +623,8 @@ impl Router {
       }
       .run(req)
       .await
+    } else {
+      endpoint.call(req).await
     }
   }
 
@@ -655,7 +653,7 @@ impl Router {
           let work = std::pin::pin!(next.run(req));
           match futures_util::future::select(work, sleep).await {
             futures_util::future::Either::Left((response, _)) => response,
-            futures_util::future::Either::Right((_, _)) => self.handle_timeout().await,
+            futures_util::future::Either::Right(((), _)) => self.handle_timeout().await,
           }
         }
       }
@@ -1283,7 +1281,7 @@ impl Router {
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
-    self.plugins.iter().map(|plugin| plugin.as_ref()).collect()
+    self.plugins.iter().map(AsRef::as_ref).collect()
   }
 
   /// Initializes all registered plugins exactly once.
@@ -1409,10 +1407,10 @@ impl Router {
 
   // OpenAPI route collection
 
-  /// Collects OpenAPI metadata from all registered routes.
+  /// Collects `OpenAPI` metadata from all registered routes.
   ///
-  /// Returns a vector of tuples containing the HTTP method, path, and OpenAPI
-  /// metadata for each route that has OpenAPI information attached.
+  /// Returns a vector of tuples containing the HTTP method, path, and `OpenAPI`
+  /// metadata for each route that has `OpenAPI` information attached.
   ///
   /// # Examples
   ///
@@ -1591,19 +1589,18 @@ impl<V> MethodMap<V> {
       self.standard[idx].get_or_insert_with(V::default)
     } else {
       let pos = self.custom.iter().position(|(m, _)| m == method);
-      match pos {
-        Some(pos) => &mut self.custom[pos].1,
-        None => {
-          self.custom.push((method.clone(), V::default()));
-          // SAFETY-style invariant: we just pushed, so the vec is non-empty.
-          // Using `expect` over `unwrap` to surface the invariant if it ever
-          // breaks in a future refactor.
-          &mut self
-            .custom
-            .last_mut()
-            .expect("custom vec must contain the entry we just pushed")
-            .1
-        }
+      if let Some(pos) = pos {
+        &mut self.custom[pos].1
+      } else {
+        self.custom.push((method.clone(), V::default()));
+        // SAFETY-style invariant: we just pushed, so the vec is non-empty.
+        // Using `expect` over `unwrap` to surface the invariant if it ever
+        // breaks in a future refactor.
+        &mut self
+          .custom
+          .last_mut()
+          .expect("custom vec must contain the entry we just pushed")
+          .1
       }
     }
   }

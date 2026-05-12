@@ -91,17 +91,17 @@ pub mod tracing;
 /// Core type definitions used throughout the framework.
 pub mod types;
 
-/// GraphQL support (request extractors, responses, and subscriptions).
+/// `GraphQL` support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 pub mod graphql;
 
-/// GraphiQL UI helpers.
+/// `GraphiQL` UI helpers.
 #[cfg(feature = "graphiql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
 
-/// OpenAPI documentation generation integrations (utoipa, vespera).
+/// `OpenAPI` documentation generation integrations (utoipa, vespera).
 #[cfg(any(feature = "utoipa", feature = "vespera"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
 pub mod openapi;

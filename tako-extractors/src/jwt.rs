@@ -233,7 +233,7 @@ impl Jwt {
   pub fn validate_expiration(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
-    if let Some(exp) = claims.get("exp").and_then(|v| v.as_u64()) {
+    if let Some(exp) = claims.get("exp").and_then(serde_json::Value::as_u64) {
       let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or(std::time::Duration::ZERO)
@@ -256,7 +256,7 @@ impl Jwt {
   pub fn validate_not_before(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
-    if let Some(nbf) = claims.get("nbf").and_then(|v| v.as_u64()) {
+    if let Some(nbf) = claims.get("nbf").and_then(serde_json::Value::as_u64) {
       let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or(std::time::Duration::ZERO)

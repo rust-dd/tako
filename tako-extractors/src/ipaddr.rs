@@ -135,7 +135,7 @@ impl Responder for IpAddrError {
 }
 
 impl IpAddr {
-  /// Creates a new IpAddr wrapper.
+  /// Creates a new `IpAddr` wrapper.
   pub fn new(addr: StdIpAddr) -> Self {
     Self(addr)
   }
@@ -169,9 +169,9 @@ impl IpAddr {
   /// - 127.0.0.0/8 (loopback)
   ///
   /// For IPv6, this includes:
-  /// - fc00::/7 (Unique Local Addresses)
-  /// - fe80::/10 (Link-Local Addresses)
-  /// - ::1 (loopback)
+  /// - `fc00::/7` (Unique Local Addresses)
+  /// - `fe80::/10` (Link-Local Addresses)
+  /// - `::1` (loopback)
   pub fn is_private(&self) -> bool {
     match self.0 {
       StdIpAddr::V4(ipv4) => ipv4.is_private(),

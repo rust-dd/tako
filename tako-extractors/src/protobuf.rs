@@ -73,12 +73,12 @@ impl Responder for ProtobufError {
       }
       ProtobufError::BodyReadError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {}", err),
+        format!("Failed to read request body: {err}"),
       )
         .into_response(),
       ProtobufError::ProtobufDecodeError(err) => (
         StatusCode::BAD_REQUEST,
-        format!("Failed to decode protobuf: {}", err),
+        format!("Failed to decode protobuf: {err}"),
       )
         .into_response(),
     }
@@ -106,13 +106,12 @@ fn is_protobuf_content_type(headers: &http::HeaderMap) -> bool {
   headers
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
-    .map(|ct| {
+    .is_some_and(|ct| {
       ct == "application/x-protobuf"
         || ct == "application/protobuf"
         || ct.starts_with("application/x-protobuf;")
         || ct.starts_with("application/protobuf;")
     })
-    .unwrap_or(false)
 }
 
 impl<'a, T> FromRequest<'a> for Protobuf<T>

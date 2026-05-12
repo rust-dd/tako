@@ -333,9 +333,9 @@ impl SignalArbiter {
     });
   }
 
-  /// Returns (creating if necessary) the per-id ArcSwap holding the handler list.
+  /// Returns (creating if necessary) the per-id `ArcSwap` holding the handler list.
   /// The SCC hashmap protects only the slot lookup; handler-list updates are
-  /// wait-free via ArcSwap RCU, so concurrent `on()` / `emit()` calls cannot
+  /// wait-free via `ArcSwap` RCU, so concurrent `on()` / `emit()` calls cannot
   /// race on a `Vec::push` reallocation.
   fn handler_list_for(&self, id: String) -> HandlerList {
     let entry = self
@@ -446,7 +446,7 @@ impl SignalArbiter {
     loop {
       match rx.recv().await {
         Ok(sig) => return Some(sig),
-        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+        Err(broadcast::error::RecvError::Lagged(_)) => {}
         Err(_) => return None,
       }
     }
@@ -473,7 +473,7 @@ impl SignalArbiter {
       Box::pin(async move {
         let req = raw
           .downcast::<Req>()
-          .unwrap_or_else(|_| panic!("Signal RPC type mismatch for id: {}", id_for_panic));
+          .unwrap_or_else(|_| panic!("Signal RPC type mismatch for id: {id_for_panic}"));
         let res = func(req).await;
         Arc::new(res) as Arc<dyn Any + Send + Sync>
       })
@@ -506,10 +506,8 @@ impl SignalArbiter {
     Res: Send + Sync + Clone + 'static,
   {
     let id_str = id.as_ref();
-    let entry = self.inner.rpc.get_async(id_str).await;
-    let entry = match entry {
-      Some(e) => e,
-      None => return Err(RpcError::NoHandler),
+    let Some(entry) = self.inner.rpc.get_async(id_str).await else {
+      return Err(RpcError::NoHandler);
     };
     let handler = entry.clone();
     drop(entry);
@@ -568,7 +566,7 @@ impl SignalArbiter {
     match futures_util::future::select(work, sleep).await {
       futures_util::future::Either::Left((Ok(res), _)) => Ok(res),
       futures_util::future::Either::Left((Err(e), _)) => Err(RpcTimeoutError::Rpc(e)),
-      futures_util::future::Either::Right((_, _)) => Err(RpcTimeoutError::Timeout),
+      futures_util::future::Either::Right(((), _)) => Err(RpcTimeoutError::Timeout),
     }
   }
 

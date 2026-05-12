@@ -99,11 +99,10 @@ where
           if let Err(e) = this
             .encoder
             .write_all(&chunk)
-            .and_then(|_| this.encoder.flush())
+            .and_then(|()| this.encoder.flush())
           {
             return Poll::Ready(Some(Err(e.into())));
           }
-          continue;
         }
         Poll::Ready(Some(Err(e))) => {
           return Poll::Ready(Some(Err(e)));
@@ -113,7 +112,6 @@ where
           if let Err(e) = this.encoder.flush() {
             return Poll::Ready(Some(Err(e.into())));
           }
-          continue;
         }
         Poll::Pending => {
           return Poll::Pending;

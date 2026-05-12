@@ -120,7 +120,7 @@ pub enum GrpcError {
   DecodeError(String),
   /// Frame's compressed flag was set but the server does not advertise
   /// any compression codec. Mapped to gRPC status `Unimplemented` per
-  /// the spec (https://grpc.io/docs/guides/wire/) so clients fall back
+  /// the spec (<https://grpc.io/docs/guides/wire>/) so clients fall back
   /// to uncompressed.
   CompressionUnsupported,
 }
@@ -443,7 +443,7 @@ where
       .body(TakoBody::new(StreamBody::new(combined)))
       .expect("valid grpc streaming response");
     let headers = resp.headers_mut();
-    for (k, v) in self.initial_metadata.iter() {
+    for (k, v) in &self.initial_metadata {
       headers.insert(k.clone(), v.clone());
     }
     resp

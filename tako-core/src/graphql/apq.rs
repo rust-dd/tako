@@ -13,7 +13,7 @@
 //! This module exposes the [`PersistedQueryStore`](crate::graphql::apq::PersistedQueryStore) trait, an in-memory
 //! implementation, and the [`process`](crate::graphql::apq::process) helper that walks an `async_graphql`
 //! request through the lookup-or-store flow. It is a thin wrapper — the
-//! actual GraphQL execution still goes through the `async-graphql` schema.
+//! actual `GraphQL` execution still goes through the `async-graphql` schema.
 
 use std::sync::Arc;
 
@@ -111,7 +111,7 @@ pub fn sha256_hash(query: &str) -> String {
   let digest = Sha256::digest(query.as_bytes());
   let mut hex = String::with_capacity(64);
   for b in digest {
-    hex.push_str(&format!("{:02x}", b));
+    hex.push_str(&format!("{b:02x}"));
   }
   hex
 }

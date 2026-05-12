@@ -334,7 +334,7 @@ async fn run_with_rustls_config(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,
@@ -617,7 +617,7 @@ where
   let (mut send_stream, recv_stream) = stream.split();
 
   // Build request with a streaming body (data + trailers).
-  let (parts, _) = req.into_parts();
+  let (parts, ()) = req.into_parts();
   let body = build_h3_body(recv_stream, body_tracker);
   let mut tako_req = Request::from_parts(parts, body);
   tako_req.extensions_mut().insert(remote_addr);

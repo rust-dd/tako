@@ -372,12 +372,12 @@ fn build_cookie(
   http_only: bool,
   same_site: SameSite,
 ) -> String {
-  let mut s = format!("{}={}; Path={}", cookie_name, sid, path);
+  let mut s = format!("{cookie_name}={sid}; Path={path}");
   if let Some(d) = domain {
     s.push_str("; Domain=");
     s.push_str(d);
   }
-  s.push_str(&format!("; Max-Age={}", ttl_secs));
+  s.push_str(&format!("; Max-Age={ttl_secs}"));
   if http_only {
     s.push_str("; HttpOnly");
   }
@@ -399,7 +399,7 @@ fn build_expired_cookie(
 ) -> String {
   // Empty value + Max-Age=0 + far-past Expires covers every major UA
   // (some only honor one of the two attributes).
-  let mut s = format!("{}=; Path={}", cookie_name, path);
+  let mut s = format!("{cookie_name}=; Path={path}");
   if let Some(d) = domain {
     s.push_str("; Domain=");
     s.push_str(d);
@@ -472,9 +472,7 @@ impl IntoMiddleware for SessionMiddleware {
           Some(ref id) => match store.get(id) {
             Some(entry)
               if now.duration_since(entry.last_seen_at) <= idle
-                && absolute
-                  .map(|abs| now.duration_since(entry.created_at) <= abs)
-                  .unwrap_or(true) =>
+                && absolute.is_none_or(|abs| now.duration_since(entry.created_at) <= abs) =>
             {
               (id.clone(), entry.data, entry.created_at, true)
             }

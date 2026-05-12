@@ -84,3 +84,6 @@ hmac-signature = ["dep:hmac"]
 json-schema = ["dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.
 compio = ["dep:compio", "tako-core/compio"]
+
+[lints]
+workspace = true

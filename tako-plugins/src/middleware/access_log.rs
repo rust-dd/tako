@@ -127,7 +127,7 @@ impl IntoMiddleware for AccessLog {
           path,
           version,
           status: resp.status().as_u16(),
-          duration_us: elapsed.as_micros().min(u64::MAX as u128) as u64,
+          duration_us: elapsed.as_micros().min(u128::from(u64::MAX)) as u64,
           request_id,
           peer,
         };

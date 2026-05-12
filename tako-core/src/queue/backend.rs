@@ -46,7 +46,7 @@ pub trait QueueBackend: Send + Sync + 'static {
     opts: PushOptions,
   ) -> Result<JobId, BackendError>;
 
-  /// Reserve the next ready job from a queue (FIFO, ready_at <= now).
+  /// Reserve the next ready job from a queue (`FIFO`, `ready_at` <= now).
   async fn reserve(&self, queue: &str) -> Result<Option<ReservedJob>, BackendError>;
 
   /// Mark a reserved job complete — no retries, no DLQ entry.
@@ -161,7 +161,7 @@ impl QueueBackend for MemoryBackend {
     let pos = inner
       .pending
       .iter()
-      .position(|j| j.queue == queue && j.run_after.map(|t| now >= t).unwrap_or(true));
+      .position(|j| j.queue == queue && j.run_after.is_none_or(|t| now >= t));
     let Some(idx) = pos else {
       return Ok(None);
     };

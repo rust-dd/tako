@@ -72,7 +72,7 @@ pub struct Route {
   /// with the `ArcSwap` contents. Direct `ArcSwap::store` from outside would
   /// silently desynchronize the hot-path skip in the router.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
-  /// Fast check: true when route middleware is registered (avoids ArcSwap load on hot path).
+  /// Fast check: true when route middleware is registered (avoids `ArcSwap` load on hot path).
   pub(crate) has_middleware: AtomicBool,
   /// Whether trailing slash redirection is enabled.
   pub tsr: bool,
@@ -87,7 +87,7 @@ pub struct Route {
   /// Route-level signal arbiter.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
-  /// OpenAPI metadata for this route.
+  /// `OpenAPI` metadata for this route.
   #[cfg(any(feature = "utoipa", feature = "vespera"))]
   pub(crate) openapi: RwLock<Option<RouteOpenApi>>,
   /// Route-specific timeout override (set once at registration, lock-free reads).
@@ -283,7 +283,7 @@ impl Route {
 
   // OpenAPI metadata methods
 
-  /// Sets a unique operation ID for this route in OpenAPI documentation.
+  /// Sets a unique operation ID for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -300,7 +300,7 @@ impl Route {
     self
   }
 
-  /// Sets a short summary for this route in OpenAPI documentation.
+  /// Sets a short summary for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -317,7 +317,7 @@ impl Route {
     self
   }
 
-  /// Sets a detailed description for this route in OpenAPI documentation.
+  /// Sets a detailed description for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -334,7 +334,7 @@ impl Route {
     self
   }
 
-  /// Adds a tag to group this route in OpenAPI documentation.
+  /// Adds a tag to group this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -352,7 +352,7 @@ impl Route {
     self
   }
 
-  /// Marks this route as deprecated in OpenAPI documentation.
+  /// Marks this route as deprecated in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -369,7 +369,7 @@ impl Route {
     self
   }
 
-  /// Adds a response description for a status code in OpenAPI documentation.
+  /// Adds a response description for a status code in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -387,17 +387,17 @@ impl Route {
     self
   }
 
-  /// Adds a parameter definition for this route in OpenAPI documentation.
+  /// Adds a parameter definition for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
   /// ```rust,ignore
-  /// use tako::openapi::{OpenApiParameter, ParameterLocation};
+  /// use tako::openapi::{OpenApiParameter, `ParameterLocation`};
   ///
   /// router.route(Method::GET, "/users", list_users)
   ///     .parameter(OpenApiParameter {
   ///         name: "limit".to_string(),
-  ///         location: ParameterLocation::Query,
+  ///         location: `ParameterLocation`::Query,
   ///         description: Some("Maximum number of results".to_string()),
   ///         required: false,
   ///     });
@@ -411,7 +411,7 @@ impl Route {
     self
   }
 
-  /// Sets the request body description for this route in OpenAPI documentation.
+  /// Sets the request body description for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -434,7 +434,7 @@ impl Route {
     self
   }
 
-  /// Adds a security requirement for this route in OpenAPI documentation.
+  /// Adds a security requirement for this route in `OpenAPI` documentation.
   ///
   /// # Examples
   ///
@@ -451,7 +451,7 @@ impl Route {
     self
   }
 
-  /// Returns a clone of the OpenAPI metadata for this route, if any.
+  /// Returns a clone of the `OpenAPI` metadata for this route, if any.
   #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn openapi_metadata(&self) -> Option<RouteOpenApi> {

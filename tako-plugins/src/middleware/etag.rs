@@ -1,4 +1,4 @@
-//! ETag and conditional GET helper middleware.
+//! `ETag` and conditional GET helper middleware.
 //!
 //! For 200-OK responses without an existing `ETag` header, hashes the body
 //! and emits a strong validator (`"<sha1-hex>"`). On subsequent requests
@@ -15,7 +15,7 @@
 //!   skipping the middleware on streaming routes. A streaming-aware
 //!   variant could expose a custom validator builder, but that requires
 //!   handler cooperation and is deliberately out of scope here.
-//! - Only safe methods (GET, HEAD) trigger ETag generation. PUT / PATCH
+//! - Only safe methods (GET, HEAD) trigger `ETag` generation. PUT / PATCH
 //!   conditionals (`If-Match`) are passed through untouched.
 
 use std::future::Future;
@@ -39,9 +39,9 @@ use tako_core::middleware::Next;
 use tako_core::types::Request;
 use tako_core::types::Response;
 
-/// ETag middleware configuration.
+/// `ETag` middleware configuration.
 pub struct ETag {
-  /// Maximum body size considered for ETag computation. Larger responses
+  /// Maximum body size considered for `ETag` computation. Larger responses
   /// pass through untouched.
   max_bytes: usize,
 }
@@ -60,7 +60,7 @@ impl ETag {
     }
   }
 
-  /// Sets the maximum response size eligible for ETag generation.
+  /// Sets the maximum response size eligible for `ETag` generation.
   pub fn max_bytes(mut self, n: usize) -> Self {
     self.max_bytes = n;
     self
@@ -88,7 +88,7 @@ fn build_304(
     .status(StatusCode::NOT_MODIFIED)
     .body(TakoBody::empty())
     .expect("valid 304 response");
-  for (k, v) in status_headers.iter() {
+  for (k, v) in &status_headers {
     if k == CONTENT_LENGTH {
       continue;
     }
@@ -100,7 +100,7 @@ fn build_304(
   resp
 }
 
-/// Computes a weak ETag (`W/"…"`) from a body slice.
+/// Computes a weak `ETag` (`W/"…"`) from a body slice.
 ///
 /// Uses SHA-256 for collision resistance: SHA-1 was upgrade-flagged here
 /// because two bodies with a colliding hash would be served with the same

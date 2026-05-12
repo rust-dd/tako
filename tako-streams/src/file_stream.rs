@@ -12,7 +12,7 @@
 //! use tako::responder::Responder;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Stream a file from disk
+//! // `Stream` a file from disk
 //! let file_stream = FileStream::from_path("./assets/video.mp4").await?;
 //! let response = file_stream.into_response();
 //! # Ok(())
@@ -65,7 +65,7 @@ pub struct FileStream<S> {
   pub file_name: Option<String>,
   /// Optional content size for Content-Length header
   pub content_size: Option<u64>,
-  /// Optional pre-computed strong ETag value (without quotes).
+  /// Optional pre-computed strong `ETag` value (without quotes).
   pub etag: Option<String>,
   /// Optional last-modified timestamp.
   pub last_modified: Option<SystemTime>,
@@ -91,7 +91,7 @@ where
     }
   }
 
-  /// Attach an ETag validator. The value must be fully formed per RFC 9110
+  /// Attach an `ETag` validator. The value must be fully formed per RFC 9110
   /// §8.8.3 — i.e. quoted (`"abc"`) for a strong validator or weak-prefixed
   /// (`W/"abc"`) for a weak one. Use [`weak_etag_from_metadata`] to derive a
   /// weak validator from `(size, mtime)`.
@@ -160,7 +160,7 @@ where
       .as_ref()
       .file_name()
       .and_then(|n| n.to_str())
-      .map(|n| n.to_owned());
+      .map(std::borrow::ToOwned::to_owned);
 
     Ok(FileStream {
       stream: futures_util::stream::once(futures_util::future::ready(Ok(Bytes::from(data)))),
@@ -182,14 +182,14 @@ where
       )
       .header(
         http::header::CONTENT_RANGE,
-        format!("bytes {}-{}/{}", start, end, total_size),
+        format!("bytes {start}-{end}/{total_size}"),
       )
       .header(http::header::CONTENT_LENGTH, (end - start + 1).to_string());
 
     if let Some(ref name) = self.file_name {
       response = response.header(
         http::header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", name),
+        format!("attachment; filename=\"{name}\""),
       );
     }
 
@@ -203,7 +203,7 @@ where
     response.body(body).unwrap_or_else(|e| {
       (
         http::StatusCode::INTERNAL_SERVER_ERROR,
-        format!("FileStream range error: {}", e),
+        format!("FileStream range error: {e}"),
       )
         .into_response()
     })
@@ -287,7 +287,7 @@ where
     if let Some(ref name) = self.file_name {
       response = response.header(
         http::header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", name),
+        format!("attachment; filename=\"{name}\""),
       );
     }
 
@@ -311,7 +311,7 @@ where
     response.body(body).unwrap_or_else(|e| {
       (
         http::StatusCode::INTERNAL_SERVER_ERROR,
-        format!("FileStream error: {}", e),
+        format!("FileStream error: {e}"),
       )
         .into_response()
     })
@@ -429,10 +429,7 @@ fn format_http_date(unix_secs: u64) -> String {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ][(month - 1) as usize];
 
-  format!(
-    "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
-    dow_name, day, mon_name, year, h, m, s
-  )
+  format!("{dow_name}, {day:02} {mon_name} {year:04} {h:02}:{m:02}:{s:02} GMT")
 }
 
 /// Parse an HTTP-date header value into Unix epoch seconds.
@@ -452,10 +449,10 @@ fn parse_http_date(header: &str) -> Option<u64> {
 
 fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {
   // Civil from days since 1970-01-01 — Howard Hinnant algorithm.
-  let z = days + 719468;
-  let era = if z >= 0 { z } else { z - 146096 } / 146097;
-  let doe = z - era * 146097;
-  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  let z = days + 719_468;
+  let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+  let doe = z - era * 146_097;
+  let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
   let y = yoe + era * 400;
   let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
   let mp = (5 * doy + 2) / 153;
@@ -465,7 +462,7 @@ fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {
   (y, m, d)
 }
 
-/// Helper that hashes (size + mtime) into a **weak** ETag (`W/"…"`).
+/// Helper that hashes (size + mtime) into a **weak** `ETag` (`W/"…"`).
 ///
 /// SHA-1 over coarse metadata cannot prove byte-for-byte equivalence — two
 /// files written within the same wall-clock second with the same size will
@@ -474,10 +471,7 @@ fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {
 /// won't assume strong validation semantics. Callers should pass the value
 /// straight to `Response.header(ETAG, …)` without re-quoting.
 pub fn weak_etag_from_metadata(size: u64, mtime: SystemTime) -> String {
-  let mtime_secs = mtime
-    .duration_since(UNIX_EPOCH)
-    .map(|d| d.as_secs())
-    .unwrap_or(0);
+  let mtime_secs = mtime.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
   let mut hasher = Sha1::new();
   hasher.update(size.to_le_bytes());
   hasher.update(mtime_secs.to_le_bytes());
@@ -485,7 +479,7 @@ pub fn weak_etag_from_metadata(size: u64, mtime: SystemTime) -> String {
   let mut out = String::with_capacity(44);
   out.push_str("W/\"");
   for b in digest {
-    out.push_str(&format!("{:02x}", b));
+    out.push_str(&format!("{b:02x}"));
   }
   out.push('"');
   out

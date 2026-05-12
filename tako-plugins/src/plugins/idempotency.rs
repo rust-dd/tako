@@ -66,7 +66,7 @@ pub struct Config {
   pub methods: Vec<Method>,
   /// Time-to-live for cached results (seconds). Default: 86400 (24h).
   pub ttl_secs: u64,
-  /// Include method+path in the cache key. Default: MethodAndPath.
+  /// Include method+path in the cache key. Default: `MethodAndPath`.
   pub scope: Scope,
   /// If true, concurrent calls with same key wait for the first to finish. Default: true.
   pub coalesce_inflight: bool,
@@ -422,10 +422,10 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
           return conflict();
         }
         // Wait for completion, honoring the optional timeout on both runtimes.
-        if let Some(_ms) = cfg.inflight_wait_timeout_ms {
+        if let Some(ms) = cfg.inflight_wait_timeout_ms {
           #[cfg(not(feature = "compio"))]
           {
-            let _ = timeout(Duration::from_millis(_ms), notify.notified()).await;
+            let _ = timeout(Duration::from_millis(ms), notify.notified()).await;
           }
           // compio's timer futures are !Send, so we cannot await them directly inside
           // a middleware handler (whose returned future is required to be Send).
@@ -436,7 +436,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
             let timeout_signal = Arc::new(Notify::new());
             let timer_signal = timeout_signal.clone();
             compio::runtime::spawn(async move {
-              compio::time::sleep(Duration::from_millis(_ms)).await;
+              compio::time::sleep(Duration::from_millis(ms)).await;
               timer_signal.notify_waiters();
             })
             .detach();
@@ -567,7 +567,7 @@ fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
     "upgrade",
   ];
   let mut out = Vec::new();
-  for (name, v) in src.iter() {
+  for (name, v) in src {
     let name_lc = name.as_str().to_ascii_lowercase();
     if EXCLUDE.contains(&name_lc.as_str()) {
       continue;
@@ -583,7 +583,6 @@ fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
     // Heuristic: allow custom x- headers
     if name_lc.starts_with("x-") {
       out.push((name.clone(), v.clone()));
-      continue;
     }
   }
   out

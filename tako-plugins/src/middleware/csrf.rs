@@ -260,7 +260,9 @@ impl IntoMiddleware for Csrf {
           // CSRF token to invalidate any stolen pair from the pre-rotation
           // identity. Otherwise a privilege transition (login, role change)
           // would leave the CSRF cookie usable against the new session id.
-          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
+          let rotated = session
+            .as_ref()
+            .is_some_and(super::session::Session::rotation_requested);
           let seed = if rotated {
             None
           } else {
@@ -273,7 +275,7 @@ impl IntoMiddleware for Csrf {
             same_site,
             &session_key,
             bind_to_session,
-            &seed,
+            seed.as_ref(),
             session.as_ref(),
           );
           return resp;
@@ -315,7 +317,9 @@ impl IntoMiddleware for Csrf {
 
         if cookie_header_match && session_match {
           let mut resp = next.run(req).await;
-          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
+          let rotated = session
+            .as_ref()
+            .is_some_and(super::session::Session::rotation_requested);
           let preferred = if rotated {
             None
           } else {
@@ -328,14 +332,16 @@ impl IntoMiddleware for Csrf {
             same_site,
             &session_key,
             bind_to_session,
-            &preferred,
+            preferred.as_ref(),
             session.as_ref(),
           );
           return resp;
         }
 
         // Fallback: trusted Origin / Referer header.
-        let trust_hit = if !trusted_origins.is_empty() {
+        let trust_hit = if trusted_origins.is_empty() {
+          false
+        } else {
           let origin = req
             .headers()
             .get(http::header::ORIGIN)
@@ -348,19 +354,17 @@ impl IntoMiddleware for Csrf {
             .map(str::to_string);
           origin
             .as_deref()
-            .map(|o| origin_allowed(o, &trusted_origins))
-            .unwrap_or(false)
+            .is_some_and(|o| origin_allowed(o, &trusted_origins))
             || referer
               .as_deref()
-              .map(|r| origin_allowed(r, &trusted_origins))
-              .unwrap_or(false)
-        } else {
-          false
+              .is_some_and(|r| origin_allowed(r, &trusted_origins))
         };
 
         if trust_hit {
           let mut resp = next.run(req).await;
-          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
+          let rotated = session
+            .as_ref()
+            .is_some_and(super::session::Session::rotation_requested);
           let preferred = if rotated {
             None
           } else {
@@ -373,7 +377,7 @@ impl IntoMiddleware for Csrf {
             same_site,
             &session_key,
             bind_to_session,
-            &preferred,
+            preferred.as_ref(),
             session.as_ref(),
           );
           return resp;
@@ -412,7 +416,7 @@ fn ensure_csrf_cookie(
   same_site: SameSite,
   session_key: &str,
   bind_to_session: bool,
-  preferred_token: &Option<String>,
+  preferred_token: Option<&String>,
   session: Option<&Session>,
 ) {
   let already_set = resp
@@ -423,7 +427,7 @@ fn ensure_csrf_cookie(
   if already_set {
     return;
   }
-  let token = preferred_token.clone().unwrap_or_else(generate_csrf_token);
+  let token = preferred_token.cloned().unwrap_or_else(generate_csrf_token);
   if bind_to_session && let Some(session) = session {
     session.set(session_key, token.clone());
   }

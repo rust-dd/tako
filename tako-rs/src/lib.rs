@@ -9,7 +9,7 @@
 //! This umbrella crate stitches together the workspace sub-crates:
 //!
 //! - `tako-core` — routing, handlers, middleware and plugin traits, body and
-//!   request types, state, signals, queue, plus GraphQL, gRPC and OpenAPI
+//!   request types, state, signals, queue, plus `GraphQL`, gRPC and `OpenAPI`
 //!   helpers
 //! - `tako-extractors` — concrete request extractors (cookies, form, query,
 //!   path, JWT, multipart, simdjson, …)

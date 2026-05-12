@@ -51,7 +51,7 @@ pub trait MetricsBackend: Send + Sync + 'static {
   fn on_connection_closed(&self, signal: &Signal);
 }
 
-/// Default Prometheus / OTel histogram bucket schedule (seconds), tuned for
+/// Default Prometheus / `OTel` histogram bucket schedule (seconds), tuned for
 /// HTTP request latencies between sub-millisecond and ten seconds.
 pub const DEFAULT_LATENCY_BUCKETS_SEC: &[f64] = &[
   0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
@@ -186,8 +186,7 @@ pub mod prometheus_backend {
     signal
       .metadata
       .get("route")
-      .map(String::as_str)
-      .unwrap_or("unmatched")
+      .map_or("unmatched", String::as_str)
   }
 
   /// Basic Prometheus metrics backend that tracks HTTP request counts
@@ -282,17 +281,9 @@ pub mod prometheus_backend {
 
   impl MetricsBackend for Arc<PrometheusMetricsBackend> {
     fn on_request_completed(&self, signal: &Signal) {
-      let method = signal
-        .metadata
-        .get("method")
-        .map(String::as_str)
-        .unwrap_or("");
+      let method = signal.metadata.get("method").map_or("", String::as_str);
       let route = route_label(signal);
-      let status = signal
-        .metadata
-        .get("status")
-        .map(String::as_str)
-        .unwrap_or("");
+      let status = signal.metadata.get("status").map_or("", String::as_str);
       self
         .http_requests_total
         .with_label_values(&[method, route, status])
@@ -313,17 +304,9 @@ pub mod prometheus_backend {
     }
 
     fn on_route_request_completed(&self, signal: &Signal) {
-      let method = signal
-        .metadata
-        .get("method")
-        .map(String::as_str)
-        .unwrap_or("");
+      let method = signal.metadata.get("method").map_or("", String::as_str);
       let route = route_label(signal);
-      let status = signal
-        .metadata
-        .get("status")
-        .map(String::as_str)
-        .unwrap_or("");
+      let status = signal.metadata.get("status").map_or("", String::as_str);
       self
         .http_route_requests_total
         .with_label_values(&[method, route, status])
@@ -557,7 +540,7 @@ impl OtelMetricsConfig {
       .with_http()
       .with_endpoint(&self.endpoint)
       .build()
-      .map_err(|e| anyhow::anyhow!("failed to create OTLP metric exporter: {}", e))?;
+      .map_err(|e| anyhow::anyhow!("failed to create OTLP metric exporter: {e}"))?;
 
     let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
       .with_periodic_exporter(exporter)

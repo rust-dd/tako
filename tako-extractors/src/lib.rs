@@ -8,7 +8,7 @@
 //!
 //! The `FromRequest` and `FromRequestParts` traits live in `tako-core`. The
 //! `Json` and `Params` extractors also stay there because their internal types
-//! are referenced by the router. Everything else (header_map, cookies, query,
+//! are referenced by the router. Everything else (`header_map`, cookies, query,
 //! path, form, ipaddr, accept, basic/bearer auth, jwt, byte body, range,
 //! state, plus the optional multipart/protobuf/simdjson and zero-copy variants)
 //! lives here. Re-exported under `tako::extractors::*` via the umbrella crate.

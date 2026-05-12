@@ -41,3 +41,6 @@ signals = ["tako-core/signals"]
 # because that core feature globally switches signals/queue to compio spawn,
 # which conflicts with the existing tokio-based `tako_server::serve` path.
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+
+[lints]
+workspace = true

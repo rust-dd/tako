@@ -3,7 +3,7 @@
 //! Trait-based: implement [`JwtVerifier`] with your preferred JWT library
 //! and pass it to [`JwtAuth`]. Enable the `jwt-simple` cargo feature for the
 //! batteries-included verifier built on top of `jwt-simple` — it supports
-//! HMAC, RSA, RSA-PSS, ECDSA, EdDSA and BLAKE2b.
+//! HMAC, RSA, RSA-PSS, ECDSA, `EdDSA` and `BLAKE2b`.
 //!
 //! v2 additions:
 //!

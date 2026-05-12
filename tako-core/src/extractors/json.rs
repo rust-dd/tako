@@ -206,9 +206,10 @@ where
         ));
       }
 
-      // Deserialize JSON — use SIMD parser when the simd feature is enabled,
-      // respecting per-route SimdJsonMode configuration from extensions.
-      #[cfg(feature = "simd")]
+      // Deserialize JSON — use the `sonic-rs` SIMD parser when its sub-feature
+      // is enabled, respecting per-route `SimdJsonMode` configuration. Without
+      // `simd-sonic` (and therefore without `simd`), fall back to `serde_json`.
+      #[cfg(feature = "simd-sonic")]
       let data = {
         let mode = req
           .extensions()
@@ -230,7 +231,7 @@ where
             .map_err(|e| JsonError::DeserializationError(e.to_string()))?
         }
       };
-      #[cfg(not(feature = "simd"))]
+      #[cfg(not(feature = "simd-sonic"))]
       let data = serde_json::from_slice(&body_bytes)
         .map_err(|e| JsonError::DeserializationError(e.to_string()))?;
 

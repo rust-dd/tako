@@ -286,6 +286,10 @@ impl<'de> PathParamsDeserializer<'de> {
   }
 }
 
+// Trampoline closures preserve the `V` visitor binding through the trait
+// method; replacing them with `Trait::method` function refs introduces UFCS
+// ambiguity around the generic `V`.
+#[allow(clippy::redundant_closure_for_method_calls)]
 impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
   type Error = PathParamsDeError;
 

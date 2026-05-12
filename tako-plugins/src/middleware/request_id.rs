@@ -46,7 +46,7 @@ impl Default for RequestId {
 }
 
 impl RequestId {
-  /// Creates a new RequestId middleware with default settings (X-Request-ID, UUID v4).
+  /// Creates a new `RequestId` middleware with default settings (X-Request-ID, UUID v4).
   pub fn new() -> Self {
     Self {
       header: HeaderName::from_static("x-request-id"),
@@ -96,8 +96,7 @@ impl IntoMiddleware for RequestId {
           .get(&header)
           .and_then(|v| v.to_str().ok())
           .filter(|s| !s.is_empty() && s.len() <= MAX_INBOUND_LEN)
-          .map(|s| s.to_string())
-          .unwrap_or_else(|| generator());
+          .map_or_else(|| generator(), std::string::ToString::to_string);
 
         // Inject into request extensions for handler access
         req.extensions_mut().insert(RequestIdValue(id.clone()));

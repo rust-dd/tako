@@ -36,7 +36,7 @@ pub struct UpgradedStream {
 }
 
 impl UpgradedStream {
-  /// Creates a new UpgradedStream from a hyper Upgraded connection.
+  /// Creates a new `UpgradedStream` from a hyper Upgraded connection.
   pub fn new(upgraded: Upgraded) -> Self {
     Self { inner: upgraded }
   }
@@ -53,7 +53,7 @@ impl compio::io::AsyncRead for UpgradedStream {
     use hyper::rt::Read;
 
     let len = buf.buf_capacity();
-    let dest_ptr = buf.buf_mut_ptr() as *mut u8;
+    let dest_ptr = buf.buf_mut_ptr().cast::<u8>();
 
     // Create a safe buffer for reading
     let mut temp_buf = vec![0u8; len];
@@ -124,7 +124,7 @@ impl compio::io::AsyncWrite for UpgradedStream {
 /// A WebSocket stream wrapper for compio that wraps tungstenite directly.
 ///
 /// This type provides async WebSocket functionality by wrapping a tungstenite
-/// WebSocket with a SyncStream adapter.
+/// WebSocket with a `SyncStream` adapter.
 pub struct CompioWebSocket<S> {
   inner: tungstenite::WebSocket<SyncStream<S>>,
 }
@@ -311,14 +311,11 @@ where
     let (parts, body) = self.request.into_parts();
     let req = http::Request::from_parts(parts, body);
 
-    let key = match req.headers().get("Sec-WebSocket-Key") {
-      Some(k) => k,
-      None => {
-        return http::Response::builder()
-          .status(StatusCode::BAD_REQUEST)
-          .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
-          .expect("valid bad request response");
-      }
+    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
+      return http::Response::builder()
+        .status(StatusCode::BAD_REQUEST)
+        .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
+        .expect("valid bad request response");
     };
 
     // RFC-6455 accept hash

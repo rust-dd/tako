@@ -40,11 +40,10 @@ pub fn is_json_content_type(headers: &http::HeaderMap) -> bool {
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
     .and_then(|ct| ct.parse::<mime_guess::Mime>().ok())
-    .map(|mime| {
+    .is_some_and(|mime| {
       mime.type_() == "application"
         && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
     })
-    .unwrap_or(false)
 }
 
 /// JSON request body parsing and deserialization.

@@ -3,13 +3,13 @@
 
 //! HTTP/2 cleartext (h2c) server, prior-knowledge mode.
 //!
-//! For deployments where a reverse proxy (Envoy, nginx, HAProxy) speaks HTTP/2
+//! For deployments where a reverse proxy (Envoy, nginx, `HAProxy`) speaks HTTP/2
 //! to the upstream over plain TCP — there is no TLS handshake or HTTP/1
 //! Upgrade negotiation. Clients open a TCP connection and immediately send the
 //! HTTP/2 connection preface; the server reads frames straight away.
 //!
 //! Use [`serve_h2c`] for a default-config server, or [`serve_h2c_with_config`]
-//! to supply a [`crate::ServerConfig`] (drain timeout, max_connections, h2 caps).
+//! to supply a [`crate::ServerConfig`] (drain timeout, `max_connections`, h2 caps).
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -123,7 +123,7 @@ async fn run(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,

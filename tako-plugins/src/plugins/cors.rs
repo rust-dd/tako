@@ -345,7 +345,7 @@ impl CorsBuilder {
 
 /// CORS plugin for handling cross-origin resource sharing in Tako applications.
 ///
-/// `CorsPlugin` implements the TakoPlugin trait to provide comprehensive CORS support
+/// `CorsPlugin` implements the `TakoPlugin` trait to provide comprehensive CORS support
 /// including preflight request handling, origin validation, and response header
 /// management. It automatically handles OPTIONS preflight requests and adds appropriate
 /// CORS headers to all responses based on the configured policy.
@@ -411,8 +411,7 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     .headers()
     .get("access-control-request-private-network")
     .and_then(|v| v.to_str().ok())
-    .map(|v| v.eq_ignore_ascii_case("true"))
-    .unwrap_or(false);
+    .is_some_and(|v| v.eq_ignore_ascii_case("true"));
 
   if req.method() == Method::OPTIONS {
     let mut resp = http::Response::builder()
@@ -482,7 +481,7 @@ fn add_cors_headers(
       cfg
         .methods
         .iter()
-        .map(|m| m.as_str())
+        .map(http::Method::as_str)
         .collect::<Vec<_>>()
         .join(","),
     )
@@ -511,7 +510,7 @@ fn add_cors_headers(
       // warning and continue with the legacy reflection for BC — apps
       // should set explicit `headers(...)` to silence this.
       static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-      let _ = WARNED.get_or_init(|| {
+      let () = WARNED.get_or_init(|| {
         tracing::warn!(
           "CORS reflects `Access-Control-Request-Headers` while `allow_credentials=true` and no explicit `headers(...)` list is configured — set an explicit allow-list to harden the preflight policy",
         );
@@ -535,7 +534,7 @@ fn add_cors_headers(
     let h = cfg
       .headers
       .iter()
-      .map(|h| h.as_str())
+      .map(http::HeaderName::as_str)
       .collect::<Vec<_>>()
       .join(",");
     resp.headers_mut().insert(

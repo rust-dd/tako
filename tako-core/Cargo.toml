@@ -111,7 +111,16 @@ multipart = ["dep:multer", "dep:uuid"]
 plugins = ["dep:brotli", "dep:flate2"]
 protobuf = ["dep:prost"]
 signals = []
-simd = ["dep:simd-json", "dep:sonic-rs", "jemalloc"]
+# `simd` is a meta-feature enabling both SIMD JSON backends. Prefer the
+# split features below when you only need one backend — they shrink the
+# binary by skipping the unused SIMD parser.
+simd = ["simd-sonic", "simd-json-impl"]
+# Enables the `sonic-rs` backend used by the built-in `Json<T>` extractor's
+# SIMD fast path. (Without this, `Json<T>` falls back to `serde_json`.)
+simd-sonic = ["dep:sonic-rs", "jemalloc"]
+# Enables the `simd-json` backend used by the optional `SimdJson<T>` extractor
+# re-exported from `tako-extractors`.
+simd-json-impl = ["dep:simd-json", "jemalloc"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
 grpc = ["protobuf"]
 queue-cron = ["dep:cron", "dep:chrono"]
@@ -141,3 +150,6 @@ harness = false
 [[bench]]
 name = "json_extract"
 harness = false
+
+[lints]
+workspace = true

@@ -330,7 +330,9 @@ pub async fn run_with_config(
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), true, None).await;
 
-          let alpn_proto = tls_stream.negotiated_alpn().map(|p| p.into_owned());
+          let alpn_proto = tls_stream
+            .negotiated_alpn()
+            .map(std::borrow::Cow::into_owned);
           let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
           // SNI is not exposed by `compio-tls::TlsStream` (only
           // `negotiated_alpn()` is public). Until upstream adds a

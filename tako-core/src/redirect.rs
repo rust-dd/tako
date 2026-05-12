@@ -90,15 +90,12 @@ impl Responder for Redirect {
   /// turn a redirect into a panic. Malformed locations yield a
   /// `500 Internal Server Error` with an explanatory body instead.
   fn into_response(self) -> Response {
-    let value = match http::HeaderValue::try_from(self.location.as_str()) {
-      Ok(v) => v,
-      Err(_) => {
-        let mut resp = http::Response::new(TakoBody::from(
-          "redirect location contains invalid header characters",
-        ));
-        *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-        return resp;
-      }
+    let Ok(value) = http::HeaderValue::try_from(self.location.as_str()) else {
+      let mut resp = http::Response::new(TakoBody::from(
+        "redirect location contains invalid header characters",
+      ));
+      *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+      return resp;
     };
     let mut resp = http::Response::new(TakoBody::empty());
     *resp.status_mut() = self.status;
@@ -238,8 +235,7 @@ fn http_to_https_router_inner(
       let path_and_query = req
         .uri()
         .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
+        .map_or("/", http::uri::PathAndQuery::as_str);
       let location = if port == 443 {
         format!("https://{host}{path_and_query}")
       } else {

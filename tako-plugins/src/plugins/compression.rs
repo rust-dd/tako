@@ -240,10 +240,10 @@ impl CompressionBuilder {
   /// Enables or disables Gzip compression.
   pub fn enable_gzip(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Gzip) {
-      self.0.enabled.push(Encoding::Gzip)
+      self.0.enabled.push(Encoding::Gzip);
     }
     if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Gzip)
+      self.0.enabled.retain(|e| *e != Encoding::Gzip);
     }
     self
   }
@@ -251,10 +251,10 @@ impl CompressionBuilder {
   /// Enables or disables Brotli compression.
   pub fn enable_brotli(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Brotli) {
-      self.0.enabled.push(Encoding::Brotli)
+      self.0.enabled.push(Encoding::Brotli);
     }
     if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Brotli)
+      self.0.enabled.retain(|e| *e != Encoding::Brotli);
     }
     self
   }
@@ -262,10 +262,10 @@ impl CompressionBuilder {
   /// Enables or disables DEFLATE compression.
   pub fn enable_deflate(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Deflate) {
-      self.0.enabled.push(Encoding::Deflate)
+      self.0.enabled.push(Encoding::Deflate);
     }
     if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Deflate)
+      self.0.enabled.retain(|e| *e != Encoding::Deflate);
     }
     self
   }
@@ -275,10 +275,10 @@ impl CompressionBuilder {
   #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn enable_zstd(mut self, yes: bool) -> Self {
     if yes && !self.0.enabled.contains(&Encoding::Zstd) {
-      self.0.enabled.push(Encoding::Zstd)
+      self.0.enabled.push(Encoding::Zstd);
     }
     if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Zstd)
+      self.0.enabled.retain(|e| *e != Encoding::Zstd);
     }
     self
   }
@@ -424,14 +424,14 @@ impl TakoPlugin for CompressionPlugin {
       let cfg = cfg.clone();
       let stream = cfg.stream;
       async move {
-        if !stream {
-          CompressionResponse::Plain(compress_middleware(req, next, cfg).await.into_response())
-        } else {
+        if stream {
           CompressionResponse::Stream(
             compress_stream_middleware(req, next, cfg)
               .await
               .into_response(),
           )
+        } else {
+          CompressionResponse::Plain(compress_middleware(req, next, cfg).await.into_response())
         }
       }
     });
@@ -491,13 +491,12 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   ensure_vary_accept_encoding(resp.headers_mut());
 
   // Collect the response body and check its size.
-  let body_bytes = match resp.body_mut().collect().await {
-    Ok(c) => c.to_bytes(),
-    Err(_) => {
-      *resp.status_mut() = StatusCode::BAD_GATEWAY;
-      *resp.body_mut() = TakoBody::empty();
-      return resp.into_response();
-    }
+  let body_bytes = if let Ok(c) = resp.body_mut().collect().await {
+    c.to_bytes()
+  } else {
+    *resp.status_mut() = StatusCode::BAD_GATEWAY;
+    *resp.body_mut() = TakoBody::empty();
+    return resp.into_response();
   };
   if body_bytes.len() < cfg.min_size {
     *resp.body_mut() = TakoBody::from(body_bytes);
@@ -635,12 +634,10 @@ fn request_carries_credentials(req: &Request) -> bool {
 /// client.
 fn ensure_vary_accept_encoding(headers: &mut http::HeaderMap) {
   let already_present = headers.get_all(VARY).iter().any(|v| {
-    v.to_str()
-      .map(|s| {
-        s.split(',')
-          .any(|tok| tok.trim().eq_ignore_ascii_case("Accept-Encoding"))
-      })
-      .unwrap_or(false)
+    v.to_str().is_ok_and(|s| {
+      s.split(',')
+        .any(|tok| tok.trim().eq_ignore_ascii_case("Accept-Encoding"))
+    })
   });
   if !already_present {
     headers.append(VARY, HeaderValue::from_static("Accept-Encoding"));
@@ -661,7 +658,7 @@ fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
     let name = enc.as_str();
     match parsed.iter().find(|(c, _)| c == name) {
       Some((_, q)) => *q > 0.0,
-      None => wildcard_q.map(|q| q > 0.0).unwrap_or(false),
+      None => wildcard_q.is_some_and(|q| q > 0.0),
     }
   };
 

@@ -168,12 +168,11 @@ where
     // Iterate server preference order first: the first server-preferred
     // subprotocol that the client also offers wins. The previous loop
     // iterated client order, letting a downgrade-favoring client choose.
-    for &server_pref in &self.protocols {
-      if offered.iter().any(|o| *o == server_pref) {
-        return Some(server_pref);
-      }
-    }
-    None
+    self
+      .protocols
+      .iter()
+      .copied()
+      .find(|server_pref| offered.contains(server_pref))
   }
 
   fn origin_allowed(&self, headers: &http::HeaderMap) -> bool {
@@ -247,14 +246,11 @@ where
     let (parts, body) = request.into_parts();
     let req = http::Request::from_parts(parts, body);
 
-    let key = match req.headers().get("Sec-WebSocket-Key") {
-      Some(k) => k,
-      None => {
-        return http::Response::builder()
-          .status(StatusCode::BAD_REQUEST)
-          .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
-          .expect("valid bad request response");
-      }
+    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
+      return http::Response::builder()
+        .status(StatusCode::BAD_REQUEST)
+        .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
+        .expect("valid bad request response");
     };
 
     let accept = {

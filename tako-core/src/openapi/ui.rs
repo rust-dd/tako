@@ -1,16 +1,16 @@
-//! OpenAPI UI helpers for serving interactive API documentation.
+//! `OpenAPI` UI helpers for serving interactive API documentation.
 //!
-//! This module provides responders for serving popular OpenAPI UI interfaces:
-//! - **Swagger UI**: The classic OpenAPI documentation interface
+//! This module provides responders for serving popular `OpenAPI` UI interfaces:
+//! - **Swagger UI**: The classic `OpenAPI` documentation interface
 //! - **Scalar**: A modern, beautiful API documentation UI
-//! - **RapiDoc**: A feature-rich API documentation viewer
+//! - **`RapiDoc`**: A feature-rich API documentation viewer
 //!
 //! All UIs are served via CDN, requiring no additional dependencies.
 //!
 //! # Examples
 //!
 //! ```rust,ignore
-//! use tako::openapi::ui::{SwaggerUi, Scalar, RapiDoc};
+//! use tako::openapi::ui::{SwaggerUi, Scalar, `RapiDoc`};
 //! use tako::{router::Router, Method};
 //!
 //! let mut router = Router::new();
@@ -25,9 +25,9 @@
 //!     Scalar::new("/openapi.json")
 //! });
 //!
-//! // Serve RapiDoc at /rapidoc
+//! // Serve `RapiDoc` at /rapidoc
 //! router.route(Method::GET, "/rapidoc", |_| async {
-//!     RapiDoc::new("/openapi.json")
+//!     `RapiDoc`::new("/openapi.json")
 //! });
 //! ```
 
@@ -35,7 +35,7 @@ use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// Swagger UI responder that serves the classic OpenAPI documentation interface.
+/// Swagger UI responder that serves the classic `OpenAPI` documentation interface.
 ///
 /// # Examples
 ///
@@ -53,7 +53,7 @@ pub struct SwaggerUi {
 }
 
 impl SwaggerUi {
-  /// Creates a new Swagger UI pointing to the given OpenAPI spec URL.
+  /// Creates a new Swagger UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -155,7 +155,7 @@ impl ScalarTheme {
 }
 
 impl Scalar {
-  /// Creates a new Scalar UI pointing to the given OpenAPI spec URL.
+  /// Creates a new Scalar UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -212,15 +212,15 @@ impl Responder for Scalar {
   }
 }
 
-/// RapiDoc responder that serves a feature-rich API documentation viewer.
+/// `RapiDoc` responder that serves a feature-rich API documentation viewer.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// use tako::openapi::ui::RapiDoc;
+/// use tako::openapi::ui::`RapiDoc`;
 ///
-/// async fn rapidoc_handler(_: tako::types::Request) -> RapiDoc {
-///     RapiDoc::new("/openapi.json")
+/// async fn rapidoc_handler(_: tako::types::Request) -> `RapiDoc` {
+///     `RapiDoc`::new("/openapi.json")
 ///         .title("My API")
 ///         .theme(RapiDocTheme::Dark)
 /// }
@@ -232,7 +232,7 @@ pub struct RapiDoc {
   render_style: RapiDocRenderStyle,
 }
 
-/// Theme options for RapiDoc UI.
+/// Theme options for `RapiDoc` UI.
 #[derive(Clone, Copy, Default)]
 pub enum RapiDocTheme {
   #[default]
@@ -249,7 +249,7 @@ impl RapiDocTheme {
   }
 }
 
-/// Render style options for RapiDoc.
+/// Render style options for `RapiDoc`.
 #[derive(Clone, Copy, Default)]
 pub enum RapiDocRenderStyle {
   #[default]
@@ -269,7 +269,7 @@ impl RapiDocRenderStyle {
 }
 
 impl RapiDoc {
-  /// Creates a new RapiDoc UI pointing to the given OpenAPI spec URL.
+  /// Creates a new `RapiDoc` UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -285,7 +285,7 @@ impl RapiDoc {
     self
   }
 
-  /// Sets the RapiDoc theme.
+  /// Sets the `RapiDoc` theme.
   pub fn theme(mut self, theme: RapiDocTheme) -> Self {
     self.theme = theme;
     self
@@ -334,15 +334,15 @@ impl Responder for RapiDoc {
   }
 }
 
-/// Redoc responder that serves the Redoc API documentation interface.
+/// `Redoc` responder that serves the `Redoc` API documentation interface.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// use tako::openapi::ui::Redoc;
+/// use tako::openapi::ui::`Redoc`;
 ///
-/// async fn redoc_handler(_: tako::types::Request) -> Redoc {
-///     Redoc::new("/openapi.json")
+/// async fn redoc_handler(_: tako::types::Request) -> `Redoc` {
+///     `Redoc`::new("/openapi.json")
 ///         .title("My API")
 /// }
 /// ```
@@ -352,7 +352,7 @@ pub struct Redoc {
 }
 
 impl Redoc {
-  /// Creates a new Redoc UI pointing to the given OpenAPI spec URL.
+  /// Creates a new `Redoc` UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),

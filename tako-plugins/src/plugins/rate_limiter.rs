@@ -64,9 +64,9 @@ pub enum UnkeyedBehavior {
 pub struct Config {
   /// Maximum burst capacity.
   pub max_requests: u32,
-  /// Tokens added per refill interval (TokenBucket only).
+  /// Tokens added per refill interval (`TokenBucket` only).
   pub refill_rate: u32,
-  /// Refill interval (TokenBucket only).
+  /// Refill interval (`TokenBucket` only).
   pub refill_interval_ms: u64,
   /// HTTP status returned on rejection.
   pub status_on_limit: StatusCode,
@@ -251,8 +251,8 @@ impl TakoPlugin for RateLimiterPlugin {
 
       let purge_after = Duration::from_secs(300);
       let interval = Duration::from_millis(cfg.refill_interval_ms);
-      let refill_amount = cfg.refill_rate as f64;
-      let cap = cfg.max_requests as f64;
+      let refill_amount = f64::from(cfg.refill_rate);
+      let cap = f64::from(cfg.max_requests);
 
       #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
@@ -301,7 +301,7 @@ struct Outcome {
 }
 
 fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
-  let cap = cfg.max_requests as f64;
+  let cap = f64::from(cfg.max_requests);
   match cfg.algorithm {
     Algorithm::TokenBucket => {
       // Lazy refill so each request observes the latest count even between
@@ -310,7 +310,7 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
         .duration_since(bucket.last_refill)
         .as_secs_f64()
         .max(0.0);
-      let rate_per_sec = cfg.refill_rate as f64 / (cfg.refill_interval_ms as f64 / 1_000.0);
+      let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
       bucket.available = (bucket.available + dt * rate_per_sec).min(cap);
       bucket.last_refill = now;
       let allowed = bucket.available >= 1.0;
@@ -336,7 +336,7 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
       // GCRA: maintain a virtual "next free time"; if it is in the future
       // beyond the burst tolerance, reject. We map `available` ↔ remaining
       // headroom for backwards-compatible book-keeping.
-      let rate_per_sec = cfg.refill_rate as f64 / (cfg.refill_interval_ms as f64 / 1_000.0);
+      let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
       let increment = if rate_per_sec > 0.0 {
         1.0 / rate_per_sec
       } else {
@@ -396,23 +396,20 @@ async fn handle(
     Some(f) => f(&req),
     None => default_key(&req),
   };
-  let key = match key {
-    Some(k) => k,
-    None => match cfg.on_unkeyed {
-      UnkeyedBehavior::Allow => return next.run(req).await,
-      UnkeyedBehavior::Reject => {
-        return http::Response::builder()
-          .status(cfg.status_on_limit)
-          .body(TakoBody::empty())
-          .expect("valid rate-limit response");
-      }
-    },
+  let Some(key) = key else {
+    return match cfg.on_unkeyed {
+      UnkeyedBehavior::Allow => next.run(req).await,
+      UnkeyedBehavior::Reject => http::Response::builder()
+        .status(cfg.status_on_limit)
+        .body(TakoBody::empty())
+        .expect("valid rate-limit response"),
+    };
   };
 
   let outcome = {
     let entry = store.entry_async(key).await.or_insert_with(|| {
       Mutex::new(Bucket {
-        available: cfg.max_requests as f64,
+        available: f64::from(cfg.max_requests),
         last_refill: Instant::now(),
       })
     });

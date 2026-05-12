@@ -1,4 +1,4 @@
-//! Async-GraphQL integration for Tako: extractors, responses, and subscriptions.
+//! Async-`GraphQL` integration for Tako: extractors, responses, and subscriptions.
 //!
 //! - GraphQLRequest / GraphQLBatchRequest extractors
 //! - GraphQLResponse / GraphQLBatchResponse responders
@@ -118,7 +118,7 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Single GraphQL request extractor.
+/// Single `GraphQL` request extractor.
 pub struct GraphQLRequest(pub async_graphql::Request);
 
 impl GraphQLRequest {
@@ -127,7 +127,7 @@ impl GraphQLRequest {
   }
 }
 
-/// Batch GraphQL request extractor.
+/// Batch `GraphQL` request extractor.
 pub struct GraphQLBatchRequest(pub GqlBatchRequest);
 
 impl GraphQLBatchRequest {
@@ -136,7 +136,7 @@ impl GraphQLBatchRequest {
   }
 }
 
-/// Errors that can occur while parsing GraphQL HTTP requests.
+/// Errors that can occur while parsing `GraphQL` HTTP requests.
 #[derive(Debug)]
 pub enum GraphQLError {
   MissingQuery,
@@ -146,7 +146,7 @@ pub enum GraphQLError {
   UnsupportedMediaType(String),
 }
 
-/// Per-request or global options for GraphQL extraction.
+/// Per-request or global options for `GraphQL` extraction.
 #[derive(Clone, Default)]
 pub struct GraphQLOptions {
   pub multipart: MultipartOptions,
@@ -176,7 +176,7 @@ impl Responder for GraphQLError {
   }
 }
 
-/// Returns the GraphQL POST body media-type bucket if the request's
+/// Returns the `GraphQL` POST body media-type bucket if the request's
 /// `Content-Type` header advertises one async-graphql understands, or
 /// `Err(UnsupportedMediaType)` otherwise. Used to fail fast before buffering
 /// a body that the parser would reject anyway with a confusing message.
@@ -206,7 +206,7 @@ enum GraphQLBodyKind {
   Multipart,
 }
 
-/// Extracted WebSocket protocol for GraphQL subscriptions.
+/// Extracted WebSocket protocol for `GraphQL` subscriptions.
 pub struct GraphQLProtocol(pub WebSocketProtocols);
 
 #[derive(Debug)]
@@ -290,7 +290,7 @@ async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError
     .collect()
     .await
     .map_err(|e| GraphQLError::BodyRead(e.to_string()))
-    .map(|collected| collected.to_bytes())
+    .map(http_body_util::Collected::to_bytes)
 }
 
 impl<'a> FromRequest<'a> for GraphQLRequest {
@@ -311,7 +311,7 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
         .headers()
         .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
       classify_graphql_content_type(content_type.as_deref())?;
 
       let body = read_body_bytes(req).await?;
@@ -328,13 +328,13 @@ impl<'a> FromRequest<'a> for GraphQLRequest {
   }
 }
 
-/// Helper to receive a single GraphQL request with custom MultipartOptions.
-/// Attach per-request GraphQL options into request extensions.
+/// Helper to receive a single `GraphQL` request with custom `MultipartOptions`.
+/// Attach per-request `GraphQL` options into request extensions.
 pub fn attach_graphql_options(req: &mut Request, opts: GraphQLOptions) {
   req.extensions_mut().insert(opts);
 }
 
-/// Set global GraphQL options via Tako's global state.
+/// Set global `GraphQL` options via Tako's global state.
 pub fn set_global_graphql_options(opts: GraphQLOptions) {
   crate::state::set_state::<GraphQLOptions>(opts);
 }
@@ -351,14 +351,14 @@ pub async fn receive_graphql(
     .headers()
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
-    .map(|s| s.to_string());
+    .map(std::string::ToString::to_string);
   let reader = futures_util::io::Cursor::new(body.to_vec());
   async_graphql::http::receive_body(content_type.as_deref(), reader, opts)
     .await
     .map_err(|e| GraphQLError::Parse(e.to_string()))
 }
 
-/// Helper to receive a batch GraphQL request with custom MultipartOptions.
+/// Helper to receive a batch `GraphQL` request with custom `MultipartOptions`.
 pub async fn receive_graphql_batch(
   req: &mut Request,
   opts: MultipartOptions,
@@ -371,7 +371,7 @@ pub async fn receive_graphql_batch(
     .headers()
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
-    .map(|s| s.to_string());
+    .map(std::string::ToString::to_string);
   classify_graphql_content_type(content_type.as_deref())?;
   let body = read_body_bytes(req).await?;
   if body.is_empty() {
@@ -403,7 +403,7 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
         .headers()
         .get(http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(std::string::ToString::to_string);
       classify_graphql_content_type(content_type.as_deref())?;
       let body = read_body_bytes(req).await?;
       if body.is_empty() {
@@ -418,7 +418,7 @@ impl<'a> FromRequest<'a> for GraphQLBatchRequest {
   }
 }
 
-/// Single GraphQL response wrapper.
+/// Single `GraphQL` response wrapper.
 pub struct GraphQLResponse(pub async_graphql::Response);
 
 impl From<async_graphql::Response> for GraphQLResponse {
@@ -443,7 +443,7 @@ impl Responder for GraphQLResponse {
   }
 }
 
-/// Batch GraphQL response wrapper.
+/// Batch `GraphQL` response wrapper.
 pub struct GraphQLBatchResponse(pub GqlBatchResponse);
 
 impl From<GqlBatchResponse> for GraphQLBatchResponse {
@@ -468,7 +468,7 @@ impl Responder for GraphQLBatchResponse {
   }
 }
 
-/// GraphQL WebSocket subscription responder (GraphQL over WebSocket).
+/// `GraphQL` WebSocket subscription responder (`GraphQL` over WebSocket).
 ///
 /// Usage in a handler:
 ///
@@ -590,15 +590,12 @@ where
     };
 
     // Compute accept key
-    let key = match req.headers().get("Sec-WebSocket-Key") {
-      Some(k) => k,
-      None => {
-        return (
-          StatusCode::BAD_REQUEST,
-          "Missing Sec-WebSocket-Key for WebSocket upgrade",
-        )
-          .into_response();
-      }
+    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
+      return (
+        StatusCode::BAD_REQUEST,
+        "Missing Sec-WebSocket-Key for WebSocket upgrade",
+      )
+        .into_response();
     };
 
     let accept = {
@@ -649,7 +646,7 @@ where
               }
               _ => futures_util::future::ready(None),
             })
-            .map(|msg| msg.into_data());
+            .map(tokio_tungstenite::tungstenite::Message::into_data);
 
           let mut stream = GqlWebSocket::new(executor, input, protocol)
             .connection_data(data)
@@ -677,7 +674,7 @@ where
   }
 }
 
-/// A generic GraphQL WebSocket driver using an arbitrary Sink/Stream of tungstenite Messages.
+/// A generic `GraphQL` WebSocket driver using an arbitrary `Sink`/`Stream` of tungstenite Messages.
 ///
 /// This is a generic API so you can integrate custom websocket
 /// transports while reusing Tako's mapping to async-graphql's WebSocket state machine.
@@ -711,7 +708,7 @@ where
     > + Sink<tokio_tungstenite::tungstenite::Message>,
   E: Executor,
 {
-  /// Create a GraphQLWebSocket from a combined websocket stream implementing Sink+Stream.
+  /// Create a `GraphQLWebSocket` from a combined websocket stream implementing `Sink`+`Stream`.
   pub fn new(stream: S, executor: E, protocol: WebSocketProtocols) -> Self {
     let (sink, stream) = stream.split();
     GraphQLWebSocket::new_with_pair(sink, stream, executor, protocol)
@@ -728,7 +725,7 @@ where
   >,
   E: Executor,
 {
-  /// Create a GraphQLWebSocket from separate sink and stream.
+  /// Create a `GraphQLWebSocket` from separate sink and stream.
   pub fn new_with_pair(
     sink: SinkT,
     stream: StreamT,
@@ -820,7 +817,7 @@ where
     }
   }
 
-  /// Run the GraphQL over WebSocket protocol loop until the connection ends.
+  /// Run the `GraphQL` over WebSocket protocol loop until the connection ends.
   pub async fn serve(mut self) {
     let input = self
       .stream
@@ -833,7 +830,7 @@ where
         }
         _ => futures_util::future::ready(None),
       })
-      .map(|msg| msg.into_data());
+      .map(tokio_tungstenite::tungstenite::Message::into_data);
 
     let mut out_stream = GqlWebSocket::new(self.executor, input, self.protocol)
       .connection_data(self.data)

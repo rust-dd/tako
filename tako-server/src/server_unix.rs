@@ -1,7 +1,7 @@
 //! Unix Domain Socket server for local IPC and reverse proxy communication.
 //!
 //! Provides both raw Unix socket and HTTP-over-Unix-socket servers.
-//! The HTTP variant is ideal for production deployments behind nginx/HAProxy
+//! The HTTP variant is ideal for production deployments behind nginx/`HAProxy`
 //! where the app communicates via a local socket file instead of TCP.
 //!
 //! Filesystem and Linux abstract-namespace paths are both supported. A path
@@ -214,7 +214,7 @@ where
 
 /// Starts an HTTP server over a Unix domain socket.
 ///
-/// Ideal for production deployments behind a reverse proxy (nginx, HAProxy)
+/// Ideal for production deployments behind a reverse proxy (nginx, `HAProxy`)
 /// where the app communicates via a local socket file instead of TCP.
 pub async fn serve_unix_http(path: impl AsRef<Path>, router: Router) {
   if let Err(e) = run_http(
@@ -315,7 +315,7 @@ async fn run_http(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,
@@ -328,7 +328,7 @@ async fn run_http(
         let router = router.clone();
 
         let peer_addr = UnixPeerAddr {
-          path: addr.as_pathname().map(|p| p.to_path_buf()),
+          path: addr.as_pathname().map(std::path::Path::to_path_buf),
         };
 
         join_set.spawn(async move {

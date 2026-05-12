@@ -46,9 +46,8 @@ impl CronScheduler {
   /// Drive the scheduler in the current async context until cancelled.
   pub async fn run(self) {
     loop {
-      let next = match self.schedule.upcoming(Utc).next() {
-        Some(t) => t,
-        None => return,
+      let Some(next) = self.schedule.upcoming(Utc).next() else {
+        return;
       };
       let now = Utc::now();
       let wait = (next - now).to_std().unwrap_or(Duration::from_secs(0));

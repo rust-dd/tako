@@ -257,16 +257,13 @@ impl IntoMiddleware for ApiKeyAuth {
 
       Box::pin(async move {
         // Extract API key from configured location
-        let api_key = match extract_api_key(&req, &location) {
-          Some(key) => key,
-          None => {
-            return http::Response::builder()
-              .status(StatusCode::UNAUTHORIZED)
-              .header(header::WWW_AUTHENTICATE, api_key_authenticate.clone())
-              .body(TakoBody::from("API key is missing"))
-              .unwrap()
-              .into_response();
-          }
+        let Some(api_key) = extract_api_key(&req, &location) else {
+          return http::Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header(header::WWW_AUTHENTICATE, api_key_authenticate.clone())
+            .body(TakoBody::from("API key is missing"))
+            .unwrap()
+            .into_response();
         };
 
         // Validate against static keys (constant-time scan)

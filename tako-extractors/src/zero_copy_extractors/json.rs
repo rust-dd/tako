@@ -51,7 +51,7 @@ where
   }
 }
 
-impl<'a, T> Responder for JsonBorrowed<'a, T>
+impl<T> Responder for JsonBorrowed<'_, T>
 where
   T: Serialize,
 {

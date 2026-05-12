@@ -353,7 +353,7 @@ fn build_certified_key(
   let signer = provider
     .key_provider
     .load_private_key(key)
-    .map_err(|e| anyhow::anyhow!("failed to load signing key from '{}': {}", key_path, e))?;
+    .map_err(|e| anyhow::anyhow!("failed to load signing key from '{key_path}': {e}"))?;
   Ok(rustls::sign::CertifiedKey::new(certs, signer))
 }
 
@@ -434,7 +434,7 @@ pub struct ServerBuilder {
 
 #[cfg(not(feature = "compio"))]
 impl ServerBuilder {
-  /// Override the [`ServerConfig`] (drain timeout, h2 caps, max_connections, …).
+  /// Override the [`ServerConfig`] (drain timeout, h2 caps, `max_connections`, …).
   #[must_use]
   pub fn config(mut self, config: ServerConfig) -> Self {
     self.config = config;
@@ -744,7 +744,7 @@ impl CompioServerBuilder {
 
 /// Compio-runtime server entry point. Construct with [`CompioServer::builder`].
 ///
-/// Mirrors the tokio [`Server`] API but drives the compio runtime — io_uring
+/// Mirrors the tokio [`Server`] API but drives the compio runtime — `io_uring`
 /// on Linux, IOCP on Windows, kqueue on macOS — under the hood.
 #[cfg(feature = "compio")]
 #[derive(Debug, Clone)]

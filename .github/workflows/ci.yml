@@ -67,6 +67,12 @@ jobs:
           - os: ubuntu-latest
             label: http3
             features: --features "tls,http2,http3,plugins,signals"
+          - os: ubuntu-latest
+            label: all-features
+            # Regression guard for A1 (compio/tokio !Send mismatch under
+            # workspace-wide --all-features test-build). Re-fixing the
+            # gated test bins requires both runtimes resolved at once.
+            features: --all-features
     env:
       # Tests don't need to break on every clippy nit; only enforce build-warnings
       # in build/clippy/doc jobs.

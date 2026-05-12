@@ -44,8 +44,7 @@ impl HealthRegistry {
     self
       .inner
       .get_sync(service)
-      .map(|e| *e.get())
-      .unwrap_or(ServingStatus::ServiceUnknown)
+      .map_or(ServingStatus::ServiceUnknown, |e| *e.get())
   }
 
   /// Snapshot of every registered service and its status.

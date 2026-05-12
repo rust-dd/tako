@@ -45,7 +45,7 @@ struct State {
   state: AtomicU8,
   successes: AtomicU64,
   failures: AtomicU64,
-  /// Instant (as Duration since Self::start) when the breaker opened.
+  /// Instant (as Duration since `Self::start`) when the breaker opened.
   opened_at: Mutex<Option<Instant>>,
   /// Whether a half-open probe is currently in flight (one at a time).
   probe_in_flight: AtomicU8,

@@ -1,23 +1,23 @@
-//! OpenAPI documentation generation integrations.
+//! `OpenAPI` documentation generation integrations.
 //!
 //! Tako ships two integration backends; pick exactly one per project:
 //!
-//! - **`utoipa` — primary, recommended**. Compile-time OpenAPI generation via
+//! - **`utoipa` — primary, recommended**. Compile-time `OpenAPI` generation via
 //!   derive macros, mature ecosystem, broad community use. Enable with the
 //!   `utoipa` cargo feature.
-//! - **`vespera` — legacy / advanced**. Hand-rolled OpenAPI 3.1 builder plus
+//! - **`vespera` — legacy / advanced**. Hand-rolled `OpenAPI` 3.1 builder plus
 //!   route discovery. Kept opt-in for users who need the runtime spec model
 //!   that `utoipa` does not provide. Enable with the `vespera` feature.
 //!
 //! Both backends share the same [`RouteOpenApi`](crate::openapi::RouteOpenApi) metadata attached on the
 //! `Router::route(...)` builder via `summary` / `description` / `tag` /
-//! `response`. The OpenAPI documents themselves are produced by whichever
+//! `response`. The `OpenAPI` documents themselves are produced by whichever
 //! backend the application enables; do not enable both unless you are
 //! intentionally cross-validating the output.
 //!
 //! # Route-Level Integration
 //!
-//! Both integrations support route-level OpenAPI metadata:
+//! Both integrations support route-level `OpenAPI` metadata:
 //!
 //! ```rust,ignore
 //! use tako::{router::Router, Method};
@@ -73,10 +73,10 @@
 
 use std::collections::BTreeMap;
 
-/// OpenAPI metadata that can be attached to a route.
+/// `OpenAPI` metadata that can be attached to a route.
 ///
-/// This struct stores operation-level OpenAPI information that can be
-/// used to generate OpenAPI specifications from Tako routes.
+/// This struct stores operation-level `OpenAPI` information that can be
+/// used to generate `OpenAPI` specifications from Tako routes.
 #[derive(Clone, Debug, Default)]
 pub struct RouteOpenApi {
   /// Unique identifier for the operation.
@@ -99,7 +99,7 @@ pub struct RouteOpenApi {
   pub security: Vec<String>,
 }
 
-/// OpenAPI parameter definition.
+/// `OpenAPI` parameter definition.
 #[derive(Clone, Debug)]
 pub struct OpenApiParameter {
   /// Parameter name.
@@ -112,7 +112,7 @@ pub struct OpenApiParameter {
   pub required: bool,
 }
 
-/// Location of an OpenAPI parameter.
+/// Location of an `OpenAPI` parameter.
 #[derive(Clone, Debug, Default)]
 pub enum ParameterLocation {
   #[default]
@@ -122,7 +122,7 @@ pub enum ParameterLocation {
   Cookie,
 }
 
-/// OpenAPI request body definition.
+/// `OpenAPI` request body definition.
 #[derive(Clone, Debug)]
 pub struct OpenApiRequestBody {
   /// Description of the request body.
@@ -154,5 +154,5 @@ pub mod utoipa;
 #[cfg_attr(docsrs, doc(cfg(feature = "vespera")))]
 pub mod vespera;
 
-/// OpenAPI UI helpers (Swagger UI, Scalar, RapiDoc, Redoc).
+/// `OpenAPI` UI helpers (Swagger UI, Scalar, `RapiDoc`, `Redoc`).
 pub mod ui;

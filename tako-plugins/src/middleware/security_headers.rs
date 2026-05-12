@@ -73,7 +73,7 @@ impl Default for SecurityHeaders {
 }
 
 impl SecurityHeaders {
-  /// Creates a SecurityHeaders middleware with sensible defaults.
+  /// Creates a `SecurityHeaders` middleware with sensible defaults.
   pub fn new() -> Self {
     Self {
       frame_options: HeaderValue::from_static("DENY"),
@@ -182,12 +182,13 @@ impl SecurityHeaders {
 fn rand_nonce() -> String {
   // 18 random bytes → 24-char base64. UUID v4 covers 16 random bytes; pad
   // with the second half of a fresh UUID for the remaining 2.
+  use base64::Engine;
+
   let u1 = uuid::Uuid::new_v4().into_bytes();
   let u2 = uuid::Uuid::new_v4().into_bytes();
   let mut buf = [0u8; 18];
   buf[..16].copy_from_slice(&u1);
   buf[16..].copy_from_slice(&u2[..2]);
-  use base64::Engine;
   base64::engine::general_purpose::STANDARD_NO_PAD.encode(buf)
 }
 

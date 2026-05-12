@@ -236,14 +236,11 @@ impl V2Client {
     };
     let mut last_err: Option<Box<dyn Error + Send + Sync>> = None;
     for attempt in 0..attempt_max {
-      let req_clone = match clone_request_full(&req) {
-        Some(c) => c,
-        None => {
-          // Clone failed (e.g. an invalid header value re-built somewhere).
-          // Surface as an error rather than panicking via `expect()`.
-          last_err = Some("failed to clone request for retry".into());
-          break;
-        }
+      let Some(req_clone) = clone_request_full(&req) else {
+        // Clone failed (e.g. an invalid header value re-built somewhere).
+        // Surface as an error rather than panicking via `expect()`.
+        last_err = Some("failed to clone request for retry".into());
+        break;
       };
       if attempt > 0 {
         // Exponential backoff: base * 2^(attempt-1), plus a 1-ms-per-attempt
@@ -254,7 +251,7 @@ impl V2Client {
         let backoff = self
           .retry_backoff
           .saturating_mul(factor)
-          .saturating_add(Duration::from_millis(attempt as u64));
+          .saturating_add(Duration::from_millis(u64::from(attempt)));
         tokio::time::sleep(backoff).await;
       }
 
@@ -273,7 +270,6 @@ impl V2Client {
       match result {
         Ok(resp) if resp.status().is_server_error() && attempt + 1 < attempt_max => {
           last_err = Some(format!("server error {}", resp.status()).into());
-          continue;
         }
         Ok(resp) => return Ok(resp),
         Err(e) => {

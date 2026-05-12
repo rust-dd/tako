@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "compio", allow(unused_imports))]
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;

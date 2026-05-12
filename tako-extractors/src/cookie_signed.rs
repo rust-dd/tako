@@ -223,8 +223,7 @@ impl CookieSigned {
       let kid = self
         .ring
         .as_ref()
-        .map(|r| r.active_kid.clone())
-        .unwrap_or_else(|| "default".to_string());
+        .map_or_else(|| "default".to_string(), |r| r.active_kid.clone());
       return Some((c, kid));
     }
     if let Some(ring) = self.ring.as_ref() {

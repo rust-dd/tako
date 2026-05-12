@@ -45,9 +45,8 @@ impl UriPartsConfig {
 }
 
 fn peer_is_trusted(ext: &http::Extensions, cfg: Option<&UriPartsConfig>) -> bool {
-  let cfg = match cfg {
-    Some(c) => c,
-    None => return false,
+  let Some(cfg) = cfg else {
+    return false;
   };
   if cfg.trusted_proxies.is_empty() {
     return false;
@@ -84,8 +83,7 @@ impl<'a> FromRequest<'a> for OriginalUri {
     let uri = req
       .extensions()
       .get::<OriginalUriMarker>()
-      .map(|m| m.0.clone())
-      .unwrap_or_else(|| req.uri().clone());
+      .map_or_else(|| req.uri().clone(), |m| m.0.clone());
     futures_util::future::ready(Ok(OriginalUri(uri)))
   }
 }
@@ -99,8 +97,7 @@ impl<'a> FromRequestParts<'a> for OriginalUri {
     let uri = parts
       .extensions
       .get::<OriginalUriMarker>()
-      .map(|m| m.0.clone())
-      .unwrap_or_else(|| parts.uri.clone());
+      .map_or_else(|| parts.uri.clone(), |m| m.0.clone());
     futures_util::future::ready(Ok(OriginalUri(uri)))
   }
 }
@@ -201,7 +198,7 @@ fn extract_scheme(
       .get("x-forwarded-proto")
       .and_then(|v| v.to_str().ok())
       .and_then(|v| v.split(',').next())
-      .map(|s| s.trim())
+      .map(str::trim)
     && !p.is_empty()
   {
     return p.to_ascii_lowercase();

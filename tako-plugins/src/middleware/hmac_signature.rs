@@ -187,20 +187,15 @@ impl IntoMiddleware for HmacSignature {
             .get(ts_header)
             .and_then(|v| v.to_str().ok())
             .map(str::trim);
-          let ts = ts_str.and_then(|s| s.parse::<i64>().ok());
-          let ts = match ts {
-            Some(t) => t,
-            None => {
-              return http::Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .body(TakoBody::from("missing or malformed timestamp header"))
-                .expect("valid response");
-            }
+          let Some(ts) = ts_str.and_then(|s| s.parse::<i64>().ok()) else {
+            return http::Response::builder()
+              .status(StatusCode::UNAUTHORIZED)
+              .body(TakoBody::from("missing or malformed timestamp header"))
+              .expect("valid response");
           };
           let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs() as i64);
           if (now - ts).unsigned_abs() > max_clock_skew.as_secs() {
             return http::Response::builder()
               .status(StatusCode::UNAUTHORIZED)
@@ -214,28 +209,22 @@ impl IntoMiddleware for HmacSignature {
           .and_then(|v| v.to_str().ok())
           .map(str::trim)
           .map(str::to_string);
-        let provided = match provided {
-          Some(s) if !s.is_empty() => s,
-          _ => {
-            return http::Response::builder()
-              .status(StatusCode::UNAUTHORIZED)
-              .body(TakoBody::from("missing signature header"))
-              .expect("valid response");
-          }
+        let Some(provided) = provided.filter(|s| !s.is_empty()) else {
+          return http::Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .body(TakoBody::from("missing signature header"))
+            .expect("valid response");
         };
         let provided_bytes = if hex {
           hex_decode(&provided)
         } else {
           base64_decode(&provided)
         };
-        let provided_bytes = match provided_bytes {
-          Some(b) => b,
-          None => {
-            return http::Response::builder()
-              .status(StatusCode::BAD_REQUEST)
-              .body(TakoBody::from("malformed signature"))
-              .expect("valid response");
-          }
+        let Some(provided_bytes) = provided_bytes else {
+          return http::Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(TakoBody::from("malformed signature"))
+            .expect("valid response");
         };
 
         let (parts, body) = req.into_parts();
@@ -251,23 +240,20 @@ impl IntoMiddleware for HmacSignature {
         };
         let canonical_bytes = (canonical)(&parts, &collected);
 
-        let mut mac = match HmacSha256::new_from_slice(&secret) {
-          Ok(m) => m,
-          Err(_) => {
-            return http::Response::builder()
-              .status(StatusCode::INTERNAL_SERVER_ERROR)
-              .body(TakoBody::from("signer key invalid"))
-              .expect("valid response");
-          }
+        let Ok(mut mac) = HmacSha256::new_from_slice(&secret) else {
+          return http::Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(TakoBody::from("signer key invalid"))
+            .expect("valid response");
         };
         mac.update(&canonical_bytes);
         let computed = mac.finalize().into_bytes();
 
         let computed_bytes: &[u8] = computed.as_ref();
-        let ok = if computed_bytes.len() != provided_bytes.len() {
-          false
-        } else {
+        let ok = if computed_bytes.len() == provided_bytes.len() {
           bool::from(computed_bytes.ct_eq(provided_bytes.as_slice()))
+        } else {
+          false
         };
         if !ok {
           return http::Response::builder()

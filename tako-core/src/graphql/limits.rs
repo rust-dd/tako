@@ -1,4 +1,4 @@
-//! GraphQL execution-cost limits.
+//! `GraphQL` execution-cost limits.
 //!
 //! Thin re-export layer over `async_graphql::extensions::Logger` /
 //! `MaxDepth` / `MaxComplexity`-style controls, exposing one `Limits` builder

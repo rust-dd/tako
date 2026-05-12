@@ -156,3 +156,85 @@ criterion = { version = "0.7", features = ["html_reports"] }
 [profile.release]
 lto = "fat"
 codegen-units = 1
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+# Allowed pedantic lints (with rationale).
+# Each entry documents why the lint is not actionable in this codebase.
+
+# `as` casts in size/index/metric paths are intentional and bounded by domain
+# constraints (header lengths, body sizes, counter widths). Replacing them with
+# `try_into().unwrap()` only adds noise — the precondition is enforced upstream.
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+
+# Protocol handlers, state machines, and connection loops are inherently long.
+# Splitting them into helpers usually obscures the control flow.
+too_many_lines = "allow"
+
+# Many extractor / responder / protocol APIs intentionally take owned values to
+# move ownership into the response future or store in extensions. Borrowing
+# would force a clone at the call site, which is worse.
+needless_pass_by_value = "allow"
+
+# `request` vs `requests`, `service` vs `services`, etc. — pluralization in
+# protocol code is meaningful; renaming them to disambiguate hurts readability.
+similar_names = "allow"
+
+# `Config.config_field` and similar redundancies are semantic — the struct
+# name is dropped in usage but the field name carries the disambiguation.
+struct_field_names = "allow"
+
+# gRPC / protocol error variants and HTTP status branches are deliberately
+# separate even when their bodies match — collapsing them loses semantic intent.
+match_same_arms = "allow"
+
+# Trait-conformance `async fn`s sometimes have synchronous bodies for one
+# impl while another impl genuinely awaits. The lint fires on the sync one.
+unused_async = "allow"
+
+# `Trivially copy pass by ref` is sometimes intentional for API consistency
+# across closures and trait methods that share a signature.
+trivially_copy_pass_by_ref = "allow"
+
+# `OnceLock` is used widely in the codebase as the canonical lazy static.
+# `LazyLock` is functionally equivalent — pick one and don't churn the diff.
+non_std_lazy_statics = "allow"
+
+# `Duration::from_millis(60_000)` vs `Duration::from_secs(60)` — both are
+# fine; the lint fires on legitimate sub-second multi-millis values too.
+duration_suboptimal_units = "allow"
+
+# `format!("{}", x)` is occasionally used to force the Display impl in
+# explicit contexts. The inlined form (`format!("{x}")`) loses that signal.
+# (Most are auto-fixed; this allow keeps the remaining intentional ones.)
+format_push_string = "allow"
+
+# `#[must_use]` on every `pub fn` returning a value adds attribute noise to a
+# builder-heavy framework where the vast majority of returns are obviously
+# meant to be assigned. The genuinely-must-use cases (Result, JoinHandle,
+# Status) are flagged by other lints or upstream `#[must_use]` on the type.
+must_use_candidate = "allow"
+
+# Builder methods returning `Self` for fluent chains are pervasive in the
+# router / response / middleware APIs. Mechanically annotating each with
+# `#[must_use]` is noise without changing real misuse incidence.
+return_self_not_must_use = "allow"
+
+# The framework's error model is uniform: nearly every fallible `pub fn`
+# returns `BoxError` / `io::Error` / a crate-local error enum whose variants
+# are documented on the type. Adding boilerplate `# Errors` sections per
+# function ("returns an error if the underlying operation fails") restates
+# the type signature without improving clarity. Where the failure mode is
+# non-obvious, document it inline next to the operation.
+missing_errors_doc = "allow"
+
+# `# Panics` sections are appropriate when a function panics on caller-
+# supplied input. Where panics only occur on internal invariant violation
+# (e.g. unreachable `.expect("just inserted")` after an explicit insert),
+# the panic message itself carries the rationale; a separate `# Panics`
+# doc section would duplicate it.
+missing_panics_doc = "allow"

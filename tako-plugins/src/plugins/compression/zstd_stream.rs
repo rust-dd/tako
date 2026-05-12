@@ -111,11 +111,10 @@ where
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(Ok(data))) => {
           if let Some(enc) = this.encoder.as_mut()
-            && let Err(e) = enc.write_all(&data).and_then(|_| enc.flush())
+            && let Err(e) = enc.write_all(&data).and_then(|()| enc.flush())
           {
             return Poll::Ready(Some(Err(e.into())));
           }
-          continue;
         }
         Poll::Ready(Some(Err(e))) => {
           return Poll::Ready(Some(Err(e)));
@@ -132,9 +131,8 @@ where
                 return Poll::Ready(Some(Err(e.into())));
               }
             }
-          } else {
-            return Poll::Ready(None);
           }
+          return Poll::Ready(None);
         }
         Poll::Pending => {
           return Poll::Pending;

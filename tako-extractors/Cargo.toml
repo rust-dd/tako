@@ -65,9 +65,18 @@ default = []
 ahash = ["dep:ahash", "tako-core/ahash"]
 multipart = ["dep:multer", "dep:uuid"]
 protobuf = ["dep:prost"]
-simd = ["dep:simd-json", "dep:sonic-rs"]
+# Meta-feature enabling both SIMD JSON backends. Prefer the split features
+# below when you only need one backend.
+simd = ["simd-sonic", "simd-json-impl"]
+# `sonic-rs` only — used by `SonicJson<T>` and tako-core's `Json<T>` fast path.
+simd-sonic = ["dep:sonic-rs", "tako-core/simd-sonic"]
+# `simd-json` only — used by `SimdJson<T>`.
+simd-json-impl = ["dep:simd-json", "tako-core/simd-json-impl"]
 jwt-simple = ["dep:jwt-simple"]
 zero-copy-extractors = []
 typed-header = ["dep:headers"]
 validator = ["dep:validator"]
 garde = ["dep:garde"]
+
+[lints]
+workspace = true

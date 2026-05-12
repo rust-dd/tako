@@ -21,7 +21,7 @@ pub enum H3Congestion {
   /// CUBIC — quinn's default and the most widely deployed.
   #[default]
   Cubic,
-  /// NewReno — older, conservative.
+  /// `NewReno` — older, conservative.
   NewReno,
   /// BBR — Google's bandwidth-delay-product controller; useful on
   /// high-bandwidth, lossy links.
@@ -52,7 +52,7 @@ pub struct ServerConfig {
   pub h2_max_header_list_size: u32,
   /// HTTP/2 send-buffer cap per stream (bytes).
   pub h2_max_send_buf_size: usize,
-  /// HTTP/2 pending-accept RST_STREAM cap (CVE-2023-44487 mitigation).
+  /// HTTP/2 pending-accept `RST_STREAM` cap (CVE-2023-44487 mitigation).
   pub h2_max_pending_accept_reset_streams: usize,
   /// HTTP/2 keep-alive ping interval. `None` disables.
   pub h2_keep_alive_interval: Option<Duration>,
@@ -386,10 +386,7 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpL
 
 fn ask_to_use_next_port(current: u16, next: u16) -> io::Result<bool> {
   loop {
-    print!(
-      "Port {} is already in use. Start on {} instead? [Y/n]: ",
-      current, next
-    );
+    print!("Port {current} is already in use. Start on {next} instead? [Y/n]: ");
     io::stdout().flush()?;
 
     let mut input = String::new();

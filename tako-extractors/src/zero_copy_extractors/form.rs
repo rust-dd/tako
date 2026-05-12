@@ -59,6 +59,8 @@ where
     req: &'a mut tako_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
+      use crate::zero_copy_extractors::bytes::CachedRequestBody;
+
       let ct = req
         .headers()
         .get(http::header::CONTENT_TYPE)
@@ -68,7 +70,6 @@ where
         return Err(FormBorrowedError::InvalidContentType);
       }
 
-      use crate::zero_copy_extractors::bytes::CachedRequestBody;
       if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = req
           .body_mut()
