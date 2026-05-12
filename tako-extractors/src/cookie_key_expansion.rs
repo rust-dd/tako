@@ -22,8 +22,10 @@
 //! ```
 
 use cookie::Key;
+use hkdf::Hkdf;
 use http::StatusCode;
 use http::request::Parts;
+use sha2::Sha256;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;
@@ -74,7 +76,7 @@ impl KeyExpansionConfig {
     Self {
       master_key,
       app_info: app_info.into(),
-      key_length: 32, // Default to 32 bytes (256 bits)
+      key_length: 64,
     }
   }
 
@@ -150,6 +152,10 @@ impl CookieKeyExpansion {
   }
 
   /// Derives a key for a specific context with additional info.
+  ///
+  /// Uses RFC 5869 HKDF with HMAC-SHA256. The master key is the IKM, the
+  /// configured `app_info` is the salt, and the per-call info parameter is
+  /// `context.as_bytes()` (optionally separator-joined with `additional_info`).
   pub fn derive_key_with_info(
     &self,
     context: KeyContext,
@@ -159,20 +165,15 @@ impl CookieKeyExpansion {
       return Err(CookieKeyExpansionError::InvalidKeyLength);
     }
 
-    // Create the info parameter by combining context, app info, and additional info
-    let mut info = Vec::new();
+    let mut info = Vec::with_capacity(context.as_bytes().len() + 1 + additional_info.len());
     info.extend_from_slice(context.as_bytes());
-    info.push(0x00); // Separator
-    info.extend_from_slice(&self.config.app_info);
     if !additional_info.is_empty() {
-      info.push(0x00); // Separator
+      info.push(0x00);
       info.extend_from_slice(additional_info);
     }
 
-    // Perform HKDF key derivation
     let derived_key = self.hkdf_expand(&info)?;
 
-    // Convert to cookie::Key
     Key::try_from(derived_key.as_slice())
       .map_err(|e| CookieKeyExpansionError::DerivationFailed(e.to_string()))
   }
@@ -211,39 +212,14 @@ impl CookieKeyExpansion {
     self.derive_key(KeyContext::Session)
   }
 
-  /// Performs simplified key expansion.
+  /// RFC 5869 HKDF-SHA256 expansion. Salt = `config.app_info`, IKM =
+  /// `config.master_key.master()`, info = caller-provided context bytes.
   fn hkdf_expand(&self, info: &[u8]) -> Result<Vec<u8>, CookieKeyExpansionError> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hash;
-    use std::hash::Hasher;
-
-    // This is a simplified key derivation - in production, use a proper HKDF implementation
-    // like the `hkdf` crate or similar cryptographic library
-
-    let mut hasher = DefaultHasher::new();
-
-    // Hash the master key material
-    self.config.master_key.master().hash(&mut hasher);
-    info.hash(&mut hasher);
-
-    let hash_result = hasher.finish();
-
-    // Expand the hash to the desired key length
-    let mut derived_key = Vec::with_capacity(self.config.key_length);
-    let hash_bytes = hash_result.to_le_bytes();
-
-    for i in 0..self.config.key_length {
-      derived_key.push(hash_bytes[i % hash_bytes.len()]);
-    }
-
-    // Mix in additional entropy from the master key
-    for (i, &byte) in self.config.master_key.master().iter().enumerate() {
-      if i < derived_key.len() {
-        derived_key[i] ^= byte;
-      }
-    }
-
-    Ok(derived_key)
+    let hk = Hkdf::<Sha256>::new(Some(&self.config.app_info), self.config.master_key.master());
+    let mut okm = vec![0u8; self.config.key_length];
+    hk.expand(info, &mut okm)
+      .map_err(|e| CookieKeyExpansionError::DerivationFailed(e.to_string()))?;
+    Ok(okm)
   }
 
   /// Gets the configuration used for key expansion.

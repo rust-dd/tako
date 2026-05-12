@@ -200,6 +200,12 @@ impl IntoMiddleware for Csrf {
 
       Box::pin(async move {
         let path = req.uri().path().to_string();
+        // Snapshot the Session handle BEFORE we hand the request to the
+        // downstream handler. Session lives in *request* extensions and gets
+        // dropped together with `req`; reading it off `resp.extensions` (the
+        // previous implementation) saw nothing, which silently disabled
+        // CSRF session-binding entirely.
+        let session = req.extensions().get::<Session>().cloned();
 
         // Issue path: safe methods or exempt paths short-circuit verification.
         let safe_method = !is_unsafe_method(req.method());
@@ -215,6 +221,7 @@ impl IntoMiddleware for Csrf {
             &session_key,
             bind_to_session,
             &seed,
+            session.as_ref(),
           );
           return resp;
         }
@@ -226,10 +233,7 @@ impl IntoMiddleware for Csrf {
           .get(header_name.as_str())
           .and_then(|v| v.to_str().ok())
           .map(str::to_string);
-        let session_token = req
-          .extensions()
-          .get::<Session>()
-          .and_then(|s| s.get::<String>(&session_key));
+        let session_token = session.as_ref().and_then(|s| s.get::<String>(&session_key));
 
         let cookie_header_match = matches!(
           (cookie_token.as_deref(), header_token.as_deref()),
@@ -252,6 +256,7 @@ impl IntoMiddleware for Csrf {
             &session_key,
             bind_to_session,
             &session_token.or(cookie_token),
+            session.as_ref(),
           );
           return resp;
         }
@@ -290,6 +295,7 @@ impl IntoMiddleware for Csrf {
             &session_key,
             bind_to_session,
             &session_token.or(cookie_token),
+            session.as_ref(),
           );
           return resp;
         }
@@ -319,6 +325,7 @@ fn req_session_token(resp: &Response) -> Option<String> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_csrf_cookie(
   resp: &mut Response,
   cookie_name: &str,
@@ -327,6 +334,7 @@ fn ensure_csrf_cookie(
   session_key: &str,
   bind_to_session: bool,
   preferred_token: &Option<String>,
+  session: Option<&Session>,
 ) {
   let already_set = resp
     .headers()
@@ -337,7 +345,7 @@ fn ensure_csrf_cookie(
     return;
   }
   let token = preferred_token.clone().unwrap_or_else(generate_csrf_token);
-  if bind_to_session && let Some(session) = resp.extensions_mut().get::<Session>().cloned() {
+  if bind_to_session && let Some(session) = session {
     session.set(session_key, token.clone());
   }
   let cookie = build_cookie(cookie_name, &token, secure, same_site);

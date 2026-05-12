@@ -19,6 +19,8 @@ use tako_core::types::Request;
 use tako_core::types::Response;
 #[cfg(not(feature = "compio"))]
 use tokio::fs;
+#[cfg(not(feature = "compio"))]
+use tokio::io::AsyncReadExt;
 
 /// Static directory server with configurable fallback handling.
 #[doc(alias = "static")]
@@ -180,6 +182,23 @@ impl ServeDir {
     false
   }
 
+  /// Verifies a sidecar path (`<file>.br` / `<file>.gz`) canonicalizes to
+  /// somewhere inside the base directory before we hand it to the open
+  /// pipeline. The original base-prefix check only covered `file_path`; a
+  /// symlinked sidecar could otherwise escape outside the base.
+  fn canonical_within_base(&self, p: &Path) -> Option<PathBuf> {
+    let canonical = p.canonicalize().ok()?;
+    let base = self
+      .sanitized_base
+      .clone()
+      .or_else(|| self.base_dir.canonicalize().ok())?;
+    if canonical.starts_with(&base) {
+      Some(canonical)
+    } else {
+      None
+    }
+  }
+
   fn precompressed_variant(
     &self,
     file_path: &Path,
@@ -189,16 +208,16 @@ impl ServeDir {
       let mut p = file_path.as_os_str().to_owned();
       p.push(".br");
       let p = PathBuf::from(p);
-      if p.is_file() {
-        return Some((p, "br"));
+      if let Some(canonical) = self.canonical_within_base(&p) {
+        return Some((canonical, "br"));
       }
     }
     if self.precompressed.gzip && Self::accepts(headers, "gzip") {
       let mut p = file_path.as_os_str().to_owned();
       p.push(".gz");
       let p = PathBuf::from(p);
-      if p.is_file() {
-        return Some((p, "gzip"));
+      if let Some(canonical) = self.canonical_within_base(&p) {
+        return Some((canonical, "gzip"));
       }
     }
     None
@@ -234,20 +253,45 @@ impl ServeDir {
     Some((Self::serve_file(&target).await?, "identity"))
   }
 
-  async fn serve_file(file_path: &Path) -> Option<Response> {
-    match fs::read(file_path).await {
-      Ok(contents) => {
-        let mime = mime_guess::from_path(file_path).first_or_octet_stream();
-        Some(
-          http::Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime.to_string())
-            .body(TakoBody::from(contents))
-            .unwrap(),
-        )
-      }
-      Err(_) => None,
+  /// Open the file via a single `File::open` (resolves symlinks exactly once),
+  /// verify the result is a regular file via the open FD's metadata (defense
+  /// in depth against directory/special-file confusion), then read. This
+  /// replaces the prior `fs::read` pattern which would re-resolve the path
+  /// after the caller had already canonicalized it.
+  #[cfg(not(feature = "compio"))]
+  async fn open_and_read_regular(path: &Path) -> Option<Vec<u8>> {
+    let mut file = fs::File::open(path).await.ok()?;
+    let meta = file.metadata().await.ok()?;
+    if !meta.is_file() {
+      return None;
     }
+    let mut contents = Vec::with_capacity(meta.len() as usize);
+    file.read_to_end(&mut contents).await.ok()?;
+    Some(contents)
+  }
+
+  #[cfg(feature = "compio")]
+  async fn open_and_read_regular(path: &Path) -> Option<Vec<u8>> {
+    // compio uses positional read with owned buffers; the high-level
+    // `fs::read` already wraps open + read + metadata. The canonical-prefix
+    // check is performed by the caller before we get here.
+    let meta = fs::metadata(path).await.ok()?;
+    if !meta.is_file() {
+      return None;
+    }
+    fs::read(path).await.ok()
+  }
+
+  async fn serve_file(file_path: &Path) -> Option<Response> {
+    let contents = Self::open_and_read_regular(file_path).await?;
+    let mime = mime_guess::from_path(file_path).first_or_octet_stream();
+    Some(
+      http::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime.to_string())
+        .body(TakoBody::from(contents))
+        .unwrap(),
+    )
   }
 
   async fn serve_file_with_encoding(
@@ -255,21 +299,17 @@ impl ServeDir {
     original: &Path,
     encoding: &'static str,
   ) -> Option<Response> {
-    match fs::read(compressed).await {
-      Ok(contents) => {
-        let mime = mime_guess::from_path(original).first_or_octet_stream();
-        Some(
-          http::Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, mime.to_string())
-            .header(header::CONTENT_ENCODING, encoding)
-            .header(header::VARY, "Accept-Encoding")
-            .body(TakoBody::from(contents))
-            .unwrap(),
-        )
-      }
-      Err(_) => None,
-    }
+    let contents = Self::open_and_read_regular(compressed).await?;
+    let mime = mime_guess::from_path(original).first_or_octet_stream();
+    Some(
+      http::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, mime.to_string())
+        .header(header::CONTENT_ENCODING, encoding)
+        .header(header::VARY, "Accept-Encoding")
+        .body(TakoBody::from(contents))
+        .unwrap(),
+    )
   }
 
   /// Handles an HTTP request to serve a static file from the directory.

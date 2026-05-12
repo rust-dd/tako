@@ -41,6 +41,49 @@ pub trait JwtVerifier: Send + Sync + Clone + 'static {
 
   /// Verifies a raw JWT token string.
   fn verify(&self, token: &str) -> Result<Self::Claims, Self::Error>;
+
+  /// Validate `iss` / `aud` / `leeway` constraints against the decoded claims.
+  ///
+  /// The default implementation **fails closed** when any non-default
+  /// constraint is configured — concrete verifiers MUST override this if they
+  /// want to silently accept (because they already enforce constraints
+  /// internally) or to apply their own logic. Failing closed prevents the
+  /// previous v1.x behavior where custom verifiers silently dropped the
+  /// `VerifyConstraints` configured on `JwtAuth`, leaving iss/aud/leeway
+  /// unenforced.
+  fn validate_constraints(
+    &self,
+    _claims: &Self::Claims,
+    constraints: &VerifyConstraints,
+  ) -> Result<(), ConstraintsNotSupported> {
+    if constraints.issuer.is_some()
+      || constraints.audience.is_some()
+      || constraints.leeway_secs != 0
+    {
+      Err(ConstraintsNotSupported {
+        reason: "this JwtVerifier does not override `validate_constraints`; \
+                 configure constraints on the verifier itself or implement \
+                 `validate_constraints` on your custom verifier",
+      })
+    } else {
+      Ok(())
+    }
+  }
+}
+
+/// Reported by [`JwtVerifier::validate_constraints`] when the verifier cannot
+/// (or won't) enforce the requested `VerifyConstraints`. The middleware
+/// surfaces this as 401 Unauthorized — fail-closed by design.
+#[derive(Debug, Clone)]
+pub struct ConstraintsNotSupported {
+  /// Human-readable diagnostic surfaced in the 401 response body.
+  pub reason: &'static str,
+}
+
+impl fmt::Display for ConstraintsNotSupported {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "constraints not enforceable: {}", self.reason)
+  }
 }
 
 /// Optional global verification constraints applied on top of the verifier.
@@ -193,11 +236,12 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
           }
         };
 
-        // Caller-controlled iss/aud/leeway sanity checks. Library-level
-        // verifiers (jwt-simple, jsonwebtoken) usually enforce these too,
-        // but we keep the redundant pass to defend against verifiers
-        // configured with `VerificationOptions::default()`.
-        let _ = constraints;
+        // Caller-controlled iss/aud/leeway. Propagate to the verifier so it
+        // can apply them. Default trait impl fails closed when constraints
+        // are configured but the verifier does not implement enforcement.
+        if let Err(e) = verifier.validate_constraints(&claims, &constraints) {
+          return (StatusCode::UNAUTHORIZED, format!("Invalid token: {e}")).into_response();
+        }
 
         if let Some((list, extractor)) = revocation.as_ref()
           && let Some(jti) = extractor(&claims)
@@ -416,6 +460,38 @@ mod jwt_simple_impl {
       key
         .verify_token::<C>(token, opts)
         .map_err(|e| e.to_string())
+    }
+
+    fn validate_constraints(
+      &self,
+      claims: &Self::Claims,
+      constraints: &super::VerifyConstraints,
+    ) -> Result<(), super::ConstraintsNotSupported> {
+      if let Some(expected) = &constraints.issuer
+        && claims.issuer.as_deref() != Some(expected.as_str())
+      {
+        return Err(super::ConstraintsNotSupported {
+          reason: "issuer mismatch",
+        });
+      }
+      if let Some(expected) = &constraints.audience {
+        let mut allowed = std::collections::HashSet::new();
+        allowed.insert(expected.clone());
+        match &claims.audiences {
+          Some(a) if a.contains(&allowed) => {}
+          _ => {
+            return Err(super::ConstraintsNotSupported {
+              reason: "audience mismatch",
+            });
+          }
+        }
+      }
+      // `leeway_secs` is applied to exp/nbf by the underlying verify() call
+      // when this verifier's internal `constraints.leeway_secs` is set; the
+      // middleware-level field is informational only here. If both are set
+      // and disagree, the verifier-level leeway wins for exp/nbf and the
+      // middleware-level leeway is ignored.
+      Ok(())
     }
   }
 }

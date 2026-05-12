@@ -7,10 +7,12 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use futures_util::future::BoxFuture;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
@@ -24,6 +26,9 @@ use crate::types::BuildHasher;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
 static GLOBAL_BROADCAST_CAPACITY: AtomicUsize = AtomicUsize::new(DEFAULT_BROADCAST_CAPACITY);
+static EXPORTER_KEY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+type HandlerList = Arc<ArcSwap<Vec<SignalHandler>>>;
 
 /// Well-known signal identifiers for common lifecycle and request events.
 ///
@@ -182,10 +187,14 @@ pub type SignalStream = mpsc::UnboundedReceiver<Signal>;
 
 #[derive(Default)]
 struct Inner {
-  handlers: SccHashMap<String, Vec<SignalHandler>>,
+  handlers: SccHashMap<String, HandlerList>,
   topics: SccHashMap<String, broadcast::Sender<Signal>>,
   rpc: SccHashMap<String, RpcHandler>,
   exporters: SccHashMap<u64, SignalExporter>,
+}
+
+fn new_handler_list() -> HandlerList {
+  Arc::new(ArcSwap::new(Arc::new(Vec::new())))
 }
 
 /// Shared arbiter used to register and dispatch named signals.
@@ -315,12 +324,26 @@ impl SignalArbiter {
       Box::pin(fut)
     });
 
-    self
+    let list = self.handler_list_for(id);
+    list.rcu(|current| {
+      let mut next = Vec::with_capacity(current.len() + 1);
+      next.extend(current.iter().cloned());
+      next.push(handler.clone());
+      Arc::new(next)
+    });
+  }
+
+  /// Returns (creating if necessary) the per-id ArcSwap holding the handler list.
+  /// The SCC hashmap protects only the slot lookup; handler-list updates are
+  /// wait-free via ArcSwap RCU, so concurrent `on()` / `emit()` calls cannot
+  /// race on a `Vec::push` reallocation.
+  fn handler_list_for(&self, id: String) -> HandlerList {
+    let entry = self
       .inner
       .handlers
       .entry_sync(id)
-      .or_default()
-      .push(handler);
+      .or_insert_with(new_handler_list);
+    entry.clone()
   }
 
   /// Subscribes to a broadcast channel for the given signal id.
@@ -560,10 +583,11 @@ impl SignalArbiter {
       .await;
 
     if let Some(entry) = self.inner.handlers.get_async(&signal.id).await {
-      let handlers = entry.clone();
+      let list = entry.clone();
       drop(entry);
+      let handlers = list.load_full();
 
-      let futures = handlers.into_iter().map(|handler| {
+      let futures = handlers.iter().map(|handler| {
         let s = signal.clone();
         handler(s)
       });
@@ -584,8 +608,7 @@ impl SignalArbiter {
   where
     F: Fn(&Signal) + Send + Sync + 'static,
   {
-    // Use the pointer address as a simple, best-effort key.
-    let key = Arc::into_raw(Arc::new(())) as u64;
+    let key = EXPORTER_KEY_COUNTER.fetch_add(1, Ordering::Relaxed);
     let exporter: SignalExporter = Arc::new(exporter);
     std::mem::drop(self.inner.exporters.insert_sync(key, exporter));
   }
@@ -595,13 +618,18 @@ impl SignalArbiter {
   /// This is used by router merging so that signal handlers attached to
   /// a merged router continue to be active.
   pub(crate) fn merge_from(&self, other: &SignalArbiter) {
-    other.inner.handlers.iter_sync(|k, v| {
-      self
-        .inner
-        .handlers
-        .entry_sync(k.clone())
-        .or_default()
-        .extend(v.clone());
+    other.inner.handlers.iter_sync(|k, other_list| {
+      let other_handlers = other_list.load_full();
+      if other_handlers.is_empty() {
+        return true;
+      }
+      let target_list = self.handler_list_for(k.clone());
+      target_list.rcu(|current| {
+        let mut next = Vec::with_capacity(current.len() + other_handlers.len());
+        next.extend(current.iter().cloned());
+        next.extend(other_handlers.iter().cloned());
+        Arc::new(next)
+      });
 
       true
     });

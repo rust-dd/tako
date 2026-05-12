@@ -115,9 +115,53 @@ pub fn permanent(location: impl Into<String>) -> Redirect {
   Redirect::permanent(location)
 }
 
+/// Extracts the host portion (without port) from a `Host` header and validates
+/// it as a syntactically well-formed authority. Returns `None` for missing,
+/// malformed, or empty values — including anything containing CR/LF or
+/// scheme-like prefixes (`javascript:`, `data:`, …) that could be smuggled
+/// into a redirect's `Location` header.
+fn validate_host(header_value: &str) -> Option<String> {
+  let trimmed = header_value.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+  // Reject CR / LF / NUL / whitespace within the value — these would enable
+  // header / response-splitting attacks via the Location header.
+  if trimmed
+    .bytes()
+    .any(|b| b == b'\r' || b == b'\n' || b == 0 || b == b' ' || b == b'\t')
+  {
+    return None;
+  }
+  // Use `http::uri::Authority` to enforce RFC 3986 authority syntax. This
+  // rejects scheme prefixes, paths, and other smuggled values.
+  let _authority: http::uri::Authority = trimmed.parse().ok()?;
+
+  // Strip port if present. IPv6 literals come bracketed (`[::1]:8080`).
+  let host = if let Some(after_bracket) = trimmed.strip_prefix('[') {
+    let end = after_bracket.find(']')?;
+    let bracketed = &trimmed[..=end + 1];
+    bracketed.to_string()
+  } else {
+    trimmed
+      .split(':')
+      .next()
+      .filter(|s| !s.is_empty())?
+      .to_string()
+  };
+
+  Some(host)
+}
+
 /// Builds a router whose fallback redirects every request to the `https://`
 /// equivalent on the same host, suitable for binding to port 80 alongside the
 /// real TLS listener on `https_port`.
+///
+/// The `Host` header is parsed as an RFC 3986 authority before being placed
+/// in the `Location`; malformed values (including CRLF or scheme smuggling)
+/// produce a `400 Bad Request` to prevent open-redirect / cache-poisoning
+/// phishing. For strict deployments, prefer
+/// [`http_to_https_router_with_allowed_hosts`].
 ///
 /// # Examples
 ///
@@ -127,16 +171,53 @@ pub fn permanent(location: impl Into<String>) -> Redirect {
 /// // serve(http80_listener, http_to_https_router(443)).await;
 /// ```
 pub fn http_to_https_router(https_port: u16) -> crate::router::Router {
+  http_to_https_router_inner(https_port, Vec::new())
+}
+
+/// Like [`http_to_https_router`] but additionally enforces that the parsed
+/// host is one of `allowed_hosts` (case-insensitive). Requests for any other
+/// host receive `421 Misdirected Request`. Use this when binding the HTTP
+/// listener on the public internet — it blocks the cache-poisoning
+/// phishing vector where an attacker sends `Host: evil.com` and the response
+/// gets cached against the URL key.
+pub fn http_to_https_router_with_allowed_hosts(
+  https_port: u16,
+  allowed_hosts: impl IntoIterator<Item = impl Into<String>>,
+) -> crate::router::Router {
+  let allowed: Vec<String> = allowed_hosts
+    .into_iter()
+    .map(|s| s.into().to_ascii_lowercase())
+    .collect();
+  http_to_https_router_inner(https_port, allowed)
+}
+
+fn http_to_https_router_inner(
+  https_port: u16,
+  allowed_hosts: Vec<String>,
+) -> crate::router::Router {
+  let allowed = std::sync::Arc::new(allowed_hosts);
   let mut router = crate::router::Router::new();
   router.fallback(move |req: crate::types::Request| {
     let port = https_port;
+    let allowed = allowed.clone();
     async move {
       let host_header = req
         .headers()
         .get(http::header::HOST)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-      let host = host_header.split(':').next().unwrap_or("").trim();
+      let Some(host) = validate_host(host_header) else {
+        return http::Response::builder()
+          .status(StatusCode::BAD_REQUEST)
+          .body(TakoBody::from("invalid Host header"))
+          .expect("static 400 response is well-formed");
+      };
+      if !allowed.is_empty() && !allowed.contains(&host.to_ascii_lowercase()) {
+        return http::Response::builder()
+          .status(StatusCode::MISDIRECTED_REQUEST)
+          .body(TakoBody::from("host not allowed"))
+          .expect("static 421 response is well-formed");
+      }
       let path_and_query = req
         .uri()
         .path_and_query()
@@ -147,7 +228,7 @@ pub fn http_to_https_router(https_port: u16) -> crate::router::Router {
       } else {
         format!("https://{host}:{port}{path_and_query}")
       };
-      Redirect::permanent(location)
+      Redirect::permanent(location).into_response()
     }
   });
   router

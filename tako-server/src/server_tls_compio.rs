@@ -247,6 +247,13 @@ pub async fn run_with_config(
   let h2_max_send_buf_size = config.h2_max_send_buf_size;
   #[cfg(feature = "http2")]
   let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
+  // C14 (compio TLS): honor `max_connections` instead of silently ignoring it.
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  // C15 (compio TLS): per-loop accept backoff to survive transient
+  // EMFILE / ConnectionAborted errors rather than exiting the server.
+  let mut accept_backoff = config.accept_backoff;
 
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
@@ -261,7 +268,32 @@ pub async fn run_with_config(
     let accept = std::pin::pin!(listener.accept());
     match futures_util::future::select(accept, signal_fused.as_mut()).await {
       Either::Left((result, _)) => {
-        let (stream, addr) = result?;
+        let (stream, addr) = match result {
+          Ok(v) => {
+            accept_backoff.reset();
+            v
+          }
+          Err(err) => {
+            tracing::warn!("compio TLS accept failed: {err}; backing off");
+            let d = accept_backoff.current_and_grow();
+            compio::time::sleep(d).await;
+            continue;
+          }
+        };
+
+        // C14: hold the permit across the TLS handshake + connection lifetime.
+        // Race against shutdown so a saturated cap can't deadlock the drain.
+        let permit = if let Some(sem) = max_conn_semaphore.as_ref() {
+          let acquire = std::pin::pin!(sem.clone().acquire_owned());
+          match futures_util::future::select(acquire, signal_fused.as_mut()).await {
+            Either::Left((Ok(p), _)) => Some(p),
+            Either::Left((Err(_), _)) => continue,
+            Either::Right(_) => break,
+          }
+        } else {
+          None
+        };
+
         let acceptor = acceptor.clone();
         let router = router.clone();
         let inflight = inflight.clone();
@@ -270,6 +302,7 @@ pub async fn run_with_config(
         inflight.fetch_add(1, Ordering::SeqCst);
 
         compio::runtime::spawn(async move {
+          let _permit = permit;
           let tls_stream = match acceptor.accept(stream).await {
             Ok(s) => s,
             Err(e) => {

@@ -56,7 +56,9 @@ http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-core/http3"]
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-core/compio"]
 compio-tls = ["compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.
-plugins = []
+# Also activates `tako-core/plugins` so `Router::setup_plugins_once` is available
+# in the compio server bootstrap.
+plugins = ["tako-core/plugins"]
 tako-tracing = ["tako-core/tako-tracing"]
 # Inherit systemd / s6 / catflap inherited file descriptors at startup.
 socket-activation = ["dep:listenfd"]

@@ -39,6 +39,7 @@ use tako_core::types::BoxError;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 
@@ -64,7 +65,7 @@ pub async fn serve(listener: TcpListener, router: Router) {
 pub async fn serve_with_shutdown(
   listener: TcpListener,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
 ) {
   if let Err(e) = run(listener, router, Some(signal), ServerConfig::default()).await {
     tracing::error!("Server error: {e}");
@@ -82,7 +83,7 @@ pub async fn serve_with_config(listener: TcpListener, router: Router, config: Se
 pub async fn serve_with_shutdown_and_config(
   listener: TcpListener,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) {
   if let Err(e) = run(listener, router, Some(signal), config).await {
@@ -94,7 +95,7 @@ pub async fn serve_with_shutdown_and_config(
 async fn run(
   listener: TcpListener,
   router: Router,
-  signal: Option<impl Future<Output = ()>>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -123,15 +124,19 @@ async fn run(
   let header_read_timeout = config.header_read_timeout;
   let keep_alive_timeout = config.keep_alive_timeout;
   let drain_timeout = config.drain_timeout;
-  let signal = signal.map(|s| Box::pin(s));
-  let signal_fused = async {
-    if let Some(s) = signal {
+
+  // Lift the single-shot `signal` future to a `CancellationToken` so we can
+  // observe shutdown from multiple `select!`s. Without this the inner
+  // `Semaphore::acquire_owned().await` (when `max_connections` is saturated)
+  // could park forever, deadlocking graceful shutdown.
+  let cancel = CancellationToken::new();
+  if let Some(s) = signal {
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
       s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  };
-  tokio::pin!(signal_fused);
+      cancel_for_signal.cancel();
+    });
+  }
 
   loop {
     tokio::select! {
@@ -149,11 +154,16 @@ async fn run(
 
         // Optional connection cap: park here until a permit is available so
         // we exert backpressure on the kernel listen queue rather than
-        // accepting unbounded work.
+        // accepting unbounded work. Race the acquire against shutdown so a
+        // saturated `max_connections` cannot deadlock graceful shutdown.
         let permit = if let Some(sem) = &max_conn_semaphore {
-          match sem.clone().acquire_owned().await {
-            Ok(p) => Some(p),
-            Err(_) => continue,
+          tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            permit = sem.clone().acquire_owned() => match permit {
+              Ok(p) => Some(p),
+              Err(_) => continue,
+            },
           }
         } else {
           None
@@ -211,7 +221,7 @@ async fn run(
           drop(permit);
         });
       }
-      () = &mut signal_fused => {
+      () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, draining connections...");
         break;
       }

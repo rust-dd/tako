@@ -27,30 +27,35 @@
 //! ```
 
 use std::net::IpAddr as StdIpAddr;
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 use http::StatusCode;
 use http::request::Parts;
+use tako_core::conn_info::ConnInfo;
+use tako_core::conn_info::PeerAddr;
 use tako_core::extractors::FromRequest;
 use tako_core::extractors::FromRequestParts;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
 
-/// Extractor for client IP address from HTTP request headers.
+/// Extractor for the client IP address.
 ///
-/// This extractor attempts to determine the real client IP address by examining
-/// various HTTP headers in priority order. It's particularly useful when your
-/// application is behind proxies, load balancers, or CDNs that add forwarding headers.
+/// **Default behavior (secure):** Returns the transport-level peer IP from
+/// `ConnInfo` (or the legacy `SocketAddr` extension). Forwarded headers
+/// (`X-Forwarded-For`, `X-Real-IP`, `Forwarded`, …) are **ignored** because
+/// any client that can reach the server directly can forge them.
 ///
-/// The extractor checks headers in the following priority order:
-/// 1. `X-Forwarded-For`
-/// 2. `X-Real-IP`
-/// 3. `X-Client-IP`
-/// 4. `CF-Connecting-IP` (Cloudflare)
-/// 5. `X-Forwarded`
-/// 6. `Forwarded-For`
-/// 7. `Forwarded`
-/// 8. `True-Client-IP`
+/// **Trusted-proxy mode:** Insert an [`IpAddrConfig`] into router state via
+/// `tako_core::state::set_state` with `trusted_proxies` listing the IPs of
+/// your real proxy/load-balancer fleet. When the direct peer matches one of
+/// those entries, forwarded headers are honored in priority order:
+/// 1. `Forwarded` (RFC 7239 — `for=`)
+/// 2. `X-Forwarded-For` (leftmost untrusted hop)
+/// 3. `X-Real-IP`
+/// 4. `X-Client-IP`
+/// 5. `CF-Connecting-IP` (Cloudflare)
+/// 6. `True-Client-IP`
 ///
 /// # Examples
 ///
@@ -66,6 +71,34 @@ use tako_core::types::Request;
 #[doc(alias = "ip")]
 #[doc(alias = "ipaddr")]
 pub struct IpAddr(pub StdIpAddr);
+
+/// Configuration for trusted-proxy IP extraction. Insert into router state to
+/// opt into forwarded-header parsing for requests whose direct peer matches.
+#[derive(Debug, Clone, Default)]
+pub struct IpAddrConfig {
+  /// Direct-peer IPs whose forwarded-IP headers we honor. Empty (default)
+  /// means no header trust — only the direct peer IP is used.
+  pub trusted_proxies: Vec<StdIpAddr>,
+}
+
+impl IpAddrConfig {
+  /// Empty config — no forwarded-header trust.
+  pub fn new() -> Self {
+    Self::default()
+  }
+
+  /// Add a trusted proxy IP.
+  pub fn trust(mut self, ip: StdIpAddr) -> Self {
+    self.trusted_proxies.push(ip);
+    self
+  }
+
+  /// Replace the trusted-proxy list.
+  pub fn with_trusted_proxies(mut self, ips: Vec<StdIpAddr>) -> Self {
+    self.trusted_proxies = ips;
+    self
+  }
+}
 
 /// Error type for IP address extraction.
 #[derive(Debug)]
@@ -155,85 +188,93 @@ impl IpAddr {
     }
   }
 
-  /// Extracts IP address from HTTP headers.
-  fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, IpAddrError> {
-    // Priority order of headers to check
-    let header_names = [
+  /// Resolves the client IP from request extensions + headers using the
+  /// configured trust policy. Secure-by-default: forwarded headers are only
+  /// honored when the direct peer is listed in `IpAddrConfig::trusted_proxies`.
+  fn extract_from(
+    extensions: &http::Extensions,
+    headers: &http::HeaderMap,
+  ) -> Result<Self, IpAddrError> {
+    let peer = peer_ip_from_extensions(extensions);
+
+    let trust_headers = match (peer.as_ref(), tako_core::state::get_state::<IpAddrConfig>()) {
+      (Some(p), Some(cfg)) => cfg.trusted_proxies.iter().any(|t| t == p),
+      _ => false,
+    };
+
+    if trust_headers
+      && let Some(ip) = Self::parse_forwarded_headers(headers)
+    {
+      return Ok(Self(ip));
+    }
+
+    peer.map(Self).ok_or(IpAddrError::NoIpFound)
+  }
+
+  /// Parses the first parseable IP from any of the recognized forwarded
+  /// headers, in priority order. Caller is responsible for ensuring that the
+  /// request peer is in fact a trusted proxy.
+  fn parse_forwarded_headers(headers: &http::HeaderMap) -> Option<StdIpAddr> {
+    const HEADERS_IN_PRIORITY: &[&str] = &[
+      "forwarded",
       "x-forwarded-for",
       "x-real-ip",
       "x-client-ip",
       "cf-connecting-ip",
-      "x-forwarded",
-      "forwarded-for",
-      "forwarded",
       "true-client-ip",
     ];
-
-    for header_name in &header_names {
-      if let Some(header_value) = headers.get(*header_name)
-        && let Ok(header_str) = header_value.to_str()
-        && let Some(ip) = Self::parse_ip_from_header(header_str)
+    for header_name in HEADERS_IN_PRIORITY {
+      if let Some(v) = headers.get(*header_name)
+        && let Ok(s) = v.to_str()
+        && let Some(ip) = Self::parse_ip_from_header(s)
       {
-        return Ok(Self(ip));
+        return Some(ip);
       }
     }
-
-    Err(IpAddrError::NoIpFound)
+    None
   }
 
-  /// Parses an IP address from a header value.
+  /// Parses an IP address from a header value (comma-separated list, optional
+  /// `for=` prefix, optional `:port` or `[v6]:port` suffix).
   fn parse_ip_from_header(header_value: &str) -> Option<StdIpAddr> {
-    // Handle comma-separated values (common in X-Forwarded-For)
     for part in header_value.split(',') {
       let part = part.trim();
-
-      // Skip empty parts
       if part.is_empty() {
         continue;
       }
+      let ip_part = part.strip_prefix("for=").unwrap_or(part);
+      let ip_part = ip_part.trim_matches('"');
 
-      // Handle "Forwarded" header format: for=192.168.1.1:1234
-      let ip_part = if let Some(ip_part) = part.strip_prefix("for=") {
-        ip_part
-      } else {
-        part
-      };
-
-      // Remove port if present (IPv4 format)
-      let ip_str = if let Some(colon_pos) = ip_part.rfind(':') {
-        // Check if this looks like IPv6 or IPv4:port
-        if ip_part.starts_with('[') && ip_part.contains(']') {
-          // IPv6 with port: [::1]:8080
-          if let Some(bracket_end) = ip_part.find(']') {
-            &ip_part[1..bracket_end]
-          } else {
-            ip_part
-          }
-        } else if ip_part.matches(':').count() == 1 {
-          // IPv4 with port: 192.168.1.1:8080
-          &ip_part[..colon_pos]
+      let ip_str = if ip_part.starts_with('[') {
+        if let Some(end) = ip_part.find(']') {
+          &ip_part[1..end]
         } else {
-          // IPv6 without brackets
           ip_part
         }
+      } else if ip_part.matches(':').count() == 1 {
+        ip_part.split(':').next().unwrap_or(ip_part)
       } else {
         ip_part
       };
 
-      // Try to parse as IP address
       if let Ok(ip) = StdIpAddr::from_str(ip_str) {
-        // Skip local/private IPs in forwarded headers (optional filtering)
-        // Comment out these lines if you want to accept private IPs
-        match ip {
-          StdIpAddr::V4(ipv4) if ipv4.is_loopback() || ipv4.is_private() => continue,
-          StdIpAddr::V6(ipv6) if ipv6.is_loopback() => continue,
-          _ => return Some(ip),
-        }
+        return Some(ip);
       }
     }
-
     None
   }
+}
+
+fn peer_ip_from_extensions(ext: &http::Extensions) -> Option<StdIpAddr> {
+  if let Some(info) = ext.get::<ConnInfo>()
+    && let PeerAddr::Ip(sa) = &info.peer
+  {
+    return Some(sa.ip());
+  }
+  if let Some(sa) = ext.get::<SocketAddr>() {
+    return Some(sa.ip());
+  }
+  None
 }
 
 impl std::fmt::Display for IpAddr {
@@ -260,7 +301,7 @@ impl<'a> FromRequest<'a> for IpAddr {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Self::extract_from_headers(req.headers()))
+    futures_util::future::ready(Self::extract_from(req.extensions(), req.headers()))
   }
 }
 
@@ -270,6 +311,6 @@ impl<'a> FromRequestParts<'a> for IpAddr {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Self::extract_from_headers(&parts.headers))
+    futures_util::future::ready(Self::extract_from(&parts.extensions, &parts.headers))
   }
 }

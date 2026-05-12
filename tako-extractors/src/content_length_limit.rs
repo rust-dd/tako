@@ -1,11 +1,20 @@
 //! `ContentLengthLimit<T, N>` extractor — bounded body extractor wrapper.
 //!
-//! Reads the `Content-Length` header (or, if absent, requires the inner
-//! extractor to do streaming with its own limits). When the declared length
-//! exceeds `N`, returns `413 Payload Too Large` without ever touching the
-//! body. Otherwise it forwards to the inner extractor.
+//! Performs two layers of defense against payload-bomb DoS:
+//!
+//! 1. **Header check** — if `Content-Length` is present and exceeds `N`, the
+//!    request is rejected with `413 Payload Too Large` before any body bytes
+//!    are read.
+//! 2. **Streaming cap** — the request body is wrapped in
+//!    `http_body_util::Limited<…, N>` so the inner extractor cannot read more
+//!    than `N` bytes even when the Content-Length header is missing, lying,
+//!    or the transfer is chunked. This blocks the classic
+//!    "Content-Length: 0 / Transfer-Encoding: chunked / send forever" attack
+//!    that the previous header-only check missed.
 
 use http::StatusCode;
+use http_body_util::Limited;
+use tako_core::body::TakoBody;
 use tako_core::extractors::FromRequest;
 use tako_core::responder::Responder;
 use tako_core::types::Request;
@@ -82,10 +91,19 @@ where
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       match check_limit(req.headers(), N) {
-        Ok(()) => match T::from_request(req).await {
-          Ok(v) => Ok(ContentLengthLimit(v)),
-          Err(e) => Err(ContentLengthLimitError::Inner(e)),
-        },
+        Ok(()) => {
+          // Wrap the body in `Limited` so the inner extractor cannot read more
+          // than N bytes even if Content-Length was missing/false or the
+          // transfer is chunked.
+          let limit = usize::try_from(N).unwrap_or(usize::MAX);
+          let body = std::mem::take(req.body_mut());
+          *req.body_mut() = TakoBody::new(Limited::new(body, limit));
+
+          match T::from_request(req).await {
+            Ok(v) => Ok(ContentLengthLimit(v)),
+            Err(e) => Err(ContentLengthLimitError::Inner(e)),
+          }
+        }
         Err(ContentLengthLimitErrorRaw::TooLarge { declared, limit }) => {
           Err(ContentLengthLimitError::TooLarge { declared, limit })
         }

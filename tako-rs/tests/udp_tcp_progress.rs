@@ -226,6 +226,11 @@ async fn upload_progress_min_notify_interval() {
   assert!(count <= 1, "expected at most 1 callback, got {count}");
 }
 
+// The compio variants of `serve_tcp_with_shutdown` / `serve_udp_with_shutdown`
+// expose `compio::net::{TcpStream,UdpSocket}` which are `!Send`, and
+// `tokio::spawn` requires `Send`. Gate the raw-TCP/UDP server tests off when
+// the compio feature is active.
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn tcp_echo_server() {
   use tako::server_tcp::serve_tcp_with_shutdown;
@@ -277,6 +282,7 @@ async fn tcp_echo_server() {
   server.await.unwrap();
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn tcp_server_multiple_connections() {
   use tako::server_tcp::serve_tcp_with_shutdown;
@@ -336,6 +342,10 @@ async fn tcp_server_multiple_connections() {
   server.await.unwrap();
 }
 
+// UDP server uses `compio::net::UdpSocket` under the `compio` feature, which
+// is `!Send` and incompatible with `tokio::spawn`. Gate the UDP tests off
+// when compio is enabled — they only exercise the tokio implementation.
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn udp_echo_server() {
   use tako::server_udp::serve_udp_with_shutdown;
@@ -381,6 +391,7 @@ async fn udp_echo_server() {
   server.await.unwrap();
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn udp_multiple_datagrams() {
   use tako::server_udp::serve_udp_with_shutdown;

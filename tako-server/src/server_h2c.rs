@@ -47,7 +47,7 @@ pub async fn serve_h2c(listener: TcpListener, router: Router) {
 pub async fn serve_h2c_with_shutdown(
   listener: TcpListener,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
 ) {
   if let Err(e) = run(listener, router, Some(signal), ServerConfig::default()).await {
     tracing::error!("h2c server error: {e}");
@@ -65,7 +65,7 @@ pub async fn serve_h2c_with_config(listener: TcpListener, router: Router, config
 pub async fn serve_h2c_with_shutdown_and_config(
   listener: TcpListener,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) {
   if let Err(e) = run(listener, router, Some(signal), config).await {
@@ -76,7 +76,7 @@ pub async fn serve_h2c_with_shutdown_and_config(
 async fn run(
   listener: TcpListener,
   router: Router,
-  signal: Option<impl Future<Output = ()>>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -100,15 +100,14 @@ async fn run(
   let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
   let h2_keep_alive_interval = config.h2_keep_alive_interval;
 
-  let signal = signal.map(|s| Box::pin(s));
-  let signal_fused = async {
-    if let Some(s) = signal {
+  let cancel = tokio_util::sync::CancellationToken::new();
+  if let Some(s) = signal {
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
       s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  };
-  tokio::pin!(signal_fused);
+      cancel_for_signal.cancel();
+    });
+  }
 
   loop {
     tokio::select! {
@@ -122,9 +121,13 @@ async fn run(
           }
         };
         let permit = if let Some(sem) = &max_conn_semaphore {
-          match sem.clone().acquire_owned().await {
-            Ok(p) => Some(p),
-            Err(_) => continue,
+          tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            permit = sem.clone().acquire_owned() => match permit {
+              Ok(p) => Some(p),
+              Err(_) => continue,
+            },
           }
         } else {
           None
@@ -156,7 +159,7 @@ async fn run(
           drop(permit);
         });
       }
-      () = &mut signal_fused => {
+      () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, draining h2c connections...");
         break;
       }

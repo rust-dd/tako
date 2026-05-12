@@ -86,7 +86,13 @@ async fn run(
   let drain_notify = Arc::new(Notify::new());
   let drain_timeout = config.drain_timeout;
   let keep_alive = config.keep_alive;
-  let _max_connections = config.max_connections;
+  // C14: honor `max_connections` on the compio path. `tokio::sync::Semaphore`
+  // is runtime-agnostic for `acquire_owned` (no tokio timer/IO required).
+  let max_conn_semaphore = config
+    .max_connections
+    .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
+  // C15: per-loop accept backoff for transient errors (EMFILE / ConnectionAborted).
+  let mut accept_backoff = config.accept_backoff;
 
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
@@ -101,7 +107,34 @@ async fn run(
     let accept = std::pin::pin!(listener.accept());
     match futures_util::future::select(accept, signal_fused.as_mut()).await {
       Either::Left((result, _)) => {
-        let (stream, addr) = result?;
+        let (stream, addr) = match result {
+          Ok(v) => {
+            accept_backoff.reset();
+            v
+          }
+          Err(err) => {
+            // C15: don't kill the server on a single transient accept error.
+            tracing::warn!("compio accept failed: {err}; backing off");
+            let d = accept_backoff.current_and_grow();
+            compio::time::sleep(d).await;
+            continue;
+          }
+        };
+
+        // C14: park here until a permit is available, racing the wait
+        // against the shutdown signal so a saturated cap can't deadlock
+        // graceful shutdown.
+        let permit = if let Some(sem) = max_conn_semaphore.as_ref() {
+          let acquire = std::pin::pin!(sem.clone().acquire_owned());
+          match futures_util::future::select(acquire, signal_fused.as_mut()).await {
+            Either::Left((Ok(p), _)) => Some(p),
+            Either::Left((Err(_), _)) => continue,
+            Either::Right(_) => break,
+          }
+        } else {
+          None
+        };
+
         let io = HyperStream::new(stream);
         let router = router.clone();
         let inflight = inflight.clone();
@@ -110,6 +143,7 @@ async fn run(
         inflight.fetch_add(1, Ordering::SeqCst);
 
         compio::runtime::spawn(async move {
+          let _permit = permit;
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 

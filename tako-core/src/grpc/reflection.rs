@@ -14,12 +14,13 @@
 
 use std::sync::Arc;
 
+use parking_lot::RwLock;
 use scc::HashMap as SccHashMap;
 
 /// Reflection registry — populated at startup and consulted by the reflection RPC.
 #[derive(Clone, Default)]
 pub struct ReflectionRegistry {
-  services: Arc<scc::Queue<String>>,
+  services: Arc<RwLock<Vec<String>>>,
   files: Arc<SccHashMap<String, Vec<u8>>>,
   symbols: Arc<SccHashMap<String, String>>,
 }
@@ -32,7 +33,7 @@ impl ReflectionRegistry {
 
   /// Register a fully-qualified service name (e.g. `helloworld.Greeter`).
   pub fn add_service(&self, name: impl Into<String>) {
-    self.services.push(name.into());
+    self.services.write().push(name.into());
   }
 
   /// Register a file descriptor under its source filename.
@@ -47,15 +48,7 @@ impl ReflectionRegistry {
 
   /// Snapshot of registered service names.
   pub fn list_services(&self) -> Vec<String> {
-    let mut out = Vec::new();
-    while let Some(item) = self.services.pop() {
-      out.push((**item).clone());
-    }
-    // Re-push to keep the queue populated.
-    for s in &out {
-      self.services.push(s.clone());
-    }
-    out
+    self.services.read().clone()
   }
 
   /// Look up the descriptor blob for a filename.

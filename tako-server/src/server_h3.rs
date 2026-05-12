@@ -93,7 +93,7 @@ pub async fn serve_h3_with_shutdown(
   addr: &str,
   certs: Option<&str>,
   key: Option<&str>,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
 ) {
   if let Err(e) = run(
     router,
@@ -137,7 +137,7 @@ pub async fn serve_h3_with_shutdown_and_config(
   addr: &str,
   certs: Option<&str>,
   key: Option<&str>,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) {
   if let Err(e) = run(router, addr, certs, key, Some(signal), config).await {
@@ -174,7 +174,7 @@ pub async fn serve_h3_with_rustls_config_and_shutdown(
   router: Router,
   addr: &str,
   rustls_config: Arc<rustls::ServerConfig>,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) {
   if let Err(e) = run_with_rustls_config(router, addr, rustls_config, Some(signal), config).await {
@@ -219,7 +219,7 @@ async fn run(
   addr: &str,
   certs: Option<&str>,
   key: Option<&str>,
-  signal: Option<impl Future<Output = ()>>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -250,7 +250,7 @@ async fn run_with_rustls_config(
   router: Router,
   addr: &str,
   tls_config: Arc<rustls::ServerConfig>,
-  signal: Option<impl Future<Output = ()>>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -289,20 +289,23 @@ async fn run_with_rustls_config(
     .max_connections
     .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
 
-  // Per-connection graceful shutdown: when triggered, every spawned connection
-  // task races its `accept()` against this notify, then calls `h3.shutdown(0)`
-  // so the peer sees a GOAWAY frame before the QUIC endpoint hard-closes.
-  let conn_shutdown = Arc::new(Notify::new());
+  // Per-connection graceful shutdown signal. `CancellationToken` is sticky:
+  // once cancelled, all subsequent and pre-existing `.cancelled()` awaits
+  // resolve, so a connection that handshakes AFTER the outer shutdown signal
+  // still observes the GOAWAY trigger (this closes the H3 GOAWAY race that
+  // `Notify::notify_waiters` previously had — it only woke already-registered
+  // waiters, leaving late-handshaking connections hard-closing instead of
+  // draining gracefully).
+  let conn_shutdown = tokio_util::sync::CancellationToken::new();
 
-  let signal = signal.map(|s| Box::pin(s));
-  let signal_fused = async {
-    if let Some(s) = signal {
+  let cancel = tokio_util::sync::CancellationToken::new();
+  if let Some(s) = signal {
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
       s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  };
-  tokio::pin!(signal_fused);
+      cancel_for_signal.cancel();
+    });
+  }
 
   loop {
     tokio::select! {
@@ -320,9 +323,13 @@ async fn run_with_rustls_config(
         }
 
         let permit = if let Some(sem) = &max_conn_semaphore {
-          match sem.clone().acquire_owned().await {
-            Ok(p) => Some(p),
-            Err(_) => continue,
+          tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            permit = sem.clone().acquire_owned() => match permit {
+              Ok(p) => Some(p),
+              Err(_) => continue,
+            },
           }
         } else {
           None
@@ -355,16 +362,17 @@ async fn run_with_rustls_config(
           drop(permit);
         });
       }
-      () = &mut signal_fused => {
+      () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, sending HTTP/3 GOAWAY...");
         break;
       }
     }
   }
 
-  // Phase 1: kick every connection into graceful-shutdown mode so it stops
-  // accepting new requests and emits a GOAWAY frame to the peer.
-  conn_shutdown.notify_waiters();
+  // Phase 1: trigger the CancellationToken so every spawned connection task
+  // (including those that began their handshake just before this point) sees
+  // shutdown and emits a GOAWAY frame.
+  conn_shutdown.cancel();
 
   // Phase 2: wait for in-flight connections to finish gracefully, bounded by
   // the global drain deadline.
@@ -397,13 +405,11 @@ async fn handle_connection(
   conn: quinn::Connection,
   router: Arc<Router>,
   remote_addr: SocketAddr,
-  shutdown: Arc<Notify>,
+  shutdown: tokio_util::sync::CancellationToken,
   goaway_grace: Duration,
 ) -> Result<(), BoxError> {
   let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn)).await?;
   let mut request_tasks = tokio::task::JoinSet::new();
-  let shutdown_notified = shutdown.notified();
-  tokio::pin!(shutdown_notified);
 
   loop {
     tokio::select! {
@@ -431,9 +437,11 @@ async fn handle_connection(
           }
         }
       }
-      () = shutdown_notified.as_mut() => {
+      () = shutdown.cancelled() => {
         // Send GOAWAY(0): the peer must not start any new request, but we
         // continue draining streams already in flight on this connection.
+        // `CancellationToken::cancelled()` is sticky — connections that
+        // handshake AFTER the server-level signal also observe the trigger.
         if let Err(e) = h3_conn.shutdown(0).await {
           tracing::debug!("HTTP/3 GOAWAY error: {e}");
         }

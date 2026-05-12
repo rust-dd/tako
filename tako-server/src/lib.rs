@@ -151,9 +151,17 @@ impl AcceptBackoff {
   /// Use the tokio `sleep` so this is cooperative on the runtime that runs
   /// the accept loop.
   pub async fn sleep_and_grow(&mut self) {
+    let d = self.current_and_grow();
+    tokio::time::sleep(d).await;
+  }
+
+  /// Returns the current backoff duration and doubles the internal counter
+  /// (capped at `max`). Use this when you need to drive the sleep with a
+  /// non-tokio timer (e.g. `compio::time::sleep`).
+  pub fn current_and_grow(&mut self) -> Duration {
     let d = self.current;
     self.current = (self.current * 2).min(self.max);
-    tokio::time::sleep(d).await;
+    d
   }
 }
 

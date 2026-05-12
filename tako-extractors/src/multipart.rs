@@ -379,7 +379,56 @@ pub trait FromMultipartField: Serialize + Sized {
   ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send;
 }
 
+/// RAII cleanup for a temp file produced by the multipart upload pipeline.
+///
+/// When this guard drops with a `Some(path)`, the file at that path is best-effort
+/// unlinked. Default is `None` (no cleanup) so that values obtained via
+/// `Deserialize` do not delete arbitrary paths supplied by an attacker.
+#[derive(Default)]
+pub struct TempFileCleanup {
+  path: Option<PathBuf>,
+}
+
+impl TempFileCleanup {
+  fn for_path(path: PathBuf) -> Self {
+    Self { path: Some(path) }
+  }
+
+  /// Disarm the cleanup — the temp file will not be removed on Drop.
+  /// Use this when the caller has moved or persisted the file elsewhere.
+  pub fn disarm(&mut self) {
+    self.path = None;
+  }
+}
+
+impl Drop for TempFileCleanup {
+  fn drop(&mut self) {
+    if let Some(p) = self.path.take() {
+      let _ = std::fs::remove_file(&p);
+    }
+  }
+}
+
+impl std::fmt::Debug for TempFileCleanup {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("TempFileCleanup")
+      .field("armed", &self.path.is_some())
+      .finish()
+  }
+}
+
+fn fresh_upload_temp_path() -> PathBuf {
+  // UUID-only basename: the client-supplied filename is preserved in
+  // `UploadedFile.file_name` but MUST NOT influence the on-disk path
+  // (`..` segments would otherwise enable path traversal).
+  std::env::temp_dir().join(format!("upload-{}", Uuid::new_v4()))
+}
+
 /// Represents a file uploaded to the server and saved to disk.
+///
+/// The on-disk temp file is auto-removed when the `UploadedFile` is dropped
+/// (RAII). Call [`UploadedFile::persist`] or [`UploadedFile::disarm_cleanup`]
+/// before drop if you want to keep the file.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UploadedFile {
   /// Original file name provided by the client, if any.
@@ -390,6 +439,25 @@ pub struct UploadedFile {
   pub path: PathBuf,
   /// Size of the uploaded file in bytes.
   pub size: u64,
+  #[serde(skip, default)]
+  cleanup: TempFileCleanup,
+}
+
+impl UploadedFile {
+  /// Disarm the RAII cleanup. The temp file will remain on disk after drop.
+  /// Use this when you have already moved the file elsewhere.
+  pub fn disarm_cleanup(&mut self) {
+    self.cleanup.disarm();
+  }
+
+  /// Persist the temp file by renaming it to `dest`. On success the cleanup
+  /// is disarmed and `self.path` is updated to `dest`.
+  pub async fn persist(&mut self, dest: PathBuf) -> std::io::Result<()> {
+    tokio::fs::rename(&self.path, &dest).await?;
+    self.path = dest;
+    self.cleanup.disarm();
+    Ok(())
+  }
 }
 
 impl FromMultipartField for UploadedFile {
@@ -397,13 +465,10 @@ impl FromMultipartField for UploadedFile {
   async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
     let original = field.file_name().map(|s| s.to_owned());
     let content_type = field.content_type().map(|m| m.to_string());
-    let tmp_path = {
-      let fname = original
-        .as_deref()
-        .map(|f| format!("upload-{}-{}", Uuid::new_v4(), f))
-        .unwrap_or_else(|| format!("upload-{}", Uuid::new_v4()));
-      std::env::temp_dir().join(fname)
-    };
+    let tmp_path = fresh_upload_temp_path();
+    // Register cleanup BEFORE opening the file so an error mid-write still
+    // removes the partial file on early return.
+    let cleanup = TempFileCleanup::for_path(tmp_path.clone());
     let mut outfile = File::create(&tmp_path).await?;
     let mut bytes_written: u64 = 0;
     while let Some(chunk) = field.chunk().await? {
@@ -416,6 +481,7 @@ impl FromMultipartField for UploadedFile {
       content_type,
       path: tmp_path,
       size: bytes_written,
+      cleanup,
     })
   }
 }
@@ -468,38 +534,36 @@ impl FromMultipartField for BufferedUploadedFile {
     let content_type = field.content_type().map(|m| m.to_string());
 
     let mut buffer: Vec<u8> = Vec::new();
-    let mut spilled: Option<(PathBuf, File)> = None;
+    let mut spilled: Option<(PathBuf, File, TempFileCleanup)> = None;
     let mut bytes_written: u64 = 0;
 
     while let Some(chunk) = field.chunk().await? {
-      if let Some((_, ref mut f)) = spilled {
+      if let Some((_, ref mut f, _)) = spilled {
         f.write_all(&chunk).await?;
       } else {
         buffer.extend_from_slice(&chunk);
         if let Some(t) = threshold
           && (buffer.len() as u64) > t
         {
-          let fname = file_name
-            .as_deref()
-            .map(|f| format!("upload-{}-{}", Uuid::new_v4(), f))
-            .unwrap_or_else(|| format!("upload-{}", Uuid::new_v4()));
-          let path = std::env::temp_dir().join(fname);
+          let path = fresh_upload_temp_path();
+          let cleanup = TempFileCleanup::for_path(path.clone());
           let mut f = File::create(&path).await?;
           f.write_all(&buffer).await?;
-          spilled = Some((path, f));
+          spilled = Some((path, f, cleanup));
           buffer.clear();
         }
       }
       bytes_written += chunk.len() as u64;
     }
 
-    if let Some((path, mut f)) = spilled {
+    if let Some((path, mut f, cleanup)) = spilled {
       f.flush().await?;
       Ok(BufferedUploadedFile::Disk(UploadedFile {
         file_name,
         content_type,
         path,
         size: bytes_written,
+        cleanup,
       }))
     } else {
       Ok(BufferedUploadedFile::Memory(InMemoryFile {

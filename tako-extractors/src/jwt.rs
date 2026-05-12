@@ -225,13 +225,18 @@ impl Jwt {
   }
 
   /// Validates token expiration time.
+  ///
+  /// Note: This is an unverified time check on a token whose signature has
+  /// NOT been validated. For authenticated expiration enforcement, use
+  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// validates the signature first.
   pub fn validate_expiration(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
     if let Some(exp) = claims.get("exp").and_then(|v| v.as_u64()) {
       let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs();
 
       if exp < now {
@@ -243,13 +248,18 @@ impl Jwt {
   }
 
   /// Validates token not-before time.
+  ///
+  /// Note: This is an unverified time check on a token whose signature has
+  /// NOT been validated. For authenticated nbf enforcement, use
+  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// validates the signature first.
   pub fn validate_not_before(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
     if let Some(nbf) = claims.get("nbf").and_then(|v| v.as_u64()) {
       let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or(std::time::Duration::ZERO)
         .as_secs();
 
       if nbf > now {
@@ -266,12 +276,17 @@ where
   T: DeserializeOwned,
 {
   /// Extracts and deserializes JWT claims from HTTP headers.
+  ///
+  /// **Does NOT verify the signature, expiration, or not-before time.** This
+  /// extractor is for inspection of untrusted token payloads only. If you
+  /// need authenticated claim validation, use
+  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` instead,
+  /// which validates the signature against a JWKS / verifier and applies
+  /// `exp`/`nbf`/`iss`/`aud` constraints.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {
     let jwt = Jwt::extract_from_headers(headers)?;
 
     jwt.validate_format()?;
-    jwt.validate_expiration()?;
-    jwt.validate_not_before()?;
 
     let claims_json = jwt.claims()?;
     let claims: T = serde_json::from_value(claims_json)

@@ -68,7 +68,7 @@ pub async fn serve_vsock_http_with_shutdown(
   cid: u32,
   port: u32,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
 ) {
   if let Err(e) = run(cid, port, router, Some(signal), ServerConfig::default()).await {
     tracing::error!("vsock HTTP server error: {e}");
@@ -92,7 +92,7 @@ pub async fn serve_vsock_http_with_shutdown_and_config(
   cid: u32,
   port: u32,
   router: Router,
-  signal: impl Future<Output = ()>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) {
   if let Err(e) = run(cid, port, router, Some(signal), config).await {
@@ -104,7 +104,7 @@ async fn run(
   cid: u32,
   port: u32,
   router: Router,
-  signal: Option<impl Future<Output = ()>>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -124,15 +124,14 @@ async fn run(
   let drain_timeout = config.drain_timeout;
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;
-  let signal = signal.map(|s| Box::pin(s));
-  let signal_fused = async {
-    if let Some(s) = signal {
+  let cancel = tokio_util::sync::CancellationToken::new();
+  if let Some(s) = signal {
+    let cancel_for_signal = cancel.clone();
+    tokio::spawn(async move {
       s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  };
-  tokio::pin!(signal_fused);
+      cancel_for_signal.cancel();
+    });
+  }
 
   loop {
     tokio::select! {
@@ -146,9 +145,13 @@ async fn run(
           }
         };
         let permit = if let Some(sem) = &max_conn_semaphore {
-          match sem.clone().acquire_owned().await {
-            Ok(p) => Some(p),
-            Err(_) => continue,
+          tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break,
+            permit = sem.clone().acquire_owned() => match permit {
+              Ok(p) => Some(p),
+              Err(_) => continue,
+            },
           }
         } else {
           None
@@ -192,7 +195,7 @@ async fn run(
           drop(permit);
         });
       }
-      () = &mut signal_fused => {
+      () = cancel.cancelled() => {
         tracing::info!("vsock HTTP server shutting down...");
         break;
       }

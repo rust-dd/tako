@@ -640,6 +640,10 @@ async fn middleware_chain_order() {
 // 4.3 — new middleware
 // ---------------------------------------------------------------------------
 
+// `Timeout::into_middleware` is only available when the compio feature is
+// off (the compio runtime ships !Send futures incompatible with the
+// `IntoMiddleware` bounds). Gate the tests off when compio is enabled.
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn timeout_returns_503_when_exceeded() {
   use std::time::Duration;
@@ -657,6 +661,7 @@ async fn timeout_returns_503_when_exceeded() {
   assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
+#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn timeout_passes_when_within_deadline() {
   use std::time::Duration;
