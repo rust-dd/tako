@@ -313,12 +313,18 @@ mod tests {
 
   #[test]
   fn normalize_origin_lowercases_scheme_and_host() {
-    assert_eq!(normalize_origin("HTTPS://Example.COM"), "https://example.com");
+    assert_eq!(
+      normalize_origin("HTTPS://Example.COM"),
+      "https://example.com"
+    );
   }
 
   #[test]
   fn normalize_origin_strips_default_ports() {
-    assert_eq!(normalize_origin("http://example.com:80"), "http://example.com");
+    assert_eq!(
+      normalize_origin("http://example.com:80"),
+      "http://example.com"
+    );
     assert_eq!(
       normalize_origin("https://example.com:443"),
       "https://example.com"

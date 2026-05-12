@@ -526,7 +526,12 @@ pub(crate) struct H3BodyGuard {
 
 impl Drop for H3BodyGuard {
   fn drop(&mut self) {
-    if self.tracker.active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+    if self
+      .tracker
+      .active
+      .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
+      == 1
+    {
       self.tracker.drained.notify_waiters();
     }
   }
@@ -534,7 +539,9 @@ impl Drop for H3BodyGuard {
 
 impl H3BodyTracker {
   pub(crate) fn guard(self: &Arc<Self>) -> H3BodyGuard {
-    self.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    self
+      .active
+      .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     H3BodyGuard {
       tracker: self.clone(),
     }

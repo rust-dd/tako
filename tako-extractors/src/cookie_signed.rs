@@ -359,10 +359,7 @@ mod tests {
       .with_previous("v2", old)
       .with_previous("v1", older);
 
-    assert_eq!(
-      ring.previous_kids().collect::<Vec<_>>(),
-      vec!["v2", "v1"]
-    );
+    assert_eq!(ring.previous_kids().collect::<Vec<_>>(), vec!["v2", "v1"]);
 
     assert!(ring.revoke("v2"));
     assert_eq!(ring.previous_kids().collect::<Vec<_>>(), vec!["v1"]);

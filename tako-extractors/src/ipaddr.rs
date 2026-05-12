@@ -202,9 +202,7 @@ impl IpAddr {
       _ => false,
     };
 
-    if trust_headers
-      && let Some(ip) = Self::parse_forwarded_headers(headers)
-    {
+    if trust_headers && let Some(ip) = Self::parse_forwarded_headers(headers) {
       return Ok(Self(ip));
     }
 

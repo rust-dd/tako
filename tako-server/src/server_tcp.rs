@@ -101,8 +101,7 @@ where
     + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
-  serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30))
-    .await
+  serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30)).await
 }
 
 /// Same as [`serve_tcp_with_shutdown`] but with an explicit drain timeout.

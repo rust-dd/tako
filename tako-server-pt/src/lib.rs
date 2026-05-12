@@ -458,9 +458,7 @@ fn worker_main_compio(
         }
         futures_util::future::Either::Left((Err(e), _)) => {
           let delay = backoff;
-          tracing::warn!(
-            "worker {worker_id}: accept failed: {e}; backing off {delay:?}"
-          );
+          tracing::warn!("worker {worker_id}: accept failed: {e}; backing off {delay:?}");
           compio::time::sleep(delay).await;
           backoff = std::cmp::min(backoff * 2, Duration::from_secs(1));
           continue;

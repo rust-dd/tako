@@ -330,11 +330,10 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpLi
         // Synchronous stdin read on a blocking pool — the previous call
         // ran the read inline and blocked the async runtime worker until
         // the user typed Enter.
-        let proceed = tokio::task::spawn_blocking(move || {
-          ask_to_use_next_port(curr_port, next_port)
-        })
-        .await
-        .map_err(io::Error::other)??;
+        let proceed =
+          tokio::task::spawn_blocking(move || ask_to_use_next_port(curr_port, next_port))
+            .await
+            .map_err(io::Error::other)??;
         if !proceed {
           return Err(err);
         }
@@ -371,11 +370,10 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpL
         let curr_port = socket_addr.port();
         // compio variant: dedicate a blocking-pool task for the stdin read
         // so the io_uring/IOCP reactor isn't held by the prompt.
-        let proceed = compio::runtime::spawn_blocking(move || {
-          ask_to_use_next_port(curr_port, next_port)
-        })
-        .await
-        .map_err(|_| io::Error::other("compio spawn_blocking panicked"))??;
+        let proceed =
+          compio::runtime::spawn_blocking(move || ask_to_use_next_port(curr_port, next_port))
+            .await
+            .map_err(|_| io::Error::other("compio spawn_blocking panicked"))??;
         if !proceed {
           return Err(err);
         }

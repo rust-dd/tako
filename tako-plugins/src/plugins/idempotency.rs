@@ -546,13 +546,12 @@ fn build_response_from_cache(c: &CachedResponse) -> Response {
     let _ = headers.insert(k, v.clone());
   }
   headers.remove(CONTENT_LENGTH);
-  b.body(TakoBody::from(c.body.clone()))
-    .unwrap_or_else(|_| {
-      http::Response::builder()
-        .status(StatusCode::INTERNAL_SERVER_ERROR)
-        .body(TakoBody::empty())
-        .expect("static 500 builder")
-    })
+  b.body(TakoBody::from(c.body.clone())).unwrap_or_else(|_| {
+    http::Response::builder()
+      .status(StatusCode::INTERNAL_SERVER_ERROR)
+      .body(TakoBody::empty())
+      .expect("static 500 builder")
+  })
 }
 
 fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {

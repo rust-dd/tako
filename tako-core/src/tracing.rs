@@ -5,7 +5,8 @@
 //! log levels, and span events. The tracing system helps with debugging, monitoring,
 //! and understanding application behavior in development and production environments.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
 
 pub use tracing::level_filters::LevelFilter;
 use tracing_subscriber::Layer;

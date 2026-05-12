@@ -260,9 +260,7 @@ impl IntoMiddleware for Csrf {
           // CSRF token to invalidate any stolen pair from the pre-rotation
           // identity. Otherwise a privilege transition (login, role change)
           // would leave the CSRF cookie usable against the new session id.
-          let rotated = session
-            .as_ref()
-            .is_some_and(|s| s.rotation_requested());
+          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
           let seed = if rotated {
             None
           } else {
@@ -317,9 +315,7 @@ impl IntoMiddleware for Csrf {
 
         if cookie_header_match && session_match {
           let mut resp = next.run(req).await;
-          let rotated = session
-            .as_ref()
-            .is_some_and(|s| s.rotation_requested());
+          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
           let preferred = if rotated {
             None
           } else {
@@ -364,9 +360,7 @@ impl IntoMiddleware for Csrf {
 
         if trust_hit {
           let mut resp = next.run(req).await;
-          let rotated = session
-            .as_ref()
-            .is_some_and(|s| s.rotation_requested());
+          let rotated = session.as_ref().is_some_and(|s| s.rotation_requested());
           let preferred = if rotated {
             None
           } else {

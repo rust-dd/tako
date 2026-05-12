@@ -82,12 +82,16 @@ async fn host_ignores_x_forwarded_host_when_untrusted() {
     .body(TakoBody::empty())
     .unwrap();
   let res = Host::from_request(&mut req).await;
-  assert!(res.is_err(), "untrusted X-Forwarded-Host must not satisfy Host");
+  assert!(
+    res.is_err(),
+    "untrusted X-Forwarded-Host must not satisfy Host"
+  );
 }
 
 #[tokio::test]
 async fn host_uses_x_forwarded_host_when_proxy_trusted() {
   use std::net::IpAddr;
+
   use tako::conn_info::ConnInfo;
   use tako::extractors::uri_parts::UriPartsConfig;
 

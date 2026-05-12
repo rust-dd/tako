@@ -197,8 +197,9 @@ impl<'a> FromRequestParts<'a> for Option<Range> {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
   use http::HeaderMap;
+
+  use super::*;
 
   fn headers(value: &str) -> HeaderMap {
     let mut h = HeaderMap::new();
@@ -208,20 +209,26 @@ mod tests {
 
   #[test]
   fn parses_inclusive_range() {
-    let r = Range::from_headers(&headers("bytes=0-99")).unwrap().unwrap();
+    let r = Range::from_headers(&headers("bytes=0-99"))
+      .unwrap()
+      .unwrap();
     assert_eq!(r.specs.len(), 1);
     assert_eq!(r.specs[0], RangeSpec::Inclusive { start: 0, end: 99 });
   }
 
   #[test]
   fn parses_open_ended_range() {
-    let r = Range::from_headers(&headers("bytes=100-")).unwrap().unwrap();
+    let r = Range::from_headers(&headers("bytes=100-"))
+      .unwrap()
+      .unwrap();
     assert_eq!(r.specs[0], RangeSpec::From { start: 100 });
   }
 
   #[test]
   fn parses_suffix_range() {
-    let r = Range::from_headers(&headers("bytes=-500")).unwrap().unwrap();
+    let r = Range::from_headers(&headers("bytes=-500"))
+      .unwrap()
+      .unwrap();
     assert_eq!(r.specs[0], RangeSpec::Suffix { length: 500 });
   }
 
@@ -234,7 +241,10 @@ mod tests {
     assert_eq!(r.specs[0], RangeSpec::Inclusive { start: 0, end: 100 });
     assert_eq!(
       r.specs[1],
-      RangeSpec::Inclusive { start: 200, end: 300 }
+      RangeSpec::Inclusive {
+        start: 200,
+        end: 300
+      }
     );
     assert_eq!(r.specs[2], RangeSpec::From { start: 400 });
   }

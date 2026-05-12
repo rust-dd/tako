@@ -1400,7 +1400,9 @@ impl Router {
     if let Some(guard) = route.protocol_guard()
       && guard != req.version()
     {
-      return Some(empty_status_response(StatusCode::HTTP_VERSION_NOT_SUPPORTED));
+      return Some(empty_status_response(
+        StatusCode::HTTP_VERSION_NOT_SUPPORTED,
+      ));
     }
     None
   }

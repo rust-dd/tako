@@ -525,7 +525,10 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
         .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
       resp.headers_mut().remove(CONTENT_LENGTH);
     } else {
-      tracing::warn!(encoding = enc.as_str(), "compression failed; serving identity");
+      tracing::warn!(
+        encoding = enc.as_str(),
+        "compression failed; serving identity"
+      );
       *resp.body_mut() = TakoBody::from(body_bytes);
       resp.headers_mut().remove(CONTENT_ENCODING);
     }
@@ -619,7 +622,9 @@ pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -
 /// auth header or cookie is treated as authenticated.
 fn request_carries_credentials(req: &Request) -> bool {
   req.headers().contains_key(http::header::AUTHORIZATION)
-    || req.headers().contains_key(http::header::PROXY_AUTHORIZATION)
+    || req
+      .headers()
+      .contains_key(http::header::PROXY_AUTHORIZATION)
     || req.headers().contains_key(http::header::COOKIE)
 }
 

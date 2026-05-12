@@ -299,7 +299,8 @@ pub async fn run_with_config(
 
         let acceptor = acceptor.clone();
         let router = router.clone();
-        let guard = crate::server_compio::ConnectionGuard::new(inflight.clone(), drain_notify.clone());
+        let guard =
+          crate::server_compio::ConnectionGuard::new(inflight.clone(), drain_notify.clone());
 
         compio::runtime::spawn(async move {
           let _permit = permit;
@@ -321,9 +322,7 @@ pub async fn run_with_config(
               return;
             }
             Either::Right(_) => {
-              tracing::warn!(
-                "TLS handshake timeout after {tls_handshake_timeout:?} from {addr}"
-              );
+              tracing::warn!("TLS handshake timeout after {tls_handshake_timeout:?} from {addr}");
               return;
             }
           };

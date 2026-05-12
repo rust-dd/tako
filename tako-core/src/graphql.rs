@@ -185,7 +185,12 @@ fn classify_graphql_content_type(ct: Option<&str>) -> Result<GraphQLBodyKind, Gr
   if raw.is_empty() {
     return Err(GraphQLError::UnsupportedMediaType("<missing>".to_string()));
   }
-  let essence = raw.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+  let essence = raw
+    .split(';')
+    .next()
+    .unwrap_or("")
+    .trim()
+    .to_ascii_lowercase();
   match essence.as_str() {
     "application/json" => Ok(GraphQLBodyKind::Json),
     "application/graphql" | "application/graphql-response+json" => Ok(GraphQLBodyKind::Graphql),

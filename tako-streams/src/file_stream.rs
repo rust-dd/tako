@@ -445,7 +445,9 @@ fn format_http_date(unix_secs: u64) -> String {
 /// server to ship full bodies on `If-Modified-Since` despite a fresh cache.
 fn parse_http_date(header: &str) -> Option<u64> {
   let st = httpdate::parse_http_date(header.trim()).ok()?;
-  st.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs())
+  st.duration_since(std::time::UNIX_EPOCH)
+    .ok()
+    .map(|d| d.as_secs())
 }
 
 fn epoch_days_to_ymd(days: i64) -> (i64, i64, i64) {

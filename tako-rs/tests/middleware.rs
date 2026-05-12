@@ -274,7 +274,12 @@ async fn bearer_auth_scheme_is_case_insensitive() {
   router.route(Method::GET, "/api", |_req: Request| async { "ok" });
   router.middleware(BearerAuth::static_token("my-token").into_middleware());
 
-  for variant in &["Bearer my-token", "bearer my-token", "BEARER my-token", "BeArEr my-token"] {
+  for variant in &[
+    "Bearer my-token",
+    "bearer my-token",
+    "BEARER my-token",
+    "BeArEr my-token",
+  ] {
     let mut req = make_req(Method::GET, "/api");
     req
       .headers_mut()
@@ -297,7 +302,11 @@ async fn basic_auth_scheme_is_case_insensitive() {
   router.middleware(BasicAuth::single("user", "pass").into_middleware());
 
   // "user:pass" base64 = "dXNlcjpwYXNz".
-  for variant in &["Basic dXNlcjpwYXNz", "basic dXNlcjpwYXNz", "BASIC dXNlcjpwYXNz"] {
+  for variant in &[
+    "Basic dXNlcjpwYXNz",
+    "basic dXNlcjpwYXNz",
+    "BASIC dXNlcjpwYXNz",
+  ] {
     let mut req = make_req(Method::GET, "/api");
     req
       .headers_mut()
@@ -705,14 +714,19 @@ async fn session_destroy_expires_cookie() {
     .find(|s| s.starts_with("tako_session="))
     .map(str::to_owned);
   let inbound = first.expect("first response should set cookie");
-  let sid = inbound.split('=').nth(1).unwrap().split(';').next().unwrap();
+  let sid = inbound
+    .split('=')
+    .nth(1)
+    .unwrap()
+    .split(';')
+    .next()
+    .unwrap();
 
   // Now logout: destroy() must emit Max-Age=0 + far-past Expires.
   let mut req = make_req(Method::POST, "/logout");
-  req.headers_mut().insert(
-    "cookie",
-    format!("tako_session={sid}").parse().unwrap(),
-  );
+  req
+    .headers_mut()
+    .insert("cookie", format!("tako_session={sid}").parse().unwrap());
   let resp = router.dispatch(req).await;
 
   let expired = resp
@@ -918,9 +932,10 @@ async fn etag_if_modified_since_rfc850() {
     resp
       .headers_mut()
       .insert("etag", "\"abc\"".parse().unwrap());
-    resp
-      .headers_mut()
-      .insert("last-modified", "Sun, 06 Nov 1994 08:49:37 GMT".parse().unwrap());
+    resp.headers_mut().insert(
+      "last-modified",
+      "Sun, 06 Nov 1994 08:49:37 GMT".parse().unwrap(),
+    );
     resp
   });
   router.middleware(ETag::new().into_middleware());
@@ -989,7 +1004,10 @@ async fn compression_compresses_plain_response() {
     .insert("accept-encoding", "gzip".parse().unwrap());
   let resp = router.dispatch(req).await;
   assert_eq!(
-    resp.headers().get("content-encoding").map(|v| v.to_str().unwrap()),
+    resp
+      .headers()
+      .get("content-encoding")
+      .map(|v| v.to_str().unwrap()),
     Some("gzip")
   );
 }
@@ -1090,7 +1108,10 @@ async fn compression_opt_out_of_crime_mitigation() {
     .insert("authorization", "Bearer secret".parse().unwrap());
   let resp = router.dispatch(req).await;
   assert_eq!(
-    resp.headers().get("content-encoding").map(|v| v.to_str().unwrap()),
+    resp
+      .headers()
+      .get("content-encoding")
+      .map(|v| v.to_str().unwrap()),
     Some("gzip"),
     "explicit opt-out should let auth responses be compressed"
   );
