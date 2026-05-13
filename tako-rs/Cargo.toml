@@ -42,8 +42,13 @@ webtransport = ["tako-streams/webtransport", "tako-core/webtransport"]
 
 # Compio runtime
 compio = ["tako-core/compio", "tako-server/compio", "tako-streams/compio", "tako-plugins/compio"]
-compio-tls = ["tako-server/compio-tls", "tako-core/compio-tls"]
-compio-ws = ["tako-streams/compio-ws", "tako-core/compio-ws"]
+# compio-tls / compio-ws imply `compio`: tako-server's `compio-tls` already
+# pulls in `tako-server/compio`, which turns off the tokio-based `Server` /
+# `ServerBuilder` re-exports. If we didn't also flip `tako-rs/compio`, the
+# `#[cfg(not(feature = "compio"))]` gates in `src/lib.rs` would still try to
+# re-export items that are no longer present.
+compio-tls = ["compio", "tako-server/compio-tls", "tako-core/compio-tls"]
+compio-ws = ["compio", "tako-streams/compio-ws", "tako-core/compio-ws"]
 
 # Body/streaming features
 file-stream = ["tako-streams/file-stream", "tako-core/file-stream"]
