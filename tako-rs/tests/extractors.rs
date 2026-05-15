@@ -277,7 +277,7 @@ async fn form_deserialization_error() {
 async fn accept_prefers_json() {
   use tako::extractors::accept::Accept;
 
-  let (mut parts, _) = http::Request::builder()
+  let (mut parts, ()) = http::Request::builder()
     .header("accept", "application/json, text/html;q=0.9")
     .body(())
     .unwrap()
@@ -293,7 +293,7 @@ async fn accept_prefers_json() {
 async fn accept_no_header_defaults_to_wildcard() {
   use tako::extractors::accept::Accept;
 
-  let (mut parts, _) = http::Request::builder().body(()).unwrap().into_parts();
+  let (mut parts, ()) = http::Request::builder().body(()).unwrap().into_parts();
 
   let accept = Accept::from_request_parts(&mut parts).await.unwrap();
   assert!(accept.prefers("anything"));
@@ -304,7 +304,7 @@ async fn accept_no_header_defaults_to_wildcard() {
 async fn accept_wildcard_subtype() {
   use tako::extractors::accept::Accept;
 
-  let (mut parts, _) = http::Request::builder()
+  let (mut parts, ()) = http::Request::builder()
     .header("accept", "text/*")
     .body(())
     .unwrap()
@@ -320,7 +320,7 @@ async fn accept_wildcard_subtype() {
 async fn accept_quality_ordering() {
   use tako::extractors::accept::Accept;
 
-  let (mut parts, _) = http::Request::builder()
+  let (mut parts, ()) = http::Request::builder()
     .header("accept", "text/html;q=0.5, application/json;q=0.9")
     .body(())
     .unwrap()

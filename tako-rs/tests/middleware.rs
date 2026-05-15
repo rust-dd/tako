@@ -846,8 +846,7 @@ async fn traceparent_propagates_inbound() {
   let mut router = Router::new();
   router.route(Method::GET, "/", |req: Request| async move {
     let ctx = req.extensions().get::<TraceContext>().cloned();
-    let tid = ctx.map(|c| c.trace_id).unwrap_or_default();
-    tid
+    ctx.map(|c| c.trace_id).unwrap_or_default()
   });
   router.middleware(Traceparent::new().into_middleware());
 
@@ -963,8 +962,7 @@ async fn tenant_extracted_from_header() {
     req
       .extensions()
       .get::<Tenant>()
-      .map(|t| t.0.clone())
-      .unwrap_or_else(|| "no-tenant".into())
+      .map_or_else(|| "no-tenant".into(), |t| t.0.clone())
   });
   router.middleware(
     TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id")).into_middleware(),
@@ -1131,8 +1129,7 @@ async fn tenant_invalid_ids_rejected() {
     req
       .extensions()
       .get::<Tenant>()
-      .map(|t| t.0.clone())
-      .unwrap_or_else(|| "no-tenant".into())
+      .map_or_else(|| "no-tenant".into(), |t| t.0.clone())
   });
   router.middleware(
     TenantMiddleware::from_header(http::HeaderName::from_static("x-tenant-id")).into_middleware(),

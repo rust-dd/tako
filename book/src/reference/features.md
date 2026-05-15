@@ -1,35 +1,112 @@
 # Cargo feature graph
 
-> **Status:** scaffold — generated programmatically as part of CI in
-> a follow-up.
+The umbrella crate `tako-rs` is the contractual surface. Sub-crate
+features are reached through it — for example, `tako-rs/multipart`
+turns on `tako-extractors/multipart` and `tako-core/multipart`
+together. You should never need to depend on `tako-core`,
+`tako-extractors`, `tako-server`, `tako-server-pt`, `tako-streams`,
+or `tako-plugins` directly.
 
-The umbrella crate `tako-rs` is the contractual surface; sub-crate
-features are reached through it. Run
+To inspect the current shape locally:
 
 ```bash
 cargo metadata --format-version 1 --no-deps \
   | jq '.packages[] | select(.name == "tako-rs") | .features'
 ```
 
-to see the current shape locally. High-traffic features:
+## Transports
 
-- `tls` / `http2` / `http3` — transport feature flags.
-- `compio` / `compio-tls` / `compio-ws` — the alternative runtime
-  surface.
-- `plugins` / `signals` — middleware and observability primitives.
-- `multipart` / `simd` / `protobuf` / `typed-header` /
-  `zero-copy-extractors` — extractor add-ons.
-- `metrics-prometheus` / `metrics-opentelemetry` / `tako-tracing` —
-  observability backends.
-- `validator` / `garde` — request validation crates.
-- `client` (default-off) — outbound HTTP client. Pair with
-  `native-certs` to use the OS trust store instead of the bundled
-  `webpki-roots` snapshot.
-- `per-thread` / `per-thread-compio` — thread-per-core deployment.
-- `ip-filter`, `hmac-signature`, `json-schema`, `zstd` — opt-in
-  middleware.
-- `jwt-simple`, `ahash`, `jemalloc` — algorithm / hashing /
-  allocator opt-ins.
+| Feature | Description | Gates |
+|---|---|---|
+| *(default)* | HTTP/1.1, WebSocket, SSE, raw TCP / UDP, Unix sockets, PROXY protocol. | always on |
+| `tls` | Server-side HTTPS via `rustls`. | `tako-server/tls`, `tako-core/tls` |
+| `http2` | HTTP/2 cleartext (h2c) and ALPN-negotiated h2 over TLS. | `tako-server/http2`, `tako-core/http2` |
+| `http3` | HTTP/3 over QUIC; also enables the QUIC dependency tree in `tako-streams`. | `tako-server/http3`, `tako-streams/http3`, `tako-core/http3` |
+| `webtransport` | WebTransport / raw QUIC sessions on top of `http3`. | `tako-streams/webtransport`, `tako-core/webtransport` |
+| `vsock` | Linux vsock listener for sidecar workloads. | `tako-server/vsock` |
 
-> Enabling **both** the tokio and compio runtime sides at once is
-> not supported; see [Runtime compatibility](./runtimes.md).
+## Runtime selection
+
+| Feature | Description | Gates |
+|---|---|---|
+| `compio` | Switch the server to the `compio` runtime (io_uring / IOCP / kqueue). Mutually exclusive with the tokio path at build time. | `tako-core/compio`, `tako-server/compio`, `tako-streams/compio`, `tako-plugins/compio` |
+| `compio-tls` | TLS on compio. Implies `compio`. | `tako-server/compio-tls`, `tako-core/compio-tls` |
+| `compio-ws` | WebSocket on compio. Implies `compio`. | `tako-streams/compio-ws`, `tako-core/compio-ws` |
+| `per-thread` | Thread-per-core deployment on tokio current-thread runtimes. | `tako-server-pt` |
+| `per-thread-compio` | Thread-per-core on compio. Implies `per-thread`. | `tako-server-pt/compio` |
+
+See [Runtime compatibility](./runtimes.md) for the tokio vs compio
+trade-offs.
+
+## Plugins, middleware, signals
+
+| Feature | Description | Gates |
+|---|---|---|
+| `plugins` | Bundled middleware and plugins (CORS, compression, rate limiting, idempotency). | `tako-core/plugins`, `tako-plugins/plugins` |
+| `signals` | In-process pub/sub bus, queue lifecycle signals, transport signals. | `tako-core/signals`, `tako-server/signals`, `tako-plugins/signals` |
+| `ip-filter` | `IpFilter` middleware. | `tako-plugins/ip-filter` |
+| `hmac-signature` | `HmacSignature` middleware. | `tako-plugins/hmac-signature` |
+| `json-schema` | `JsonSchema` request-validation middleware. | `tako-plugins/json-schema` |
+| `zstd` | Zstandard compression in `plugins::compression`. Implies `plugins`. | `tako-plugins/zstd`, `tako-core/zstd` |
+
+## Extractors
+
+| Feature | Description | Gates |
+|---|---|---|
+| `multipart` | `Multipart` / `TakoTypedMultipart` body extractors. | `tako-extractors/multipart`, `tako-core/multipart` |
+| `protobuf` | `Protobuf<T>` extractor via `prost`. | `tako-extractors/protobuf`, `tako-core/protobuf` |
+| `simd` | Umbrella that enables both `simd-sonic` and `simd-json-impl`. | `tako-extractors/simd`, `tako-core/simd` |
+| `simd-sonic` | `sonic-rs`-backed JSON path. | `tako-extractors/simd-sonic`, `tako-core/simd-sonic` |
+| `simd-json-impl` | `simd-json`-backed JSON path. | `tako-extractors/simd-json-impl`, `tako-core/simd-json-impl` |
+| `typed-header` | `TypedHeader<H>` extractor (via `headers`). | `tako-extractors/typed-header` |
+| `zero-copy-extractors` | Borrowed variants of `Json`, `Form`, `Query`, `HeaderMap`. | `tako-extractors/zero-copy-extractors`, `tako-core/zero-copy-extractors` |
+| `validator` | `Validated<T>` adapter for the [`validator`](https://crates.io/crates/validator) crate. | `tako-extractors/validator` |
+| `garde` | `Validated<T>` adapter for the [`garde`](https://crates.io/crates/garde) crate. | `tako-extractors/garde` |
+| `jwt-simple` | JWT decode / verify backed by [`jwt-simple`](https://crates.io/crates/jwt-simple). | `tako-extractors/jwt-simple`, `tako-plugins/jwt-simple`, `tako-core/jwt-simple` |
+| `ahash` | Swap the default request hasher for `ahash` across the workspace. | `tako-core/ahash`, `tako-extractors/ahash`, `tako-plugins/ahash` |
+
+## Outbound client
+
+| Feature | Description | Gates |
+|---|---|---|
+| `client` | `tako::client` outbound HTTP client (hyper-util legacy client). Off by default. Not available with `compio`. | `tako-core/client` |
+| `native-certs` | Use the OS trust store via `rustls-native-certs` instead of the bundled `webpki-roots` snapshot. Implies `client`. | `tako-core/native-certs` |
+| `file-stream` | File streaming, range requests, conditional GET, precompressed sidecars. | `tako-streams/file-stream`, `tako-core/file-stream` |
+
+## Docs, GraphQL, gRPC, OpenAPI
+
+| Feature | Description | Gates |
+|---|---|---|
+| `async-graphql` | GraphQL HTTP / WebSocket handlers. | `tako-core/async-graphql` |
+| `graphiql` | GraphiQL IDE endpoint. | `tako-core/graphiql` |
+| `grpc` | gRPC unary RPCs via prost. | `tako-core/grpc` |
+| `utoipa` | OpenAPI docs via [`utoipa`](https://crates.io/crates/utoipa). | `tako-core/utoipa` |
+| `utoipa-yaml` | YAML output for the `utoipa` integration. Implies `utoipa`. | `tako-core/utoipa-yaml` |
+| `vespera` | OpenAPI docs via [`vespera`](https://crates.io/crates/vespera). | `tako-core/vespera` |
+
+## Observability backends
+
+| Feature | Description | Gates |
+|---|---|---|
+| `tako-tracing` | `tracing-subscriber` integration helpers. | `tako-core/tako-tracing`, `tako-server/tako-tracing` |
+| `metrics-prometheus` | Prometheus scrape endpoint + histogram. Implies `plugins` and `signals`. | `tako-plugins/metrics-prometheus`, `tako-core/metrics-prometheus` |
+| `metrics-opentelemetry` | OpenTelemetry OTLP metrics export. Implies `plugins` and `signals`. | `tako-plugins/metrics-opentelemetry`, `tako-core/metrics-opentelemetry` |
+
+## Allocator
+
+| Feature | Description | Gates |
+|---|---|---|
+| `jemalloc` | Set `tikv-jemallocator` as the global allocator. | `tako-core/jemalloc`, `dep:tikv-jemallocator` |
+
+## Combinations that don't compile
+
+- Enabling **both** the tokio and compio runtime sides at once is
+  not supported. `cargo build --all-features` therefore does not
+  build a runnable binary — see
+  [Runtime compatibility](./runtimes.md).
+- `client` requires tokio. With `compio` on, the `tako::client`
+  re-export is intentionally absent.
+
+New cargo features may appear in minor releases. Removing or
+renaming an existing feature is a major-version event — see
+[API stability](./stability.md) for the full policy.

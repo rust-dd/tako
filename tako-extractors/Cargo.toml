@@ -1,12 +1,14 @@
 [package]
 name = "tako-extractors"
-description = "Internal extractor implementations for tako-rs (not published)."
+description = "Internal extractor implementations for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish = false
+documentation = "https://docs.rs/tako-extractors"
+homepage = "https://github.com/rust-dd/tako"
+readme = "../README.md"
 
 [lib]
 name = "tako_extractors"

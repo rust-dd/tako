@@ -2,20 +2,6 @@
 [![Crates.io](https://img.shields.io/crates/v/tako-rs?style=flat-square)](https://crates.io/crates/tako-rs)
 ![License](https://img.shields.io/crates/l/tako-rs?style=flat-square)
 
-> **⚠️ Tako 2.0 is in progress on `main`.** The default branch carries breaking
-> changes (new `Server::builder`, `Router::with_state`, `nest`/`scope`, `405 +
-> Allow`, RFC 7807 `problem+json`, runtime-agnostic `ServerHandle`, …) that are
-> **not yet released**. For production, install the published 1.x line from
-> crates.io:
->
-> ```toml
-> [dependencies]
-> tako-rs = "1"
-> ```
->
-> Track 2.0 work in [`V2_ROADMAP.md`](./V2_ROADMAP.md). Expect API churn until
-> the 2.0 alpha is tagged.
-
 # 🐙 Tako — Multi-Transport Rust Framework for Modern Network Services
 
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible Rust framework for services that go beyond plain HTTP.
@@ -87,7 +73,8 @@ Choose Tako when your service needs one or more of these:
 | `PrivateCookieJar` | Encrypted cookies |
 | `BasicAuth` | HTTP Basic authentication |
 | `BearerAuth` | Bearer token extraction |
-| `JwtClaims<T>` | JWT token validation & claims |
+| `JwtClaimsUnverified<T>` | Unverified JWT claims decode (signature **not** checked) |
+| `JwtClaimsVerified<T>` | Signature-verified JWT claims (via `tako-plugins::JwtAuth`) |
 | `ApiKey` | API key from header/query |
 | `Accept` | Content negotiation |
 | `AcceptLanguage` | Language negotiation |
@@ -150,7 +137,11 @@ Choose Tako when your service needs one or more of these:
 
 [API Documentation](https://docs.rs/tako-rs/latest/tako/)
 
-MSRV 1.87.0 | Edition 2024
+MSRV 1.95 | Edition 2024
+
+See [`STABILITY.md`](./STABILITY.md) for the full semver and MSRV policy,
+[`MIGRATION_1_TO_2.md`](./MIGRATION_1_TO_2.md) for upgrading from 1.x, and
+[`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## Tako in Production
 
@@ -181,7 +172,7 @@ Add **Tako** to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "1"
+tako-rs = "2"
 ```
 
 

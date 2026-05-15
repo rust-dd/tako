@@ -34,7 +34,13 @@ pub enum H3Congestion {
 /// read, 100 H2 streams, …) so existing call sites keep their behavior. Pass
 /// a populated `ServerConfig` to `*_with_config` entry points to override
 /// individual knobs.
+///
+/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
+/// fields may be added in any 2.x minor without bumping the major. Construct
+/// with `ServerConfig::default()` and override individual fields, or use the
+/// dedicated setter methods.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ServerConfig {
   /// Maximum time the coordinator waits for in-flight connections to finish
   /// after a shutdown signal. After this elapses, remaining tasks are aborted.

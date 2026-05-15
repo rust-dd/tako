@@ -1,6 +1,6 @@
 //! End-to-end tests for the unified `Server::builder()` entry point.
 //!
-//! These spin up a real TCP listener, hit it with a tokio TcpStream, and
+//! These spin up a real TCP listener, hit it with a tokio `TcpStream`, and
 //! verify the response. The compio path is excluded — these tests only run on
 //! the default tokio transport.
 

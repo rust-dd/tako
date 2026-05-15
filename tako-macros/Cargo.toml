@@ -1,12 +1,14 @@
 [package]
 name = "tako-macros"
-description = "Internal proc macros for tako-rs (not published)."
+description = "Internal proc macros for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish = false
+documentation = "https://docs.rs/tako-macros"
+homepage = "https://github.com/rust-dd/tako"
+readme = "../README.md"
 
 [lib]
 proc-macro = true

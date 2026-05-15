@@ -94,6 +94,11 @@ impl Default for Config {
 pub type KeyFn = Arc<dyn Fn(&Request) -> Option<String> + Send + Sync + 'static>;
 
 /// Builder.
+///
+/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — fields
+/// are private and new builder state may be added in any 2.x minor. Construct
+/// via [`RateLimiterBuilder::new`] or [`RateLimiterBuilder::default`].
+#[non_exhaustive]
 pub struct RateLimiterBuilder {
   cfg: Config,
   key_fn: Option<KeyFn>,

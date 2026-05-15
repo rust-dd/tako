@@ -1,4 +1,4 @@
-//! v2 stream regression tests covering SSE event encoding, FileStream
+//! v2 stream regression tests covering SSE event encoding, `FileStream`
 //! conditional-GET evaluation, and Static precompressed-asset preference.
 
 use std::time::Duration;

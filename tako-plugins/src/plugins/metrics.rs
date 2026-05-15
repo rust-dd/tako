@@ -207,6 +207,17 @@ pub mod prometheus_backend {
     }
 
     /// Builds the backend with a caller-supplied latency bucket schedule.
+    ///
+    /// # Panics
+    ///
+    /// Panics only on impossible-by-construction conditions: every metric is
+    /// built from compile-time-constant `Opts` (deterministic name + label set
+    /// known to satisfy prometheus's identifier rules), and registered against
+    /// a freshly-passed `Registry` where a name collision can only occur if the
+    /// caller has already registered a metric under the reserved `tako_*`
+    /// namespace. We surface those as `.expect(...)` rather than `Result`
+    /// because the call is part of one-shot server startup — fatal here is
+    /// strictly better than masking misconfiguration.
     pub fn with_buckets(registry: Registry, buckets: Vec<f64>) -> Self {
       // Route-template-based labels keep cardinality bounded by route count;
       // raw path labels would explode under `/users/:id`-style traffic.

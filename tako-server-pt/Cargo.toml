@@ -1,12 +1,14 @@
 [package]
 name = "tako-server-pt"
-description = "Internal thread-per-core server bootstrap for tako-rs (not published)."
+description = "Internal thread-per-core server bootstrap for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish = false
+documentation = "https://docs.rs/tako-server-pt"
+homepage = "https://github.com/rust-dd/tako"
+readme = "../README.md"
 
 [lib]
 name = "tako_server_pt"

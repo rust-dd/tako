@@ -49,54 +49,83 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: clippy-${{ matrix.label }}
-      - run: cargo clippy --workspace --no-deps ${{ matrix.features }} -- -D warnings
+      # `--tests --examples` extends the lint sweep to the integration test
+      # crate (`tako-rs/tests/*.rs`) and every example. Workspace-level
+      # `pedantic = warn` opts those in too, so `-D warnings` catches
+      # regressions like the ones surfaced by the v2 release audit (items
+      # after statements, ignored unit patterns, map_unwrap_or).
+      - run: cargo clippy --workspace --no-deps --tests --examples ${{ matrix.features }} -- -D warnings
 
   test:
-    name: test (${{ matrix.os }} / ${{ matrix.label }})
+    name: test (${{ matrix.os }} / ${{ matrix.toolchain }} / ${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        toolchain: [stable]
         label: [default]
         features: [""]
         include:
           - os: ubuntu-latest
+            toolchain: stable
             label: rich
             features: --features "tls,http2,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,typed-header,zero-copy-extractors,jwt-simple,file-stream"
           - os: ubuntu-latest
+            toolchain: stable
             label: http3
             features: --features "tls,http2,http3,plugins,signals"
           - os: ubuntu-latest
+            toolchain: stable
             label: all-features
             # Regression guard for A1 (compio/tokio !Send mismatch under
             # workspace-wide --all-features test-build). Re-fixing the
             # gated test bins requires both runtimes resolved at once.
             features: --all-features
+          # Beta toolchain — early-warning for nightly→stable regressions
+          # picked up by upstream crates.
+          - os: ubuntu-latest
+            toolchain: beta
+            label: default
+            features: ""
+          # MSRV pin — make sure the declared `rust-version = "1.95"` actually
+          # builds AND passes tests. The plain `msrv` job below only builds;
+          # this one runs the rich feature set under the floor toolchain.
+          - os: ubuntu-latest
+            toolchain: "1.95"
+            label: msrv-rich
+            features: --features "tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,client,typed-header,zero-copy-extractors,file-stream"
     env:
       # Tests don't need to break on every clippy nit; only enforce build-warnings
       # in build/clippy/doc jobs.
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: test-${{ matrix.os }}-${{ matrix.label }}
+          key: test-${{ matrix.os }}-${{ matrix.toolchain }}-${{ matrix.label }}
       - run: cargo test --workspace ${{ matrix.features }}
 
   msrv:
-    name: MSRV (latest stable)
+    name: MSRV build (1.95)
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.95"
       - uses: Swatinem/rust-cache@v2
         with:
-          key: msrv-stable
-      - run: cargo build --workspace
+          key: msrv-1.95
+      # Plain `cargo build` on the declared MSRV — paired with the
+      # `toolchain: 1.95` row of the test matrix above so we catch both
+      # compilation errors and behaviour drift at the floor toolchain.
+      - run: cargo build --workspace --all-features
 
   doc:
     name: rustdoc
@@ -107,7 +136,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: doc
-      - run: cargo doc --no-deps --workspace --features "tls,http2,http3,plugins,signals,multipart,simd,client,typed-header,zero-copy-extractors,utoipa,async-graphql,grpc"
+      # `--all-features` catches broken intra-doc links that only appear on
+      # feature-gated modules (timeout middleware, webtransport, compio
+      # adapters). `RUSTDOCFLAGS: -D rustdoc::broken-intra-doc-links` from the
+      # workflow `env` then turns those into hard failures.
+      - run: cargo doc --no-deps --workspace --all-features
 
   deny:
     name: cargo-deny

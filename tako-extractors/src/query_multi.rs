@@ -6,7 +6,7 @@
 //! which preserves repeated keys and decodes them into `Vec`-shaped fields.
 //!
 //! It also recognises CSV-style multi values inside a single key
-//! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_keys`](crate::query_multi::QueryMultiOptions::csv_keys).
+//! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_key`](crate::query_multi::QueryMultiOptions::csv_key).
 
 use std::borrow::Cow;
 

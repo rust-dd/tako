@@ -13,12 +13,12 @@
 //! Reconciling these two facts is the entire reason `send_wrapper` shows up
 //! in this file:
 //!
-//! * [`ServiceSendWrapper`] wraps the per-connection hyper service and its
+//! * `ServiceSendWrapper` wraps the per-connection hyper service and its
 //!   response future in `SendWrapper`, satisfying hyper's bound at the type
 //!   level.
-//! * [`CompioH2Executor`] re-`spawn`s those `Send`-claimed futures back onto
+//! * `CompioH2Executor` re-`spawn`s those `Send`-claimed futures back onto
 //!   the same compio runtime thread.
-//! * [`CompioH2Timer`] wraps `compio::time::sleep` similarly so HTTP/2
+//! * `CompioH2Timer` wraps `compio::time::sleep` similarly so HTTP/2
 //!   keep-alive timers can be handed to hyper.
 //!
 //! **The soundness of this pattern depends on the wrapped values never

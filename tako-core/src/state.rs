@@ -13,13 +13,13 @@
 //! #[derive(Clone, Debug, PartialEq)]
 //! struct DatabaseConfig {
 //!     url: String,
-//!     `max_connections`: u32,
+//!     max_connections: u32,
 //! }
 //!
 //! // Store configuration by type
 //! let config = DatabaseConfig {
 //!     url: "postgresql://localhost/mydb".to_string(),
-//!     `max_connections`: 10,
+//!     max_connections: 10,
 //! };
 //! set_state(config.clone());
 //!

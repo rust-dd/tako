@@ -13,10 +13,8 @@
 //! - `method`, `path`, `version`
 //! - `status` (numeric)
 //! - `duration_us` (microseconds)
-//! - `request_id` if a [`RequestIdValue`](super::request_id::RequestIdValue)
-//!   extension is present
-//! - `peer` (ip / unix / other) if a [`ConnInfo`](tako_core::conn_info::ConnInfo)
-//!   extension is present
+//! - `request_id` if a [`RequestIdValue`] extension is present
+//! - `peer` (ip / unix / other) if a [`ConnInfo`] extension is present
 
 use std::future::Future;
 use std::pin::Pin;

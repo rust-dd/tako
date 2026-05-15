@@ -223,6 +223,7 @@ impl Default for Config {
 ///     .enable_stream(true)
 ///     .build();
 /// ```
+#[non_exhaustive]
 pub struct CompressionBuilder(Config);
 
 impl Default for CompressionBuilder {

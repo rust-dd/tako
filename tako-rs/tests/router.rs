@@ -621,21 +621,22 @@ async fn with_state_isolates_two_routers_in_same_process() {
   assert_eq!(body_str(resp_b).await, "router-b");
 }
 
+#[derive(Clone)]
+struct GlobalOnly(&'static str);
+
+async fn read_global(
+  tako::extractors::state::State(g): tako::extractors::state::State<GlobalOnly>,
+) -> impl tako::responder::Responder {
+  g.0
+}
+
 #[tokio::test]
 async fn with_state_falls_back_to_global_when_unset_per_router() {
   // A router that never called `with_state::<T>` should still see the global
   // value installed via `set_state` — backward-compat guarantee.
-  use tako::extractors::state::State;
   use tako::state::set_state;
 
-  #[derive(Clone)]
-  struct GlobalOnly(&'static str);
-
   set_state(GlobalOnly("global"));
-
-  async fn read_global(State(g): State<GlobalOnly>) -> impl tako::responder::Responder {
-    g.0
-  }
 
   let mut router = Router::new();
   router.get("/g", read_global);

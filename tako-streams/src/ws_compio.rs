@@ -70,11 +70,19 @@ impl compio::io::AsyncRead for UpgradedStream {
 
     match result {
       Ok(filled_len) => {
-        // Copy from temp buffer to the actual buffer
         if filled_len > 0 {
+          // SAFETY: `dest_ptr` points into `buf`'s backing allocation (obtained
+          // from `buf.buf_mut_ptr()`), and `filled_len <= len = buf.buf_capacity()`
+          // because hyper's `ReadBuf` cannot fill beyond `temp_buf.len()`. The
+          // slice is exclusive — `buf` is moved into this function and not
+          // aliased while we hold `dest`.
           let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr, filled_len) };
           dest.copy_from_slice(&temp_buf[..filled_len]);
         }
+        // SAFETY: the first `filled_len` bytes were just initialised by the
+        // copy above (or `filled_len == 0`, in which case `set_len(0)` is
+        // trivially sound). compio's `IoBufMut` contract requires the caller
+        // to mark the initialised prefix before returning the buffer.
         unsafe { buf.set_len(filled_len) };
         (Ok(filled_len), buf).into()
       }

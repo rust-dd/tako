@@ -7,10 +7,13 @@ no-default-features = false
 # Skip the dev-only paths so transitive dev deps don't fail the gate.
 
 [advisories]
+# v2 schema: vulnerability / unmaintained / unsound / notice advisories all
+# fail the gate by default; the only way to silence one is via the `ignore`
+# list below (each entry requires an explicit reason).
 version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
-yanked = "warn"
+yanked = "deny"
 # Triaged transitive advisories. Each entry must include a reason (visible in
 # `cargo deny check` output) and gets re-reviewed quarterly. Drop the entry
 # once the upstream patch lands and `cargo update` picks it up.

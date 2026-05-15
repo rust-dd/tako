@@ -21,6 +21,11 @@ use std::future::Future;
 use std::path::PathBuf;
 #[cfg(not(feature = "compio"))]
 use std::pin::Pin;
+// Used by both the TLS variants of `TlsCert` (any combination of compio+tls
+// or non-compio+tls) and the tokio raw-UDP handler signature
+// (`Arc<UdpSocket>`). The condition collapses to: anywhere except a
+// no-tls compio build.
+#[cfg(any(not(feature = "compio"), feature = "tls"))]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -106,8 +111,13 @@ where
 /// the client-presented chain. `Optional` allows clients without a cert to
 /// proceed (the application can later inspect the peer certs); `Required`
 /// terminates handshakes that omit a cert.
+///
+/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
+/// variants (revocation policies, SPKI-pinning, etc.) may be added in any
+/// 2.x minor. Downstream matchers must include a `_` arm.
 #[cfg(feature = "tls")]
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum ClientAuth {
   /// Verify the client cert if presented; allow connections without one.
   Optional(Arc<rustls::RootCertStore>),
@@ -133,7 +143,14 @@ impl std::fmt::Debug for ClientAuth {
 /// - [`TlsCert::Resolver`] — user-supplied [`rustls::server::ResolvesServerCert`]
 ///   for SNI multi-cert serving or hot-reloadable certificates (see
 ///   [`ReloadableResolver`]).
+///
+/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
+/// variants (e.g. an `Acme` variant once `rustls-acme` integration lands)
+/// may be added in any 2.x minor. Downstream matchers must include a `_`
+/// arm; field-by-field initialisation must use `..Default::default()` /
+/// helper constructors.
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum TlsCert {
   /// Filesystem paths for cert + key PEM files.
   PemPaths {
@@ -714,6 +731,9 @@ impl Server {
 #[derive(Debug, Default, Clone)]
 pub struct CompioServerBuilder {
   config: ServerConfig,
+  // Mirrors the gating on `CompioServer.tls` — only available when the
+  // `compio-tls` feature is on so non-TLS compio builds stay warning-clean.
+  #[cfg(feature = "compio-tls")]
   tls: Option<TlsCert>,
 }
 
@@ -727,6 +747,7 @@ impl CompioServerBuilder {
   }
 
   /// Attach TLS material so [`CompioServer::spawn_tls`] becomes usable.
+  #[cfg(feature = "compio-tls")]
   #[must_use]
   pub fn tls(mut self, cert: TlsCert) -> Self {
     self.tls = Some(cert);
@@ -737,6 +758,7 @@ impl CompioServerBuilder {
   pub fn build(self) -> CompioServer {
     CompioServer {
       config: self.config,
+      #[cfg(feature = "compio-tls")]
       tls: self.tls,
     }
   }
@@ -744,12 +766,16 @@ impl CompioServerBuilder {
 
 /// Compio-runtime server entry point. Construct with [`CompioServer::builder`].
 ///
-/// Mirrors the tokio [`Server`] API but drives the compio runtime — `io_uring`
-/// on Linux, IOCP on Windows, kqueue on macOS — under the hood.
+/// Mirrors the tokio `Server` API but drives the compio runtime —
+/// `io_uring` on Linux, IOCP on Windows, kqueue on macOS — under the hood.
 #[cfg(feature = "compio")]
 #[derive(Debug, Clone)]
 pub struct CompioServer {
   config: ServerConfig,
+  // Only consumed by the `compio-tls` impl blocks below. Marking the field
+  // `cfg`-gated on the feature instead of `#[allow(dead_code)]` keeps the
+  // struct layout minimal in non-TLS compio builds.
+  #[cfg(feature = "compio-tls")]
   tls: Option<TlsCert>,
 }
 

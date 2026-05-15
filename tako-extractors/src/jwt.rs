@@ -2,14 +2,18 @@
 //!
 //! This module provides extractors for parsing JWT (JSON Web Token) tokens from HTTP
 //! Authorization headers and extracting claims into strongly-typed Rust structures.
-//! It supports both raw JWT access through [`Jwt`](crate::jwt::Jwt) and automatic claims deserialization
-//! through [`JwtClaims`](crate::jwt::JwtClaims), with built-in token validation and error handling for malformed
-//! or expired tokens.
+//! It supports both raw JWT access through [`crate::jwt::Jwt`] and automatic claims deserialization
+//! through [`crate::jwt::JwtClaimsUnverified`], with built-in token validation and error handling for
+//! malformed or expired tokens.
+//!
+//! For *verified* claims (signature checked against a JWKS or shared key) use
+//! `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` together with the
+//! `JwtAuth` middleware.
 //!
 //! # Examples
 //!
 //! ```rust
-//! use tako::extractors::jwt::{Jwt, JwtClaims};
+//! use tako::extractors::jwt::{Jwt, JwtClaimsUnverified};
 //! use tako::extractors::FromRequest;
 //! use tako::types::Request;
 //! use serde::{Deserialize, Serialize};
@@ -24,7 +28,8 @@
 //! }
 //!
 //! async fn protected_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
-//!     let jwt_claims: JwtClaims<UserClaims> = JwtClaims::from_request(&mut req).await?;
+//!     let jwt_claims: JwtClaimsUnverified<UserClaims> =
+//!         JwtClaimsUnverified::from_request(&mut req).await?;
 //!
 //!     println!("User: {} ({})", jwt_claims.0.email, jwt_claims.0.role);
 //!     Ok(format!("Welcome, {}!", jwt_claims.0.email))
@@ -68,17 +73,6 @@ pub struct Jwt {
 /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
 #[doc(alias = "jwt_claims_unverified")]
 pub struct JwtClaimsUnverified<T>(pub T);
-
-/// Deprecated alias for [`JwtClaimsUnverified`].
-///
-/// Renamed to make the (lack of) trust model explicit. New code should use
-/// `JwtClaimsUnverified<T>` for the unauthenticated decode and the verifying
-/// extractor in `tako-plugins` for authenticated claims.
-#[deprecated(
-  since = "1.2.0",
-  note = "renamed to `JwtClaimsUnverified<T>` to make the trust model explicit; for verified claims use `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`"
-)]
-pub type JwtClaims<T> = JwtClaimsUnverified<T>;
 
 /// Error types for JWT extraction and claims parsing.
 #[derive(Debug)]

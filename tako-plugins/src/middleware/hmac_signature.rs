@@ -77,7 +77,7 @@ impl HmacSignature {
   ///
   /// **Replay-protection**: the default canonical (`METHOD\nPATH\nBODY`)
   /// gives no protection against an attacker replaying a captured request.
-  /// If you keep the default, also call [`timestamp_header`] so the
+  /// If you keep the default, also call [`Self::timestamp_header`] so the
   /// middleware additionally binds the signature to a freshness window. A
   /// custom closure is responsible for incorporating its own freshness
   /// inputs (timestamp, nonce, etc.).
@@ -100,13 +100,13 @@ impl HmacSignature {
   /// The default canonical adds the header's value as a new line between the
   /// path and the body, and the middleware rejects requests whose timestamp
   /// (Unix seconds, integer) is more than `max_clock_skew` away from `now`.
-  /// Pair this with [`max_clock_skew`] to tune tolerance.
+  /// Pair this with [`Self::max_clock_skew`] to tune tolerance.
   pub fn timestamp_header(mut self, header: HeaderName) -> Self {
     self.timestamp_header = Some(header);
     self
   }
 
-  /// Tolerance for [`timestamp_header`] validation. Default 5 min.
+  /// Tolerance for [`Self::timestamp_header`] validation. Default 5 min.
   pub fn max_clock_skew(mut self, d: std::time::Duration) -> Self {
     self.max_clock_skew = d;
     self
@@ -157,6 +157,14 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 impl IntoMiddleware for HmacSignature {
+  // The `.expect("valid response")` calls below are unreachable in practice:
+  // every `http::Response::builder()` site sets only a static
+  // `StatusCode::*` constant and a body produced from `TakoBody::*` — none of
+  // the builder operations that can fail (custom header names with
+  // non-ASCII characters, etc.) are exercised. Treating these as panics
+  // rather than threading `Result` makes the early-return shape readable; if
+  // the underlying `http` API ever changes such that the constraint stops
+  // holding, the panic will surface immediately in tests.
   fn into_middleware(
     self,
   ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>

@@ -7,15 +7,15 @@
 //! Two wrappers are exposed so callers can pick a validator deterministically
 //! when both crates are linked:
 //!
-//! - [`Validated<T>`] — uses [`validator::Validate`] when the `validator`
+//! - [`Validated<T>`](crate::validate::Validated) — uses [`validator::Validate`] when the `validator`
 //!   feature is on, falls back to [`garde::Validate`] when only `garde` is on.
-//! - [`Garded<T>`] — always uses [`garde::Validate`]. Available whenever the
+//! - [`Garded<T>`](crate::validate::Garded) — always uses [`garde::Validate`]. Available whenever the
 //!   `garde` feature is on, regardless of whether `validator` is also active.
 //!
 //! Previously enabling both features silently dropped the `garde` blanket
 //! impl: callers thought their `#[derive(garde::Validate)]` types were being
 //! checked when in fact only `validator`-annotated rules ran. Use
-//! [`Garded<T>`] to make the choice explicit.
+//! [`Garded<T>`](crate::validate::Garded) to make the choice explicit.
 //!
 //! # Examples
 //!

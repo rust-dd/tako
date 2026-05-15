@@ -58,6 +58,13 @@ async fn upload_progress_callback_fires() {
   use tako::router::Router;
   use tako::types::Request;
 
+  // Streaming progress increments only as the body is read; drain it explicitly.
+  async fn handler(req: Request) -> impl Responder {
+    use http_body_util::BodyExt;
+    let _ = req.into_body().collect().await;
+    "ok"
+  }
+
   let callback_bytes = Arc::new(AtomicU64::new(0));
   let cb = callback_bytes.clone();
 
@@ -65,13 +72,6 @@ async fn upload_progress_callback_fires() {
     cb.store(state.bytes_read, Ordering::Relaxed);
   });
   let mw = progress.into_middleware();
-
-  // Streaming progress increments only as the body is read; drain it explicitly.
-  async fn handler(req: Request) -> impl Responder {
-    use http_body_util::BodyExt;
-    let _ = req.into_body().collect().await;
-    "ok"
-  }
 
   let mut router = Router::new();
   router
@@ -95,6 +95,7 @@ async fn upload_progress_callback_fires() {
 
 #[tokio::test]
 async fn upload_progress_tracker_in_extensions() {
+  use http_body_util::BodyExt;
   use tako::Method;
   use tako::middleware::IntoMiddleware;
   use tako::middleware::upload_progress::ProgressTracker;
@@ -103,17 +104,17 @@ async fn upload_progress_tracker_in_extensions() {
   use tako::router::Router;
   use tako::types::Request;
 
-  let progress = UploadProgress::new();
-  let mw = progress.into_middleware();
-
   async fn handler(req: Request) -> impl Responder {
     use http_body_util::BodyExt;
     let tracker = req.extensions().get::<ProgressTracker>().cloned();
     // Drain the body so the streaming progress wrapper increments the counter.
     let _ = req.into_body().collect().await;
-    let bytes = tracker.map(|t| t.bytes_read()).unwrap_or(0);
+    let bytes = tracker.map_or(0, |t| t.bytes_read());
     format!("{bytes}")
   }
+
+  let progress = UploadProgress::new();
+  let mw = progress.into_middleware();
 
   let mut router = Router::new();
   router
@@ -131,7 +132,6 @@ async fn upload_progress_tracker_in_extensions() {
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), 200);
 
-  use http_body_util::BodyExt;
   let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
   let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
   assert_eq!(body_str, format!("{}", payload.len()));
@@ -139,6 +139,7 @@ async fn upload_progress_tracker_in_extensions() {
 
 #[tokio::test]
 async fn upload_progress_percent_via_tracker() {
+  use http_body_util::BodyExt;
   use tako::Method;
   use tako::middleware::IntoMiddleware;
   use tako::middleware::upload_progress::ProgressTracker;
@@ -146,9 +147,6 @@ async fn upload_progress_percent_via_tracker() {
   use tako::responder::Responder;
   use tako::router::Router;
   use tako::types::Request;
-
-  let progress = UploadProgress::new();
-  let mw = progress.into_middleware();
 
   async fn handler(req: Request) -> impl Responder {
     use http_body_util::BodyExt;
@@ -158,6 +156,9 @@ async fn upload_progress_percent_via_tracker() {
     let pct = tracker.and_then(|t| t.percent()).unwrap_or(0);
     format!("{pct}")
   }
+
+  let progress = UploadProgress::new();
+  let mw = progress.into_middleware();
 
   let mut router = Router::new();
   router
@@ -175,7 +176,6 @@ async fn upload_progress_percent_via_tracker() {
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), 200);
 
-  use http_body_util::BodyExt;
   let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
   let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
   // All bytes are consumed by the time handler runs, so should be 100%
@@ -191,6 +191,10 @@ async fn upload_progress_min_notify_interval() {
   use tako::router::Router;
   use tako::types::Request;
 
+  async fn handler(_req: Request) -> impl Responder {
+    "ok"
+  }
+
   let call_count = Arc::new(AtomicU64::new(0));
   let cc = call_count.clone();
 
@@ -200,10 +204,6 @@ async fn upload_progress_min_notify_interval() {
     })
     .min_notify_interval_bytes(1_000_000); // 1MB — well above our payload
   let mw = progress.into_middleware();
-
-  async fn handler(_req: Request) -> impl Responder {
-    "ok"
-  }
 
   let mut router = Router::new();
   router

@@ -21,6 +21,10 @@ async fn upload_file(mut req: Request) -> impl Responder {
   let TakoTypedMultipart::<Form, UploadedFile> { data, .. } =
     TakoTypedMultipart::from_request(&mut req).await.unwrap();
 
+  println!(
+    "uploaded {:?} ({} bytes) — description: {}",
+    data.file.file_name, data.file.size, data.description,
+  );
   (StatusCode::OK, "File uploaded successfully")
 }
 
@@ -34,6 +38,11 @@ async fn upload_mem(mut req: Request) -> impl Responder {
   let TakoTypedMultipart::<ImgForm, InMemoryFile> { data, .. } =
     TakoTypedMultipart::from_request(&mut req).await.unwrap();
 
+  println!(
+    "image '{}' received ({} bytes in memory)",
+    data.title,
+    data.image.data.len(),
+  );
   (StatusCode::OK, "Image uploaded successfully")
 }
 
@@ -53,10 +62,11 @@ async fn raw_with_file(mut req: Request) -> impl Responder {
       while let Some(chunk) = field.chunk().await.unwrap() {
         size += chunk.len();
       }
+      println!("received {fname} ({size} bytes)");
     }
   }
 
-  (StatusCode::OK, format!("processed {} file(s)", total_files))
+  (StatusCode::OK, format!("processed {total_files} file(s)"))
 }
 
 async fn raw_text(mut req: Request) -> impl Responder {
@@ -88,6 +98,11 @@ async fn typed_text(mut req: Request) -> impl Responder {
   let TakoTypedMultipart::<LoginForm, UploadedFile> { data, .. } =
     TakoTypedMultipart::from_request(&mut req).await.unwrap();
 
+  println!(
+    "login attempt: username='{}' (password length: {})",
+    data.username,
+    data.password.len(),
+  );
   (StatusCode::OK, "typed text processed")
 }
 

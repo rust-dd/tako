@@ -9,13 +9,10 @@
 #   ./publish.sh --skip-gate     # bypass fmt/clippy/test gate (NOT recommended)
 #
 # Notes:
-# - Every sub-crate is currently marked `publish = false` in its Cargo.toml
-#   ("Internal ... (not published)"). For an actual crates.io release of the
-#   `tako-rs` family, that flag must be removed from each sub-crate first —
-#   cargo refuses to upload a crate whose path-deps are unpublishable. This
-#   script does not edit the manifests; it asssumes the user has prepared
-#   them. `--dry-run` is still useful to validate the gate even without
-#   flipping the flag.
+# - As of 2.0.0, every sub-crate is publishable (no `publish = false`). Cargo
+#   refuses to upload a crate whose path-deps are unpublishable, so the v2
+#   release required flipping that flag on tako-{macros,core,extractors,
+#   server,server-pt,streams,plugins} simultaneously.
 # - Crates already published at the current local version are skipped, so the
 #   script is safe to re-run if a publish fails partway through.
 # - Modern cargo (>=1.66) waits for the registry index to sync after each

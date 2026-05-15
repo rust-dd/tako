@@ -3,8 +3,8 @@
 //! Default mode is the **double-submit cookie** pattern: a random token is
 //! placed in a cookie *and* must be echoed back in a request header (or form
 //! field). The middleware verifies the two values match and that, when a
-//! [`Session`](super::session::Session) extension is present, the cookie was
-//! issued for the current session.
+//! [`Session`] extension is present, the cookie was issued for the current
+//! session.
 //!
 //! v2 additions:
 //!

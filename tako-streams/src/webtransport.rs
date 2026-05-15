@@ -18,19 +18,19 @@
 //! - Do **not** advertise this endpoint as `WebTransport` to browsers; they
 //!   will reject it.
 //!
-//! `WebTransportSession` is kept as the public name for source compatibility,
-//! and is also re-exported as `RawQuicSession` so callers can pick the name
-//! that matches their intent.
+//! The canonical type is [`RawQuicSession`]; the historical
+//! `WebTransportSession` alias was deprecated in 1.2 and removed in 2.0
+//! because the name implied a W3C handshake this module does not perform.
 //!
 //! # Examples
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "webtransport")]
-//! use tako::webtransport::{serve_webtransport, WebTransportSession};
+//! use tako::webtransport::{serve_webtransport, RawQuicSession};
 //!
 //! # #[cfg(feature = "webtransport")]
 //! # async fn example() {
-//! serve_webtransport("[::]:4433", "cert.pem", "key.pem", |session| {
+//! serve_webtransport("[::]:4433", "cert.pem", "key.pem", |session: RawQuicSession| {
 //!     Box::pin(async move {
 //!         while let Ok((mut send, mut recv)) = session.accept_bi().await {
 //!             tokio::spawn(async move {
@@ -64,18 +64,6 @@ const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct RawQuicSession {
   conn: quinn::Connection,
 }
-
-/// Deprecated name for [`RawQuicSession`] kept for source compatibility.
-///
-/// The original name suggested a W3C WebTransport handshake that this type
-/// does not perform — only the underlying QUIC connection. New code should
-/// refer to `RawQuicSession` directly so the trust boundary stays visible at
-/// the call site.
-#[deprecated(
-  since = "1.2.0",
-  note = "name was misleading: this is a raw QUIC session, not a W3C WebTransport session. Use `RawQuicSession`."
-)]
-pub type WebTransportSession = RawQuicSession;
 
 impl RawQuicSession {
   /// Creates a new session from a QUIC connection.
@@ -139,7 +127,7 @@ pub type WebTransportHandler =
 
 /// Starts a WebTransport server on the given address.
 ///
-/// Each accepted QUIC connection is wrapped in a `WebTransportSession` and
+/// Each accepted QUIC connection is wrapped in a [`RawQuicSession`] and
 /// dispatched to the handler.
 pub async fn serve_webtransport<F>(addr: &str, cert_path: &str, key_path: &str, handler: F)
 where

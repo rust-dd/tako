@@ -1,8 +1,8 @@
 //! Cron scheduling for the queue.
 //!
 //! Wraps the `cron` crate's `Schedule::upcoming` iterator and exposes a
-//! [`CronScheduler`] that, given a backend, periodically pushes the same
-//! payload to a named queue.
+//! [`CronScheduler`](crate::queue::cron::CronScheduler) that, given a backend,
+//! periodically pushes the same payload to a named queue.
 //!
 //! ⚠️ Requires the `queue-cron` cargo feature on `tako-core`.
 

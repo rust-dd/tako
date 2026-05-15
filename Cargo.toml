@@ -87,7 +87,7 @@ http-body = "1.0.1"
 http-body-util = "0.1.3"
 hyper = { version = "1.6.0", features = ["full"] }
 hyper-util = { version = "0.1.14", features = ["tokio"] }
-linkme = "0.3"
+linkme = "0.3.36"
 matchit = "0.9.1"
 mime = "0.3.17"
 mime_guess = "2.0.5"
@@ -99,9 +99,9 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_bytes = "0.11.17"
 serde_json = "1.0.140"
 serde_urlencoded = "0.7"
-serde_html_form = "0.2"
+serde_html_form = "0.2.8"
 sha1 = "0.10.6"
-smallvec = "1"
+smallvec = "1.15.1"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-stream = "0.1.17"
 tokio-tungstenite = "0.29.0"
@@ -113,18 +113,18 @@ urlencoding = "2.1.3"
 # Optional / feature-gated
 ahash = { version = "0.8.12", features = ["serde"] }
 brotli = "8.0.1"
-cron = "0.15"
-headers = "0.4"
+cron = "0.15.0"
+headers = "0.4.1"
 compio = { version = "0.18.0", features = ["macros", "rustls", "time", "fs", "net"] }
 cyper-core = "0.8.0"
 flate2 = "1.1.2"
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
-hkdf = "0.12"
-hmac = "0.12"
-httpdate = "1.0"
-ipnet = "2.11"
-listenfd = "1.0"
+hkdf = "0.12.4"
+hmac = "0.12.1"
+httpdate = "1.0.3"
+ipnet = "2.11.0"
+listenfd = "1.0.2"
 multer = "3.1.0"
 opentelemetry = "0.31.0"
 opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"] }
@@ -133,25 +133,25 @@ prometheus = "0.13.4"
 jsonschema = { version = "0.30", default-features = false }
 prost = "0.14.1"
 quinn = "0.11.9"
-sha2 = "0.10"
+sha2 = "0.10.9"
 rustls = "0.23.28"
 rustls-pemfile = "2.2.0"
-send_wrapper = "0.6"
+send_wrapper = "0.6.0"
 simd-json = "0.15.1"
 sonic-rs = "0.5.6"
 subtle = "2.6.1"
 tikv-jemallocator = "0.6.0"
 tokio-rustls = "0.26.2"
-validator = { version = "0.20", features = ["derive"] }
-garde = { version = "0.22", features = ["derive"] }
-tokio-vsock = "0.7"
+validator = { version = "0.20.0", features = ["derive"] }
+garde = { version = "0.22.1", features = ["derive"] }
+tokio-vsock = "0.7.2"
 uuid = { version = "1.17.0", features = ["v4"] }
 webpki-roots = "1.0.1"
 rustls-native-certs = "0.8"
 zstd = "0.13.3"
 
 # Bench-only
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.7.0", features = ["html_reports"] }
 
 [profile.release]
 lto = "fat"

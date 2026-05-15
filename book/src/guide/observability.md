@@ -1,22 +1,85 @@
 # Observability
 
-> **Status:** scaffold.
+Tako covers the three usual pillars — logs, metrics, traces — plus
+health checks, with sensible defaults that you can swap when the
+deployment demands something specific.
 
-- **Logs**: `AccessLog` middleware emits one structured line per
-  request. Default sink is `tracing` at INFO; custom sink hook for
-  JSON / OTLP / file rotation.
-- **Metrics**: Prometheus middleware at
-  `tako_plugins::plugins::metrics_prometheus` (feature
-  `metrics-prometheus`). Latency histogram with
-  `PrometheusMetricsConfig::with_buckets(..)` override. Matched-route
-  label is bounded to keep cardinality finite. OTLP via
-  `metrics-opentelemetry`.
-- **Tracing**: `Traceparent` middleware parses W3C Trace Context and
-  emits a `TraceContext` extension; outbound spans propagate
-  automatically.
-- **Health**: `Healthcheck` middleware exposes `/live`, `/ready`,
-  `/__drain`. `HealthcheckHandle::drain()` flips the gate from a
-  SIGTERM handler.
+```rust,ignore
+use tako::Method;
+use tako::middleware::IntoMiddleware;
+use tako::middleware::access_log::AccessLog;
+use tako::middleware::healthcheck::Healthcheck;
+use tako::middleware::request_id::RequestId;
+use tako::middleware::traceparent::Traceparent;
+use tako::plugins::metrics::PrometheusMetricsConfig;
+use tako::responder::Responder;
+use tako::router::Router;
+
+async fn hello() -> impl Responder { "ok" }
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+
+  // Request IDs: generate X-Request-ID for inbound, propagate for outbound.
+  let request_id = RequestId::new().into_middleware();
+
+  // Access log: one structured line per request via the `tracing` macros.
+  let access_log = AccessLog::new().into_middleware();
+
+  // W3C Trace Context: parse `traceparent` / `tracestate`, expose them as
+  // a TraceContext extension so handlers can propagate the span.
+  let traceparent = Traceparent::new().into_middleware();
+
+  // Health endpoints at /live, /ready, /__drain (and a SIGTERM-friendly handle).
+  let healthcheck = Healthcheck::new();
+  let _drain = healthcheck.handle();
+  let healthcheck_mw = healthcheck.into_middleware();
+
+  router.middleware(request_id);
+  router.middleware(access_log);
+  router.middleware(traceparent);
+  router.middleware(healthcheck_mw);
+
+  // Prometheus scrape endpoint at /metrics (set via PrometheusMetricsConfig).
+  let _registry = PrometheusMetricsConfig::default().install(&mut router);
+
+  router.route(Method::GET, "/", hello);
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+The pieces:
+
+- **Logs** — `AccessLog` middleware emits one structured line per
+  request. The default sink is `tracing::info!`; supply a custom sink
+  via `.sink(|record| { ... })` for JSON / OTLP / file rotation.
+- **Metrics** — `PrometheusMetricsConfig::install(&mut router)` (feature
+  `metrics-prometheus`) wires a Prometheus scrape endpoint and a
+  request-latency histogram with `with_buckets(..)` overrides. The
+  matched-route label is bounded so cardinality stays finite. For
+  OpenTelemetry OTLP export, use
+  `OtelMetricsConfig::default().with_endpoint(..).install(&mut
+  router)?` from the `metrics-opentelemetry` feature.
+- **Tracing** — `Traceparent` parses W3C Trace Context and stores a
+  `TraceContext` extension; outbound spans propagate automatically
+  through the v2 client.
+- **Health** — `Healthcheck::new()` exposes `/live`, `/ready`,
+  `/__drain` with configurable paths via
+  `.live_path(..)`, `.ready_path(..)`, `.drain_path(..)`.
+  `HealthcheckHandle::drain()` flips the gate so `/ready` starts
+  returning `503` — a SIGTERM handler can call it before draining
+  connections.
+
+See:
+
+- [`examples/health`](https://github.com/rust-dd/tako/tree/main/examples/health)
+  for the readiness endpoint shape,
+- [`examples/metrics-opentelemetry`](https://github.com/rust-dd/tako/tree/main/examples/metrics-opentelemetry)
+  for OTLP export.
 
 > HTTP/3 qlog and `traceparent` propagation through the v2 outbound
 > client are deferred follow-up items.

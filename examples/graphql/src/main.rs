@@ -38,8 +38,6 @@ impl SubscriptionRoot {
   }
 }
 
-type AppSchema = Schema<QueryRoot, EmptyMutation, SubscriptionRoot>;
-
 #[tokio::main]
 async fn main() -> Result<()> {
   let listener = TcpListener::bind("127.0.0.1:8080").await?;
@@ -76,7 +74,6 @@ async fn main() -> Result<()> {
 
   println!("GraphQL: POST http://127.0.0.1:8080/graphql");
   println!("Subscriptions (WS): ws://127.0.0.1:8080/ws");
-  #[cfg(feature = "graphiql")]
   println!("GraphiQL UI: http://127.0.0.1:8080/graphiql");
 
   tako::serve(listener, router).await;

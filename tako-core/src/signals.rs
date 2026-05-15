@@ -456,6 +456,14 @@ impl SignalArbiter {
   ///
   /// This allows request/response style interactions over the same arbiter,
   /// using type-erased storage internally for flexibility.
+  ///
+  /// # Panics
+  ///
+  /// The returned handler panics *at call time* (not at registration) if a
+  /// caller invokes [`SignalArbiter::call_rpc`] under this id with a request
+  /// type that does not match `Req`. Type erasure happens during dispatch, so
+  /// the mismatch surfaces as a fail-fast panic instead of returning `None`.
+  /// Keep the `Req` type stable across registrations.
   pub fn register_rpc<Req, Res, F, Fut>(&self, id: impl Into<String>, f: F)
   where
     Req: Send + Sync + 'static,

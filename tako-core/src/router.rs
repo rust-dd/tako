@@ -494,6 +494,14 @@ impl Router {
   /// - Route-level plugins on the child are **not** carried over.
   /// - The child's fallback / error handlers are **not** inherited.
   ///
+  /// # Panics
+  ///
+  /// Panics at registration time if mounting the child would conflict with a
+  /// route already present on `self` (same method + same prefixed path).
+  /// Mirrors the behavior of [`Router::route`] — route registration is a
+  /// startup-time operation and conflicts are configuration bugs, not
+  /// runtime conditions.
+  ///
   /// # Examples
   ///
   /// ```rust
@@ -1303,6 +1311,13 @@ impl Router {
   /// This method combines routes and middleware from another router into the
   /// current one. Routes are copied over, and the other router's global middleware
   /// is prepended to each merged route's middleware chain.
+  ///
+  /// # Panics
+  ///
+  /// Panics at registration time if a merged route conflicts with one already
+  /// present on `self` (same method + same path). Mirrors the behavior of
+  /// [`Router::route`] and [`Router::nest`] — merge is a startup-time
+  /// operation and route conflicts are configuration bugs.
   ///
   /// # Examples
   ///

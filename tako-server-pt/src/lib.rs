@@ -351,7 +351,7 @@ fn worker_main(
 /// Same `SO_REUSEPORT` bootstrap as [`serve_per_thread`] but each worker runs a
 /// single-threaded `compio` runtime — `io_uring` on Linux, IOCP on Windows,
 /// kqueue on macOS. The router type stays the standard thread-safe
-/// [`tako::router::Router`].
+/// [`tako_core::router::Router`].
 #[cfg(feature = "compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {

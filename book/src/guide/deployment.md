@@ -1,45 +1,118 @@
 # Deployment
 
-> **Status:** scaffold.
+Tako accommodates three deployment shapes, plus a few production
+niceties (socket activation, PROXY protocol fronting, per-thread
+runtimes). Pick the shape that matches your infrastructure; you can
+mix and match (e.g. per-thread fan-out behind a PROXY-v2 load
+balancer) without changing handler code.
 
-## Single binary
+```rust
+use std::time::Duration;
+use tako::{Server, ServerConfig};
+use tako::router::Router;
+use tokio::net::TcpListener;
 
-The default. `Server::builder` + tokio multi-threaded runtime. Use
-`max_connections` to bound accept-spawn pressure and `drain_timeout`
-to control graceful shutdown.
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = TcpListener::bind("0.0.0.0:8080").await?;
+  let mut router = Router::new();
+  router.get("/", || async { "hi" });
+
+  let server = Server::builder()
+    .config(ServerConfig {
+      drain_timeout: Duration::from_secs(30),
+      max_connections: Some(50_000),
+      ..ServerConfig::default()
+    })
+    .build();
+
+  let handle = server.spawn_http(listener, router);
+
+  tokio::signal::ctrl_c().await?;
+  handle.shutdown(Duration::from_secs(30)).await;
+  Ok(())
+}
+```
+
+## Single binary (the default)
+
+`Server::builder` + tokio multi-threaded runtime. `max_connections`
+bounds accept-spawn pressure; `drain_timeout` controls the grace
+period for graceful shutdown. This is the shape most services need.
 
 ## Thread-per-core
 
-Two flavors, both behind cargo features:
+Two flavours, both behind cargo features:
 
-- `per-thread` — `tokio` `current_thread` runtime per core, sharing
-  the same thread-safe `Router` via `Box::leak`. Backed by
-  `SO_REUSEPORT` for kernel-level fan-out.
-- `per-thread-compio` — io_uring (Linux) / IOCP (Windows) / kqueue
-  (macOS) via `compio`. Same per-worker shape.
+- **`per-thread`** — N current-thread tokio runtimes, one per core,
+  sharing the same `Send + Sync` `Router` via `Box::leak`. Backed by
+  `SO_REUSEPORT` for kernel-level fan-out across the listeners.
+- **`per-thread-compio`** — io_uring (Linux), IOCP (Windows), or
+  kqueue (macOS) via the
+  [`compio`](https://github.com/compio-rs/compio) runtime, same
+  per-worker shape.
+
+The entry point lives in `tako-server-pt`:
+
+```rust,ignore
+use std::time::Duration;
+use tako::router::Router;
+use tako_server_pt::{ PerThreadConfig, spawn_per_thread };
+
+fn main() -> anyhow::Result<()> {
+  let mut router = Router::new();
+  router.get("/", || async { "hello from per-thread" });
+
+  let cfg = PerThreadConfig::default()
+    .with_addr("0.0.0.0:8080")
+    .with_workers(num_cpus::get());
+
+  let (handles, shutdown) = spawn_per_thread(cfg, router)?;
+  // Wire shutdown to your signal handler:
+  // shutdown.trigger();
+  for h in handles { let _ = h.join(); }
+  Ok(())
+}
+```
 
 `spawn_per_thread` returns `(Vec<JoinHandle>, PerThreadShutdown)`.
-The shutdown handle drives a `select!` over the accept loop so
-workers exit cleanly on signal.
+The shutdown handle drives a `select!` over each worker's accept
+loop so workers exit cleanly on signal.
 
 ## Behind a load balancer
 
-- `Server::spawn_proxy_protocol` consumes PROXY v1 / v2 (TLV-aware,
-  CRC32C-verified) and rewrites `X-Forwarded-*` from the parsed
-  header.
-- `tako_server::server_h2c` for L7 HTTP/2 proxies (Envoy, Nginx) that
-  terminate TLS and forward cleartext h2c upstream.
+L4 proxies that prepend a PROXY v1/v2 header (HAProxy, AWS NLB, fly.io
+edges) are supported by `Server::spawn_proxy_protocol`. The parser is
+TLV-aware and CRC32C-verified, and rewrites `X-Forwarded-*` from the
+parsed header so handlers see the real client address. See the
+[Transports overview](./transports.md) and
+[`examples/proxy-protocol`](https://github.com/rust-dd/tako/tree/main/examples/proxy-protocol).
+
+L7 HTTP/2 proxies (Envoy, Nginx) that terminate TLS and forward
+cleartext h2c upstream use `Server::spawn_h2c` — see the same chapter
+for an h2c example.
 
 ## Socket activation
 
-Behind `socket-activation` cargo feature: `LISTEN_FDS` /
+Behind the `socket-activation` cargo feature. `LISTEN_FDS` /
 `LISTEN_PID` (and the s6 / catflap equivalents) are read by
-`tako_server::socket_activation::ListenFds::from_env()`. Returned
-listener types feed the existing `Server::spawn_*` methods.
+`tako_server::socket_activation::ListenFds::from_env()`. The returned
+listener types feed the existing `Server::spawn_*` methods, so the
+same handler code runs under systemd, runit, or supervised launch
+without source changes.
 
-## Hot-reload
+## Hot reload
 
 The default path keeps `&'static Router` for hot-path performance.
 Hot-reload via `arc_swap::ArcSwap<Arc<Router>>` is on the v2
 follow-up list; once it lands, opt in via a single `Server::builder`
 flag.
+
+## Cross-references
+
+- [Transports overview](./transports.md) — protocol-specific spawn
+  methods.
+- [Observability](./observability.md) — request IDs, access logs,
+  metrics, traces.
+- [Runtime compatibility](../reference/runtimes.md) — the tokio vs.
+  compio split and the per-thread variants.

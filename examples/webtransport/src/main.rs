@@ -1,6 +1,6 @@
-use tako::webtransport::{serve_webtransport, WebTransportSession};
+use tako::webtransport::{RawQuicSession, serve_webtransport};
 
-async fn handle_session(session: WebTransportSession) {
+async fn handle_session(session: RawQuicSession) {
   let remote = session.remote_address();
   println!("New WebTransport session from {remote}");
 
