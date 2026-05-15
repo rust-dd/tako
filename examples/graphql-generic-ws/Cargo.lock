@@ -732,6 +732,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -965,9 +974,9 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "js-sys"
-version = "0.3.97"
+version = "0.3.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1840c94c045fbcf8ba2812c95db44499f7c64910a912551aaaa541decebcacf"
+checksum = "67df7112613f8bfd9150013a0314e196f4800d3201ae742489d999db2f979f08"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -1693,7 +1702,7 @@ dependencies = [
 
 [[package]]
 name = "tako-core"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1735,7 +1744,7 @@ dependencies = [
 
 [[package]]
 name = "tako-extractors"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1743,6 +1752,7 @@ dependencies = [
  "bytes",
  "cookie",
  "futures-util",
+ "hkdf",
  "http",
  "http-body",
  "http-body-util",
@@ -1756,6 +1766,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sha1",
+ "sha2",
  "smallvec",
  "tako-core",
  "tokio",
@@ -1766,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "tako-macros"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1775,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "tako-plugins"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1786,6 +1797,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "httpdate",
  "mime",
  "once_cell",
  "parking_lot",
@@ -1794,6 +1806,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "smallvec",
  "subtle",
  "tako-core",
@@ -1808,7 +1821,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "linkme",
  "tako-core",
@@ -1821,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "tako-server"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1843,7 +1856,7 @@ dependencies = [
 
 [[package]]
 name = "tako-streams"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1852,6 +1865,7 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "mime",
@@ -2208,9 +2222,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.120"
+version = "0.2.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df52b6d9b87e0c74c9edfa1eb2d9bf85e5d63515474513aa50fa181b3c4f5db1"
+checksum = "49ace1d07c165b0864824eee619580c4689389afa9dc9ed3a4c75040d82e6790"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -2221,9 +2235,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.120"
+version = "0.2.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78b1041f495fb322e64aca85f5756b2172e35cd459376e67f2a6c9dffcedb103"
+checksum = "8e68e6f4afd367a562002c05637acb8578ff2dea1943df76afb9e83d177c8578"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -2231,9 +2245,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.120"
+version = "0.2.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dcd0ff20416988a18ac686d4d4d0f6aae9ebf08a389ff5d29012b05af2a1b41"
+checksum = "d95a9ec35c64b2a7cb35d3fead40c4238d0940c86d107136999567a4703259f2"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -2244,9 +2258,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.120"
+version = "0.2.121"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49757b3c82ebf16c57d69365a142940b384176c24df52a087fb748e2085359ea"
+checksum = "c4e0100b01e9f0d03189a92b96772a1fb998639d981193d7dbab487302513441"
 dependencies = [
  "unicode-ident",
 ]
