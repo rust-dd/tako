@@ -118,10 +118,14 @@ impl ApqError {
 
 /// Compute the lowercase hex SHA-256 of a query string.
 pub fn sha256_hash(query: &str) -> String {
+  use std::fmt::Write as _;
   let digest = Sha256::digest(query.as_bytes());
   let mut hex = String::with_capacity(64);
+  // `write!` formats directly into the existing buffer; the old
+  // `format!("{b:02x}")` allocated a fresh 2-byte String per nibble
+  // pair (32 throwaway allocations per hash) on the APQ hot path.
   for b in digest {
-    hex.push_str(&format!("{b:02x}"));
+    let _ = write!(&mut hex, "{b:02x}");
   }
   hex
 }
