@@ -233,8 +233,17 @@ impl ServeDir {
       let mut chosen: Option<PathBuf> = None;
       for idx in &self.index_files {
         let cand = file_path.join(idx);
-        if cand.is_file() {
-          chosen = Some(cand);
+        if !cand.is_file() {
+          continue;
+        }
+        // Critical: re-run the canonical-within-base check on the index
+        // file. `cand.is_file()` follows symlinks, so an in-base
+        // `index.html` that links out of the base (e.g. to `/etc/passwd`)
+        // would otherwise be served — exactly the escape vector the
+        // sidecar fix (C8) closed on the `.br`/`.gz` path. Cold path —
+        // only fires when the request targets a directory.
+        if let Some(canonical) = self.canonical_within_base(&cand) {
+          chosen = Some(canonical);
           break;
         }
       }
