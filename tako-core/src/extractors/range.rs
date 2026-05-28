@@ -76,10 +76,12 @@ pub struct Range {
 
 impl Range {
   /// Convenience accessor for callers that only support single-range
-  /// responses — returns the first spec.
+  /// responses — returns the first spec, or `None` if the public `specs`
+  /// vector has been mutated to empty. (Successful parse always yields at
+  /// least one spec; see [`Range::from_headers`].)
   #[must_use]
-  pub fn single(&self) -> RangeSpec {
-    self.specs[0]
+  pub fn single(&self) -> Option<RangeSpec> {
+    self.specs.first().copied()
   }
 }
 
