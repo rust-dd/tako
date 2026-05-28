@@ -383,12 +383,24 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
 
   // Extract key
   let key = match req.headers().get(&cfg.header) {
-    Some(v) => v.to_str().unwrap_or("").to_string(),
-    None => String::new(),
+    // PMW-/PPL-17: a header value containing non-visible-ASCII bytes
+    // returns Err from `to_str()`. Previously we silently substituted
+    // the empty string and fell through to the pass-through branch
+    // below, so a client could bypass dedup entirely by sending a
+    // single 0xC3 byte in the Idempotency-Key. Surface 400 instead.
+    Some(v) => match v.to_str() {
+      Ok(s) if !s.is_empty() => s.to_string(),
+      Ok(_) => return next.run(req).await,
+      Err(_) => {
+        return (
+          http::StatusCode::BAD_REQUEST,
+          "Idempotency-Key must be visible ASCII",
+        )
+          .into_response();
+      }
+    },
+    None => return next.run(req).await,
   };
-  if key.is_empty() {
-    return next.run(req).await;
-  }
 
   // Buffer and re-inject request body (for stable hashing). Wrap in
   // `Limited` so a client cannot force an unbounded allocation by lying
