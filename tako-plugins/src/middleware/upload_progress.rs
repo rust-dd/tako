@@ -45,6 +45,7 @@ use tako_core::types::Response;
 
 /// Upload progress state accessible during and after upload.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ProgressState {
   /// Number of bytes read so far.
   pub bytes_read: u64,

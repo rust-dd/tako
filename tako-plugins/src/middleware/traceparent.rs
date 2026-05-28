@@ -42,6 +42,7 @@ pub const TRACESTATE: HeaderName = HeaderName::from_static("tracestate");
 /// hop. `parent_id` carries the inbound `parent-id` value when the request
 /// arrived with a usable `traceparent`, otherwise it is `None`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TraceContext {
   /// Lowercase 32-hex-char trace identifier (16 bytes).
   pub trace_id: String,

@@ -88,6 +88,7 @@ impl fmt::Display for ConstraintsNotSupported {
 
 /// Optional global verification constraints applied on top of the verifier.
 #[derive(Default, Clone)]
+#[non_exhaustive]
 pub struct VerifyConstraints {
   /// Required issuer (`iss` claim).
   pub issuer: Option<String>,

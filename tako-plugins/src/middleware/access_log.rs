@@ -32,6 +32,7 @@ use super::request_id::RequestIdValue;
 
 /// Single access-log record handed to the sink.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AccessRecord {
   pub method: String,
   pub path: String,
