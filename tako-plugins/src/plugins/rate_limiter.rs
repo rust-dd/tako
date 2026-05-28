@@ -61,6 +61,7 @@ pub enum UnkeyedBehavior {
 
 /// Configuration parameters.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Config {
   /// Maximum burst capacity.
   pub max_requests: u32,

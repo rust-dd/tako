@@ -130,6 +130,7 @@ impl<S: Into<String>> From<S> for OriginMatcher {
 /// };
 /// ```
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Config {
   /// Exact origin allow-list (legacy). For wider matching, use [`Self::origin_matchers`].
   pub origins: Vec<String>,

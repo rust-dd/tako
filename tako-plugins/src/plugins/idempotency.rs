@@ -59,6 +59,7 @@ pub enum Scope {
 
 /// Cache policy and matching configuration.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Config {
   /// Header that carries the idempotency key.
   pub header: HeaderName,
@@ -101,6 +102,7 @@ impl Default for Config {
 }
 
 /// Builder for the idempotency plugin.
+#[non_exhaustive]
 pub struct IdempotencyBuilder(Config);
 
 impl Default for IdempotencyBuilder {
