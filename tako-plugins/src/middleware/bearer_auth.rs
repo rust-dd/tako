@@ -199,8 +199,12 @@ impl IntoMiddleware for BearerAuth {
         // Validate extracted token
         match tok {
           None => {
+            // PMW-07: RFC 6750 §3 + RFC 7235 § 3.1 require 401 with a
+            // `WWW-Authenticate: Bearer ...` challenge for a missing or
+            // malformed Authorization header — 400 prevented the client
+            // from re-attempting with credentials. Mirrors `api_key_auth`.
             return http::Response::builder()
-              .status(StatusCode::BAD_REQUEST)
+              .status(StatusCode::UNAUTHORIZED)
               .header(header::WWW_AUTHENTICATE, bearer_authenticate.clone())
               .body(TakoBody::from("Token is missing"))
               .unwrap()
