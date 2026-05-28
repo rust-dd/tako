@@ -74,6 +74,12 @@ fn empty_status_response(status: StatusCode) -> Response {
   resp
 }
 
+/// Type alias for a global error handler function.
+///
+/// Called when a response has a server error status (5xx). Receives the original
+/// response and can transform it (e.g., to return JSON errors instead of plain text).
+pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
+
 /// HTTP router for managing routes, middleware, and request dispatching.
 ///
 /// The `Router` is the central component for routing HTTP requests to appropriate
@@ -100,12 +106,6 @@ fn empty_status_response(status: StatusCode) -> Response {
 /// router.state("app_name", "MyApp".to_string());
 /// ```
 #[doc(alias = "router")]
-/// Type alias for a global error handler function.
-///
-/// Called when a response has a server error status (5xx). Receives the original
-/// response and can transform it (e.g., to return JSON errors instead of plain text).
-pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
-
 pub struct Router {
   /// Map of registered routes keyed by method (O(1) array lookup).
   inner: MethodMap<matchit::Router<Arc<Route>>>,
