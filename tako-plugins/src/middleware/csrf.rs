@@ -307,11 +307,19 @@ impl IntoMiddleware for Csrf {
           (cookie_token.as_deref(), header_token.as_deref()),
           (Some(c), Some(h)) if c == h && !c.is_empty()
         );
+        // PMW-11: with `bind_to_session=true` (default), a session that has
+        // not yet been seeded with the CSRF token leaves a bootstrap gap —
+        // a stolen cookie (post-rotation, stale window) replayed with a
+        // matching header would otherwise pass `session_match` via the
+        // `(None, _) => true` arm. Fail-closed in that mode so the only
+        // accepted path is "session present AND session token matches
+        // cookie". The unbound mode (`bind_to_session=false`) keeps the
+        // double-submit-only fallback.
         let session_match = match (&session_token, &cookie_token) {
           (Some(s), Some(c)) => s == c,
-          // No session present and bind_to_session is off → rely on
-          // cookie/header double-submit only.
-          (None, _) => true,
+          // No session or empty session bucket — only safe under unbound
+          // mode where the cookie/header double-submit is the sole guard.
+          (None, _) => !bind_to_session,
           _ => false,
         };
 
