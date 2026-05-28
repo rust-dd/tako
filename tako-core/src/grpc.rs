@@ -318,6 +318,37 @@ pub fn grpc_decode<T: Message + Default>(data: &[u8]) -> Result<(T, bool), GrpcE
   Ok((msg, compressed))
 }
 
+/// Percent-encode a gRPC `Status-Message` per PROTOCOL-HTTP2.md.
+///
+/// The spec preserves visible ASCII (`0x20..=0x7E`) except `%`, and
+/// percent-encodes every other byte as `%XX` (upper-case hex). Without
+/// this any non-ASCII character (emoji, accents, Latin-1 upstream error
+/// strings) makes `HeaderValue::from_str` fail and the surrounding
+/// `if let Ok(...)` silently drops the entire `grpc-message` — the
+/// caller would see only `grpc-status` with no human-readable detail.
+fn percent_encode_grpc_message(s: &str) -> String {
+  let mut out = String::with_capacity(s.len());
+  for &b in s.as_bytes() {
+    if (0x20..=0x7E).contains(&b) && b != b'%' {
+      out.push(b as char);
+    } else {
+      out.push('%');
+      out.push(hex_upper(b >> 4));
+      out.push(hex_upper(b & 0x0F));
+    }
+  }
+  out
+}
+
+#[inline]
+fn hex_upper(n: u8) -> char {
+  match n {
+    0..=9 => (b'0' + n) as char,
+    10..=15 => (b'A' + n - 10) as char,
+    _ => unreachable!("hex_upper called with value > 15"),
+  }
+}
+
 fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -> Response {
   let mut resp = Response::new(TakoBody::empty());
   *resp.status_mut() = StatusCode::OK; // gRPC always uses 200 OK at HTTP level
@@ -329,7 +360,7 @@ fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -> Response 
     resp.headers_mut().insert("grpc-status", val);
   }
   if !message.is_empty()
-    && let Ok(val) = http::HeaderValue::from_str(message)
+    && let Ok(val) = http::HeaderValue::from_str(&percent_encode_grpc_message(message))
   {
     resp.headers_mut().insert("grpc-message", val);
   }
@@ -379,7 +410,7 @@ impl GrpcStatus {
       t.insert("grpc-status", v);
     }
     if let Some(msg) = self.message.as_deref()
-      && let Ok(v) = http::HeaderValue::from_str(msg)
+      && let Ok(v) = http::HeaderValue::from_str(&percent_encode_grpc_message(msg))
     {
       t.insert("grpc-message", v);
     }
