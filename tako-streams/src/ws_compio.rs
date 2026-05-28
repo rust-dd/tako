@@ -49,40 +49,46 @@ impl compio::io::AsyncRead for UpgradedStream {
   ) -> compio::buf::BufResult<usize, B> {
     use std::pin::Pin;
     use std::task::Context;
+    use std::task::Poll;
 
     use hyper::rt::Read;
 
-    let len = buf.buf_capacity();
-    let dest_ptr = buf.buf_mut_ptr().cast::<u8>();
-
-    // Create a safe buffer for reading
-    let mut temp_buf = vec![0u8; len];
-
-    let result = std::future::poll_fn(|cx: &mut Context<'_>| {
-      let mut read_buf = hyper::rt::ReadBuf::new(&mut temp_buf);
+    // STR-6 (perf): the previous implementation allocated `vec![0u8; len]`
+    // + zero-filled + memcopied into `buf` on EVERY read. `len` here is
+    // `buf.buf_capacity()` — the buffer's writable spare — which can be up
+    // to 64 MiB for tuned WebSocket connections. Per-read `alloc + memset(spare)
+    // + memcpy` is exactly the cost the `IoBufMut::buf_mut_ptr` zero-copy
+    // contract is designed to avoid.
+    //
+    // Switch to `hyper::rt::ReadBuf::uninit(buf.as_uninit())` so hyper writes
+    // directly into the buffer's uninitialised spare, then `set_len` advances
+    // the buffer's logical length by the number of bytes hyper reports as
+    // filled. Zero alloc, zero memset, zero memcpy on the read hot path.
+    let result = std::future::poll_fn(|cx: &mut Context<'_>| -> Poll<std::io::Result<usize>> {
+      // Re-borrow `buf`'s writable spare each poll. `as_uninit()` returns
+      // `&mut [MaybeUninit<u8>]` — the slice hyper's `ReadBuf::uninit`
+      // expects. Constructing the ReadBuf fresh each poll is fine because
+      // `poll_read` either fills bytes and returns Ready, or returns Pending
+      // without touching the cursor (so the previous ReadBuf's filled bytes
+      // were always zero in the Pending case).
+      let uninit_slice = buf.as_uninit();
+      let mut read_buf = hyper::rt::ReadBuf::uninit(uninit_slice);
       match Pin::new(&mut self.inner).poll_read(cx, read_buf.unfilled()) {
-        std::task::Poll::Ready(Ok(())) => std::task::Poll::Ready(Ok(read_buf.filled().len())),
-        std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
-        std::task::Poll::Pending => std::task::Poll::Pending,
+        Poll::Ready(Ok(())) => Poll::Ready(Ok(read_buf.filled().len())),
+        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+        Poll::Pending => Poll::Pending,
       }
     })
     .await;
 
     match result {
       Ok(filled_len) => {
-        if filled_len > 0 {
-          // SAFETY: `dest_ptr` points into `buf`'s backing allocation (obtained
-          // from `buf.buf_mut_ptr()`), and `filled_len <= len = buf.buf_capacity()`
-          // because hyper's `ReadBuf` cannot fill beyond `temp_buf.len()`. The
-          // slice is exclusive — `buf` is moved into this function and not
-          // aliased while we hold `dest`.
-          let dest = unsafe { std::slice::from_raw_parts_mut(dest_ptr, filled_len) };
-          dest.copy_from_slice(&temp_buf[..filled_len]);
-        }
-        // SAFETY: the first `filled_len` bytes were just initialised by the
-        // copy above (or `filled_len == 0`, in which case `set_len(0)` is
-        // trivially sound). compio's `IoBufMut` contract requires the caller
-        // to mark the initialised prefix before returning the buffer.
+        // SAFETY: hyper's `Read::poll_read` is documented to initialise the
+        // first `filled_len` bytes of the cursor it received. That cursor
+        // was built from `buf.as_uninit()`, which exposes the buffer's own
+        // writable spare. So the first `filled_len` bytes of that spare are
+        // now initialised; `set_len(filled_len)` advances the buffer's
+        // logical length to cover them, matching `IoBufMut`'s contract.
         unsafe { buf.set_len(filled_len) };
         (Ok(filled_len), buf).into()
       }
