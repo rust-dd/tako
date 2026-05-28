@@ -87,8 +87,6 @@ impl Range {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RangeError {
-  /// Range header is not present in the request.
-  Missing,
   /// Range header format is invalid (not `bytes=...` or contains a
   /// malformed range component).
   InvalidFormat,
@@ -99,9 +97,6 @@ pub enum RangeError {
 impl Responder for RangeError {
   fn into_response(self) -> crate::types::Response {
     match self {
-      RangeError::Missing => {
-        (StatusCode::RANGE_NOT_SATISFIABLE, "Missing Range header").into_response()
-      }
       RangeError::InvalidFormat => (
         StatusCode::RANGE_NOT_SATISFIABLE,
         "Invalid Range format. Expected: bytes=start-end[,start-end...]",
