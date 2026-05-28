@@ -183,7 +183,17 @@ pub type RpcHandler = Arc<
 pub type SignalExporter = Arc<dyn Fn(&Signal) + Send + Sync>;
 
 /// Simple stream type returned by filtered subscriptions.
-pub type SignalStream = mpsc::UnboundedReceiver<Signal>;
+///
+/// Bounded with [`FILTERED_SUBSCRIPTION_BUFFER`] capacity: a slow consumer
+/// no longer accumulates an unbounded backlog (OOM risk). When the queue is
+/// full, the producer-side forwarder drops the signal rather than blocking.
+pub type SignalStream = mpsc::Receiver<Signal>;
+
+/// Bounded buffer size for [`SignalArbiter::subscribe_filtered`]. Picked to
+/// absorb short bursts while keeping per-subscriber memory bounded (~1024
+/// `Signal`s ≈ 64 KiB plus per-signal metadata). Slow consumers experience
+/// overflow as silent drops, not OOM.
+pub const FILTERED_SUBSCRIPTION_BUFFER: usize = 1024;
 
 #[derive(Default)]
 struct Inner {
@@ -405,21 +415,30 @@ impl SignalArbiter {
 
   /// Subscribes using a filter function on top of an id-based subscription.
   ///
-  /// This spawns a background task that forwards only matching signals into
-  /// an unbounded channel, which is returned as a `SignalStream`.
+  /// Spawns a background task that forwards only matching signals into a
+  /// bounded mpsc of capacity [`FILTERED_SUBSCRIPTION_BUFFER`]. When the
+  /// consumer cannot keep up, new signals are dropped via `try_send` rather
+  /// than queued unboundedly (which was the previous behavior and an OOM
+  /// vector for long-running observers).
   pub fn subscribe_filtered<F>(&self, id: impl AsRef<str>, filter: F) -> SignalStream
   where
     F: Fn(&Signal) -> bool + Send + Sync + 'static,
   {
     let mut rx = self.subscribe(id);
-    let (tx, out_rx) = mpsc::unbounded_channel();
+    let (tx, out_rx) = mpsc::channel(FILTERED_SUBSCRIPTION_BUFFER);
     let filter = Arc::new(filter);
 
     #[cfg(not(feature = "compio"))]
     tokio::spawn(async move {
       while let Ok(signal) = rx.recv().await {
-        if filter(&signal) && tx.send(signal).is_err() {
-          break;
+        if filter(&signal) {
+          match tx.try_send(signal) {
+            Ok(_) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+              // Slow consumer: drop the signal silently to preserve back-pressure.
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => break,
+          }
         }
       }
     });
@@ -427,8 +446,12 @@ impl SignalArbiter {
     #[cfg(feature = "compio")]
     compio::runtime::spawn(async move {
       while let Ok(signal) = rx.recv().await {
-        if filter(&signal) && tx.send(signal).is_err() {
-          break;
+        if filter(&signal) {
+          match tx.try_send(signal) {
+            Ok(_) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {}
+            Err(mpsc::error::TrySendError::Closed(_)) => break,
+          }
         }
       }
     })
