@@ -493,10 +493,27 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   ensure_vary_accept_encoding(resp.headers_mut());
 
   // Collect the response body and check its size.
+  //
+  // PPL-10: on body-collect failure the previous code overwrote the
+  // handler's status with 502 and dropped the body. That obliterated any
+  // intentional non-2xx the handler had produced — a 401, 404, or 503 from
+  // the handler showed up to clients as 502, distorting downstream
+  // metrics and observability. The collect-failure was specifically a
+  // *compression-side* problem (the middleware could not buffer the body
+  // for compression), not a downstream-gateway error.
+  //
+  // Better: keep the handler's original status, strip `Content-Encoding`
+  // (we won't be compressing after all), warn so operators see the
+  // failure, and return an empty body. The status truth survives; the
+  // compression attempt is silently elided.
   let body_bytes = if let Ok(c) = resp.body_mut().collect().await {
     c.to_bytes()
   } else {
-    *resp.status_mut() = StatusCode::BAD_GATEWAY;
+    tracing::warn!(
+      "compression middleware: response body collect() failed; \
+       returning original status with empty body (no compression)"
+    );
+    resp.headers_mut().remove(http::header::CONTENT_ENCODING);
     *resp.body_mut() = TakoBody::empty();
     return resp.into_response();
   };
