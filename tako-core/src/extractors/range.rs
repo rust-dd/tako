@@ -148,8 +148,19 @@ fn parse_one(raw: &str) -> Result<RangeSpec, RangeError> {
   }
 }
 
+/// Maximum number of byte-range specs accepted from a single Range header.
+///
+/// RFC 9110 §14.2 explicitly permits a server to reject requests "containing
+/// many small ranges" — the cap caps amplification on a single header parse
+/// (each spec walks the response body) without affecting realistic clients.
+pub const MAX_RANGE_SPECS: usize = 100;
+
 impl Range {
   /// Parses the Range header value in `bytes=start-end[,start-end...]` form.
+  ///
+  /// Rejects headers with more than [`MAX_RANGE_SPECS`] entries with
+  /// [`RangeError::InvalidFormat`] (RFC 9110 §14.2 permits server-side
+  /// rejection of pathological multi-range requests).
   pub fn from_headers(headers: &HeaderMap) -> Result<Option<Self>, RangeError> {
     let value = match headers.get("range") {
       Some(v) => v.to_str().map_err(|_| RangeError::InvalidFormat)?,
@@ -164,6 +175,9 @@ impl Range {
     for part in rest.split(',') {
       if part.trim().is_empty() {
         continue;
+      }
+      if specs.len() >= MAX_RANGE_SPECS {
+        return Err(RangeError::InvalidFormat);
       }
       specs.push(parse_one(part)?);
     }
