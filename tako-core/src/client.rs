@@ -439,6 +439,22 @@ where
   }
 }
 
+impl<B> Drop for TakoTlsClient<B>
+where
+  B: Body + Send + 'static,
+  B::Data: Send + 'static,
+  B::Error: Into<Box<dyn Error + Send + Sync>>,
+{
+  fn drop(&mut self) {
+    // Without this, dropping `_conn_handle` simply detaches the task and
+    // the background connection driver keeps running until the remote
+    // closes (or forever for long-lived idle connections). Abort it so
+    // the underlying TLS stream is dropped and any pending Tokio task
+    // is cleared from the runtime.
+    self._conn_handle.abort();
+  }
+}
+
 /// Plain HTTP client for unencrypted connections.
 ///
 /// `TakoClient` provides a standard HTTP client that establishes plain TCP connections
@@ -566,5 +582,18 @@ where
     let parts = response.into_parts();
     let resp = Response::from_parts(parts.0, body_bytes);
     Ok(resp)
+  }
+}
+impl<B> Drop for TakoClient<B>
+where
+  B: Body + Send + 'static,
+  B::Data: Send + 'static,
+  B::Error: Into<Box<dyn Error + Send + Sync>>,
+{
+  fn drop(&mut self) {
+    // See `TakoTlsClient::drop` — abort the background connection driver
+    // instead of detaching it so dropping the client deterministically
+    // closes the underlying TCP stream and frees the Tokio task slot.
+    self._conn_handle.abort();
   }
 }
