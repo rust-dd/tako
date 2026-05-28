@@ -44,6 +44,10 @@ impl CronScheduler {
   }
 
   /// Drive the scheduler in the current async context until cancelled.
+  ///
+  /// Tokio variant — pins to `tokio::time` so `Queue::start` workers on the
+  /// tokio runtime can share the same reactor.
+  #[cfg(not(feature = "compio"))]
   pub async fn run(self) {
     loop {
       let Some(next) = self.schedule.upcoming(Utc).next() else {
@@ -57,6 +61,30 @@ impl CronScheduler {
       // resolves exactly at `deadline` even after task descheduling.
       let deadline = tokio::time::Instant::now() + wait;
       tokio::time::sleep_until(deadline).await;
+      let _ = self
+        .backend
+        .push(&self.queue, self.payload.as_slice(), PushOptions::default())
+        .await;
+    }
+  }
+
+  /// Drive the scheduler in the current async context until cancelled.
+  ///
+  /// Compio variant — `Queue::start` spawns onto the compio runtime under the
+  /// `compio` feature, so cron must use `compio::time` too. Hard-coding
+  /// `tokio::time::*` here used to guarantee a "no reactor running" panic
+  /// in any compio + queue-cron deployment without a parallel tokio runtime.
+  #[cfg(feature = "compio")]
+  pub async fn run(self) {
+    loop {
+      let Some(next) = self.schedule.upcoming(Utc).next() else {
+        return;
+      };
+      let now = Utc::now();
+      let wait = (next - now).to_std().unwrap_or(Duration::from_secs(0));
+      // Same monotonic-anchor rationale as the tokio path.
+      let deadline = std::time::Instant::now() + wait;
+      compio::time::sleep_until(deadline).await;
       let _ = self
         .backend
         .push(&self.queue, self.payload.as_slice(), PushOptions::default())
