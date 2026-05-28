@@ -125,6 +125,18 @@ async fn run(
   let keep_alive_timeout = config.keep_alive_timeout;
   let drain_timeout = config.drain_timeout;
 
+  // Emit the upstream-gap warning at startup rather than per-connection.
+  // The previous spot inside the accept loop used a `OnceLock` to dedupe,
+  // but that still cost an atomic load + branch per connection and ran
+  // the format args every loop iteration. Hoist to startup so the cost is
+  // exactly once per `serve` invocation.
+  if let Some(t) = keep_alive_timeout {
+    tracing::warn!(
+      "ServerConfig::keep_alive_timeout ({:?}) is not currently plumbed to hyper's http1 builder (upstream gap); the value will be ignored.",
+      t
+    );
+  }
+
   // Lift the single-shot `signal` future to a `CancellationToken` so we can
   // observe shutdown from multiple `select!`s. Without this the inner
   // `Semaphore::acquire_owned().await` (when `max_connections` is saturated)
@@ -195,21 +207,9 @@ async fn run(
           if let Some(t) = header_read_timeout {
             http.header_read_timeout(t);
           }
-          if let Some(t) = keep_alive_timeout {
-            // Hyper does not expose a keep-alive idle timeout knob on the
-            // http1 builder yet; warn once so operators do not silently
-            // assume their setting is being applied. Tracking: see
-            // `hyperium/hyper#1565` / `#1735` for the upstream feature gap.
-            // Use the standard library's `OnceLock` so this fires at most
-            // once per process even with many connections.
-            static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-            WARNED.get_or_init(|| {
-              tracing::warn!(
-                "ServerConfig::keep_alive_timeout ({:?}) is not currently plumbed to hyper's http1 builder (upstream gap); the value will be ignored.",
-                t
-              );
-            });
-          }
+          // `keep_alive_timeout` (currently ignored — upstream gap) is now
+          // logged once at startup; nothing to do here per connection.
+          let _ = keep_alive_timeout;
           let conn = http.serve_connection(io, svc).with_upgrades();
 
           if let Err(err) = conn.await {
