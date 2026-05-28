@@ -36,7 +36,11 @@ impl HealthRegistry {
 
   /// Set the status for a service (empty string `""` is the overall status).
   pub fn set_status(&self, service: impl Into<String>, status: ServingStatus) {
-    let _ = self.inner.insert_sync(service.into(), status);
+    // `upsert_sync` so subsequent calls flip the recorded status (e.g.
+    // `Serving -> NotServing` when a backing dependency fails).
+    // `insert_sync` would make this a write-once-per-service registry —
+    // load balancers would keep routing to a dead pod.
+    self.inner.upsert_sync(service.into(), status);
   }
 
   /// Read the status for a service.
