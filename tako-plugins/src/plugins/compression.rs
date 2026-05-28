@@ -562,7 +562,18 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
 /// This middleware compresses response bodies on-the-fly as they stream to clients.
 /// It's more memory-efficient than buffered compression but requires compatible
 /// response body types that support streaming.
-pub async fn compress_stream_middleware(req: Request, next: Next, cfg: Config) -> impl Responder {
+///
+/// **Internal:** drop-shipped through `CompressionPlugin::setup` only. The
+/// previous `pub` visibility was accidental — not re-exported from the
+/// umbrella crate and not part of the documented API. Demoted to
+/// `pub(crate)` so the public surface stays committed to the plugin entry
+/// point. If you need this on its own use `CompressionPlugin` and let the
+/// builder install it.
+pub(crate) async fn compress_stream_middleware(
+  req: Request,
+  next: Next,
+  cfg: Config,
+) -> impl Responder {
   // Parse the `Accept-Encoding` header to determine supported encodings.
   let accepted = req
     .headers()
