@@ -157,7 +157,15 @@ impl RetryPolicy {
     match self {
       Self::None => Duration::ZERO,
       Self::Fixed { delay, .. } => *delay,
-      Self::Exponential { base_delay, .. } => *base_delay * 2u32.saturating_pow(attempt),
+      Self::Exponential { base_delay, .. } => {
+        // `Duration * u32` panics on overflow; `base_delay = 1s, attempt = 64`
+        // wraps 2^64 nanos into `u128 * u128` overflow in `Duration::Mul`.
+        // Fall back to a 1-day ceiling — any retry waiting longer than that
+        // is effectively a dead job; the queue's DLQ pathway should kick in.
+        base_delay
+          .checked_mul(2u32.saturating_pow(attempt))
+          .unwrap_or(Duration::from_secs(86_400))
+      }
     }
   }
 }
