@@ -522,11 +522,12 @@ fn add_cors_headers(
         .join(","),
     )
   };
-  if let Some(v) = methods {
-    resp.headers_mut().insert(
-      ACCESS_CONTROL_ALLOW_METHODS,
-      HeaderValue::from_str(&v).expect("valid methods header value"),
-    );
+  if let Some(v) = methods
+    && let Ok(hv) = HeaderValue::from_str(&v)
+  {
+    resp
+      .headers_mut()
+      .insert(ACCESS_CONTROL_ALLOW_METHODS, hv);
   }
 
   // Access-Control-Allow-Headers header.
@@ -573,10 +574,11 @@ fn add_cors_headers(
       .map(http::HeaderName::as_str)
       .collect::<Vec<_>>()
       .join(",");
-    resp.headers_mut().insert(
-      ACCESS_CONTROL_ALLOW_HEADERS,
-      HeaderValue::from_str(&h).expect("valid headers header value"),
-    );
+    if let Ok(hv) = HeaderValue::from_str(&h) {
+      resp
+        .headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_HEADERS, hv);
+    }
   }
 
   // Access-Control-Allow-Credentials header
@@ -588,11 +590,10 @@ fn add_cors_headers(
   }
 
   // Access-Control-Max-Age header
-  if let Some(secs) = cfg.max_age_secs {
-    resp.headers_mut().insert(
-      ACCESS_CONTROL_MAX_AGE,
-      HeaderValue::from_str(&secs.to_string()).expect("valid max-age header value"),
-    );
+  if let Some(secs) = cfg.max_age_secs
+    && let Ok(hv) = HeaderValue::from_str(&secs.to_string())
+  {
+    resp.headers_mut().insert(ACCESS_CONTROL_MAX_AGE, hv);
   }
 
   // Private Network Access (PNA) — emit only on preflight responses where
