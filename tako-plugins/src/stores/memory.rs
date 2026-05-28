@@ -79,12 +79,17 @@ struct Bucket {
 
 impl Bucket {
   fn refill(&mut self, now: Instant) {
+    // `Instant::duration_since` saturates at zero for past-or-equal points,
+    // and `Instant` is monotonic on every platform we ship — `dt` cannot go
+    // negative. The previous `if dt > 0.0` branch was therefore dead in
+    // release; the only practical hit was `dt == 0.0` on the same-tick
+    // double-refill case, which a `debug_assert!` makes visible without
+    // costing a branch in release.
     let dt = now.duration_since(self.last_refill).as_secs_f64();
-    if dt > 0.0 {
-      self.available =
-        (self.available + dt * self.refill_rate_per_sec).min(f64::from(self.capacity));
-      self.last_refill = now;
-    }
+    debug_assert!(dt >= 0.0, "monotonic Instant violated: dt={dt}");
+    self.available =
+      (self.available + dt * self.refill_rate_per_sec).min(f64::from(self.capacity));
+    self.last_refill = now;
   }
 }
 
