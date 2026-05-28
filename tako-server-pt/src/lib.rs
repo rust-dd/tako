@@ -639,6 +639,12 @@ fn worker_main_compio(
           break;
         }
       };
+      // Match the tokio variant: disable Nagle so HTTP/1 small writes don't
+      // pay a 40ms RTT penalty on the wire. Mirrors the tokio-pt path at the
+      // top of this file.
+      if let Err(e) = stream.set_nodelay(true) {
+        tracing::debug!("worker {worker_id}: set_nodelay failed for {peer}: {e}");
+      }
       let io = HyperStream::new(stream);
       // Build the guard before spawn so the count is incremented on the
       // current thread (lock-free atomic) instead of racing with the spawn.
