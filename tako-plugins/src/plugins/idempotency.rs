@@ -31,7 +31,6 @@ use http::Method;
 use http::StatusCode;
 use http::header::CONTENT_LENGTH;
 use http::header::CONTENT_TYPE;
-use http::header::LOCATION;
 use http::header::RETRY_AFTER;
 use http_body_util::BodyExt;
 use scc::HashMap as SccHashMap;
@@ -615,9 +614,25 @@ fn build_response_from_cache(c: &CachedResponse) -> Response {
   })
 }
 
+/// Pick which response headers survive into the idempotency cache.
+///
+/// PPL-11: previously this was an *allow-list* (only `Content-Type`,
+/// `Location`, and `x-*` headers passed through). That silently dropped
+/// many headers that are perfectly safe to replay — `Cache-Control`,
+/// `ETag`, `Last-Modified`, `Vary`, `Link`, `Content-Language`,
+/// `Content-Disposition`, `Allow`, etc. — so intermediaries lost
+/// validation tokens and clients lost download filenames / language hints
+/// on every replay.
+///
+/// Switch to a *denylist*: keep everything except headers that are unsafe
+/// or wrong to replay verbatim — hop-by-hop headers (RFC 9110 §7.6.1),
+/// `Content-Length` (the cached body's length may differ if size-capping
+/// rewrote it), and `Set-Cookie` (replaying old cookies is a security
+/// hazard — different requests should get fresh session state).
 fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
-  // Hop-by-hop headers to exclude
-  const EXCLUDE: &[&str] = &[
+  // Hop-by-hop headers (RFC 9110 §7.6.1) + others that must not be
+  // replayed from cache.
+  const DENY: &[&str] = &[
     "connection",
     "keep-alive",
     "proxy-authenticate",
@@ -626,25 +641,21 @@ fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
     "trailer",
     "transfer-encoding",
     "upgrade",
+    // Content-Length: rewritten downstream after cache replay; if the
+    // cached body was truncated by max_cached_body_bytes the original
+    // length would lie.
+    "content-length",
+    // Set-Cookie: replaying old session tokens to a new caller is a
+    // security risk. Sessions must be re-established each request.
+    "set-cookie",
   ];
-  let mut out = Vec::new();
+  let mut out = Vec::with_capacity(src.keys_len());
   for (name, v) in src {
     let name_lc = name.as_str().to_ascii_lowercase();
-    if EXCLUDE.contains(&name_lc.as_str()) {
+    if DENY.contains(&name_lc.as_str()) {
       continue;
     }
-    if name == CONTENT_LENGTH {
-      continue;
-    }
-    // Persist common safe headers
-    if name == CONTENT_TYPE || name == LOCATION {
-      out.push((name.clone(), v.clone()));
-      continue;
-    }
-    // Heuristic: allow custom x- headers
-    if name_lc.starts_with("x-") {
-      out.push((name.clone(), v.clone()));
-    }
+    out.push((name.clone(), v.clone()));
   }
   out
 }
