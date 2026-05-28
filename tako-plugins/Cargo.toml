@@ -76,7 +76,7 @@ metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 signals = ["tako-core/signals"]
 ahash = ["dep:ahash", "tako-core/ahash"]
-jwt-simple = ["dep:jwt-simple", "tako-extractors/jwt-simple"]
+jwt-simple = ["dep:jwt-simple"]
 zstd = ["dep:zstd", "plugins"]
 # CIDR-aware IP filter middleware.
 ip-filter = ["dep:ipnet"]

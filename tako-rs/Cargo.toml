@@ -70,7 +70,7 @@ validator = ["tako-extractors/validator"]
 garde = ["tako-extractors/garde"]
 zero-copy-extractors = ["tako-extractors/zero-copy-extractors", "tako-core/zero-copy-extractors"]
 ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
-jwt-simple = ["tako-extractors/jwt-simple", "tako-plugins/jwt-simple", "tako-core/jwt-simple"]
+jwt-simple = ["tako-plugins/jwt-simple", "tako-core/jwt-simple"]
 
 # Metrics / OpenAPI / docs / GraphQL / gRPC
 metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus", "plugins", "signals"]

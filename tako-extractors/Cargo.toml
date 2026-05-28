@@ -56,12 +56,6 @@ sonic-rs = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 validator = { workspace = true, optional = true }
 
-[target.'cfg(target_os = "freebsd")'.dependencies]
-jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
-
-[target.'cfg(not(target_os = "freebsd"))'.dependencies]
-jwt-simple = { version = "0.12.12", optional = true }
-
 [features]
 default = []
 ahash = ["dep:ahash", "tako-core/ahash"]
@@ -74,7 +68,6 @@ simd = ["simd-sonic", "simd-json-impl"]
 simd-sonic = ["dep:sonic-rs", "tako-core/simd-sonic"]
 # `simd-json` only — used by `SimdJson<T>`.
 simd-json-impl = ["dep:simd-json", "tako-core/simd-json-impl"]
-jwt-simple = ["dep:jwt-simple"]
 zero-copy-extractors = []
 typed-header = ["dep:headers"]
 validator = ["dep:validator"]
