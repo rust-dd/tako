@@ -61,6 +61,7 @@ use tako_core::router::Router;
 use tako_core::signals::transport as signal_tx;
 use tako_core::types::BoxError;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 
@@ -258,6 +259,14 @@ pub async fn run_with_config(
   // EMFILE / ConnectionAborted errors rather than exiting the server.
   let mut accept_backoff = config.accept_backoff;
 
+  // SRV-11: shared shutdown signal across the accept loop AND every spawned
+  // TLS-handshake task. Without this the per-connection task only saw the
+  // handshake-deadline timer; an in-flight handshake could still hold a
+  // `max_connections` permit for up to `tls_handshake_timeout` after the
+  // operator pressed Ctrl+C, delaying graceful drain. The parent loop fires
+  // `cancel.cancel()` as soon as `signal_fused` resolves so connections
+  // already past `accept()` observe the same shutdown.
+  let cancel = CancellationToken::new();
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
     if let Some(s) = signal {
@@ -284,7 +293,10 @@ pub async fn run_with_config(
             let sleep = std::pin::pin!(compio::time::sleep(d));
             match futures_util::future::select(sleep, signal_fused.as_mut()).await {
               Either::Left((_, _)) => continue,
-              Either::Right(_) => break,
+              Either::Right(_) => {
+                cancel.cancel();
+                break;
+              }
             }
           }
         };
@@ -296,7 +308,10 @@ pub async fn run_with_config(
           match futures_util::future::select(acquire, signal_fused.as_mut()).await {
             Either::Left((Ok(p), _)) => Some(p),
             Either::Left((Err(_), _)) => continue,
-            Either::Right(_) => break,
+            Either::Right(_) => {
+              cancel.cancel();
+              break;
+            }
           }
         } else {
           None
@@ -306,6 +321,7 @@ pub async fn run_with_config(
         let router = router.clone();
         let guard =
           crate::server_compio::ConnectionGuard::new(inflight.clone(), drain_notify.clone());
+        let conn_cancel = cancel.clone();
 
         compio::runtime::spawn(async move {
           let _permit = permit;
@@ -316,21 +332,30 @@ pub async fn run_with_config(
           // Bound the TLS handshake against slowloris-style holds on the
           // `max_connections` permit. compio has no `tokio::time::timeout`
           // adapter, so race the accept future against an explicit
-          // `compio::time::sleep` deadline.
+          // `compio::time::sleep` deadline AND against the shared shutdown
+          // token so an in-flight handshake doesn't hold the permit past
+          // graceful-shutdown initiation.
           let handshake_deadline = std::pin::pin!(compio::time::sleep(tls_handshake_timeout));
+          let shutdown_wait = std::pin::pin!(conn_cancel.cancelled());
+          let deadline_or_shutdown =
+            std::pin::pin!(futures_util::future::select(handshake_deadline, shutdown_wait));
           let accept_fut = std::pin::pin!(acceptor.accept(stream));
-          let tls_stream = match futures_util::future::select(accept_fut, handshake_deadline).await
-          {
-            Either::Left((Ok(s), _)) => s,
-            Either::Left((Err(e), _)) => {
-              tracing::error!("TLS error: {e}");
-              return;
-            }
-            Either::Right(_) => {
-              tracing::warn!("TLS handshake timeout after {tls_handshake_timeout:?} from {addr}");
-              return;
-            }
-          };
+          let tls_stream =
+            match futures_util::future::select(accept_fut, deadline_or_shutdown).await {
+              Either::Left((Ok(s), _)) => s,
+              Either::Left((Err(e), _)) => {
+                tracing::error!("TLS error: {e}");
+                return;
+              }
+              Either::Right((Either::Left(_), _)) => {
+                tracing::warn!("TLS handshake timeout after {tls_handshake_timeout:?} from {addr}");
+                return;
+              }
+              Either::Right((Either::Right(_), _)) => {
+                tracing::debug!("TLS handshake aborted by shutdown from {addr}");
+                return;
+              }
+            };
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), true, None).await;
@@ -428,6 +453,7 @@ pub async fn run_with_config(
         .detach();
       }
       Either::Right(_) => {
+        cancel.cancel();
         tracing::info!("Shutdown signal received, draining TLS connections...");
         break;
       }
