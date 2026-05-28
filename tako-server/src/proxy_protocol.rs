@@ -342,7 +342,7 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
       ProxyVersion::V1,
       ProxyTransport::Unknown,
     )),
-    proto @ ("TCP4" | "TCP6") => {
+    "TCP4" | "TCP6" => {
       if parts.len() < 6 {
         return Err(std::io::Error::new(
           std::io::ErrorKind::InvalidData,
@@ -372,13 +372,10 @@ async fn parse_v1<R: AsyncReadExt + Unpin>(
         )
       })?;
 
-      let transport = if proto.starts_with("TCP") {
-        ProxyTransport::Tcp
-      } else {
-        ProxyTransport::Udp
-      };
-
-      let mut header = ProxyHeader::empty(ProxyVersion::V1, transport);
+      // PROXY v1 only carries TCP4/TCP6 in this arm — `Udp` was dead
+      // code (the pattern already restricted `proto` to "TCP*"). UDP is
+      // a PROXY v2 concept; keep `Tcp` hard-coded for the v1 path.
+      let mut header = ProxyHeader::empty(ProxyVersion::V1, ProxyTransport::Tcp);
       header.source = Some(SocketAddr::new(src_ip, src_port));
       header.destination = Some(SocketAddr::new(dst_ip, dst_port));
       Ok(header)
