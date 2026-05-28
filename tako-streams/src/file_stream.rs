@@ -173,7 +173,31 @@ where
   }
 
   /// Creates an HTTP 206 Partial Content response for range requests.
+  ///
+  /// Caller contract: `start <= end < total_size`. Violating the
+  /// inequality used to panic on `end - start + 1`; we now return a
+  /// `416 Range Not Satisfiable` response with a `Content-Range: bytes
+  /// */{total_size}` header per RFC 9110 §15.5.17 instead, so a buggy
+  /// caller produces a spec-conformant error rather than crashing the
+  /// worker.
   pub fn into_range_response(self, start: u64, end: u64, total_size: u64) -> Response {
+    if end < start || (total_size > 0 && end >= total_size) {
+      return http::Response::builder()
+        .status(http::StatusCode::RANGE_NOT_SATISFIABLE)
+        .header(
+          http::header::CONTENT_RANGE,
+          format!("bytes */{total_size}"),
+        )
+        .body(TakoBody::empty())
+        .unwrap_or_else(|e| {
+          (
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("FileStream range error: {e}"),
+          )
+            .into_response()
+        });
+    }
+    let content_length = end.saturating_sub(start).saturating_add(1);
     let mut response = http::Response::builder()
       .status(http::StatusCode::PARTIAL_CONTENT)
       .header(
@@ -184,7 +208,7 @@ where
         http::header::CONTENT_RANGE,
         format!("bytes {start}-{end}/{total_size}"),
       )
-      .header(http::header::CONTENT_LENGTH, (end - start + 1).to_string());
+      .header(http::header::CONTENT_LENGTH, content_length.to_string());
 
     if let Some(ref name) = self.file_name {
       response = response.header(
