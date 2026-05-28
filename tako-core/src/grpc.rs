@@ -137,7 +137,13 @@ impl Responder for GrpcError {
   fn into_response(self) -> Response {
     let (status_code, message) = match self {
       GrpcError::InvalidContentType => (
-        GrpcStatusCode::InvalidArgument,
+        // Spec maps wrong/missing content-type to `Unimplemented` (12) —
+        // see PROTOCOL-HTTP2.md ("If Content-Type does not begin with
+        // 'application/grpc', gRPC servers SHOULD respond with HTTP
+        // status of 415 (Unsupported Media Type)"). grpcurl/Envoy
+        // route on this distinction; `InvalidArgument` would suggest
+        // a request-payload bug instead of an unsupported protocol.
+        GrpcStatusCode::Unimplemented,
         "invalid content-type; expected application/grpc",
       ),
       GrpcError::BodyReadError(_) => (GrpcStatusCode::Internal, "failed to read request body"),
