@@ -51,6 +51,12 @@ tokio-vsock = { workspace = true, optional = true }
 default = []
 signals = ["tako-core/signals"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-core/tls"]
+# `http2` is a *gate flag* — it toggles HTTP/2 code paths inside tako-server
+# but does NOT disable hyper's `http2` feature, because the workspace pulls
+# hyper with `features = ["full"]`. Turning this flag off makes Tako skip
+# the H2 server builder, but hyper itself still ships H2 in the binary.
+# (Removing it from hyper would require a feature-conditional dependency
+# alias across the workspace — tracked for 2.x.)
 http2 = []
 # http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
