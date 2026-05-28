@@ -608,7 +608,34 @@ async fn worker_loop(inner: Arc<QueueInner>) {
       let _ = futures_util::future::select(notified, sleep).await;
     }
 
-    if inner.shutdown.load(Ordering::SeqCst) && inner.pending.lock().is_empty() {
+    if inner.shutdown.load(Ordering::SeqCst) {
+      // Drain remaining pending jobs into the DLQ before exiting. Delayed
+      // and retry-scheduled jobs sit in `pending` with `run_after > now`;
+      // if we exited via `is_empty()` only, the worker would spin until
+      // every retry fired (defeating `shutdown(timeout)`) or until the
+      // runtime aborted the task — in which case the jobs would silently
+      // vanish from memory. Moving them to dead-letters preserves them
+      // for `dead_letters()` inspection and any out-of-band re-enqueue
+      // after the next startup. The drain happens under the pending lock
+      // so concurrent workers see an empty queue and exit cleanly.
+      let drained: Vec<PendingJob> = {
+        let mut pending = inner.pending.lock();
+        if pending.is_empty() {
+          break;
+        }
+        pending.drain(..).collect()
+      };
+      let mut dlq = inner.dead_letters.lock();
+      for pj in drained {
+        dlq.push(Arc::new(DeadJob {
+          id: pj.id,
+          name: pj.name,
+          payload: pj.payload,
+          attempts: pj.attempt,
+          error: "queue shutdown before job ran".into(),
+          failed_at: Instant::now(),
+        }));
+      }
       break;
     }
 
