@@ -392,7 +392,13 @@ fn worker_main(
     let shutdown_fut = shutdown.notified();
     tokio::pin!(shutdown_fut);
 
-    let mut connection_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    // SRV-07: track per-connection tasks in a `JoinSet` instead of a `Vec`
+    // so completed connections can be reaped lazily. The previous `Vec`
+    // grew unboundedly across a worker's lifetime (a million-connection
+    // day = a million `JoinHandle`s held forever — soft leak proportional
+    // to total connections handled, even though the underlying tasks were
+    // long done).
+    let mut connection_handles: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
 
     loop {
       tokio::select! {
@@ -413,7 +419,7 @@ fn worker_main(
           }
           let io = hyper_util::rt::TokioIo::new(stream);
 
-          let handle = tokio::task::spawn_local(async move {
+          connection_handles.spawn_local(async move {
             let svc = service_fn(move |mut req| async move {
               req.extensions_mut().insert(peer);
               req.extensions_mut().insert(ConnInfo::tcp(peer));
@@ -432,7 +438,12 @@ fn worker_main(
               }
             }
           });
-          connection_handles.push(handle);
+
+          // Reap finished connection tasks opportunistically so the JoinSet
+          // does not retain `AbortHandle`s for already-completed tasks. Each
+          // `try_join_next` is non-blocking; the loop drains all currently
+          // finished entries.
+          while connection_handles.try_join_next().is_some() {}
         }
         () = &mut shutdown_fut => {
           tracing::info!("worker {worker_id}: shutdown signalled, draining");
@@ -440,14 +451,13 @@ fn worker_main(
         }
       }
     }
-    // Real graceful drain: wait on every in-flight connection handle up to
-    // `drain_timeout`. The earlier implementation `timeout(d, async {})`'d
-    // an immediately-ready future, which let the runtime abort pending
-    // connections the moment the loop exited.
-    let drain = tokio::time::timeout(
-      cfg.drain_timeout,
-      futures_util::future::join_all(connection_handles),
-    );
+    // Real graceful drain: wait on every in-flight connection task up to
+    // `drain_timeout`. `join_next()` yields one task at a time as it
+    // finishes; the timeout wraps the whole drain so a single hung
+    // connection cannot stall shutdown forever.
+    let drain = tokio::time::timeout(cfg.drain_timeout, async {
+      while connection_handles.join_next().await.is_some() {}
+    });
     let _ = drain.await;
   });
 }
