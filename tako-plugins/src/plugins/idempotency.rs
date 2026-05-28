@@ -243,28 +243,54 @@ impl Store {
     })
   }
 
-  fn insert_inflight(&self, k: String, payload_sig: [u8; 20]) -> Arc<Notify> {
-    let notify = Arc::new(Notify::new());
-    // `upsert_sync` replaces any existing entry (stale Completed past TTL,
-    // or a previous InFlight whose handler was cancelled). `insert_sync`
-    // would silently drop the new value on collision.
-    self.0.upsert_sync(
-      k,
-      Entry::InFlight {
-        payload_sig,
-        notify: notify.clone(),
-        started: Instant::now(),
-      },
-    );
-    notify
+  /// Atomically install a fresh `InFlight` entry for `k`, or return the
+  /// entry already present.
+  ///
+  /// This is the only race-safe alternative to a separate `get()` followed
+  /// by `insert_*()`: with two pre-existing primitives, two concurrent
+  /// requests for the same key could both see `None` and both call
+  /// `insert_*` — duplicating handler work, losing one of the notifiers,
+  /// and (after PPL-03) silently overwriting the first writer's Completed
+  /// entry. `entry_sync` collapses the check-and-install into one atomic
+  /// step on the same bucket lock.
+  fn install_inflight_or_get_existing(
+    &self,
+    k: String,
+    payload_sig: [u8; 20],
+  ) -> Result<Arc<Notify>, Entry> {
+    use scc::hash_map::Entry as MapEntry;
+    match self.0.entry_sync(k) {
+      MapEntry::Vacant(v) => {
+        let notify = Arc::new(Notify::new());
+        v.insert_entry(Entry::InFlight {
+          payload_sig,
+          notify: notify.clone(),
+          started: Instant::now(),
+        });
+        Ok(notify)
+      }
+      MapEntry::Occupied(o) => Err(match &*o.get() {
+        Entry::Completed(c) => Entry::Completed(c.clone()),
+        Entry::InFlight {
+          payload_sig,
+          notify,
+          started,
+        } => Entry::InFlight {
+          payload_sig: *payload_sig,
+          notify: notify.clone(),
+          started: *started,
+        },
+      }),
+    }
   }
 
   fn complete(&self, k: String, completed: Completed) {
     // MUST be `upsert_sync`: the key already holds the matching InFlight
-    // entry (planted by `insert_inflight` before the handler ran).
-    // `insert_sync` would no-op on collision, leaving the cache filled
-    // with InFlight forever and forcing every replay through the 409
-    // conflict path — i.e. the whole idempotency store would be dead.
+    // entry (planted by `install_inflight_or_get_existing` before the
+    // handler ran). `insert_sync` would no-op on collision, leaving the
+    // cache filled with InFlight forever and forcing every replay through
+    // the 409 conflict path — i.e. the whole idempotency store would be
+    // dead.
     self.0.upsert_sync(k, Entry::Completed(completed));
   }
 
@@ -402,75 +428,75 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
     Scope::MethodAndPath => format!("{}|{}|{}", key, new_req.method(), new_req.uri().path()),
   };
 
-  // Fast path: completed cache hit
-  if let Some(entry) = store.get(&cache_key) {
-    match entry {
-      Entry::Completed(c) => {
-        // Skip the sig-equality check when the cached entry was recorded
-        // under `verify_payload=false` (its `payload_sig` is the placeholder
-        // `[0; 20]`) — flipping the flag on at runtime would otherwise turn
-        // every pre-existing cached entry into a spurious 409 for clients
-        // replaying the same Idempotency-Key.
-        let legacy_unverified = c.payload_sig == [0u8; 20];
-        if cfg.verify_payload && !legacy_unverified && c.payload_sig != sig {
-          return conflict();
-        }
-        return build_response_from_cache(&c.cached);
+  // Atomically install a fresh InFlight or pick up an existing entry.
+  // The previous `store.get(...)` + `store.insert_inflight(...)` pair
+  // had a TOCTOU window: two concurrent requests for the same key could
+  // both see `None`, both install, and end up running the handler twice
+  // — exactly what idempotency exists to prevent.
+  let notify = match store.install_inflight_or_get_existing(cache_key.clone(), sig) {
+    Err(Entry::Completed(c)) => {
+      // Skip the sig-equality check when the cached entry was recorded
+      // under `verify_payload=false` (its `payload_sig` is the placeholder
+      // `[0; 20]`) — flipping the flag on at runtime would otherwise turn
+      // every pre-existing cached entry into a spurious 409 for clients
+      // replaying the same Idempotency-Key.
+      let legacy_unverified = c.payload_sig == [0u8; 20];
+      if cfg.verify_payload && !legacy_unverified && c.payload_sig != sig {
+        return conflict();
       }
-      Entry::InFlight {
-        payload_sig,
-        notify,
-        ..
-      } => {
-        if !cfg.coalesce_inflight {
-          return conflict_inflight();
-        }
-        let legacy_unverified = payload_sig == [0u8; 20];
-        if cfg.verify_payload && !legacy_unverified && payload_sig != sig {
-          return conflict();
-        }
-        // Wait for completion, honoring the optional timeout on both runtimes.
-        if let Some(ms) = cfg.inflight_wait_timeout_ms {
-          #[cfg(not(feature = "compio"))]
-          {
-            let _ = timeout(Duration::from_millis(ms), notify.notified()).await;
-          }
-          // compio's timer futures are !Send, so we cannot await them directly inside
-          // a middleware handler (whose returned future is required to be Send).
-          // Forward the timeout through a helper compio task that fires `Notify`
-          // — `Notified` is Send, which keeps the middleware future Send-clean.
-          #[cfg(feature = "compio")]
-          {
-            let timeout_signal = Arc::new(Notify::new());
-            let timer_signal = timeout_signal.clone();
-            compio::runtime::spawn(async move {
-              compio::time::sleep(Duration::from_millis(ms)).await;
-              timer_signal.notify_waiters();
-            })
-            .detach();
-            futures_util::future::select(
-              std::pin::pin!(notify.notified()),
-              std::pin::pin!(timeout_signal.notified()),
-            )
-            .await;
-          }
-        } else {
-          notify.notified().await;
-        }
-        if let Some(Entry::Completed(c2)) = store.get(&cache_key) {
-          if cfg.verify_payload && c2.payload_sig != sig {
-            return conflict();
-          }
-          return build_response_from_cache(&c2.cached);
-        }
-        // If still not completed, treat as conflict/in-progress
+      return build_response_from_cache(&c.cached);
+    }
+    Err(Entry::InFlight {
+      payload_sig,
+      notify,
+      ..
+    }) => {
+      if !cfg.coalesce_inflight {
         return conflict_inflight();
       }
+      let legacy_unverified = payload_sig == [0u8; 20];
+      if cfg.verify_payload && !legacy_unverified && payload_sig != sig {
+        return conflict();
+      }
+      // Wait for completion, honoring the optional timeout on both runtimes.
+      if let Some(ms) = cfg.inflight_wait_timeout_ms {
+        #[cfg(not(feature = "compio"))]
+        {
+          let _ = timeout(Duration::from_millis(ms), notify.notified()).await;
+        }
+        // compio's timer futures are !Send, so we cannot await them directly inside
+        // a middleware handler (whose returned future is required to be Send).
+        // Forward the timeout through a helper compio task that fires `Notify`
+        // — `Notified` is Send, which keeps the middleware future Send-clean.
+        #[cfg(feature = "compio")]
+        {
+          let timeout_signal = Arc::new(Notify::new());
+          let timer_signal = timeout_signal.clone();
+          compio::runtime::spawn(async move {
+            compio::time::sleep(Duration::from_millis(ms)).await;
+            timer_signal.notify_waiters();
+          })
+          .detach();
+          futures_util::future::select(
+            std::pin::pin!(notify.notified()),
+            std::pin::pin!(timeout_signal.notified()),
+          )
+          .await;
+        }
+      } else {
+        notify.notified().await;
+      }
+      if let Some(Entry::Completed(c2)) = store.get(&cache_key) {
+        if cfg.verify_payload && c2.payload_sig != sig {
+          return conflict();
+        }
+        return build_response_from_cache(&c2.cached);
+      }
+      // If still not completed, treat as conflict/in-progress
+      return conflict_inflight();
     }
-  }
-
-  // Miss: register in-flight
-  let notify = store.insert_inflight(cache_key.clone(), sig);
+    Ok(notify) => notify,
+  };
   let mut inflight_guard = InflightGuard::new(store.clone(), cache_key.clone(), notify.clone());
 
   // Execute handler
