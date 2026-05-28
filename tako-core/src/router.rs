@@ -729,93 +729,96 @@ impl Router {
 
     // Phase 2: Dispatch — `req` is no longer borrowed, safe to mutate.
     let response = if let Some((route, params)) = route_match {
-      // Protocol guard: early-return if request version does not satisfy route guard
+      // Protocol guard: short-circuit dispatch *but fall through* to the shared
+      // completion tail (error-handler + REQUEST_COMPLETED signal). Returning
+      // here would leak the in-flight signal pair (REQUEST_STARTED already
+      // emitted above without a matching REQUEST_COMPLETED).
       if let Some(res) = Self::enforce_protocol_guard(&route, &req) {
-        return self.maybe_apply_error_handler(res);
-      }
+        res
+      } else {
+        #[cfg(feature = "signals")]
+        let route_signals = route.signal_arbiter();
 
-      #[cfg(feature = "signals")]
-      let route_signals = route.signal_arbiter();
+        // Initialize route-level plugins on first request
+        #[cfg(feature = "plugins")]
+        route.setup_plugins_once();
 
-      // Initialize route-level plugins on first request
-      #[cfg(feature = "plugins")]
-      route.setup_plugins_once();
+        // Inject route-level SIMD JSON config into request extensions
+        if let Some(mode) = route.get_simd_json_mode() {
+          req.extensions_mut().insert(mode);
+        }
 
-      // Inject route-level SIMD JSON config into request extensions
-      if let Some(mode) = route.get_simd_json_mode() {
-        req.extensions_mut().insert(mode);
-      }
+        if let Some(params) = params {
+          req.extensions_mut().insert(params);
+        }
 
-      if let Some(params) = params {
-        req.extensions_mut().insert(params);
-      }
+        // Inject the matched route template (e.g. `/users/{id}`) so handlers
+        // and middleware can label metrics/logs by the routing key, not the
+        // concrete URI.
+        req
+          .extensions_mut()
+          .insert(crate::router_state::MatchedPath(route.path.clone()));
 
-      // Inject the matched route template (e.g. `/users/{id}`) so handlers
-      // and middleware can label metrics/logs by the routing key, not the
-      // concrete URI.
-      req
-        .extensions_mut()
-        .insert(crate::router_state::MatchedPath(route.path.clone()));
+        // Determine effective timeout: route-level overrides router-level
+        let effective_timeout = route.get_timeout().or(self.timeout);
 
-      // Determine effective timeout: route-level overrides router-level
-      let effective_timeout = route.get_timeout().or(self.timeout);
+        // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
+        let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
+          || route.has_middleware.load(Ordering::Acquire);
 
-      // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
-      let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
-        || route.has_middleware.load(Ordering::Acquire);
+        #[cfg(feature = "signals")]
+        {
+          let method_str = req.method().to_string();
+          let path_str = req.uri().path().to_string();
+          let route_template = route.path.clone();
 
-      #[cfg(feature = "signals")]
-      {
-        let method_str = req.method().to_string();
-        let path_str = req.uri().path().to_string();
-        let route_template = route.path.clone();
+          route_signals
+            .emit(
+              Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 3)
+                .meta("method", method_str.clone())
+                .meta("path", path_str.clone())
+                .meta("route", route_template.clone()),
+            )
+            .await;
 
-        route_signals
-          .emit(
-            Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 3)
-              .meta("method", method_str.clone())
-              .meta("path", path_str.clone())
-              .meta("route", route_template.clone()),
-          )
-          .await;
-
-        let response = if !needs_chain && effective_timeout.is_none() {
-          route.handler.call(req).await
-        } else {
-          let next = Next {
-            global_middlewares: self.middlewares.load_full(),
-            route_middlewares: route.middlewares.load_full(),
-            index: 0,
-            endpoint: route.handler.clone(),
+          let response = if !needs_chain && effective_timeout.is_none() {
+            route.handler.call(req).await
+          } else {
+            let next = Next {
+              global_middlewares: self.middlewares.load_full(),
+              route_middlewares: route.middlewares.load_full(),
+              index: 0,
+              endpoint: route.handler.clone(),
+            };
+            self.run_with_timeout(req, next, effective_timeout).await
           };
-          self.run_with_timeout(req, next, effective_timeout).await
-        };
 
-        route_signals
-          .emit(
-            Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 4)
-              .meta("method", method_str)
-              .meta("path", path_str)
-              .meta("route", route_template)
-              .meta("status", response.status().as_u16().to_string()),
-          )
-          .await;
+          route_signals
+            .emit(
+              Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 4)
+                .meta("method", method_str)
+                .meta("path", path_str)
+                .meta("route", route_template)
+                .meta("status", response.status().as_u16().to_string()),
+            )
+            .await;
 
-        response
-      }
+          response
+        }
 
-      #[cfg(not(feature = "signals"))]
-      {
-        if !needs_chain && effective_timeout.is_none() {
-          route.handler.call(req).await
-        } else {
-          let next = Next {
-            global_middlewares: self.middlewares.load_full(),
-            route_middlewares: route.middlewares.load_full(),
-            index: 0,
-            endpoint: route.handler.clone(),
-          };
-          self.run_with_timeout(req, next, effective_timeout).await
+        #[cfg(not(feature = "signals"))]
+        {
+          if !needs_chain && effective_timeout.is_none() {
+            route.handler.call(req).await
+          } else {
+            let next = Next {
+              global_middlewares: self.middlewares.load_full(),
+              route_middlewares: route.middlewares.load_full(),
+              index: 0,
+              endpoint: route.handler.clone(),
+            };
+            self.run_with_timeout(req, next, effective_timeout).await
+          }
         }
       }
     } else {
