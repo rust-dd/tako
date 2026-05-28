@@ -174,6 +174,16 @@ where
 {
   /// Legacy constructor — wraps each `Bytes` as `data: …\n\n` (W3C minimum).
   ///
+  /// **⚠️ Security note (STR-5):** this raw-bytes wrapper does NOT sanitize
+  /// embedded `\n` / `\r` / `\r\n` sequences. A message containing
+  /// `\n\nevent:click\n\n` is interpreted by the browser as **two separate
+  /// SSE events** — a synthetic event/field injection if the message comes
+  /// from untrusted input. The structured [`Sse::events`] path is safe
+  /// (every line is rebuilt with strict `data:`/`event:` prefixes and CR is
+  /// stripped). Use `Sse::events` for any message that could carry
+  /// caller-controlled bytes; reserve `Sse::new` for already-encoded raw
+  /// SSE chunks the caller produced.
+  ///
   /// For richer events (`event:`, `id:`, `retry:`, comments) use
   /// [`Sse::events`] which accepts a stream of [`SseEvent`].
   pub fn new(stream: S) -> Self {
