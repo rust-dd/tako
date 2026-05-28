@@ -692,13 +692,18 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
 ///
 /// Inserts a [`GrpcDeadline`] into request extensions when present so handlers
 /// and middleware can honor the cancellation contract.
+///
+/// Uses `Instant::checked_add` so an attacker-supplied near-`u64::MAX`-second
+/// `grpc-timeout` (e.g. `"18446744073709551615S"`) cannot panic the server on
+/// overflow — instead the header is treated as if absent, matching the
+/// no-deadline default.
 pub fn read_grpc_deadline(req: &mut Request) -> Option<GrpcDeadline> {
   let raw = req
     .headers()
     .get("grpc-timeout")
     .and_then(|v| v.to_str().ok())?;
   let dur = parse_grpc_timeout(raw)?;
-  let deadline = GrpcDeadline(Instant::now() + dur);
+  let deadline = GrpcDeadline(Instant::now().checked_add(dur)?);
   req.extensions_mut().insert(deadline);
   Some(deadline)
 }
