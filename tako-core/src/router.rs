@@ -768,8 +768,12 @@ impl Router {
 
         #[cfg(feature = "signals")]
         {
-          let method_str = req.method().to_string();
-          let path_str = req.uri().path().to_string();
+          // Reuse the strings already formatted for REQUEST_STARTED instead of
+          // re-allocating per request on the hot path. Cheap `String::clone` is
+          // a single Vec dup; route-level signals consume the clones for the
+          // STARTED emission and the final move into ROUTE_REQUEST_COMPLETED.
+          let method_str = req_method_str.clone();
+          let path_str = req_path_str.clone();
           let route_template = route.path.clone();
 
           route_signals
