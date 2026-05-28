@@ -195,6 +195,15 @@ impl Route {
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn setup_plugins_once(&self) {
+    // Hot path: dispatch calls this on every matched route. After the
+    // first request the plugins are installed, so do a cheap Acquire
+    // load and bail before paying for a SeqCst RMW + fence each time.
+    // `Acquire` pairs with the `Release` half of the `swap` below so we
+    // observe the middleware writes published by the initializing thread.
+    if self.plugins_initialized.load(Ordering::Acquire) {
+      return;
+    }
+
     if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
       // Create a temporary mini-router to capture plugin middleware
       let mini_router = crate::router::Router::new();
