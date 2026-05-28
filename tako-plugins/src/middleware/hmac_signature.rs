@@ -204,7 +204,14 @@ impl IntoMiddleware for HmacSignature {
           let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
-          if (now - ts).unsigned_abs() > max_clock_skew.as_secs() {
+          // PMW-03: attacker-controlled `ts` can be `i64::MIN`; plain
+          // `now - ts` then panics in debug (overflow-checks) and wraps in
+          // release (signed-overflow UB-equivalent for our purposes).
+          // Promote to i128 for the difference so the result is always
+          // representable, then clamp the absolute skew to u64 for the
+          // comparison.
+          let skew_abs: u128 = (i128::from(now) - i128::from(ts)).unsigned_abs();
+          if skew_abs > u128::from(max_clock_skew.as_secs()) {
             return http::Response::builder()
               .status(StatusCode::UNAUTHORIZED)
               .body(TakoBody::from("timestamp outside allowed skew"))
