@@ -38,6 +38,7 @@ use tokio::task::LocalSet;
 
 /// Configuration for [`serve_per_thread`] (and the `compio` variant when enabled).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct PerThreadConfig {
   /// Number of worker threads. Defaults to the number of logical CPUs.
   pub workers: usize,

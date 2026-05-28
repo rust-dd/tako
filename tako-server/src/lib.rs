@@ -17,6 +17,7 @@ use std::time::Duration;
 /// `quinn::congestion`. Exposed here so HTTP/3 deployments can pick a profile
 /// without depending on quinn directly from the application crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum H3Congestion {
   /// CUBIC — quinn's default and the most widely deployed.
   #[default]
@@ -137,6 +138,7 @@ impl Default for ServerConfig {
 /// to keep the sleep schedule consistent across transports without duplicating
 /// the constants in every `serve_*` implementation.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct AcceptBackoff {
   current: Duration,
   max: Duration,
