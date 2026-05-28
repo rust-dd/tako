@@ -9,6 +9,8 @@ authors.workspace = true
 documentation = "https://docs.rs/tako-macros"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
+keywords = ["web", "framework", "macros", "proc-macro", "http"]
+categories = ["web-programming", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

@@ -9,6 +9,8 @@ authors.workspace = true
 documentation = "https://docs.rs/tako-plugins"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
+keywords = ["web", "framework", "middleware", "plugin", "http"]
+categories = ["web-programming", "web-programming::http-server", "asynchronous"]
 
 [lib]
 name = "tako_plugins"
