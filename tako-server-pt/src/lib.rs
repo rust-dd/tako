@@ -387,6 +387,43 @@ pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig)
   Ok(())
 }
 
+/// RAII counter-decrementer used by the compio worker to track in-flight
+/// connections.
+///
+/// `Drop` always runs — normal completion, panic unwind, runtime shutdown —
+/// so the inflight count cannot leak. Mirrors the `ConnectionGuard` pattern
+/// in `tako-server`'s `server_compio.rs`. Without this the compio per-thread
+/// worker had no way to wait for in-flight work at shutdown: it spawned and
+/// detached connection tasks, and `cfg.drain_timeout` was silently ignored
+/// — every active request was abort-killed the moment `block_on` returned.
+#[cfg(feature = "compio")]
+struct PtConnGuard {
+  inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+  drain_notify: std::sync::Arc<tokio::sync::Notify>,
+}
+
+#[cfg(feature = "compio")]
+impl PtConnGuard {
+  fn new(
+    inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    drain_notify: std::sync::Arc<tokio::sync::Notify>,
+  ) -> Self {
+    inflight.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    Self {
+      inflight,
+      drain_notify,
+    }
+  }
+}
+
+#[cfg(feature = "compio")]
+impl Drop for PtConnGuard {
+  fn drop(&mut self) {
+    self.inflight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    self.drain_notify.notify_waiters();
+  }
+}
+
 #[cfg(feature = "compio")]
 #[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 fn worker_main_compio(
@@ -396,7 +433,12 @@ fn worker_main_compio(
   cfg: PerThreadConfig,
   shutdown: PerThreadShutdown,
 ) {
+  use std::sync::Arc;
+  use std::sync::atomic::AtomicUsize;
+  use std::sync::atomic::Ordering;
+
   use cyper_core::HyperStream;
+  use tokio::sync::Notify;
 
   #[cfg(feature = "affinity")]
   if cfg.pin_to_core {
@@ -443,6 +485,8 @@ fn worker_main_compio(
 
     let cancel = shutdown.inner.clone();
     let mut backoff = compio_accept_backoff();
+    let inflight = Arc::new(AtomicUsize::new(0));
+    let drain_notify = Arc::new(Notify::new());
 
     loop {
       let accept_fut = listener.accept();
@@ -467,8 +511,14 @@ fn worker_main_compio(
         }
       };
       let io = HyperStream::new(stream);
+      // Build the guard before spawn so the count is incremented on the
+      // current thread (lock-free atomic) instead of racing with the spawn.
+      let guard = PtConnGuard::new(inflight.clone(), drain_notify.clone());
 
       compio::runtime::spawn(async move {
+        // RAII: dropping `_guard` (on normal completion, panic, or task
+        // cancellation) decrements `inflight` and wakes drain waiters.
+        let _guard = guard;
         let svc = service_fn(move |mut req| async move {
           // Match the tokio variant: insert both the raw `SocketAddr`
           // (legacy lookup key) and the typed `ConnInfo` so extractors that
@@ -495,6 +545,42 @@ fn worker_main_compio(
         }
       })
       .detach();
+    }
+
+    // Drain phase: wait for in-flight connections to finish, but only up to
+    // `cfg.drain_timeout`. Mirrors the tokio worker (`join_all` + timeout)
+    // and the standalone compio server's `inflight + Notify` loop. Without
+    // this the compio worker silently aborted every active connection on
+    // shutdown — `drain_timeout` was a no-op on the per-thread + compio
+    // build.
+    let drain_deadline = std::time::Instant::now() + cfg.drain_timeout;
+    while inflight.load(Ordering::SeqCst) > 0 {
+      let now = std::time::Instant::now();
+      if now >= drain_deadline {
+        tracing::warn!(
+          worker_id,
+          drain_timeout = ?cfg.drain_timeout,
+          still_inflight = inflight.load(Ordering::SeqCst),
+          "drain timeout exceeded; remaining connections will be aborted"
+        );
+        break;
+      }
+      let remaining = drain_deadline - now;
+      let wait = drain_notify.notified();
+      let sleep = compio::time::sleep(remaining);
+      let wait = std::pin::pin!(wait);
+      let sleep = std::pin::pin!(sleep);
+      if let futures_util::future::Either::Right(_) =
+        futures_util::future::select(wait, sleep).await
+      {
+        tracing::warn!(
+          worker_id,
+          drain_timeout = ?cfg.drain_timeout,
+          still_inflight = inflight.load(Ordering::SeqCst),
+          "drain timeout exceeded; remaining connections will be aborted"
+        );
+        break;
+      }
     }
   });
 }
