@@ -571,11 +571,37 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
   resp.into_response()
 }
 
+/// 409 response for a permanent Idempotency-Key collision — the cached
+/// entry exists but the request payload differs. Clients **should not**
+/// retry the same request unchanged; they must either change the key or
+/// alter the payload, hence no `Retry-After`.
 fn conflict() -> Response {
-  http::Response::builder()
+  conflict_response(None)
+}
+
+/// 409 response for a transient collision: another worker is currently
+/// processing the same Idempotency-Key, or coalescing is disabled.
+/// Clients **may** retry after the suggested delay (3s).
+fn conflict_inflight() -> Response {
+  conflict_response(Some(3))
+}
+
+/// PPL-18: shared builder so both 409 paths use the same response
+/// shape — only the optional \`Retry-After\` differs, signalling
+/// transient (`Some`) vs permanent (`None`) collisions.
+fn conflict_response(retry_after_secs: Option<u32>) -> Response {
+  let mut resp = http::Response::builder()
     .status(StatusCode::CONFLICT)
     .body(TakoBody::empty())
-    .unwrap()
+    .unwrap();
+  if let Some(secs) = retry_after_secs {
+    resp.headers_mut().insert(
+      RETRY_AFTER,
+      HeaderValue::from_str(&secs.to_string())
+        .unwrap_or_else(|_| HeaderValue::from_static("3")),
+    );
+  }
+  resp
 }
 
 /// Emitted when the downstream handler's response body fails to collect
@@ -586,17 +612,6 @@ fn bad_gateway() -> Response {
     .status(StatusCode::BAD_GATEWAY)
     .body(TakoBody::empty())
     .unwrap()
-}
-
-fn conflict_inflight() -> Response {
-  let mut resp = http::Response::builder()
-    .status(StatusCode::CONFLICT)
-    .body(TakoBody::empty())
-    .unwrap();
-  resp
-    .headers_mut()
-    .insert(RETRY_AFTER, HeaderValue::from_static("3"));
-  resp
 }
 
 fn build_response_from_cache(c: &CachedResponse) -> Response {
