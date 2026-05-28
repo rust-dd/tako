@@ -33,6 +33,7 @@ use scc::HashMap as SccHashMap;
 use tako_core::body::TakoBody;
 use tako_core::middleware::IntoMiddleware;
 use tako_core::middleware::Next;
+use tako_core::router_state::MatchedPath;
 use tako_core::types::Request;
 use tako_core::types::Response;
 
@@ -141,7 +142,20 @@ impl CircuitBreaker {
       open_status: StatusCode::SERVICE_UNAVAILABLE,
       retry_after_secs: 30,
       window: Duration::from_secs(60),
-      key_fn: Arc::new(|req: &Request| req.uri().path().to_string()),
+      // Default keying is by route **template** (e.g. `/users/{id}`), not
+      // raw path (`/users/42`). Templated keys bound the breaker map's
+      // cardinality at the number of registered routes — keying by raw
+      // path lets an unauthenticated client insert one `Arc<State>` per
+      // distinct `/a1`, `/a2`, ... and exhaust memory.
+      // Falls back to a single constant for requests dispatched outside
+      // the router (extremely unusual — only when this middleware is
+      // wired up without a matching route).
+      key_fn: Arc::new(|req: &Request| {
+        req
+          .extensions()
+          .get::<MatchedPath>()
+          .map_or_else(|| "<unmatched>".to_string(), |mp| mp.as_str().to_string())
+      }),
       classifier: Arc::new(|resp: &Response| resp.status().is_server_error()),
       states: Arc::new(SccHashMap::new()),
     }
