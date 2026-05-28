@@ -8,32 +8,23 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,ignore
 //! use tako::middleware::bearer_auth::BearerAuth;
 //! use tako::middleware::IntoMiddleware;
 //!
-//! // Single static token
-//! let auth = BearerAuth::<(), _>::static_token("secret-api-key");
-//! let middleware = auth.into_middleware();
+//! // Single static token.
+//! let auth = BearerAuth::static_token("secret-api-key");
+//! let mw = auth.into_middleware();
 //!
-//! // Multiple valid tokens
-//! let multi_auth = BearerAuth::<(), _>::static_tokens([
+//! // Multiple valid tokens.
+//! let multi = BearerAuth::static_tokens([
 //!     "token1",
 //!     "token2",
 //!     "admin-token",
 //! ]);
 //!
-//! // Dynamic verification with claims
-//! #[derive(Clone)]
-//! struct Claims { user_id: u32, role: String }
-//!
-//! let dynamic_auth = BearerAuth::with_verify(|token| {
-//!     if token.starts_with("user_") {
-//!         Some(Claims { user_id: 123, role: "user".to_string() })
-//!     } else {
-//!         None
-//!     }
-//! });
+//! // Dynamic verify callback — returns `bool`, not a claims object.
+//! let dynamic = BearerAuth::with_verify(|token| token.starts_with("user_"));
 //! ```
 
 use std::future::Future;

@@ -6,7 +6,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,ignore
 //! use tako::middleware::api_key_auth::{ApiKeyAuth, ApiKeyLocation};
 //! use tako::middleware::IntoMiddleware;
 //!

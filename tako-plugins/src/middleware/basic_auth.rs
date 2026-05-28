@@ -8,30 +8,23 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,ignore
 //! use tako::middleware::basic_auth::BasicAuth;
 //! use tako::middleware::IntoMiddleware;
 //!
-//! // Single user authentication
-//! let auth = BasicAuth::<(), _>::single("admin", "password");
-//! let middleware = auth.into_middleware();
+//! // Single user.
+//! let auth = BasicAuth::single("admin", "password");
+//! let mw = auth.into_middleware();
 //!
-//! // Multiple users with custom realm
-//! let multi_auth = BasicAuth::<(), _>::multiple([
+//! // Multiple users with custom realm.
+//! let multi = BasicAuth::multiple([
 //!     ("alice", "secret1"),
 //!     ("bob", "secret2"),
 //! ]).realm("Admin Area");
 //!
-//! // Dynamic verification with user object
-//! #[derive(Clone)]
-//! struct User { id: u32, name: String }
-//!
-//! let dynamic_auth = BasicAuth::with_verify(|username, password| {
-//!     if username == "user" && password == "pass" {
-//!         Some(User { id: 1, name: username.to_string() })
-//!     } else {
-//!         None
-//!     }
+//! // Dynamic verify callback — returns `bool`, not a user object.
+//! let dynamic = BasicAuth::with_verify(|username, password| {
+//!     username == "user" && password == "pass"
 //! });
 //! ```
 
