@@ -195,6 +195,12 @@ pub type SignalStream = mpsc::Receiver<Signal>;
 /// overflow as silent drops, not OOM.
 pub const FILTERED_SUBSCRIPTION_BUFFER: usize = 1024;
 
+/// Upper bound for [`SignalArbiter::set_global_broadcast_capacity`]. Caps each
+/// new topic channel at 1 Mi elements so a misconfigured caller cannot ask
+/// for a `usize::MAX`-element channel that would OOM the process on the next
+/// topic creation.
+pub const MAX_BROADCAST_CAPACITY: usize = 1 << 20;
+
 #[derive(Default)]
 struct Inner {
   handlers: SccHashMap<String, HandlerList>,
@@ -297,9 +303,12 @@ impl SignalArbiter {
 
   /// Sets the global broadcast capacity used for topic channels.
   ///
-  /// This affects all newly created topics across all arbiters.
+  /// This affects all newly created topics across all arbiters. The capacity
+  /// is clamped to `[1, MAX_BROADCAST_CAPACITY]` (1 MiB-element ceiling) so a
+  /// caller can never request a `usize::MAX`-element channel that would OOM
+  /// on the next `topic_sender` allocation.
   pub fn set_global_broadcast_capacity(capacity: usize) {
-    let cap = capacity.max(1);
+    let cap = capacity.clamp(1, MAX_BROADCAST_CAPACITY);
     GLOBAL_BROADCAST_CAPACITY.store(cap, Ordering::SeqCst);
   }
 
