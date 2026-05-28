@@ -490,16 +490,32 @@ async fn handle_connection(
   // previously detached via `tokio::spawn`, so a forwarder still polling
   // `recv_data` after its handler returned could run past the connection
   // drain. Bounded by the same `goaway_grace` deadline.
-  while body_tracker
-    .active
-    .load(std::sync::atomic::Ordering::SeqCst)
-    > 0
-  {
+  //
+  // The previous shape was a `load > 0 → timeout_at(notified()).await` loop,
+  // racy with `notify_waiters` (no stored permit): if the last guard ran
+  // Drop between the load and the `notified()` future being polled, the
+  // wake was lost and we waited the full grace period for nothing.
+  //
+  // Mirror `server_compio.rs:215-238`: construct `notified()` first, call
+  // `enable()` to register as a waiter eagerly, then re-check the counter.
+  // Any `notify_waiters` issued after the load is now guaranteed to wake
+  // this future.
+  loop {
+    let notified = body_tracker.drained.notified();
+    tokio::pin!(notified);
+    notified.as_mut().enable();
+    if body_tracker
+      .active
+      .load(std::sync::atomic::Ordering::SeqCst)
+      == 0
+    {
+      break;
+    }
     let now = tokio::time::Instant::now();
     if now >= drain_deadline {
       break;
     }
-    if tokio::time::timeout_at(drain_deadline, body_tracker.drained.notified())
+    if tokio::time::timeout_at(drain_deadline, notified)
       .await
       .is_err()
     {
