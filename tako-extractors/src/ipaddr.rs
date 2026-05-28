@@ -197,35 +197,84 @@ impl IpAddr {
   ) -> Result<Self, IpAddrError> {
     let peer = peer_ip_from_extensions(extensions);
 
-    let trust_headers = match (peer.as_ref(), tako_core::state::get_state::<IpAddrConfig>()) {
+    let cfg = tako_core::state::get_state::<IpAddrConfig>();
+    let trust_headers = match (peer.as_ref(), cfg.as_ref()) {
       (Some(p), Some(cfg)) => cfg.trusted_proxies.iter().any(|t| t == p),
       _ => false,
     };
 
-    if trust_headers && let Some(ip) = Self::parse_forwarded_headers(headers) {
+    if trust_headers
+      && let Some(cfg) = cfg.as_ref()
+      && let Some(ip) = Self::parse_forwarded_headers(headers, &cfg.trusted_proxies)
+    {
       return Ok(Self(ip));
     }
 
     peer.map(Self).ok_or(IpAddrError::NoIpFound)
   }
 
-  /// Parses the first parseable IP from any of the recognized forwarded
-  /// headers, in priority order. Caller is responsible for ensuring that the
-  /// request peer is in fact a trusted proxy.
-  fn parse_forwarded_headers(headers: &http::HeaderMap) -> Option<StdIpAddr> {
-    const HEADERS_IN_PRIORITY: &[&str] = &[
-      "forwarded",
-      "x-forwarded-for",
+  /// Parses the first non-trusted client IP from any of the recognized
+  /// forwarded headers, in priority order.
+  ///
+  /// For multi-hop headers (`Forwarded`, `X-Forwarded-For`) the walk goes
+  /// **right-to-left**, skipping entries that match `trusted_proxies` — the
+  /// first remaining entry is the leftmost untrusted hop (the real client).
+  /// Walking left-to-right was spoofable: an attacker could prepend a fake
+  /// `<spoofed>` to the header and a trusted proxy would append the real
+  /// `<peer>`, leaving the first parseable IP as `<spoofed>`.
+  ///
+  /// Single-IP headers (`X-Real-IP`, `CF-Connecting-IP`, …) carry one
+  /// already-resolved client IP from the proxy and are taken as-is.
+  fn parse_forwarded_headers(
+    headers: &http::HeaderMap,
+    trusted_proxies: &[StdIpAddr],
+  ) -> Option<StdIpAddr> {
+    const MULTI_HOP: &[&str] = &["forwarded", "x-forwarded-for"];
+    const SINGLE_HOP: &[&str] = &[
       "x-real-ip",
       "x-client-ip",
       "cf-connecting-ip",
       "true-client-ip",
     ];
-    for header_name in HEADERS_IN_PRIORITY {
+    for header_name in MULTI_HOP {
+      if let Some(v) = headers.get(*header_name)
+        && let Ok(s) = v.to_str()
+        && let Some(ip) = Self::parse_ip_right_to_left(s, trusted_proxies)
+      {
+        return Some(ip);
+      }
+    }
+    for header_name in SINGLE_HOP {
       if let Some(v) = headers.get(*header_name)
         && let Ok(s) = v.to_str()
         && let Some(ip) = Self::parse_ip_from_header(s)
       {
+        return Some(ip);
+      }
+    }
+    None
+  }
+
+  /// Walk a comma-separated header from right to left and return the first
+  /// IP that is not in `trusted_proxies`. Used for multi-hop headers where
+  /// the client appends to the left and proxies append to the right.
+  fn parse_ip_right_to_left(
+    header_value: &str,
+    trusted_proxies: &[StdIpAddr],
+  ) -> Option<StdIpAddr> {
+    let parts: Vec<&str> = header_value.split(',').collect();
+    for part in parts.iter().rev() {
+      let trimmed = part.trim();
+      if trimmed.is_empty() {
+        continue;
+      }
+      // An unparseable entry in the middle of the chain is not a stop
+      // condition — it's typically a missing-port or quoted-form variant
+      // we don't recognize yet; keep walking left.
+      let Some(ip) = Self::parse_ip_from_part(trimmed) else {
+        continue;
+      };
+      if !trusted_proxies.contains(&ip) {
         return Some(ip);
       }
     }
@@ -240,26 +289,35 @@ impl IpAddr {
       if part.is_empty() {
         continue;
       }
-      let ip_part = part.strip_prefix("for=").unwrap_or(part);
-      let ip_part = ip_part.trim_matches('"');
-
-      let ip_str = if ip_part.starts_with('[') {
-        if let Some(end) = ip_part.find(']') {
-          &ip_part[1..end]
-        } else {
-          ip_part
-        }
-      } else if ip_part.matches(':').count() == 1 {
-        ip_part.split(':').next().unwrap_or(ip_part)
-      } else {
-        ip_part
-      };
-
-      if let Ok(ip) = StdIpAddr::from_str(ip_str) {
+      if let Some(ip) = Self::parse_ip_from_part(part) {
         return Some(ip);
       }
     }
     None
+  }
+
+  /// Parse one comma-separated entry into an IP, stripping `for=`, quotes,
+  /// `[v6]` brackets, and an optional `:port` suffix.
+  fn parse_ip_from_part(part: &str) -> Option<StdIpAddr> {
+    if part.is_empty() {
+      return None;
+    }
+    let ip_part = part.strip_prefix("for=").unwrap_or(part);
+    let ip_part = ip_part.trim_matches('"');
+
+    let ip_str = if ip_part.starts_with('[') {
+      if let Some(end) = ip_part.find(']') {
+        &ip_part[1..end]
+      } else {
+        ip_part
+      }
+    } else if ip_part.matches(':').count() == 1 {
+      ip_part.split(':').next().unwrap_or(ip_part)
+    } else {
+      ip_part
+    };
+
+    StdIpAddr::from_str(ip_str).ok()
   }
 }
 
