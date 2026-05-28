@@ -481,20 +481,26 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
         // a middleware handler (whose returned future is required to be Send).
         // Forward the timeout through a helper compio task that fires `Notify`
         // — `Notified` is Send, which keeps the middleware future Send-clean.
+        //
+        // PPL-19: hold the JoinHandle (don't `.detach()`) so dropping it
+        // after the select races cancels the timer task. Otherwise the
+        // sleep keeps running for the full `ms` even if the inflight
+        // notify fired first, lingering as a no-op task and a delayed
+        // notify_waiters on a Notify nobody is listening to.
         #[cfg(feature = "compio")]
         {
           let timeout_signal = Arc::new(Notify::new());
           let timer_signal = timeout_signal.clone();
-          compio::runtime::spawn(async move {
+          let _timer_task = compio::runtime::spawn(async move {
             compio::time::sleep(Duration::from_millis(ms)).await;
             timer_signal.notify_waiters();
-          })
-          .detach();
+          });
           futures_util::future::select(
             std::pin::pin!(notify.notified()),
             std::pin::pin!(timeout_signal.notified()),
           )
           .await;
+          drop(_timer_task);
         }
       } else {
         notify.notified().await;
