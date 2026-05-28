@@ -157,10 +157,28 @@ pub mod prometheus_backend {
   use prometheus::IntCounterVec;
   use prometheus::Opts;
   use prometheus::Registry;
+  use prometheus::core::Collector;
 
   use super::DEFAULT_LATENCY_BUCKETS_SEC;
   use super::MetricsBackend;
   use super::Signal;
+
+  /// Register `collector` into `registry`. AlreadyReg is logged + ignored
+  /// (idempotent install) so a double-install does not crash the server;
+  /// other errors panic since they indicate a real misconfiguration.
+  fn register_metric<C: Collector + Clone + 'static>(registry: &Registry, collector: &C, name: &str) {
+    match registry.register(Box::new(collector.clone())) {
+      Ok(()) => {}
+      Err(prometheus::Error::AlreadyReg) => {
+        tracing::warn!(
+          metric = name,
+          "PrometheusMetricsPlugin: metric already registered in this Registry — \
+           ignoring second install (use a single shared plugin instance instead)"
+        );
+      }
+      Err(e) => panic!("failed to register {name}: {e}"),
+    }
+  }
 
   /// Derives a low-cardinality `transport` label from a connection signal.
   ///
@@ -259,21 +277,33 @@ pub mod prometheus_backend {
       )
       .expect("failed to create connections_closed_total metric");
 
-      registry
-        .register(Box::new(http_requests_total.clone()))
-        .expect("failed to register http_requests_total");
-      registry
-        .register(Box::new(http_route_requests_total.clone()))
-        .expect("failed to register http_route_requests_total");
-      registry
-        .register(Box::new(http_request_duration.clone()))
-        .expect("failed to register http_request_duration");
-      registry
-        .register(Box::new(connections_opened_total.clone()))
-        .expect("failed to register connections_opened_total");
-      registry
-        .register(Box::new(connections_closed_total.clone()))
-        .expect("failed to register connections_closed_total");
+      // PPL-12: `Registry::register` returns `Err(AlreadyReg)` if the same
+      // metric name is already registered. The original code `.unwrap()`d
+      // these, so any user who installed PrometheusMetricsPlugin twice on
+      // the same Registry (e.g. router-level + route-level) crashed the
+      // process on second install. Treat AlreadyReg as a non-fatal warning
+      // — the metrics from the first install remain authoritative; the
+      // current plugin instance's metric handles are orphaned from the
+      // scrape but the server keeps running. Any other registration error
+      // remains a hard panic since it would indicate a tako bug (name
+      // collision with a non-`tako_*` registrant, malformed Opts, etc.).
+      register_metric(&registry, &http_requests_total, "http_requests_total");
+      register_metric(
+        &registry,
+        &http_route_requests_total,
+        "http_route_requests_total",
+      );
+      register_metric(&registry, &http_request_duration, "http_request_duration");
+      register_metric(
+        &registry,
+        &connections_opened_total,
+        "connections_opened_total",
+      );
+      register_metric(
+        &registry,
+        &connections_closed_total,
+        "connections_closed_total",
+      );
 
       Self {
         registry,
