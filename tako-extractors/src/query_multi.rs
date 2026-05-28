@@ -74,8 +74,12 @@ impl QueryMultiOptions {
         Some(idx) => (&pair[..idx], &pair[idx + 1..]),
         None => (pair, ""),
       };
+      // EXT-9: compare the *decoded* key — a client sending
+      // `?ta%67s=…` (percent-encoded `g`) would otherwise bypass the
+      // CSV-split rewrite because raw `ta%67s` does not equal `tags`.
+      let decoded_key = urlencoding::decode(key).unwrap_or(Cow::Borrowed(key));
       let decoded_value = urlencoding::decode(value).unwrap_or(Cow::Borrowed(value));
-      if self.csv_keys.contains(&key) && decoded_value.contains(',') {
+      if self.csv_keys.contains(&decoded_key.as_ref()) && decoded_value.contains(',') {
         for part in decoded_value.split(',') {
           if !first {
             out.push('&');
