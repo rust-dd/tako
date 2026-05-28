@@ -331,8 +331,14 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<tokio::net::TcpLi
         return Ok(listener);
       }
       Err(err) if err.kind() == ErrorKind::AddrInUse => {
-        let next_port = socket_addr.port().saturating_add(1);
         let curr_port = socket_addr.port();
+        // Cap at u16::MAX — `saturating_add(1)` on 65535 returns 65535, so
+        // a naive loop would re-bind the same port forever if the user keeps
+        // answering "Y". Surface the original AddrInUse error instead.
+        if curr_port == u16::MAX {
+          return Err(err);
+        }
+        let next_port = curr_port + 1;
         // Synchronous stdin read on a blocking pool — the previous call
         // ran the read inline and blocked the async runtime worker until
         // the user typed Enter.
@@ -372,8 +378,12 @@ pub async fn bind_with_port_fallback(addr: &str) -> io::Result<compio::net::TcpL
         return Ok(listener);
       }
       Err(err) if err.kind() == ErrorKind::AddrInUse => {
-        let next_port = socket_addr.port().saturating_add(1);
         let curr_port = socket_addr.port();
+        // See the tokio variant: avoid infinite loop on port 65535.
+        if curr_port == u16::MAX {
+          return Err(err);
+        }
+        let next_port = curr_port + 1;
         // compio variant: dedicate a blocking-pool task for the stdin read
         // so the io_uring/IOCP reactor isn't held by the prompt.
         let proceed =
