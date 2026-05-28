@@ -109,7 +109,12 @@ where
         }
         Poll::Ready(None) => {
           *this.done = true;
-          if let Err(e) = this.encoder.flush() {
+          // Must be `try_finish` (not `flush`): the gzip trailer (CRC32 +
+          // ISIZE) is only written by FINISH. A plain `flush` emits a sync
+          // DEFLATE block but never the trailer — the response would be
+          // rejected by every conforming gzip decoder. Mirrors
+          // `deflate_stream.rs` and `zstd_stream.rs` for end-of-stream.
+          if let Err(e) = this.encoder.try_finish() {
             return Poll::Ready(Some(Err(e.into())));
           }
         }
