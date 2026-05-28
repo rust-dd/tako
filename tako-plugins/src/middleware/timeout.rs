@@ -110,10 +110,18 @@ impl IntoMiddleware for Timeout {
     move |req: Request, next: Next| {
       let dynamic = dynamic.clone();
       Box::pin(async move {
-        let deadline = dynamic
-          .as_ref()
-          .and_then(|f| f(&req))
-          .or(Some(default_duration));
+        // PMW-05: Per the documented `dynamic()` contract, the closure may
+        // return `None` to disable timeout for a specific request. The old
+        // logic `.and_then(|f| f(&req)).or(Some(default_duration))` overrode
+        // that intent — `None` always collapsed back to the default, so the
+        // `None => fut.await` match arm was unreachable. Match on the
+        // *closure presence* instead: if a dynamic fn was supplied, trust
+        // its decision (including a None per-request opt-out); if no
+        // dynamic fn, use the default.
+        let deadline = match dynamic.as_ref() {
+          Some(f) => f(&req),
+          None => Some(default_duration),
+        };
 
         let fut = next.run(req);
         match deadline {
