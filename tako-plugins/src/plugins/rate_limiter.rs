@@ -393,15 +393,29 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
   }
 }
 
+/// Write the IETF draft-`RateLimit-Headers` set into the response.
+///
+/// PPL-16: previously this used `headers.insert(...)` which replaces any
+/// existing value. In composed middleware setups where multiple
+/// rate-limiters share the response, the outer (last-to-run) limiter
+/// silently clobbered the inner limiter's `ratelimit-*` headers. The most
+/// informative signal — typically the innermost limiter's
+/// `ratelimit-remaining: 0` rejection — could be lost on its way back to
+/// the client.
+///
+/// Switch to `entry(...).or_insert(...)` so the FIRST limiter to write the
+/// header wins. In middleware chains the inner (closest-to-handler) limiter
+/// runs its post-processing FIRST on the response path, so first-wins is
+/// inner-wins — which is the more restrictive observable signal.
 fn write_rate_limit_headers(headers: &mut http::HeaderMap, cfg: &Config, outcome: &Outcome) {
   if let Ok(v) = HeaderValue::from_str(&cfg.max_requests.to_string()) {
-    headers.insert("ratelimit-limit", v);
+    headers.entry("ratelimit-limit").or_insert(v);
   }
   if let Ok(v) = HeaderValue::from_str(&outcome.remaining.to_string()) {
-    headers.insert("ratelimit-remaining", v);
+    headers.entry("ratelimit-remaining").or_insert(v);
   }
   if let Ok(v) = HeaderValue::from_str(&outcome.reset_secs.to_string()) {
-    headers.insert("ratelimit-reset", v);
+    headers.entry("ratelimit-reset").or_insert(v);
   }
 }
 
