@@ -526,11 +526,34 @@ async fn prometheus_metrics_handler(State(registry): State<Arc<Registry>>) -> im
   let metric_families = registry.gather();
 
   let mut buf = Vec::new();
-  if encoder.encode(&metric_families, &mut buf).is_err() {
-    return "failed to encode metrics".to_string();
+  if let Err(e) = encoder.encode(&metric_families, &mut buf) {
+    // PPL-27: surface encode failures as a real 5xx so the scraper's
+    // alerting can fire, instead of returning a 200 body containing the
+    // word "failed". Prometheus scrapers treat 2xx as success regardless
+    // of body, so a 200/body-fail combination was effectively invisible.
+    tracing::error!("prometheus encode failed: {e}");
+    return (
+      http::StatusCode::INTERNAL_SERVER_ERROR,
+      format!("failed to encode metrics: {e}"),
+    )
+      .into_response();
   }
 
-  String::from_utf8(buf).unwrap_or_default()
+  // Prometheus text format is ASCII-only by construction; a non-UTF-8
+  // payload here means the encoder violated its contract. Surface that
+  // as 500 instead of silently serving an empty 200 (which scrapers
+  // would treat as 'all metrics absent', triggering false alerts).
+  match String::from_utf8(buf) {
+    Ok(s) => s.into_response(),
+    Err(e) => {
+      tracing::error!("prometheus encoder emitted non-UTF-8 bytes: {e}");
+      (
+        http::StatusCode::INTERNAL_SERVER_ERROR,
+        "prometheus encoder emitted non-UTF-8 bytes",
+      )
+        .into_response()
+    }
+  }
 }
 
 #[cfg(feature = "metrics-opentelemetry")]
