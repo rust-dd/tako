@@ -84,10 +84,15 @@ impl std::error::Error for BackendError {}
 /// In-process backend keeping job state in a single `Mutex<Vec<…>>`. Drop-in
 /// replacement for the bundled `Queue` storage; suitable for tests and
 /// single-node deployments. Replace with a remote backend for multi-pod use.
+///
+/// **Memory bound**: the pending queue is capped at [`MemoryBackend::max_pending`]
+/// (`None` = unlimited, default). Configure via [`MemoryBackend::with_max_pending`]
+/// to protect against unbounded growth when producers outpace consumers.
 #[derive(Default)]
 pub struct MemoryBackend {
   inner: Arc<Mutex<MemoryInner>>,
   next_id: std::sync::atomic::AtomicU64,
+  max_pending: Option<usize>,
 }
 
 #[derive(Default)]
@@ -123,6 +128,18 @@ impl MemoryBackend {
   pub fn new() -> Self {
     Self::default()
   }
+
+  /// Cap the pending vector at `max` jobs. Subsequent
+  /// [`MemoryBackend::push`] calls that would exceed the cap return
+  /// [`BackendError::Transport`] with the message `queue full`.
+  ///
+  /// Use this to bound memory growth when a misconfigured retry loop or
+  /// runaway producer would otherwise fill the heap.
+  #[must_use]
+  pub fn with_max_pending(mut self, max: usize) -> Self {
+    self.max_pending = Some(max);
+    self
+  }
 }
 
 #[async_trait]
@@ -134,6 +151,11 @@ impl QueueBackend for MemoryBackend {
     opts: PushOptions,
   ) -> Result<JobId, BackendError> {
     let mut inner = self.inner.lock();
+    if let Some(cap) = self.max_pending
+      && inner.pending.len() >= cap
+    {
+      return Err(BackendError::Transport("queue full".into()));
+    }
     if let Some(key) = opts.dedup_key.as_ref()
       && !inner.dedup.insert(key.clone())
     {
