@@ -5,6 +5,7 @@ use http_body_util::BodyExt;
 use serde::Serialize;
 use tako_core::body::TakoBody;
 use tako_core::extractors::FromRequest;
+use tako_core::extractors::is_json_content_type;
 use tako_core::extractors::json::JsonError;
 use tako_core::responder::Responder;
 use tako_core::types::Response;
@@ -21,6 +22,14 @@ where
     req: &'a mut tako_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
+      // EXT-6: match the owned `Json<T>` extractor and reject requests
+      // that don't declare a JSON content-type. Without this guard a
+      // client could submit `application/x-www-form-urlencoded` and we'd
+      // run a generic deserializer over arbitrary bytes, conflicting
+      // with sibling body extractors.
+      if !is_json_content_type(req.headers()) {
+        return Err(JsonError::InvalidContentType);
+      }
       // Collect the body once and cache it in request extensions so the parsed
       // value can borrow from it for the lifetime of the request. Keyed by the
       // `CachedRequestBody` newtype to avoid colliding with other middleware
