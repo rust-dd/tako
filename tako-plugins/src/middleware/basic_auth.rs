@@ -173,8 +173,14 @@ impl IntoMiddleware for BasicAuth {
     let users = self.users;
     let verify = self.verify;
     let realm = self.realm;
-    let www_authenticate =
-      HeaderValue::from_str(&format!("Basic realm=\"{realm}\"")).expect("valid realm header");
+    // `HeaderValue::from_str` rejects non-visible-ASCII bytes and
+    // embedded `"` characters; a developer who hands us a realm with
+    // such bytes would otherwise panic the middleware setup (cold but
+    // user-controlled value). Strip the realm if it cannot be encoded
+    // and fall back to a bare `Basic` challenge — RFC 7617 §2.1 makes
+    // the realm parameter optional.
+    let www_authenticate = HeaderValue::from_str(&format!("Basic realm=\"{realm}\""))
+      .unwrap_or_else(|_| HeaderValue::from_static("Basic"));
 
     move |req: Request, next: Next| {
       let users = users.clone();
