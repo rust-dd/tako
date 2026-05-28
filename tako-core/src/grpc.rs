@@ -282,8 +282,22 @@ impl<T: Message> Responder for GrpcResponse<T> {
 /// Encode a protobuf message with gRPC length-prefix framing.
 ///
 /// Format: `[compressed: u8][length: u32 BE][message bytes]`
+///
+/// # Panics
+///
+/// Panics if the encoded message exceeds `u32::MAX` (≈ 4 GiB). gRPC's wire
+/// format uses a 4-byte big-endian length prefix, so anything larger would
+/// silently wrap to a wrong length and produce undecodable frames. The assert
+/// turns that silent corruption into a loud server-side crash with a clear
+/// site. (Outbound messages this large already indicate a serious
+/// memory-pressure problem in the calling handler.)
 pub fn grpc_encode<T: Message>(msg: &T) -> Vec<u8> {
   let msg_bytes = msg.encode_to_vec();
+  assert!(
+    msg_bytes.len() <= u32::MAX as usize,
+    "grpc_encode: message of {} bytes exceeds u32::MAX (4 GiB) — gRPC length-prefix would wrap",
+    msg_bytes.len()
+  );
   let len = msg_bytes.len() as u32;
 
   let mut frame = Vec::with_capacity(5 + msg_bytes.len());
