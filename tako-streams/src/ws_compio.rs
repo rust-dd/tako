@@ -83,12 +83,28 @@ impl compio::io::AsyncRead for UpgradedStream {
 
     match result {
       Ok(filled_len) => {
-        // SAFETY: hyper's `Read::poll_read` is documented to initialise the
-        // first `filled_len` bytes of the cursor it received. That cursor
-        // was built from `buf.as_uninit()`, which exposes the buffer's own
-        // writable spare. So the first `filled_len` bytes of that spare are
-        // now initialised; `set_len(filled_len)` advances the buffer's
-        // logical length to cover them, matching `IoBufMut`'s contract.
+        // SAFETY: precise reasoning, taking compio's Slice semantics
+        // into account (the previous version just compared `filled_len`
+        // against `buf.buf_capacity()` without acknowledging that the
+        // buffer is a `Slice` re-base into a parent allocation):
+        //
+        // 1. `buf` is `IoBufMut`. `as_uninit()` returns
+        //    `&mut [MaybeUninit<u8>]` covering exactly the writable
+        //    spare of *this* slice — already rebased relative to the
+        //    parent allocation, so any `set_len` we perform here only
+        //    advances *this* slice's logical length, never the parent's.
+        // 2. hyper's `Read::poll_read` contract guarantees that the
+        //    first `read_buf.filled().len() == filled_len` bytes of the
+        //    cursor it received are initialised on Ok(()), and
+        //    `filled_len <= unfilled.len() <= self.as_uninit().len()
+        //                                  == buf.buf_capacity()`.
+        // 3. The cursor was constructed from `as_uninit()` directly, so
+        //    the initialised bytes live inside the same slice region
+        //    that `set_len` will publish.
+        //
+        // Therefore `set_len(filled_len)` is in-bounds for this slice
+        // and the bytes it covers are initialised — matching the
+        // `IoBufMut::set_buf_init`-equivalent contract.
         unsafe { buf.set_len(filled_len) };
         (Ok(filled_len), buf).into()
       }
