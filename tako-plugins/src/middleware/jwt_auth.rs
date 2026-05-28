@@ -212,12 +212,18 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
       let introspect = introspect.clone();
 
       Box::pin(async move {
+        // PMW-04: RFC 7235 §2.1 requires the auth scheme name to be
+        // matched case-insensitively. Sibling `bearer_auth.rs:205` already
+        // uses `eq_ignore_ascii_case`; here we previously used the
+        // case-sensitive `strip_prefix("Bearer ")` which silently 401'd
+        // any legitimate `bearer <jwt>` / `BEARER <jwt>` client.
         let token = match req
           .headers()
           .get(AUTHORIZATION)
           .and_then(|v| v.to_str().ok())
-          .and_then(|s| s.strip_prefix("Bearer "))
-          .map(str::trim)
+          .and_then(|s| s.split_once(' '))
+          .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("Bearer"))
+          .map(|(_, rest)| rest.trim())
         {
           Some(t) => t.to_string(),
           None => {
