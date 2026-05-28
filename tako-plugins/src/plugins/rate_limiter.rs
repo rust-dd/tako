@@ -185,6 +185,11 @@ impl RateLimiterBuilder {
   /// silently bypasses the limiter) and is also nonsensical for the token
   /// bucket (the bucket would never refill). Use a deliberately tiny rate
   /// like `1` with a long `refill_interval` if you want hard throttling.
+  ///
+  /// Also panics if `max_requests == 0`. With cap zero, the token bucket's
+  /// `available >= 1.0` check fails forever and GCRA's `burst_tolerance=0`
+  /// produces the same result — every request is denied silently with no
+  /// startup signal that the limiter is essentially a hard-deny gate.
   pub fn build(self) -> RateLimiterPlugin {
     assert!(
       self.cfg.refill_rate > 0,
@@ -193,6 +198,13 @@ impl RateLimiterBuilder {
     assert!(
       self.cfg.refill_interval_ms > 0,
       "RateLimiter::refill_interval_ms must be > 0 (zero interval is divide-by-zero)"
+    );
+    // PPL-07: catch the "all-denied" misconfiguration at build time instead
+    // of silently 429-ing every request at runtime. Symmetry with the two
+    // asserts above.
+    assert!(
+      self.cfg.max_requests > 0,
+      "RateLimiter::max_requests must be > 0 (zero cap silently denies every request)"
     );
     RateLimiterPlugin {
       cfg: self.cfg,
