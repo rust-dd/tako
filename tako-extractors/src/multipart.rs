@@ -77,10 +77,16 @@ pub struct MultipartConfig {
   /// When uploading via `UploadedFile`, switch from in-memory buffering to a
   /// temp file once the part exceeds this many bytes. `None` = always disk.
   pub disk_spill_threshold: Option<u64>,
-  /// Maximum time to wait for a single chunk from a multipart field before
-  /// aborting the request. Protects against slow-read style `DoS` where the
-  /// client drips a few bytes per second to hold a parser permit open.
-  /// `None` = no per-chunk timeout. Applied by [`TakoTypedMultipart`].
+  /// Maximum time to read a whole multipart field before aborting the
+  /// request. Despite the historical "chunk" naming, the timeout currently
+  /// wraps the *whole-field* read future ([`TakoTypedMultipart`]'s
+  /// `field.bytes().await`) — it bounds total per-field wall-clock, not
+  /// inter-chunk gaps. A slow-drip client whose total payload arrives
+  /// within this window still passes; tune for the slowest realistic
+  /// full-field upload, not per-chunk latency.
+  ///
+  /// `None` disables the timeout entirely. Per-chunk semantics (re-arming
+  /// on each frame) are tracked for a 2.x revision.
   pub field_chunk_timeout: Option<std::time::Duration>,
 }
 
