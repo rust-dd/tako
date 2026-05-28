@@ -504,10 +504,25 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
   // Execute handler
   let mut resp = next.run(new_req).await;
 
-  // Collect response body
+  // Collect response body.
+  //
+  // PPL-09: a `collect().await` error means the downstream handler's body
+  // stream errored mid-flight (broken upstream connection, encoding fault,
+  // etc.). Previously we silently substituted `Bytes::new()` and persisted
+  // a Completed entry with an empty body — sticky cache-poisoning that
+  // returned silent empty 2xx (or whatever status the handler set before
+  // the error) to every replay for `ttl_secs`. Instead: do NOT cache,
+  // drop the inflight entry via `InflightGuard::Drop` (no `disarm` call),
+  // and return 502 so the current caller sees a real failure. Coalesced
+  // waiters are woken by the guard's drop and observe the absent entry
+  // → `conflict_inflight()` to them, which the client retries.
   let collected = match resp.body_mut().collect().await {
     Ok(c) => c.to_bytes(),
-    Err(_) => Bytes::new(),
+    Err(_) => {
+      // `inflight_guard` is still armed → its Drop removes the entry and
+      // calls notify_waiters; no need to do it manually.
+      return bad_gateway();
+    }
   };
   let body_bytes = if collected.len() > cfg.max_cached_body_bytes {
     Bytes::new()
@@ -548,6 +563,16 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
 fn conflict() -> Response {
   http::Response::builder()
     .status(StatusCode::CONFLICT)
+    .body(TakoBody::empty())
+    .unwrap()
+}
+
+/// Emitted when the downstream handler's response body fails to collect
+/// (transient I/O error mid-stream). Returning 502 is preferable to silently
+/// caching an empty body and serving it on every replay — see PPL-09.
+fn bad_gateway() -> Response {
+  http::Response::builder()
+    .status(StatusCode::BAD_GATEWAY)
     .body(TakoBody::empty())
     .unwrap()
 }
