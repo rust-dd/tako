@@ -41,6 +41,15 @@ pub trait PersistedQueryStore: Send + Sync + 'static {
 /// eviction (the underlying `scc::HashMap` does not expose ordering hooks).
 /// Callers that need finer-grained eviction should wrap their own store
 /// implementing [`PersistedQueryStore`].
+///
+/// **Soft cap, not hard:** the `len() >= cap → clear() → insert()` sequence
+/// in [`PersistedQueryStore::put`] is not atomic. Concurrent puts each
+/// observe `len < cap`, all proceed past the check, and each insert lands —
+/// the effective ceiling is `cap + concurrent_put_count`. The race is
+/// memory-safe (scc takes care of the per-entry locking) and only ever
+/// over-shoots by the number of in-flight `put`s, which is bounded by your
+/// request concurrency. If you need a hard cap, layer in your own
+/// `PersistedQueryStore` impl with `Mutex<HashMap>` semantics.
 #[derive(Clone)]
 pub struct MemoryPersistedQueryStore {
   inner: Arc<SccHashMap<String, String>>,
