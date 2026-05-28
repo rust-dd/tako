@@ -42,6 +42,7 @@ impl From<SocketAddr> for PeerAddr {
 /// Transport that produced the request. Lets handlers branch on plain HTTP/1
 /// vs. TLS / HTTP/2 / HTTP/3 / Unix without keeping a parallel registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Transport {
   /// Plain HTTP/1.1 over TCP.
   Http1,

@@ -85,6 +85,7 @@ impl Range {
 
 /// Error type for Range header extraction and parsing.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum RangeError {
   /// Range header is not present in the request.
   Missing,

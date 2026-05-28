@@ -41,6 +41,7 @@ pub struct TypedParams<T>(pub T);
 
 /// Errors produced by [`TypedParams`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TypedParamsError {
   /// The router never inserted `PathParams` (no dynamic segments matched).
   Missing,
