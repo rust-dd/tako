@@ -268,6 +268,12 @@ impl IntoMiddleware for Csrf {
           } else {
             req_session_token(&resp)
           };
+          // PMW-12(a): the `__csrf_seed` cookie is an internal handler
+          // hook; strip it before the response leaves the server so the
+          // marker name never reaches the client.
+          if seed.is_some() {
+            strip_csrf_seed_cookie(&mut resp);
+          }
           ensure_csrf_cookie(
             &mut resp,
             &cookie_name,
@@ -397,8 +403,21 @@ impl IntoMiddleware for Csrf {
   }
 }
 
-/// When the response originated from a handler that already set a fresh CSRF
-/// cookie via `Set-Cookie`, return it so we don't override.
+/// Handler-cooperation hook: a handler that wants to seed the next response's
+/// CSRF cookie from its own logic can do so by emitting a one-shot
+/// `Set-Cookie: __csrf_seed=<token>` header. The middleware extracts the
+/// value here, uses it as the next cookie's payload, and **strips the
+/// `__csrf_seed` Set-Cookie line before the response leaves the server** so
+/// the marker never reaches the client.
+///
+/// Typical use case: login handler mints a new session+CSRF pair atomically;
+/// it sets the session via the session middleware AND emits `__csrf_seed`
+/// so the outgoing CSRF cookie carries the same token that's now bound to
+/// the new session, instead of letting the CSRF middleware mint a random
+/// one and break the binding.
+///
+/// Returns `Some(token)` if the marker was found (and signals to the caller
+/// that it must be stripped via [`strip_csrf_seed_cookie`]).
 fn req_session_token(resp: &Response) -> Option<String> {
   resp
     .headers()
@@ -416,6 +435,28 @@ fn req_session_token(resp: &Response) -> Option<String> {
     })
 }
 
+/// Remove the internal `__csrf_seed` Set-Cookie marker from the outgoing
+/// response. Called after [`req_session_token`] consumed the value so the
+/// hook stays server-internal and isn't echoed to the browser.
+fn strip_csrf_seed_cookie(resp: &mut Response) {
+  let headers = resp.headers_mut();
+  let kept: Vec<http::HeaderValue> = headers
+    .get_all(http::header::SET_COOKIE)
+    .iter()
+    .filter(|v| {
+      let s = v.to_str().unwrap_or("");
+      let first = s.split(';').next().unwrap_or("");
+      let name = first.split_once('=').map_or(first.trim(), |(n, _)| n.trim());
+      name != "__csrf_seed"
+    })
+    .cloned()
+    .collect();
+  headers.remove(http::header::SET_COOKIE);
+  for v in kept {
+    headers.append(http::header::SET_COOKIE, v);
+  }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn ensure_csrf_cookie(
   resp: &mut Response,
@@ -427,11 +468,21 @@ fn ensure_csrf_cookie(
   preferred_token: Option<&String>,
   session: Option<&Session>,
 ) {
+  // PMW-12(b): the previous `starts_with(cookie_name)` matched any
+  // Set-Cookie whose name *began with* `cookie_name`. With cookie_name="csrf"
+  // a sibling cookie like `csrf_backup=…` would suppress the CSRF cookie
+  // emission entirely. Parse the cookie name out of each Set-Cookie line
+  // and compare for exact equality.
   let already_set = resp
     .headers()
     .get_all(http::header::SET_COOKIE)
     .iter()
-    .any(|v| v.to_str().unwrap_or("").starts_with(cookie_name));
+    .filter_map(|v| v.to_str().ok())
+    .any(|s| {
+      let first = s.split(';').next().unwrap_or("");
+      let name = first.split_once('=').map_or(first.trim(), |(n, _)| n.trim());
+      name == cookie_name
+    });
   if already_set {
     return;
   }
