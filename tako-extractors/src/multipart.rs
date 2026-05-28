@@ -175,7 +175,21 @@ impl MultipartConfig {
       return true;
     }
     let ct = ct.unwrap_or("");
-    allow.iter().any(|a| ct.starts_with(a.as_str()))
+    // EXT-7: bare `starts_with` would admit `image/pngx` against an
+    // allowlist of `image/png` (false-positive on prefix). Accept only
+    // when the content-type *equals* the allow entry, or when the entry
+    // is followed by an RFC 7231 §3.1.1.1 parameter delimiter (`;`) or
+    // whitespace — those are the only legal continuations.
+    allow.iter().any(|a| {
+      let a = a.as_str();
+      ct == a
+        || ct.strip_prefix(a).is_some_and(|rest| {
+          rest
+            .chars()
+            .next()
+            .is_some_and(|c| c == ';' || c == ' ' || c == '\t')
+        })
+    })
   }
 }
 
