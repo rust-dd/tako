@@ -143,6 +143,17 @@ where
   }
 
   /// Creates a file stream from a file system path with automatic metadata detection (compio variant).
+  ///
+  /// ⚠️ **Memory-DoS warning:** the compio backend loads the entire file
+  /// into a single `Bytes` allocation up front (`compio::fs::read`),
+  /// unlike the tokio variant which streams chunks via `ReaderStream`.
+  /// Do **not** expose this to untrusted requesters with arbitrary
+  /// file paths; a multi-GB file (or many concurrent multi-GB requests)
+  /// will allocate the full payload in RAM and can exhaust the process.
+  /// For untrusted requests on the compio runtime, gate by
+  /// max-file-size at the route level or write a custom positional-read
+  /// streamer using `compio::fs::File::read_at` until tako-streams ships
+  /// a streaming compio variant (tracked for 2.x).
   #[cfg(feature = "compio")]
   pub async fn from_path<P>(
     path: P,
@@ -262,6 +273,13 @@ where
   }
 
   /// Try to create a range response for a file stream (compio variant).
+  ///
+  /// ⚠️ Same memory-DoS caveat as [`FileStream::from_path`] (compio): the
+  /// whole file is read into a single buffer before the requested range
+  /// is sliced out, instead of doing a positional `read_at(start, len)`.
+  /// Do not expose to untrusted requesters on arbitrary file paths;
+  /// gate by file-size at the route level or switch to the tokio
+  /// backend for streaming.
   #[cfg(feature = "compio")]
   pub async fn try_range_response<P>(path: P, start: u64, mut end: u64) -> Result<Response>
   where

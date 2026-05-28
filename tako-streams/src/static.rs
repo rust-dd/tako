@@ -291,6 +291,14 @@ impl ServeDir {
     // compio uses positional read with owned buffers; the high-level
     // `fs::read` already wraps open + read + metadata. The canonical-prefix
     // check is performed by the caller before we get here.
+    //
+    // STR-8: this loads the whole file into RAM, unlike the tokio path
+    // that streams via ReaderStream. Operators serving large static
+    // assets under compio must cap file sizes at the route level (or
+    // switch to the tokio backend) — a multi-GB asset will land as a
+    // single `Vec<u8>` per request. Replacing with a chunked
+    // `compio::fs::File::read_at` loop is a 2.x deferral; the type
+    // surface change ripples through `StaticDir`'s body shape.
     let meta = fs::metadata(path).await.ok()?;
     if !meta.is_file() {
       return None;
