@@ -43,6 +43,7 @@ pub struct QueryBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
 /// Error type for `QueryBorrowed`.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum QueryBorrowedError {
   /// `serde_urlencoded` failed to deserialize the query slice.
   DeserializationError(String),

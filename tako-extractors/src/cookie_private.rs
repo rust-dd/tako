@@ -73,6 +73,7 @@ pub struct CookiePrivate {
 
 /// Error type for private cookie extraction.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum CookiePrivateError {
   /// Private cookie master key not found in request extensions.
   MissingKey,

@@ -88,6 +88,7 @@ where
 
 /// Rejection variants for [`Validated`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ValidatedError<E> {
   /// Inner extractor failed.
   Inner(E),

@@ -102,6 +102,7 @@ impl QueryMultiOptions {
 
 /// Error returned by [`QueryMulti`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum QueryMultiError {
   /// Underlying `serde_html_form` deserialization failure.
   DeserializationError(String),

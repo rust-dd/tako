@@ -56,6 +56,7 @@ pub struct Basic {
 
 /// Error types for Basic authentication extraction and validation.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum BasicAuthError {
   /// Authorization header is missing from the request.
   MissingAuthHeader,

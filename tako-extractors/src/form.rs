@@ -62,6 +62,7 @@ pub struct Form<T>(pub T);
 /// form data from HTTP request bodies. This error type implements
 /// `std::error::Error` for integration with error handling libraries.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FormError {
   /// Request content type is not `application/x-www-form-urlencoded`.
   InvalidContentType,

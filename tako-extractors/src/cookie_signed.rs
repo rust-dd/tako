@@ -131,6 +131,7 @@ pub struct CookieSigned {
 
 /// Error type for signed cookie extraction.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum CookieSignedError {
   /// Signed cookie master key not found in request extensions.
   MissingKey,
