@@ -242,7 +242,15 @@ impl Route {
   /// `505 HTTP Version Not Supported`. Set once at registration; later calls
   /// are no-ops (lock-free reads in the hot path).
   pub fn version(&self, version: http::Version) -> &Self {
-    let _ = self.http_protocol.set(version);
+    if let Err(_existing) = self.http_protocol.set(version) {
+      tracing::warn!(
+        path = %self.path,
+        method = ?self.method,
+        existing = ?self.http_protocol.get().copied(),
+        requested = ?version,
+        "Route::version called twice; subsequent calls are ignored (OnceLock first-wins)",
+      );
+    }
     self
   }
 
@@ -537,7 +545,15 @@ impl Route {
   ///     .simd_json(SimdJsonMode::Never);
   /// ```
   pub fn simd_json(&self, mode: SimdJsonMode) -> &Self {
-    let _ = self.simd_json_mode.set(mode);
+    if let Err(_existing) = self.simd_json_mode.set(mode) {
+      tracing::warn!(
+        path = %self.path,
+        method = ?self.method,
+        existing = ?self.simd_json_mode.get().copied(),
+        requested = ?mode,
+        "Route::simd_json called twice; subsequent calls are ignored (OnceLock first-wins)",
+      );
+    }
     self
   }
 
