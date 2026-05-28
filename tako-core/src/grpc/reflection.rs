@@ -37,13 +37,23 @@ impl ReflectionRegistry {
   }
 
   /// Register a file descriptor under its source filename.
+  ///
+  /// Re-registering the same filename replaces the prior descriptor (e.g. a
+  /// binary-rebuild that rewrites a `.pb` blob in place).
   pub fn add_file(&self, filename: impl Into<String>, descriptor: Vec<u8>) {
-    let _ = self.files.insert_sync(filename.into(), descriptor);
+    // `upsert_sync` so re-registration of an already-known filename
+    // actually swaps the descriptor — `insert_sync` would silently keep
+    // the stale blob.
+    self.files.upsert_sync(filename.into(), descriptor);
   }
 
   /// Map a fully-qualified symbol (`pkg.Service.Method`) to the file that defines it.
+  ///
+  /// Re-mapping an existing symbol replaces the prior filename (e.g. after a
+  /// method moves between files).
   pub fn map_symbol(&self, symbol: impl Into<String>, filename: impl Into<String>) {
-    let _ = self.symbols.insert_sync(symbol.into(), filename.into());
+    // See `add_file`: `upsert_sync` so re-mappings take effect.
+    self.symbols.upsert_sync(symbol.into(), filename.into());
   }
 
   /// Snapshot of registered service names.
