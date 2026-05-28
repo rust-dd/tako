@@ -487,7 +487,10 @@ impl SignalArbiter {
       })
     });
 
-    std::mem::drop(self.inner.rpc.insert_sync(id_str, handler));
+    // `upsert_sync`: re-registering the same id replaces the prior handler.
+    // `insert_sync` would keep the old one and silently drop the new closure
+    // — a re-`register_rpc` after hot-reload or test reset would be a no-op.
+    self.inner.rpc.upsert_sync(id_str, handler);
   }
 
   /// Calls a typed RPC handler and returns a shared pointer to the response.
@@ -623,7 +626,9 @@ impl SignalArbiter {
   {
     let key = EXPORTER_KEY_COUNTER.fetch_add(1, Ordering::Relaxed);
     let exporter: SignalExporter = Arc::new(exporter);
-    std::mem::drop(self.inner.exporters.insert_sync(key, exporter));
+    // `upsert_sync` mirrors `register_rpc`: makes re-registration on the
+    // same (very-rare) duplicate key a replace instead of a silent drop.
+    self.inner.exporters.upsert_sync(key, exporter);
   }
 
   /// Merges all handlers from `other` into `self`.
@@ -652,13 +657,16 @@ impl SignalArbiter {
       true
     });
 
+    // On merge, the merged-in arbiter wins for conflicting ids/keys.
+    // `insert_sync` would silently keep `self`'s entry, dropping the
+    // intentional value the caller wanted to pull in.
     other.inner.rpc.iter_sync(|k, v| {
-      let _ = self.inner.rpc.insert_sync(k.clone(), v.clone());
+      self.inner.rpc.upsert_sync(k.clone(), v.clone());
       true
     });
 
     other.inner.exporters.iter_sync(|k, v| {
-      let _ = self.inner.exporters.insert_sync(*k, v.clone());
+      self.inner.exporters.upsert_sync(*k, v.clone());
       true
     });
   }
