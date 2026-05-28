@@ -514,10 +514,16 @@ impl Queue {
       let _guard = self.inner.pending.lock();
       self.inner.shutdown.store(true, Ordering::SeqCst);
     }
-    // Wake all workers so they see the shutdown flag
-    for _ in 0..self.inner.num_workers {
-      self.inner.notify.notify_one();
-    }
+    // Wake all workers so they see the shutdown flag.
+    //
+    // `Notify::notify_one` only stores ONE pending permit — sequential calls
+    // collapse onto non-parked workers, so this loop only reliably wakes the
+    // workers that happened to be parked at the moment of the first call.
+    // Any worker mid-job (most of them, in practice) wouldn't observe the
+    // wake; they only learned about shutdown via the 100ms park timeout.
+    // `notify_waiters` permits *all* currently-parked waiters at once, which
+    // is the desired shutdown semantics.
+    self.inner.notify.notify_waiters();
 
     if self.inner.inflight.load(Ordering::SeqCst) > 0 {
       #[cfg(not(feature = "compio"))]
