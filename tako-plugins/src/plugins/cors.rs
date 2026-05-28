@@ -457,11 +457,25 @@ fn add_cors_headers(
   // Invariant guarded by `Config::validate`: when `allow_credentials = true`,
   // at least one origin or matcher is configured — so `*` is never emitted
   // alongside credentials.
+  //
+  // PPL-14:
+  //  (a) `o.to_str().unwrap_or_default()` previously silenced invalid-byte
+  //      Origin headers to empty-string, which then `origin_allowed("")`
+  //      false'd, which silently emitted no header — attacker-malformed
+  //      Origin hid the rejection from logs/metrics. Detect and bail
+  //      cleanly instead.
+  //  (b) `HeaderValue::from_str(&allow_origin).expect(...)` panicked if a
+  //      mirrored origin contained CRLF/NUL (Origin reflection injection
+  //      surface). Map the error to a silent bail so a malformed origin
+  //      cannot crash the request task.
   let allow_anything = cfg.origins.is_empty() && cfg.origin_matchers.is_empty();
   let (allow_origin, mirrored_origin) = if allow_anything {
     ("*".to_string(), false)
   } else if let Some(o) = &origin {
-    let s = o.to_str().unwrap_or_default();
+    let Ok(s) = o.to_str() else {
+      // Non-ASCII / control-byte Origin — bail cleanly.
+      return;
+    };
     if cfg.origin_allowed(s) {
       (s.to_string(), true)
     } else {
@@ -471,10 +485,15 @@ fn add_cors_headers(
     return;
   };
 
-  resp.headers_mut().insert(
-    ACCESS_CONTROL_ALLOW_ORIGIN,
-    HeaderValue::from_str(&allow_origin).expect("valid origin header value"),
-  );
+  // Use the fallible API and bail on construction failure. The reflected
+  // origin string is largely caller-controlled; even after the allow-list
+  // check it may contain unexpected bytes if a custom matcher passes them.
+  let Ok(value) = HeaderValue::from_str(&allow_origin) else {
+    return;
+  };
+  resp
+    .headers_mut()
+    .insert(ACCESS_CONTROL_ALLOW_ORIGIN, value);
 
   // When the response varies on the request Origin (i.e. we mirrored it back),
   // shared caches must key on Origin to avoid cross-origin response leakage.
