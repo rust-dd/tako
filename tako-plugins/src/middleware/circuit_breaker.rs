@@ -40,6 +40,23 @@ const STATE_CLOSED: u8 = 0;
 const STATE_OPEN: u8 = 1;
 const STATE_HALF_OPEN: u8 = 2;
 
+/// RAII releaser for the half-open `probe_in_flight` slot.
+///
+/// The slot must be returned to `0` on **every** exit path, including
+/// panic unwind and future-cancellation (e.g. when this breaker is wrapped
+/// by `Timeout` and the deadline drops the inner future before it
+/// resolves). The previous implementation released the slot with a plain
+/// `store(0)` after `next.run(req).await`, so a cancel mid-await left the
+/// slot stuck at `1` forever — the breaker permanently saw an in-flight
+/// probe and rejected every subsequent request on that key with 503.
+struct ProbeSlotGuard<'a>(&'a AtomicU8);
+
+impl Drop for ProbeSlotGuard<'_> {
+  fn drop(&mut self) {
+    self.0.store(0, Ordering::Release);
+  }
+}
+
 #[derive(Default)]
 struct State {
   state: AtomicU8,
@@ -249,24 +266,27 @@ impl IntoMiddleware for CircuitBreaker {
           }
         }
 
-        // Half-open: allow exactly one probe at a time.
+        // Half-open: allow exactly one probe at a time. The slot is held
+        // by `ProbeSlotGuard`, whose `Drop` impl releases it on every exit
+        // — normal return, panic, or future cancellation by a wrapping
+        // Timeout. The previous `store(0)` after the await leaked the
+        // slot on cancel and stranded the breaker in half-open forever.
         let cur = state.state.load(Ordering::Acquire);
-        if cur == STATE_HALF_OPEN
-          && state
+        let _probe_guard = if cur == STATE_HALF_OPEN {
+          if state
             .probe_in_flight
             .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
-        {
-          return build_open_response(open_status, retry_after_secs);
-        }
+          {
+            return build_open_response(open_status, retry_after_secs);
+          }
+          Some(ProbeSlotGuard(&state.probe_in_flight))
+        } else {
+          None
+        };
 
         let resp = next.run(req).await;
         let failed = (classifier)(&resp);
-
-        // Always release the half-open probe slot.
-        if cur == STATE_HALF_OPEN {
-          state.probe_in_flight.store(0, Ordering::Release);
-        }
 
         // Tumbling window: zero the counters when the current window has
         // elapsed so a long-running closed breaker compares the failure
