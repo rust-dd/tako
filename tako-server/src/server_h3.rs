@@ -268,11 +268,22 @@ async fn run_with_rustls_config(
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
   }
 
+  // Defensively disable 0-RTT before handing the config to QuicServerConfig:
+  // the PEM-loaded `run` path above already clears `max_early_data_size`, but
+  // every caller-supplied (`TlsCert::Der`, `Resolver`, mTLS) config reaches
+  // this function unmodified, and rustls' default permits 0-RTT — which Tako
+  // has no replay-protection wiring for. Without this clear an attacker could
+  // replay captured early-data application bytes to any idempotent endpoint.
+  // Clone-on-mutate: `tls_config: Arc<...>` is immutable, but we always need
+  // a fresh copy for `QuicServerConfig::try_from` below anyway.
+  let mut tls_config_inner = (*tls_config).clone();
+  tls_config_inner.max_early_data_size = 0;
+
   // QuicServerConfig wraps a rustls::ServerConfig; it requires the underlying
   // config to set ALPN to h3. Calling `try_from` errors otherwise, so we trust
   // the caller (or the build_rustls_server_config helper) to pre-set ALPN.
   let mut server_config =
-    quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from((*tls_config).clone())?));
+    quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config_inner)?));
   server_config.transport_config(Arc::new(transport_config_from(&config)));
 
   let socket_addr: SocketAddr = addr.parse()?;
