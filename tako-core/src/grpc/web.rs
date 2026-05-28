@@ -51,18 +51,39 @@ pub fn decode_request_body(content_type: &str, body: &[u8]) -> Result<Bytes, Str
 /// Encode a trailer header map as the gRPC-Web `0x80`-flagged trailer frame.
 ///
 /// Format: `[flag: u8][len: u32 BE][headers...]`, where `headers` is
-/// `key: value\r\n`-encoded ASCII.
+/// `key: value\r\n`-encoded.
+///
+/// Per gRPC PROTOCOL-HTTP2 metadata mapping: ASCII-Value keys carry
+/// ASCII directly; `-bin`-suffixed keys carry binary values that are
+/// base64-encoded on the wire. Previously this function silently
+/// dropped any header whose value failed `to_str()` (i.e. all `*-bin`
+/// metadata), so binary trailers vanished across the gRPC-Web bridge.
 pub fn encode_trailer_frame(trailers: &HeaderMap) -> Bytes {
   let mut payload = String::new();
   for (k, v) in trailers {
-    if let Ok(s) = v.to_str() {
-      payload.push_str(k.as_str());
+    let key_str = k.as_str();
+    if key_str.ends_with("-bin") {
+      // Binary trailer: base64-encode raw bytes per gRPC spec.
+      payload.push_str(key_str);
+      payload.push_str(": ");
+      payload.push_str(&STANDARD.encode(v.as_bytes()));
+      payload.push_str("\r\n");
+    } else if let Ok(s) = v.to_str() {
+      // ASCII trailer: pass through.
+      payload.push_str(key_str);
       payload.push_str(": ");
       payload.push_str(s);
       payload.push_str("\r\n");
     }
+    // else: non-`-bin` key with non-ASCII value is a malformed gRPC trailer
+    // (caller bug). Drop silently — same behavior as before, plus a more
+    // narrow surface.
   }
   let payload = payload.into_bytes();
+  assert!(
+    payload.len() <= u32::MAX as usize,
+    "gRPC-Web trailer frame exceeds u32::MAX bytes — length-prefix would wrap"
+  );
   let mut frame = BytesMut::with_capacity(5 + payload.len());
   frame.extend_from_slice(&[0x80]);
   frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
