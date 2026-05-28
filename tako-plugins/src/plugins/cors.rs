@@ -61,6 +61,7 @@ use http::header::ACCESS_CONTROL_ALLOW_METHODS;
 use http::header::ACCESS_CONTROL_ALLOW_ORIGIN;
 use http::header::ACCESS_CONTROL_MAX_AGE;
 use http::header::ACCESS_CONTROL_REQUEST_HEADERS;
+use http::header::ACCESS_CONTROL_REQUEST_METHOD;
 use http::header::ORIGIN;
 use http::header::VARY;
 use tako_core::body::TakoBody;
@@ -415,7 +416,15 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
     .and_then(|v| v.to_str().ok())
     .is_some_and(|v| v.eq_ignore_ascii_case("true"));
 
-  if req.method() == Method::OPTIONS {
+  // PPL-13: only short-circuit OPTIONS when it is an *actual* CORS preflight
+  // (per Fetch spec: `Origin` + `Access-Control-Request-Method` headers).
+  // The previous unconditional 204 intercepted legitimate non-CORS OPTIONS
+  // handlers — capability discovery, `OPTIONS *` server-wide queries — and
+  // returned an empty 204 with no `Allow` header in place of the handler's
+  // response.
+  let is_preflight =
+    req.method() == Method::OPTIONS && origin.is_some() && req.headers().contains_key(ACCESS_CONTROL_REQUEST_METHOD);
+  if is_preflight {
     let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
       .body(TakoBody::empty())
