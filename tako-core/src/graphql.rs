@@ -136,11 +136,23 @@ impl GraphQLBatchRequest {
   }
 }
 
+/// Cap on the raw POST body GraphQL extractors will buffer.
+///
+/// Async-graphql parses the entire request body into memory before it can
+/// validate the query, so without an upstream limit a single unauthenticated
+/// POST could buffer many GB and OOM the process. `4 MiB` matches the default
+/// body limits of comparable frameworks (Apollo, Hasura, federation gateways)
+/// and is large enough for any realistic GraphQL document plus variables.
+pub const MAX_GRAPHQL_BODY_SIZE: usize = 4 * 1024 * 1024;
+
 /// Errors that can occur while parsing `GraphQL` HTTP requests.
 #[derive(Debug)]
 pub enum GraphQLError {
   MissingQuery,
   BodyRead(String),
+  /// Request body exceeds [`MAX_GRAPHQL_BODY_SIZE`] — either by
+  /// advertised `Content-Length` or by actual streamed bytes.
+  BodyTooLarge,
   InvalidJson(String),
   Parse(String),
   UnsupportedMediaType(String),
@@ -161,6 +173,11 @@ impl Responder for GraphQLError {
       GraphQLError::BodyRead(e) => {
         (StatusCode::BAD_REQUEST, format!("Failed to read body: {e}")).into_response()
       }
+      GraphQLError::BodyTooLarge => (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        format!("GraphQL body exceeds {MAX_GRAPHQL_BODY_SIZE} bytes"),
+      )
+        .into_response(),
       GraphQLError::InvalidJson(e) => {
         (StatusCode::BAD_REQUEST, format!("Invalid JSON: {e}")).into_response()
       }
@@ -285,12 +302,34 @@ fn parse_get_request(req: &Request) -> Result<async_graphql::Request, GraphQLErr
 }
 
 async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError> {
-  req
-    .body_mut()
-    .collect()
-    .await
-    .map_err(|e| GraphQLError::BodyRead(e.to_string()))
-    .map(http_body_util::Collected::to_bytes)
+  // Pre-check the advertised length: if the client says >MAX up front,
+  // refuse without touching the body at all. Defends against allocation
+  // pressure from header-only flooders.
+  if let Some(cl) = req.headers().get(http::header::CONTENT_LENGTH)
+    && let Some(n) = cl.to_str().ok().and_then(|s| s.parse::<usize>().ok())
+    && n > MAX_GRAPHQL_BODY_SIZE
+  {
+    return Err(GraphQLError::BodyTooLarge);
+  }
+
+  // Then wrap the body in `Limited` so a missing or lying Content-Length
+  // (chunked transfer, HTTP/2 without length) still cannot drag us past
+  // the cap. Same pattern as the idempotency / hmac / json-schema paths.
+  let body = std::mem::take(req.body_mut());
+  let limited = http_body_util::Limited::new(body, MAX_GRAPHQL_BODY_SIZE);
+  match limited.collect().await {
+    Ok(c) => Ok(c.to_bytes()),
+    Err(e) => {
+      // `Limited` surfaces `LengthLimitError` on cap overrun; otherwise
+      // it's a transport / body error. Use the type-name to disambiguate
+      // without depending on the private error path.
+      if e.downcast_ref::<http_body_util::LengthLimitError>().is_some() {
+        Err(GraphQLError::BodyTooLarge)
+      } else {
+        Err(GraphQLError::BodyRead(e.to_string()))
+      }
+    }
+  }
 }
 
 impl<'a> FromRequest<'a> for GraphQLRequest {
