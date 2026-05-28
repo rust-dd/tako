@@ -67,6 +67,11 @@ pub struct KeyExpansionConfig {
   /// Application-specific info/salt for key derivation.
   pub app_info: Vec<u8>,
   /// Key length for derived keys in bytes.
+  ///
+  /// **Must be exactly `64`.** This is the size `cookie::Key::try_from`
+  /// requires; any other value will fail at derivation time. The field is
+  /// retained as a `usize` (rather than a strict const) for future-proofing
+  /// against `cookie` API changes.
   pub key_length: usize,
 }
 
@@ -81,6 +86,10 @@ impl KeyExpansionConfig {
   }
 
   /// Sets the key length for derived keys.
+  ///
+  /// The only valid value is `64`; passing anything else makes every
+  /// subsequent `derive_*` call return [`CookieKeyExpansionError::InvalidKeyLength`].
+  /// See [`KeyExpansionConfig::key_length`] for the rationale.
   pub fn with_key_length(mut self, length: usize) -> Self {
     self.key_length = length;
     self
@@ -101,7 +110,8 @@ pub enum CookieKeyExpansionError {
   InvalidMasterKey,
   /// Key derivation failed with the specified error message.
   DerivationFailed(String),
-  /// The specified key length is invalid (must be 16-64 bytes).
+  /// The specified key length is invalid (must be exactly 64 bytes —
+  /// the size `cookie::Key` requires).
   InvalidKeyLength,
   /// The key derivation algorithm is not supported.
   UnsupportedAlgorithm,
@@ -161,7 +171,12 @@ impl CookieKeyExpansion {
     context: KeyContext,
     additional_info: &[u8],
   ) -> Result<Key, CookieKeyExpansionError> {
-    if self.config.key_length < 16 || self.config.key_length > 64 {
+    // `cookie::Key::try_from` requires exactly 64 bytes — any other length
+    // would pass HKDF but then fail at `Key::try_from` below, producing a
+    // confusing `DerivationFailed("key length too short/long")` instead of
+    // the proper `InvalidKeyLength`. Reject up front so the contract is
+    // honest: the gate now matches the actual requirement.
+    if self.config.key_length != 64 {
       return Err(CookieKeyExpansionError::InvalidKeyLength);
     }
 
