@@ -44,8 +44,32 @@ impl UriPartsConfig {
   }
 }
 
-fn peer_is_trusted(ext: &http::Extensions, cfg: Option<&UriPartsConfig>) -> bool {
-  let Some(cfg) = cfg else {
+/// Resolve a `UriPartsConfig` consulting (in order) request extensions,
+/// per-router state, then process-global state.
+///
+/// EXT-3: the module docs advertise the config can live in "application state
+/// (or request extensions)", but the original implementation only checked
+/// extensions. Trusted-proxy config set via `Router::with_state` or
+/// `tako_core::state::set_state` was silently inactive — `peer_is_trusted`
+/// always returned false, fail-safe in the security sense but a documented
+/// feature that did not work. Falls back through both state layers now, with
+/// a tiny ~2-3 extra hash probes (scc, lock-free) per Host/Scheme extraction
+/// in the no-config-in-extensions case — cold-path enough that it does not
+/// move hot-path numbers.
+fn lookup_uri_parts_cfg(ext: &http::Extensions) -> Option<UriPartsConfig> {
+  if let Some(cfg) = ext.get::<UriPartsConfig>() {
+    return Some(cfg.clone());
+  }
+  if let Some(rs) = ext.get::<std::sync::Arc<tako_core::router_state::RouterState>>()
+    && let Some(arc) = rs.get::<UriPartsConfig>()
+  {
+    return Some((*arc).clone());
+  }
+  tako_core::state::get_state::<UriPartsConfig>().map(|arc| (*arc).clone())
+}
+
+fn peer_is_trusted(ext: &http::Extensions) -> bool {
+  let Some(cfg) = lookup_uri_parts_cfg(ext) else {
     return false;
   };
   if cfg.trusted_proxies.is_empty() {
@@ -159,7 +183,7 @@ impl<'a> FromRequest<'a> for Host {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let trust = peer_is_trusted(req.extensions(), req.extensions().get::<UriPartsConfig>());
+    let trust = peer_is_trusted(req.extensions());
     futures_util::future::ready(
       extract_host(req.headers(), req.uri(), trust)
         .map(Host)
@@ -174,7 +198,7 @@ impl<'a> FromRequestParts<'a> for Host {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let trust = peer_is_trusted(&parts.extensions, parts.extensions.get::<UriPartsConfig>());
+    let trust = peer_is_trusted(&parts.extensions);
     futures_util::future::ready(
       extract_host(&parts.headers, &parts.uri, trust)
         .map(Host)
@@ -220,7 +244,7 @@ impl<'a> FromRequest<'a> for Scheme {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let trust = peer_is_trusted(req.extensions(), req.extensions().get::<UriPartsConfig>());
+    let trust = peer_is_trusted(req.extensions());
     let scheme = extract_scheme(req.headers(), req.uri(), req.extensions(), trust);
     futures_util::future::ready(Ok(Scheme(scheme)))
   }
@@ -232,7 +256,7 @@ impl<'a> FromRequestParts<'a> for Scheme {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let trust = peer_is_trusted(&parts.extensions, parts.extensions.get::<UriPartsConfig>());
+    let trust = peer_is_trusted(&parts.extensions);
     let scheme = extract_scheme(&parts.headers, &parts.uri, &parts.extensions, trust);
     futures_util::future::ready(Ok(Scheme(scheme)))
   }
