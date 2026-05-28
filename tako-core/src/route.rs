@@ -201,7 +201,17 @@ impl Route {
 
       let plugins = self.plugins.read();
       for plugin in plugins.iter() {
-        let _ = plugin.setup(&mini_router);
+        // See `Router::setup_plugins_once`: log failures so an erroring
+        // route-level plugin (auth, rate-limit, ...) is visible instead
+        // of silently dropped — fail-open without diagnostics is
+        // exactly what the audit calls out.
+        if let Err(e) = plugin.setup(&mini_router) {
+          tracing::error!(
+            plugin = plugin.name(),
+            error = %e,
+            "route-level TakoPlugin::setup failed; plugin not active"
+          );
+        }
       }
 
       // Transfer middleware from mini-router to this route

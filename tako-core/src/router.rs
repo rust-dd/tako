@@ -1301,7 +1301,17 @@ impl Router {
 
     if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
       for plugin in self.plugins() {
-        let _ = plugin.setup(self);
+        // Surface plugin setup errors loudly — a silently-skipped CORS,
+        // auth, rate-limit, or CSRF plugin would leave the server
+        // running without the protection the operator expected
+        // (security-relevant fail-open). Cold path — first dispatch only.
+        if let Err(e) = plugin.setup(self) {
+          tracing::error!(
+            plugin = plugin.name(),
+            error = %e,
+            "router-level TakoPlugin::setup failed; plugin not active"
+          );
+        }
       }
     }
   }
