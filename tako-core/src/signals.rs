@@ -372,6 +372,16 @@ impl SignalArbiter {
   ///
   /// This is useful for long-lived listeners such as metrics collectors,
   /// background workers, plugins, or middleware driven tasks.
+  ///
+  /// ⚠️ **Topic retention:** the topic map is keyed by `id` and entries
+  /// are created lazily on the first `subscribe`/`emit`. The `Sender` is
+  /// retained for the lifetime of the arbiter — there is no TTL or LRU
+  /// eviction. With **high-cardinality dynamic ids** (e.g. one signal id
+  /// per session or per request) this is an unbounded slow-leak.
+  ///
+  /// Use a low-cardinality id set ("`request.started`", "`order.placed`")
+  /// and put the per-request discriminator inside the [`Signal`] payload
+  /// instead of the id string.
   pub fn subscribe(&self, id: impl AsRef<str>) -> broadcast::Receiver<Signal> {
     let id_str = id.as_ref();
     let sender = self.topic_sender(id_str);
