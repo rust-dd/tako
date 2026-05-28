@@ -499,6 +499,17 @@ where
     }));
     let combined = stream.chain(trailer);
 
+    // SAFETY of `.expect(...)`: `Response::builder().status(...).header(...).body(...)`
+    // can only return Err if a `header_name`/`header_value` fails to convert.
+    // Here both inputs are `HeaderName::from_static`/`HeaderValue::from_static`,
+    // which are pre-validated at compile time. The status code and body are
+    // infallible.
+    //
+    // If you ADD a `.header(dynamic_name, dynamic_value)` to this builder
+    // chain, the panic message becomes misleading — the failure mode is no
+    // longer impossible. In that case, switch to `.body(...)?` + propagate
+    // via `Result<Response, _>` (callers can map back via Responder), or
+    // construct `http::Response::new(...)` directly + setters.
     let mut resp = http::Response::builder()
       .status(StatusCode::OK)
       .header(
@@ -506,7 +517,7 @@ where
         http::HeaderValue::from_static("application/grpc"),
       )
       .body(TakoBody::new(StreamBody::new(combined)))
-      .expect("valid grpc streaming response");
+      .expect("static headers + body construction is infallible");
     let headers = resp.headers_mut();
     for (k, v) in &self.initial_metadata {
       headers.insert(k.clone(), v.clone());
