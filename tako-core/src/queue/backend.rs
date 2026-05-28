@@ -17,6 +17,7 @@ pub struct JobId(pub u64);
 
 /// Per-push options.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct PushOptions {
   /// Idempotency / dedup key — duplicate pushes with the same key are coalesced.
   pub dedup_key: Option<String>,
@@ -61,6 +62,7 @@ pub trait QueueBackend: Send + Sync + 'static {
 
 /// Backend-level error.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum BackendError {
   /// The transport (Redis, Postgres, …) returned an error.
   Transport(String),

@@ -85,6 +85,7 @@ impl PersistedQueryStore for MemoryPersistedQueryStore {
 
 /// Errors emitted by the APQ pipeline.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ApqError {
   /// Client referenced a hash the store does not know — instruct the client
   /// to retry with the full query.

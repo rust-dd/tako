@@ -78,6 +78,7 @@ use crate::types::Response;
 /// See <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+#[non_exhaustive]
 pub enum GrpcStatusCode {
   Ok = 0,
   Cancelled = 1,
@@ -109,6 +110,7 @@ pub struct GrpcRequest<T: Message + Default> {
 
 /// Error types for gRPC extraction.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum GrpcError {
   /// Content-Type is not application/grpc.
   InvalidContentType,

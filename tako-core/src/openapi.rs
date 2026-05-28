@@ -78,6 +78,7 @@ use std::collections::BTreeMap;
 /// This struct stores operation-level `OpenAPI` information that can be
 /// used to generate `OpenAPI` specifications from Tako routes.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct RouteOpenApi {
   /// Unique identifier for the operation.
   pub operation_id: Option<String>,
@@ -100,7 +101,8 @@ pub struct RouteOpenApi {
 }
 
 /// `OpenAPI` parameter definition.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct OpenApiParameter {
   /// Parameter name.
   pub name: String,
@@ -114,6 +116,7 @@ pub struct OpenApiParameter {
 
 /// Location of an `OpenAPI` parameter.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub enum ParameterLocation {
   #[default]
   Query,
@@ -123,7 +126,8 @@ pub enum ParameterLocation {
 }
 
 /// `OpenAPI` request body definition.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct OpenApiRequestBody {
   /// Description of the request body.
   pub description: Option<String>,
@@ -136,7 +140,8 @@ pub struct OpenApiRequestBody {
 }
 
 /// A property definition for request body schema.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct RequestBodyProperty {
   /// Property name.
   pub name: String,

@@ -101,6 +101,7 @@ pub mod bus {
 /// metadata. Callers are free to define their own conventions for ids and
 /// fields.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct Signal {
   /// Identifier of the signal, for example "request.started" or "metrics.tick".
   pub id: String,
@@ -237,6 +238,7 @@ pub fn app_events() -> &'static SignalArbiter {
 /// This error type implements `std::error::Error` for integration with
 /// error handling libraries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RpcError {
   /// No handler registered for the requested RPC method.
   NoHandler,
@@ -263,6 +265,7 @@ pub type RpcResult<T> = Result<T, RpcError>;
 /// This error type implements `std::error::Error` for integration with
 /// error handling libraries.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RpcTimeoutError {
   /// The RPC call timed out before completing.
   Timeout,

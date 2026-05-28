@@ -131,6 +131,7 @@ pub struct Scalar {
 
 /// Theme options for Scalar UI.
 #[derive(Clone, Copy, Default)]
+#[non_exhaustive]
 pub enum ScalarTheme {
   #[default]
   Default,
@@ -234,6 +235,7 @@ pub struct RapiDoc {
 
 /// Theme options for `RapiDoc` UI.
 #[derive(Clone, Copy, Default)]
+#[non_exhaustive]
 pub enum RapiDocTheme {
   #[default]
   Light,
@@ -251,6 +253,7 @@ impl RapiDocTheme {
 
 /// Render style options for `RapiDoc`.
 #[derive(Clone, Copy, Default)]
+#[non_exhaustive]
 pub enum RapiDocRenderStyle {
   #[default]
   Read,
