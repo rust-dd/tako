@@ -22,12 +22,21 @@ use bytes::BytesMut;
 use http::HeaderMap;
 
 /// Identify gRPC-Web requests (binary or text variant).
+///
+/// Matches both `application/grpc-web[+proto|+json|…]` and
+/// `application/grpc-web-text[…]`. To distinguish the two, use
+/// [`is_grpc_web_text`] — it is a strict subset: every content-type for
+/// which `is_grpc_web_text` returns `true` also satisfies `is_grpc_web`.
 pub fn is_grpc_web(content_type: &str) -> bool {
   let ct = content_type.to_ascii_lowercase();
   ct.starts_with("application/grpc-web")
 }
 
 /// Detects the text (base64) flavor of gRPC-Web.
+///
+/// Implication: `is_grpc_web_text(ct) ⇒ is_grpc_web(ct)`. Callers that
+/// need only "any gRPC-Web variant" should prefer [`is_grpc_web`]; the
+/// text check is needed when picking the base64 decoder path.
 pub fn is_grpc_web_text(content_type: &str) -> bool {
   let ct = content_type.to_ascii_lowercase();
   ct.starts_with("application/grpc-web-text")
