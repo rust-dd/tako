@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 anyhow.workspace = true
+arc-swap.workspace = true
 async-trait.workspace = true
 base64.workspace = true
 bytes.workspace = true
@@ -50,8 +51,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 url.workspace = true
 urlencoding.workspace = true
-
-arc-swap = "1"
 
 # Optional / feature-gated
 ahash = { workspace = true, optional = true }
