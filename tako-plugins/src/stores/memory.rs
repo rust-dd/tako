@@ -249,16 +249,20 @@ impl StaticJwksProvider {
   }
 
   /// Adds a key under `kid`. Multiple keys per kid are supported (rotation).
+  ///
+  /// PPL-25: the previous `update_sync` + `insert_sync` fallback was racy.
+  /// Two threads both observing `update_sync == None` would each call
+  /// `insert_sync`; only the first wins, the loser's key was silently
+  /// dropped — a rotation footgun where the new key would not be findable
+  /// at verify time. `entry_sync(...).and_modify(...).or_insert_with(...)`
+  /// performs the lookup-or-insert atomically under the scc bucket lock.
   pub fn insert(&self, kid: impl Into<String>, key: Vec<u8>) {
     let kid = kid.into();
-    if self
+    self
       .by_kid
-      .update_sync(&kid, |_, v| v.push(key.clone()))
-      .is_some()
-    {
-      return;
-    }
-    let _ = self.by_kid.insert_sync(kid, vec![key]);
+      .entry_sync(kid)
+      .and_modify(|v| v.push(key.clone()))
+      .or_insert_with(|| vec![key]);
   }
 }
 
