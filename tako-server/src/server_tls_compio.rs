@@ -522,13 +522,23 @@ impl<F: std::future::Future<Output = ()> + Send + 'static> hyper::rt::Executor<F
 #[derive(Debug, Clone)]
 struct CompioH2Timer;
 
-/// A sleep future that wraps a compio sleep, made `Send + Sync + Unpin` for hyper.
+/// A sleep future that wraps a compio sleep so hyper can hand it across its
+/// `Send + Sync` API surface.
 ///
-/// SAFETY: compio is a single-threaded runtime — the sleep future never crosses
-/// thread boundaries, so `Send`/`Sync` are safe to implement unconditionally.
-/// This is the same pattern used by `cyper-core::CompioTimer`.
+/// The inner `compio::time::sleep` resolves to `compio_runtime::runtime::time::TimerFuture`,
+/// which the upstream crate **explicitly** marks as `!Send + !Sync` (an
+/// `assert_not_impl!` in `compio-runtime`): both `poll` and `Drop` reach into
+/// the per-thread `Runtime::with_current(...)`, so off-thread access would
+/// either panic or corrupt the timer wheel. A bare `unsafe impl Send/Sync`
+/// would therefore be unsound — it claims a contract the wrapped future
+/// actively rejects.
+///
+/// `SendWrapper` upholds the contract at runtime: it panics on any deref or
+/// drop from a thread other than the one that constructed it, so an
+/// accidental cross-thread move becomes a loud panic instead of latent UB.
+/// Same pattern as `ServiceSendWrapper` above and `cyper-core::CompioTimer`.
 #[cfg(feature = "http2")]
-struct CompioSleep(std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>);
+struct CompioSleep(SendWrapper<std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>>);
 
 #[cfg(feature = "http2")]
 impl std::future::Future for CompioSleep {
@@ -538,15 +548,11 @@ impl std::future::Future for CompioSleep {
     mut self: std::pin::Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
+    // SendWrapper's `DerefMut` panics off-thread — the runtime guard for
+    // the `Send + Sync` claim. Same thread → cheap atomic load.
     self.0.as_mut().poll(cx)
   }
 }
-
-// SAFETY: compio is single-threaded — the sleep future never crosses threads.
-#[cfg(feature = "http2")]
-unsafe impl Send for CompioSleep {}
-#[cfg(feature = "http2")]
-unsafe impl Sync for CompioSleep {}
 
 #[cfg(feature = "http2")]
 impl Unpin for CompioSleep {}
@@ -557,10 +563,14 @@ impl hyper::rt::Sleep for CompioSleep {}
 #[cfg(feature = "http2")]
 impl hyper::rt::Timer for CompioH2Timer {
   fn sleep(&self, duration: std::time::Duration) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
-    Box::pin(CompioSleep(Box::pin(compio::time::sleep(duration))))
+    Box::pin(CompioSleep(SendWrapper::new(Box::pin(compio::time::sleep(
+      duration,
+    )))))
   }
 
   fn sleep_until(&self, deadline: std::time::Instant) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
-    Box::pin(CompioSleep(Box::pin(compio::time::sleep_until(deadline))))
+    Box::pin(CompioSleep(SendWrapper::new(Box::pin(
+      compio::time::sleep_until(deadline),
+    ))))
   }
 }
