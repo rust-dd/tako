@@ -194,32 +194,37 @@ where
 /// http/https) is stripped so callers don't have to spell it out. Returns an
 /// empty string when parsing fails, which `origin_allowed` treats as
 /// non-matching.
+///
+/// Uses [`url::Url::parse`] to correctly handle IPv6 literals (`[::1]:8443`),
+/// userinfo (`user@host` — never legal in an Origin and rejected), and trailing
+/// paths/queries that leaked into the header. The previous string-splitting
+/// implementation mishandled IPv6 (the colon-rsplit cut the address mid-segment)
+/// and userinfo (the `@` prefix leaked into the host comparison).
 fn normalize_origin(raw: &str) -> String {
   let raw = raw.trim();
   if raw.is_empty() || raw.eq_ignore_ascii_case("null") {
     return String::new();
   }
-  let Some((scheme, rest)) = raw.split_once("://") else {
+  let Ok(url) = url::Url::parse(raw) else {
     return String::new();
   };
-  let scheme = scheme.to_ascii_lowercase();
-  // Cut off path/query if any leaked into the header.
-  let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-  let (host, port) = match authority.rsplit_once(':') {
-    Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => (h, Some(p)),
-    _ => (authority, None),
+  // Reject userinfo — an Origin must not carry credentials.
+  if !url.username().is_empty() || url.password().is_some() {
+    return String::new();
+  }
+  let scheme = url.scheme().to_ascii_lowercase();
+  let Some(host) = url.host_str() else {
+    return String::new();
   };
   let host = host.to_ascii_lowercase();
-  let default_port = matches!(
+  let port = url.port();
+  let default = matches!(
     (scheme.as_str(), port),
-    ("http", Some("80")) | ("https", Some("443"))
+    ("http", Some(80)) | ("https", Some(443)) | ("ws", Some(80)) | ("wss", Some(443))
   );
-  if let Some(p) = port
-    && !default_port
-  {
-    format!("{scheme}://{host}:{p}")
-  } else {
-    format!("{scheme}://{host}")
+  match port {
+    Some(p) if !default => format!("{scheme}://{host}:{p}"),
+    _ => format!("{scheme}://{host}"),
   }
 }
 

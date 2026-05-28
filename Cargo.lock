@@ -4443,6 +4443,7 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tracing",
+ "url",
 ]
 
 [[package]]

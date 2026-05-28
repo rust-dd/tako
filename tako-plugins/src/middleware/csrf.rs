@@ -169,31 +169,35 @@ fn origin_allowed(value: &str, allow: &[String]) -> bool {
 /// `scheme://host[:port]` with lowercase scheme + host and default ports
 /// dropped. Returns an empty string when parsing fails. Mirrors the helper
 /// in `tako-streams::ws` so the two CORS-style checks stay consistent.
+///
+/// Uses [`url::Url::parse`] to correctly handle IPv6 literals, userinfo, and
+/// trailing paths/queries — the previous string-splitting variant mishandled
+/// `https://[::1]:8443` (colon split) and `https://user@example.com`
+/// (userinfo leakage into the host comparison).
 fn normalize_origin(raw: &str) -> String {
   let raw = raw.trim();
   if raw.is_empty() || raw.eq_ignore_ascii_case("null") {
     return String::new();
   }
-  let Some((scheme, rest)) = raw.split_once("://") else {
+  let Ok(url) = url::Url::parse(raw) else {
     return String::new();
   };
-  let scheme = scheme.to_ascii_lowercase();
-  let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-  let (host, port) = match authority.rsplit_once(':') {
-    Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => (h, Some(p)),
-    _ => (authority, None),
+  if !url.username().is_empty() || url.password().is_some() {
+    return String::new();
+  }
+  let scheme = url.scheme().to_ascii_lowercase();
+  let Some(host) = url.host_str() else {
+    return String::new();
   };
   let host = host.to_ascii_lowercase();
-  let default_port = matches!(
+  let port = url.port();
+  let default = matches!(
     (scheme.as_str(), port),
-    ("http", Some("80")) | ("https", Some("443"))
+    ("http", Some(80)) | ("https", Some(443)) | ("ws", Some(80)) | ("wss", Some(443))
   );
-  if let Some(p) = port
-    && !default_port
-  {
-    format!("{scheme}://{host}:{p}")
-  } else {
-    format!("{scheme}://{host}")
+  match port {
+    Some(p) if !default => format!("{scheme}://{host}:{p}"),
+    _ => format!("{scheme}://{host}"),
   }
 }
 
