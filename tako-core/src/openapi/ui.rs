@@ -35,6 +35,40 @@ use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
+/// HTML-escape user-controlled text for safe interpolation into HTML text
+/// nodes *or* double-quoted attribute values. Protects against the obvious
+/// XSS sinks if `title` / `spec_url` ever originate from request parameters
+/// (e.g. `Router::get("/docs/:title", ...)`).
+///
+/// Escapes `&`, `<`, `>`, `"`, and `'` to the corresponding HTML entities —
+/// the minimal set that closes both element-context and attribute-context
+/// injection.
+fn html_escape(s: &str) -> String {
+  let mut out = String::with_capacity(s.len());
+  for c in s.chars() {
+    match c {
+      '&' => out.push_str("&amp;"),
+      '<' => out.push_str("&lt;"),
+      '>' => out.push_str("&gt;"),
+      '"' => out.push_str("&quot;"),
+      '\'' => out.push_str("&#39;"),
+      _ => out.push(c),
+    }
+  }
+  out
+}
+
+/// Escape `s` for use as a JavaScript string literal — including the
+/// surrounding double quotes. Used for `url: {js}` / `theme: {js}` sinks in
+/// `<script>` bodies, where HTML-entity encoding is NOT decoded.
+///
+/// Delegates to `serde_json::to_string`, which produces a valid JS string
+/// literal (every JSON string is a valid JS string in browsers' modern
+/// strict-superset parsers used here).
+fn js_string(s: &str) -> String {
+  serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 /// Swagger UI responder that serves the classic `OpenAPI` documentation interface.
 ///
 /// # Examples
@@ -70,6 +104,9 @@ impl SwaggerUi {
 
 impl Responder for SwaggerUi {
   fn into_response(self) -> Response {
+    // Escape user-controlled strings per context: `title` is HTML text;
+    // `spec_url` is interpolated inside a `<script>` JS string where HTML
+    // entities are NOT decoded — use a JSON-shaped JS string literal.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">
@@ -85,7 +122,7 @@ impl Responder for SwaggerUi {
     <script>
         window.onload = () => {{
             SwaggerUIBundle({{
-                url: "{spec_url}",
+                url: {spec_url},
                 dom_id: '#swagger-ui',
                 presets: [
                     SwaggerUIBundle.presets.apis,
@@ -97,8 +134,8 @@ impl Responder for SwaggerUi {
     </script>
 </body>
 </html>"#,
-      title = self.title,
-      spec_url = self.spec_url
+      title = html_escape(&self.title),
+      spec_url = js_string(&self.spec_url)
     );
 
     let mut res = Response::new(TakoBody::from(html));
@@ -180,6 +217,9 @@ impl Scalar {
 
 impl Responder for Scalar {
   fn into_response(self) -> Response {
+    // `title` is HTML text; `spec_url` is interpolated into an HTML attribute
+    // (`data-url="..."`) and needs HTML attribute escaping. `theme` comes
+    // from a closed enum's `as_str()` so it is statically known-safe.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">
@@ -199,8 +239,8 @@ impl Responder for Scalar {
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
 </body>
 </html>"#,
-      title = self.title,
-      spec_url = self.spec_url,
+      title = html_escape(&self.title),
+      spec_url = html_escape(&self.spec_url),
       theme = self.theme.as_str()
     );
 
@@ -303,6 +343,8 @@ impl RapiDoc {
 
 impl Responder for RapiDoc {
   fn into_response(self) -> Response {
+    // `title` (HTML text) and `spec_url` (HTML attribute) need escaping;
+    // `theme` / `render_style` come from closed enums.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">
@@ -322,8 +364,8 @@ impl Responder for RapiDoc {
     ></rapi-doc>
 </body>
 </html>"#,
-      title = self.title,
-      spec_url = self.spec_url,
+      title = html_escape(&self.title),
+      spec_url = html_escape(&self.spec_url),
       theme = self.theme.as_str(),
       render_style = self.render_style.as_str()
     );
@@ -372,6 +414,7 @@ impl Redoc {
 
 impl Responder for Redoc {
   fn into_response(self) -> Response {
+    // `title` (HTML text) and `spec_url` (HTML attribute) both need escaping.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">
@@ -389,8 +432,8 @@ impl Responder for Redoc {
     <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
 </body>
 </html>"#,
-      title = self.title,
-      spec_url = self.spec_url
+      title = html_escape(&self.title),
+      spec_url = html_escape(&self.spec_url)
     );
 
     let mut res = Response::new(TakoBody::from(html));
