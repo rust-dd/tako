@@ -254,10 +254,16 @@ impl TakoPlugin for RateLimiterPlugin {
       let cfg = self.cfg.clone();
       let store = self.store.clone();
 
+      // Janitor is **staleness-eviction only**. Refilling here too would
+      // double-count: `evaluate()` already does lazy refill per request
+      // (`dt * rate_per_sec` from the last observed timestamp), so an
+      // eager refill in the janitor on top would push the effective rate
+      // toward 2× the configured value — a silent weakening of the
+      // DoS-quota control. We also can't mutate `last_refill` here
+      // because doing so before the staleness predicate makes
+      // `duration_since` always 0 and turns `purge_after` into dead code.
       let purge_after = Duration::from_secs(300);
       let interval = Duration::from_millis(cfg.refill_interval_ms);
-      let refill_amount = f64::from(cfg.refill_rate);
-      let cap = f64::from(cfg.max_requests);
 
       #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
@@ -267,9 +273,7 @@ impl TakoPlugin for RateLimiterPlugin {
           let now = Instant::now();
           store
             .retain_async(|_, mutex| {
-              let mut bucket = mutex.lock();
-              bucket.available = (bucket.available + refill_amount).min(cap);
-              bucket.last_refill = now;
+              let bucket = mutex.lock();
               now.duration_since(bucket.last_refill) < purge_after
             })
             .await;
@@ -283,9 +287,7 @@ impl TakoPlugin for RateLimiterPlugin {
           let now = Instant::now();
           store
             .retain_async(|_, mutex| {
-              let mut bucket = mutex.lock();
-              bucket.available = (bucket.available + refill_amount).min(cap);
-              bucket.last_refill = now;
+              let bucket = mutex.lock();
               now.duration_since(bucket.last_refill) < purge_after
             })
             .await;
