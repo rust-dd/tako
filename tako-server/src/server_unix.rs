@@ -396,7 +396,15 @@ async fn run_http(
 ///
 /// Probes the socket via the async `tokio::net::UnixStream::connect` so the
 /// runtime worker isn't blocked by the previous synchronous `connect()`
-/// while another peer's accept queue is draining.
+/// while another peer's accept queue is draining. A 50ms connect deadline
+/// stops a malicious or stuck peer from holding the bind forever.
+///
+/// **Symlink safety**: `symlink_metadata` + `FileTypeExt::is_socket` make
+/// sure the path is itself an `AF_UNIX` socket file before we touch it. If
+/// the path turns out to be a regular file, a directory, or a symlink to
+/// something else (e.g. `/etc/passwd`), we surface an error instead of
+/// blindly `remove_file`-ing it — replacing the socket path with a symlink
+/// is otherwise a textbook escalation trap.
 ///
 /// **Concurrency**: a sibling process may remove the same stale file in
 /// parallel. The kernel's `bind(2)` is the authoritative race-resolver — it
@@ -405,17 +413,35 @@ async fn run_http(
 /// lets the caller proceed to `bind`. For stronger guarantees use an
 /// out-of-band lock (supervisor sequencing, advisory file lock).
 async fn cleanup_stale_socket(path: &Path) -> std::io::Result<()> {
-  if !path.exists() {
-    return Ok(());
+  use std::os::unix::fs::FileTypeExt;
+  use std::time::Duration;
+
+  let meta = match std::fs::symlink_metadata(path) {
+    Ok(m) => m,
+    Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+    Err(e) => return Err(e),
+  };
+  if !meta.file_type().is_socket() {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::AlreadyExists,
+      format!(
+        "{} exists but is not a unix socket; refusing to remove",
+        path.display()
+      ),
+    ));
   }
-  match tokio::net::UnixStream::connect(path).await {
-    Ok(_) => Err(std::io::Error::new(
+  let connect = tokio::net::UnixStream::connect(path);
+  match tokio::time::timeout(Duration::from_millis(50), connect).await {
+    Ok(Ok(_)) => Err(std::io::Error::new(
       std::io::ErrorKind::AddrInUse,
       format!("Unix socket {} is already in use", path.display()),
     )),
-    Err(_) => match std::fs::remove_file(path) {
+    // Connect failed within the deadline (stale socket) or the deadline
+    // fired (peer hung mid-handshake) — both mean the path is no longer
+    // serving a live process; safe to unlink.
+    Ok(Err(_)) | Err(_) => match std::fs::remove_file(path) {
       Ok(()) => Ok(()),
-      // Another process removed the same stale file between our `exists()`
+      // Another process removed the same stale file between our metadata
       // probe and the unlink syscall — bind() will resolve the rest.
       Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
       Err(e) => Err(e),
