@@ -245,19 +245,27 @@ impl Store {
 
   fn insert_inflight(&self, k: String, payload_sig: [u8; 20]) -> Arc<Notify> {
     let notify = Arc::new(Notify::new());
-    std::mem::drop(self.0.insert_sync(
+    // `upsert_sync` replaces any existing entry (stale Completed past TTL,
+    // or a previous InFlight whose handler was cancelled). `insert_sync`
+    // would silently drop the new value on collision.
+    self.0.upsert_sync(
       k,
       Entry::InFlight {
         payload_sig,
         notify: notify.clone(),
         started: Instant::now(),
       },
-    ));
+    );
     notify
   }
 
   fn complete(&self, k: String, completed: Completed) {
-    std::mem::drop(self.0.insert_sync(k, Entry::Completed(completed)));
+    // MUST be `upsert_sync`: the key already holds the matching InFlight
+    // entry (planted by `insert_inflight` before the handler ran).
+    // `insert_sync` would no-op on collision, leaving the cache filled
+    // with InFlight forever and forcing every replay through the 409
+    // conflict path — i.e. the whole idempotency store would be dead.
+    self.0.upsert_sync(k, Entry::Completed(completed));
   }
 
   fn remove(&self, k: &str) {
