@@ -116,6 +116,14 @@ pub enum GrpcError {
   BodyReadError(String),
   /// gRPC frame is too short or malformed.
   InvalidFrame,
+  /// Length-prefix advertises a message larger than [`MAX_GRPC_MESSAGE_SIZE`].
+  ///
+  /// Mapped to gRPC status `ResourceExhausted` (8) per the spec — `grpc-go`,
+  /// `tonic`, and the upstream issue (grpc/grpc#23454) all use it for
+  /// `received message larger than max`. Returning `InvalidArgument` would
+  /// be wire-level wrong: clients that backoff-retry on `ResourceExhausted`
+  /// would never retry on `InvalidArgument`.
+  MessageTooLarge,
   /// Protobuf decoding failed.
   DecodeError(String),
   /// Frame's compressed flag was set but the server does not advertise
@@ -134,6 +142,10 @@ impl Responder for GrpcError {
       ),
       GrpcError::BodyReadError(_) => (GrpcStatusCode::Internal, "failed to read request body"),
       GrpcError::InvalidFrame => (GrpcStatusCode::InvalidArgument, "malformed gRPC frame"),
+      GrpcError::MessageTooLarge => (
+        GrpcStatusCode::ResourceExhausted,
+        "grpc message exceeds MAX_GRPC_MESSAGE_SIZE",
+      ),
       GrpcError::DecodeError(_) => (
         GrpcStatusCode::InvalidArgument,
         "failed to decode protobuf message",
@@ -189,7 +201,7 @@ where
         u32::from_be_bytes([body_bytes[1], body_bytes[2], body_bytes[3], body_bytes[4]]) as usize;
 
       if msg_len > MAX_GRPC_MESSAGE_SIZE {
-        return Err(GrpcError::InvalidFrame);
+        return Err(GrpcError::MessageTooLarge);
       }
       if body_bytes.len() < 5 + msg_len {
         return Err(GrpcError::InvalidFrame);
@@ -290,7 +302,7 @@ pub fn grpc_decode<T: Message + Default>(data: &[u8]) -> Result<(T, bool), GrpcE
   let msg_len = u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
 
   if msg_len > MAX_GRPC_MESSAGE_SIZE {
-    return Err(GrpcError::InvalidFrame);
+    return Err(GrpcError::MessageTooLarge);
   }
   if data.len() < 5 + msg_len {
     return Err(GrpcError::InvalidFrame);
@@ -525,7 +537,7 @@ where
           this.buffer[4],
         ]) as usize;
         if msg_len > MAX_GRPC_MESSAGE_SIZE {
-          return Poll::Ready(Some(Err(GrpcError::InvalidFrame)));
+          return Poll::Ready(Some(Err(GrpcError::MessageTooLarge)));
         }
         if this.buffer.len() >= 5 + msg_len {
           if this.buffer[0] != 0 {
