@@ -359,8 +359,37 @@ fn build_certified_key(
   // install `ring` on first use; pure-TLS apps may not have installed any yet.
   // Opportunistically install rustls's default backend (`aws-lc-rs`) if the
   // global slot is still empty, so callers don't have to wire it themselves.
-  if rustls::crypto::CryptoProvider::get_default().is_none() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  //
+  // SRV-08: if a provider was ALREADY installed by another part of the
+  // process (commonly `ring` via h3/webtransport bootstrap), this code uses
+  // it as-is and `load_private_key` runs against that backend. Cross-
+  // provider key loading is supported in principle, but signature output
+  // depends on which backend signs — operators surprised by behavior diff
+  // need to know we did not install aws-lc-rs in that case.
+  let we_installed = if rustls::crypto::CryptoProvider::get_default().is_none() {
+    rustls::crypto::aws_lc_rs::default_provider()
+      .install_default()
+      .is_ok()
+  } else {
+    false
+  };
+  if !we_installed {
+    // Fire a one-shot warning so it shows up once in the log instead of
+    // once per certified-key build (which could be thousands per process
+    // in tests / hot-reload). Static `Once` keeps this lock-free after
+    // the first call.
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    WARNED.call_once(|| {
+      tracing::warn!(
+        "tako-server: a rustls CryptoProvider was already installed before \
+         `build_certified_key` ran — Tako will use that provider for key \
+         loading instead of installing aws-lc-rs. If signing behavior is \
+         not what you expect (e.g. h3 installed `ring` first), pin the \
+         provider at process startup with `rustls::crypto::aws_lc_rs::\
+         default_provider().install_default()` BEFORE constructing the \
+         server."
+      );
+    });
   }
   let provider = rustls::crypto::CryptoProvider::get_default().ok_or_else(|| {
     anyhow::anyhow!(
