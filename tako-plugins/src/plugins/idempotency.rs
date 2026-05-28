@@ -346,7 +346,17 @@ impl TakoPlugin for IdempotencyPlugin {
       async move { handle(req, next, cfg, store).await }
     });
 
-    // Start cleanup once
+    // Start cleanup once.
+    //
+    // PPL-26: both spawn paths intentionally do not retain the JoinHandle,
+    // so the janitor runs for the life of the *runtime*, not the life of
+    // the plugin instance. Cloning the plugin off the router (or dropping
+    // every clone) does not cancel the loop. This matches the typical
+    // long-lived router lifecycle but means apps that hot-swap idempotency
+    // configuration will leak one janitor task per swap. If you need
+    // bounded janitor lifetime, build a wrapping plugin that holds a
+    // \`tokio_util::sync::CancellationToken\` shared into the spawn and
+    // fire it from your own Drop impl.
     if !self.janitor_started.swap(true, Ordering::SeqCst) {
       let store = self.store.clone();
       let ttl = self.cfg.ttl_secs;
