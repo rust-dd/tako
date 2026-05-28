@@ -365,10 +365,19 @@ pub fn evaluate_conditional(
   }
 
   // Step 4: `If-Modified-Since` — coarse mtime check.
-  if let (Some(req), Some(ts)) = (
-    request_headers.get(http::header::IF_MODIFIED_SINCE),
-    last_modified,
-  ) && let Ok(req) = req.to_str()
+  //
+  // STR-2: RFC 9110 §13.1.3 mandates that `If-Modified-Since` MUST be
+  // ignored if `If-None-Match` is present (either matched or unmatched in
+  // step 3). The previous code skipped this guard and let a stale mtime
+  // override a deliberate `If-None-Match` non-match — clients could be
+  // served `304` for stale-but-still-recent files even though the ETag
+  // said the body changed.
+  if request_headers.get(http::header::IF_NONE_MATCH).is_none()
+    && let (Some(req), Some(ts)) = (
+      request_headers.get(http::header::IF_MODIFIED_SINCE),
+      last_modified,
+    )
+    && let Ok(req) = req.to_str()
     && let Some(req_ts) = parse_http_date(req)
     && let Ok(file_ts) = ts.duration_since(UNIX_EPOCH)
     && file_ts.as_secs() <= req_ts
