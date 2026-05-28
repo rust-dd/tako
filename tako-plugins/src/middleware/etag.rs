@@ -1,10 +1,10 @@
 //! `ETag` and conditional GET helper middleware.
 //!
 //! For 200-OK responses without an existing `ETag` header, hashes the body
-//! and emits a strong validator (`"<sha1-hex>"`). On subsequent requests
-//! with `If-None-Match` containing the same validator the middleware
-//! short-circuits to a `304 Not Modified` reply with the original headers
-//! preserved (sans the body and `Content-Length`).
+//! with SHA-256 and emits a **weak** validator (`W/"<sha256-hex>"`). On
+//! subsequent requests with `If-None-Match` containing the same validator
+//! the middleware short-circuits to a `304 Not Modified` reply with the
+//! original headers preserved (sans the body and `Content-Length`).
 //!
 //! `If-Modified-Since` is honored only when the upstream response carries
 //! a `Last-Modified` header; the comparison is RFC 7232 / RFC 9110 semantic
