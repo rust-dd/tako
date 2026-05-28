@@ -144,8 +144,15 @@ async fn run(
             // C15: don't kill the server on a single transient accept error.
             tracing::warn!("compio accept failed: {err}; backing off");
             let d = accept_backoff.current_and_grow();
-            compio::time::sleep(d).await;
-            continue;
+            // SRV-06: race the backoff against the shutdown signal so a
+            // 1s sleep cannot delay graceful shutdown by up to 1s if the
+            // signal fires mid-backoff. `select`'s `Right` arm means the
+            // signal won; break the loop so the drain path runs.
+            let sleep = std::pin::pin!(compio::time::sleep(d));
+            match futures_util::future::select(sleep, signal_fused.as_mut()).await {
+              Either::Left((_, _)) => continue,
+              Either::Right(_) => break,
+            }
           }
         };
 

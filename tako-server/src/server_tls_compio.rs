@@ -279,8 +279,13 @@ pub async fn run_with_config(
           Err(err) => {
             tracing::warn!("compio TLS accept failed: {err}; backing off");
             let d = accept_backoff.current_and_grow();
-            compio::time::sleep(d).await;
-            continue;
+            // SRV-06: race backoff against shutdown so a 1s sleep cannot
+            // delay graceful shutdown when the signal fires mid-backoff.
+            let sleep = std::pin::pin!(compio::time::sleep(d));
+            match futures_util::future::select(sleep, signal_fused.as_mut()).await {
+              Either::Left((_, _)) => continue,
+              Either::Right(_) => break,
+            }
           }
         };
 
