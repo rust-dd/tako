@@ -87,7 +87,6 @@ impl Range {
 
 /// Error type for Range header extraction and parsing.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum RangeError {
   /// Range header format is invalid (not `bytes=...` or contains a
   /// malformed range component).

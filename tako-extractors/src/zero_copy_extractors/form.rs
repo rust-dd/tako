@@ -18,7 +18,6 @@ pub struct FormBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
 /// Error type for `FormBorrowed`.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum FormBorrowedError {
   /// Content-Type is not `application/x-www-form-urlencoded`.
   InvalidContentType,

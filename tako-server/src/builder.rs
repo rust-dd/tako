@@ -111,13 +111,8 @@ where
 /// the client-presented chain. `Optional` allows clients without a cert to
 /// proceed (the application can later inspect the peer certs); `Required`
 /// terminates handshakes that omit a cert.
-///
-/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
-/// variants (revocation policies, SPKI-pinning, etc.) may be added in any
-/// 2.x minor. Downstream matchers must include a `_` arm.
 #[cfg(feature = "tls")]
 #[derive(Clone)]
-#[non_exhaustive]
 pub enum ClientAuth {
   /// Verify the client cert if presented; allow connections without one.
   Optional(Arc<rustls::RootCertStore>),
@@ -143,14 +138,7 @@ impl std::fmt::Debug for ClientAuth {
 /// - [`TlsCert::Resolver`] — user-supplied [`rustls::server::ResolvesServerCert`]
 ///   for SNI multi-cert serving or hot-reloadable certificates (see
 ///   [`ReloadableResolver`]).
-///
-/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
-/// variants (e.g. an `Acme` variant once `rustls-acme` integration lands)
-/// may be added in any 2.x minor. Downstream matchers must include a `_`
-/// arm; field-by-field initialisation must use `..Default::default()` /
-/// helper constructors.
 #[derive(Clone)]
-#[non_exhaustive]
 pub enum TlsCert {
   /// Filesystem paths for cert + key PEM files.
   PemPaths {

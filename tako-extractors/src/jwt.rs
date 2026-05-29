@@ -76,7 +76,6 @@ pub struct JwtClaimsUnverified<T>(pub T);
 
 /// Error types for JWT extraction and claims parsing.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum JwtError {
   /// Authorization header is missing from the request.
   MissingAuthHeader,

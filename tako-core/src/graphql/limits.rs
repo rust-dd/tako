@@ -22,12 +22,7 @@
 use async_graphql::SchemaBuilder;
 
 /// Builder for execution-cost limits.
-///
-/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — new
-/// limit fields can be added in any 2.x minor without breaking downstream
-/// matchers. Use [`Limits::new`] or [`Limits::default`] + setter methods.
 #[derive(Debug, Clone, Copy, Default)]
-#[non_exhaustive]
 pub struct Limits {
   pub max_depth: Option<usize>,
   pub max_complexity: Option<usize>,

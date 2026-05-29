@@ -147,7 +147,6 @@ pub const MAX_GRAPHQL_BODY_SIZE: usize = 4 * 1024 * 1024;
 
 /// Errors that can occur while parsing `GraphQL` HTTP requests.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum GraphQLError {
   MissingQuery,
   BodyRead(String),

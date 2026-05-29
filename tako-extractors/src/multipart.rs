@@ -201,7 +201,6 @@ impl MultipartConfig {
 
 /// Error type for multipart extraction.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum MultipartError {
   /// Content-Type header is missing from the request.
   MissingContentType,
@@ -253,7 +252,6 @@ impl Responder for MultipartError {
 
 /// Error type for typed multipart extraction.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum TypedMultipartError {
   /// Content-Type header is missing from the request.
   MissingContentType,

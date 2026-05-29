@@ -152,7 +152,6 @@ impl ContentTypePolicy {
 
 /// Configuration settings for HTTP response compression.
 #[derive(Clone)]
-#[non_exhaustive]
 pub struct Config {
   /// List of enabled compression encodings in preference order.
   pub enabled: Vec<Encoding>,
@@ -224,7 +223,6 @@ impl Default for Config {
 ///     .enable_stream(true)
 ///     .build();
 /// ```
-#[non_exhaustive]
 pub struct CompressionBuilder(Config);
 
 impl Default for CompressionBuilder {

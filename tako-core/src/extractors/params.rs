@@ -67,7 +67,6 @@ pub struct Params<T>(pub T);
 /// This error type implements `std::error::Error` for integration with
 /// error handling libraries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ParamsError {
   /// Path parameters not found in request extensions (internal routing error).
   MissingPathParams,

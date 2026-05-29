@@ -115,7 +115,6 @@ pub struct Json<T>(pub T);
 /// error handling libraries and provides detailed error messages for
 /// debugging JSON parsing issues.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum JsonError {
   /// Content-Type header is not application/json or compatible JSON type.
   InvalidContentType,

@@ -24,7 +24,6 @@ pub struct ContentLengthLimit<T, const N: u64>(pub T);
 
 /// Rejection variants for `ContentLengthLimit`.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ContentLengthLimitError<E> {
   /// Declared `Content-Length` exceeds the limit.
   TooLarge {

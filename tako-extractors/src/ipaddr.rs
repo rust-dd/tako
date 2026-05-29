@@ -102,7 +102,6 @@ impl IpAddrConfig {
 
 /// Error type for IP address extraction.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum IpAddrError {
   /// No valid IP address found in any of the checked headers.
   NoIpFound,

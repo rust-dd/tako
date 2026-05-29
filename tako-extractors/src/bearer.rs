@@ -61,7 +61,6 @@ pub struct Bearer {
 /// This error type implements `std::error::Error` for integration with
 /// error handling libraries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum BearerAuthError {
   /// Authorization header is missing from the request.
   MissingAuthHeader,

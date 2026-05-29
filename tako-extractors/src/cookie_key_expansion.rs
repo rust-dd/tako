@@ -103,7 +103,6 @@ pub struct CookieKeyExpansion {
 
 /// Error type for cookie key expansion operations.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum CookieKeyExpansionError {
   /// Key expansion configuration not found in request extensions.
   MissingConfig,

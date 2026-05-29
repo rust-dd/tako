@@ -48,7 +48,6 @@ pub struct Protobuf<T>(pub T);
 
 /// Error types for Protobuf extraction and deserialization.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ProtobufError {
   /// Content-Type header is not application/x-protobuf or application/protobuf.
   InvalidContentType,

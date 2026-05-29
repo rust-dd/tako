@@ -14,7 +14,6 @@ use scc::HashMap as SccHashMap;
 
 /// Per-service health status.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ServingStatus {
   Unknown,
   #[default]

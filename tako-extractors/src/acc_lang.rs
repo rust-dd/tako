@@ -36,7 +36,6 @@ pub struct AcceptLanguage {
 
 /// Error types for Accept-Language header extraction and parsing.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum AcceptLanguageError {
   /// Accept-Language header is missing from the request.
   MissingHeader,

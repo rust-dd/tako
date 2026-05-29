@@ -137,7 +137,6 @@ impl<S: Into<String>> From<S> for OriginMatcher {
 /// };
 /// ```
 #[derive(Clone)]
-#[non_exhaustive]
 pub struct Config {
   /// Exact origin allow-list (legacy). For wider matching, use [`Self::origin_matchers`].
   pub origins: Vec<String>,
@@ -249,7 +248,6 @@ impl std::error::Error for CorsConfigError {}
 ///     .build();
 /// ```
 #[must_use]
-#[non_exhaustive]
 pub struct CorsBuilder(Config);
 
 impl Default for CorsBuilder {

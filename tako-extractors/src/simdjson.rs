@@ -99,7 +99,6 @@ pub struct SimdJson<T>(pub T);
 
 /// Error type for the SIMD JSON extractors.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum SimdJsonError {
   /// Request content type is not recognized as JSON.
   InvalidContentType,

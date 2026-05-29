@@ -86,7 +86,6 @@ async fn emit_queue_signal(id: &'static str, name: &str, job_id: u64, attempt: u
 
 /// Error type for queue operations.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum QueueError {
   /// No handler registered for the given job name.
   UnknownJob(String),
@@ -113,7 +112,6 @@ impl std::error::Error for QueueError {}
 
 /// Retry policy for failed jobs.
 #[derive(Debug, Clone, Default)]
-#[non_exhaustive]
 pub enum RetryPolicy {
   /// No retries — failed jobs go straight to the dead letter queue.
   #[default]

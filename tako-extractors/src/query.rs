@@ -63,7 +63,6 @@ pub struct Query<T>(pub T);
 /// This error type implements `std::error::Error` for integration with
 /// error handling libraries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum QueryError {
   /// No query string found in the request URI.
   MissingQueryString,

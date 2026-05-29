@@ -245,11 +245,6 @@ impl Session {
 }
 
 /// Builder / configuration.
-///
-/// Marked `#[non_exhaustive]` per the `STABILITY.md` semver contract — fields
-/// are private and may be added or rearranged in any 2.x minor. Construct via
-/// [`SessionMiddleware::new`] or [`SessionMiddleware::default`].
-#[non_exhaustive]
 pub struct SessionMiddleware {
   cookie_name: String,
   ttl: SessionTtl,
