@@ -452,7 +452,7 @@ impl SignalArbiter {
       while let Ok(signal) = rx.recv().await {
         if filter(&signal) {
           match tx.try_send(signal) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
               // Slow consumer: drop the signal silently to preserve back-pressure.
             }

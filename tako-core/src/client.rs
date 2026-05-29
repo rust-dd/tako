@@ -341,7 +341,7 @@ where
   /// HTTP/1.1 request sender for the established TLS connection.
   sender: SendRequest<B>,
   /// Background task handle managing the connection lifecycle.
-  _conn_handle: JoinHandle<Result<(), hyper::Error>>,
+  conn_handle: JoinHandle<Result<(), hyper::Error>>,
 }
 
 impl<B> TakoTlsClient<B>
@@ -384,7 +384,7 @@ where
 
     Ok(Self {
       sender,
-      _conn_handle: conn_handle,
+      conn_handle,
     })
   }
 
@@ -446,12 +446,12 @@ where
   B::Error: Into<Box<dyn Error + Send + Sync>>,
 {
   fn drop(&mut self) {
-    // Without this, dropping `_conn_handle` simply detaches the task and
+    // Without this, dropping `conn_handle` simply detaches the task and
     // the background connection driver keeps running until the remote
     // closes (or forever for long-lived idle connections). Abort it so
     // the underlying TLS stream is dropped and any pending Tokio task
     // is cleared from the runtime.
-    self._conn_handle.abort();
+    self.conn_handle.abort();
   }
 }
 
@@ -498,7 +498,7 @@ where
   /// HTTP/1.1 request sender for the established TCP connection.
   sender: SendRequest<B>,
   /// Background task handle managing the connection lifecycle.
-  _conn_handle: JoinHandle<Result<(), hyper::Error>>,
+  conn_handle: JoinHandle<Result<(), hyper::Error>>,
 }
 
 impl<B> TakoClient<B>
@@ -529,7 +529,7 @@ where
 
     Ok(Self {
       sender,
-      _conn_handle: conn_handle,
+      conn_handle,
     })
   }
 
@@ -594,6 +594,6 @@ where
     // See `TakoTlsClient::drop` — abort the background connection driver
     // instead of detaching it so dropping the client deterministically
     // closes the underlying TCP stream and frees the Tokio task slot.
-    self._conn_handle.abort();
+    self.conn_handle.abort();
   }
 }
