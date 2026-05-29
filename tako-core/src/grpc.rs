@@ -294,7 +294,7 @@ impl<T: Message> Responder for GrpcResponse<T> {
 pub fn grpc_encode<T: Message>(msg: &T) -> Vec<u8> {
   let msg_bytes = msg.encode_to_vec();
   assert!(
-    msg_bytes.len() <= u32::MAX as usize,
+    u32::try_from(msg_bytes.len()).is_ok(),
     "grpc_encode: message of {} bytes exceeds u32::MAX (4 GiB) — gRPC length-prefix would wrap",
     msg_bytes.len()
   );

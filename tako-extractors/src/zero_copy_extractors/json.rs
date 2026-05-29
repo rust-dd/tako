@@ -21,6 +21,7 @@ where
   fn from_request(
     req: &'a mut tako_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
+    use crate::zero_copy_extractors::bytes::CachedRequestBody;
     async move {
       // EXT-6: match the owned `Json<T>` extractor and reject requests
       // that don't declare a JSON content-type. Without this guard a
@@ -34,7 +35,6 @@ where
       // value can borrow from it for the lifetime of the request. Keyed by the
       // `CachedRequestBody` newtype to avoid colliding with other middleware
       // that might stash a raw `Bytes` value in extensions.
-      use crate::zero_copy_extractors::bytes::CachedRequestBody;
       if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = req
           .body_mut()

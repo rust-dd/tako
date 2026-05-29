@@ -63,7 +63,7 @@ impl Default for PerThreadConfig {
 
 /// Shared bind-result tracker used by the [`PerThreadShutdown`] coordinator
 /// so the parent process can detect "all worker threads failed to bind"
-/// (e.g. SO_REUSEPORT unavailable on Windows / non-Linux Unix, port already
+/// (e.g. `SO_REUSEPORT` unavailable on Windows / non-Linux Unix, port already
 /// taken) and surface a real error from [`serve_per_thread`] instead of
 /// silently waiting on Ctrl+C forever and then returning `Ok(())`.
 #[derive(Default)]
@@ -174,7 +174,7 @@ impl PerThreadShutdown {
           .unwrap()
           .take()
           .unwrap_or_else(|| {
-            io::Error::other(format!("all {total} per-thread workers failed to bind",))
+            io::Error::other(format!("all {total} per-thread workers failed to bind"))
           });
         return Err(err);
       }

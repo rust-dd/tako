@@ -467,7 +467,7 @@ impl SignalArbiter {
       while let Ok(signal) = rx.recv().await {
         if filter(&signal) {
           match tx.try_send(signal) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {}
             Err(mpsc::error::TrySendError::Closed(_)) => break,
           }

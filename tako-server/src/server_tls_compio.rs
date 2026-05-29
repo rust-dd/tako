@@ -292,7 +292,7 @@ pub async fn run_with_config(
             // delay graceful shutdown when the signal fires mid-backoff.
             let sleep = std::pin::pin!(compio::time::sleep(d));
             match futures_util::future::select(sleep, signal_fused.as_mut()).await {
-              Either::Left((_, _)) => continue,
+              Either::Left(((), _)) => continue,
               Either::Right(_) => {
                 cancel.cancel();
                 break;

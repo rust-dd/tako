@@ -268,7 +268,7 @@ impl Store {
         });
         Ok(notify)
       }
-      MapEntry::Occupied(o) => Err(match &*o.get() {
+      MapEntry::Occupied(o) => Err(match o.get() {
         Entry::Completed(c) => Entry::Completed(c.clone()),
         Entry::InFlight {
           payload_sig,
@@ -499,7 +499,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
         {
           let timeout_signal = Arc::new(Notify::new());
           let timer_signal = timeout_signal.clone();
-          let _timer_task = compio::runtime::spawn(async move {
+          let timer_task = compio::runtime::spawn(async move {
             compio::time::sleep(Duration::from_millis(ms)).await;
             timer_signal.notify_waiters();
           });
@@ -508,7 +508,7 @@ async fn handle(req: Request, next: Next, cfg: Config, store: Store) -> impl Res
             std::pin::pin!(timeout_signal.notified()),
           )
           .await;
-          drop(_timer_task);
+          drop(timer_task);
         }
       } else {
         notify.notified().await;

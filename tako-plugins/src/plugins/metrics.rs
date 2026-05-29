@@ -163,7 +163,7 @@ pub mod prometheus_backend {
   use super::MetricsBackend;
   use super::Signal;
 
-  /// Register `collector` into `registry`. AlreadyReg is logged + ignored
+  /// Register `collector` into `registry`. `AlreadyReg` is logged + ignored
   /// (idempotent install) so a double-install does not crash the server;
   /// other errors panic since they indicate a real misconfiguration.
   fn register_metric<C: Collector + Clone + 'static>(

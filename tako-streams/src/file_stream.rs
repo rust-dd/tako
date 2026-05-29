@@ -454,7 +454,7 @@ fn not_modified(etag: &str, last_modified: Option<SystemTime>) -> Response {
   builder.body(TakoBody::empty()).expect("valid 304 response")
 }
 
-/// ETag comparison helper.
+/// `ETag` comparison helper.
 ///
 /// `strong_only = true` matches RFC 9110 §13.1.1 / §8.8.3.2 strong
 /// comparison: weak (`W/`-prefixed) entries in EITHER the request header or

@@ -90,7 +90,7 @@ pub fn encode_trailer_frame(trailers: &HeaderMap) -> Bytes {
   }
   let payload = payload.into_bytes();
   assert!(
-    payload.len() <= u32::MAX as usize,
+    u32::try_from(payload.len()).is_ok(),
     "gRPC-Web trailer frame exceeds u32::MAX bytes — length-prefix would wrap"
   );
   let mut frame = BytesMut::with_capacity(5 + payload.len());

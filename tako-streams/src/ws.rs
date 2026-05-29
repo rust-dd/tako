@@ -220,7 +220,7 @@ fn normalize_origin(raw: &str) -> String {
   let port = url.port();
   let default = matches!(
     (scheme.as_str(), port),
-    ("http", Some(80)) | ("https", Some(443)) | ("ws", Some(80)) | ("wss", Some(443))
+    ("http" | "ws", Some(80)) | ("https" | "wss", Some(443))
   );
   match port {
     Some(p) if !default => format!("{scheme}://{host}:{p}"),
