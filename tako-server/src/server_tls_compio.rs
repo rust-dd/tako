@@ -337,8 +337,10 @@ pub async fn run_with_config(
           // graceful-shutdown initiation.
           let handshake_deadline = std::pin::pin!(compio::time::sleep(tls_handshake_timeout));
           let shutdown_wait = std::pin::pin!(conn_cancel.cancelled());
-          let deadline_or_shutdown =
-            std::pin::pin!(futures_util::future::select(handshake_deadline, shutdown_wait));
+          let deadline_or_shutdown = std::pin::pin!(futures_util::future::select(
+            handshake_deadline,
+            shutdown_wait
+          ));
           let accept_fut = std::pin::pin!(acceptor.accept(stream));
           let tls_stream =
             match futures_util::future::select(accept_fut, deadline_or_shutdown).await {
@@ -602,9 +604,9 @@ impl hyper::rt::Sleep for CompioSleep {}
 #[cfg(feature = "http2")]
 impl hyper::rt::Timer for CompioH2Timer {
   fn sleep(&self, duration: std::time::Duration) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {
-    Box::pin(CompioSleep(SendWrapper::new(Box::pin(compio::time::sleep(
-      duration,
-    )))))
+    Box::pin(CompioSleep(SendWrapper::new(Box::pin(
+      compio::time::sleep(duration),
+    ))))
   }
 
   fn sleep_until(&self, deadline: std::time::Instant) -> std::pin::Pin<Box<dyn hyper::rt::Sleep>> {

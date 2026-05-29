@@ -426,8 +426,9 @@ async fn handle_cors(req: Request, next: Next, cfg: Config) -> impl Responder {
   // handlers — capability discovery, `OPTIONS *` server-wide queries — and
   // returned an empty 204 with no `Allow` header in place of the handler's
   // response.
-  let is_preflight =
-    req.method() == Method::OPTIONS && origin.is_some() && req.headers().contains_key(ACCESS_CONTROL_REQUEST_METHOD);
+  let is_preflight = req.method() == Method::OPTIONS
+    && origin.is_some()
+    && req.headers().contains_key(ACCESS_CONTROL_REQUEST_METHOD);
   if is_preflight {
     let mut resp = http::Response::builder()
       .status(StatusCode::NO_CONTENT)
@@ -523,9 +524,7 @@ fn add_cors_headers(
   if let Some(v) = methods
     && let Ok(hv) = HeaderValue::from_str(&v)
   {
-    resp
-      .headers_mut()
-      .insert(ACCESS_CONTROL_ALLOW_METHODS, hv);
+    resp.headers_mut().insert(ACCESS_CONTROL_ALLOW_METHODS, hv);
   }
 
   // Access-Control-Allow-Headers header.
@@ -573,9 +572,7 @@ fn add_cors_headers(
       .collect::<Vec<_>>()
       .join(",");
     if let Ok(hv) = HeaderValue::from_str(&h) {
-      resp
-        .headers_mut()
-        .insert(ACCESS_CONTROL_ALLOW_HEADERS, hv);
+      resp.headers_mut().insert(ACCESS_CONTROL_ALLOW_HEADERS, hv);
     }
   }
 

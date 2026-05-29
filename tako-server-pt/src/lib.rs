@@ -167,11 +167,15 @@ impl PerThreadShutdown {
         return Ok(());
       }
       if succ + fail >= total {
-        let err = self.bind_status.first_err.lock().unwrap().take().unwrap_or_else(|| {
-          io::Error::other(format!(
-            "all {total} per-thread workers failed to bind",
-          ))
-        });
+        let err = self
+          .bind_status
+          .first_err
+          .lock()
+          .unwrap()
+          .take()
+          .unwrap_or_else(|| {
+            io::Error::other(format!("all {total} per-thread workers failed to bind",))
+          });
         return Err(err);
       }
 
@@ -539,7 +543,9 @@ impl PtConnGuard {
 #[cfg(feature = "compio")]
 impl Drop for PtConnGuard {
   fn drop(&mut self) {
-    self.inflight.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    self
+      .inflight
+      .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     self.drain_notify.notify_waiters();
   }
 }

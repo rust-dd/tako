@@ -195,10 +195,7 @@ where
     if end < start || (total_size > 0 && end >= total_size) {
       return http::Response::builder()
         .status(http::StatusCode::RANGE_NOT_SATISFIABLE)
-        .header(
-          http::header::CONTENT_RANGE,
-          format!("bytes */{total_size}"),
-        )
+        .header(http::header::CONTENT_RANGE, format!("bytes */{total_size}"))
         .body(TakoBody::empty())
         .unwrap_or_else(|e| {
           (

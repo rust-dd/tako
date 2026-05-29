@@ -166,7 +166,11 @@ pub mod prometheus_backend {
   /// Register `collector` into `registry`. AlreadyReg is logged + ignored
   /// (idempotent install) so a double-install does not crash the server;
   /// other errors panic since they indicate a real misconfiguration.
-  fn register_metric<C: Collector + Clone + 'static>(registry: &Registry, collector: &C, name: &str) {
+  fn register_metric<C: Collector + Clone + 'static>(
+    registry: &Registry,
+    collector: &C,
+    name: &str,
+  ) {
     match registry.register(Box::new(collector.clone())) {
       Ok(()) => {}
       Err(prometheus::Error::AlreadyReg) => {

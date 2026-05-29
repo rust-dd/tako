@@ -450,7 +450,9 @@ fn strip_csrf_seed_cookie(resp: &mut Response) {
     .filter(|v| {
       let s = v.to_str().unwrap_or("");
       let first = s.split(';').next().unwrap_or("");
-      let name = first.split_once('=').map_or(first.trim(), |(n, _)| n.trim());
+      let name = first
+        .split_once('=')
+        .map_or(first.trim(), |(n, _)| n.trim());
       name != "__csrf_seed"
     })
     .cloned()
@@ -484,7 +486,9 @@ fn ensure_csrf_cookie(
     .filter_map(|v| v.to_str().ok())
     .any(|s| {
       let first = s.split(';').next().unwrap_or("");
-      let name = first.split_once('=').map_or(first.trim(), |(n, _)| n.trim());
+      let name = first
+        .split_once('=')
+        .map_or(first.trim(), |(n, _)| n.trim());
       name == cookie_name
     });
   if already_set {

@@ -323,7 +323,10 @@ async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError
       // `Limited` surfaces `LengthLimitError` on cap overrun; otherwise
       // it's a transport / body error. Use the type-name to disambiguate
       // without depending on the private error path.
-      if e.downcast_ref::<http_body_util::LengthLimitError>().is_some() {
+      if e
+        .downcast_ref::<http_body_util::LengthLimitError>()
+        .is_some()
+      {
         Err(GraphQLError::BodyTooLarge)
       } else {
         Err(GraphQLError::BodyRead(e.to_string()))

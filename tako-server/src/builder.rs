@@ -461,11 +461,7 @@ pub fn build_rustls_server_config(
   // also clears this defensively, but doing it at construction prevents the
   // window where the unprotected config exists in caller memory before being
   // handed to `serve_h3_*`.
-  if config
-    .alpn_protocols
-    .iter()
-    .any(|p| p.as_slice() == b"h3")
-  {
+  if config.alpn_protocols.iter().any(|p| p.as_slice() == b"h3") {
     config.max_early_data_size = 0;
   }
   Ok(Arc::new(config))

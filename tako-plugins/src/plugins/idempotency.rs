@@ -611,8 +611,7 @@ fn conflict_response(retry_after_secs: Option<u32>) -> Response {
   if let Some(secs) = retry_after_secs {
     resp.headers_mut().insert(
       RETRY_AFTER,
-      HeaderValue::from_str(&secs.to_string())
-        .unwrap_or_else(|_| HeaderValue::from_static("3")),
+      HeaderValue::from_str(&secs.to_string()).unwrap_or_else(|_| HeaderValue::from_static("3")),
     );
   }
   resp

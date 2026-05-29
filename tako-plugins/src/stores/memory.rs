@@ -87,8 +87,7 @@ impl Bucket {
     // costing a branch in release.
     let dt = now.duration_since(self.last_refill).as_secs_f64();
     debug_assert!(dt >= 0.0, "monotonic Instant violated: dt={dt}");
-    self.available =
-      (self.available + dt * self.refill_rate_per_sec).min(f64::from(self.capacity));
+    self.available = (self.available + dt * self.refill_rate_per_sec).min(f64::from(self.capacity));
     self.last_refill = now;
   }
 }
