@@ -49,10 +49,10 @@
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Query parameter extractor with automatic deserialization to typed structures.
 #[doc(alias = "query")]
@@ -88,7 +88,7 @@ impl std::error::Error for QueryError {}
 
 impl Responder for QueryError {
   /// Converts query parameter errors into appropriate HTTP error responses.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       QueryError::MissingQueryString => (
         StatusCode::BAD_REQUEST,

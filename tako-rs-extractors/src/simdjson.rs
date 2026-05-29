@@ -56,11 +56,11 @@ use http::header::{self};
 use http_body_util::BodyExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// An extractor that (de)serializes JSON using SIMD-accelerated parsing.
 ///
@@ -136,7 +136,7 @@ impl Responder for SimdJsonError {
   }
 }
 
-use tako_core::extractors::is_json_content_type;
+use tako_rs_core::extractors::is_json_content_type;
 
 impl<'a, T> FromRequest<'a> for SimdJson<T>
 where

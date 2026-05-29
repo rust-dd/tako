@@ -5,8 +5,8 @@
 //! already produced a structured JSON error stay authoritative — the
 //! `Content-Type` of the original response is the trigger.
 //!
-//! Sister to [`Router::use_problem_json`](tako_core::router::Router::use_problem_json)
-//! / [`tako::problem::default_problem_responder`](tako_core::problem::default_problem_responder).
+//! Sister to [`Router::use_problem_json`](tako_rs_core::router::Router::use_problem_json)
+//! / [`tako::problem::default_problem_responder`](tako_rs_core::problem::default_problem_responder).
 //! The router hook fires only when the response originated from the framework
 //! itself (e.g. 404, 405, default error handler), whereas this middleware
 //! converts any 4xx/5xx that bubbles up from handler code.
@@ -14,11 +14,11 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::problem::default_problem_responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::problem::default_problem_responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Middleware that rewrites non-JSON 4xx/5xx responses into `problem+json`.
 pub struct ProblemJson {

@@ -6,14 +6,14 @@
 //! 401 rejection if the middleware did not run (a typical wiring mistake).
 //!
 //! For unauthenticated decoding (no signature check) prefer
-//! `tako_extractors::jwt::JwtClaimsUnverified<T>`.
+//! `tako_rs_extractors::jwt::JwtClaimsUnverified<T>`.
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Verified JWT claims placed into request extensions by [`crate::middleware::jwt_auth::JwtAuth`].
 ///
@@ -25,7 +25,7 @@ pub struct JwtClaimsVerified<C>(pub C);
 pub struct UnverifiedClaims;
 
 impl Responder for UnverifiedClaims {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (
       StatusCode::UNAUTHORIZED,
       "request was not authenticated by JwtAuth middleware",

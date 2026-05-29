@@ -9,9 +9,9 @@ use std::future::ready;
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
 
 /// Zero-copy access to the raw query string.
 pub struct RawQueryBorrowed<'a>(pub &'a str);
@@ -20,7 +20,7 @@ impl<'a> FromRequest<'a> for RawQueryBorrowed<'a> {
   type Error = Infallible;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     ready(Ok(RawQueryBorrowed(req.uri().query().unwrap_or(""))))
   }
@@ -49,7 +49,7 @@ pub enum QueryBorrowedError {
 }
 
 impl Responder for QueryBorrowedError {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       Self::DeserializationError(e) => (
         StatusCode::BAD_REQUEST,
@@ -67,7 +67,7 @@ where
   type Error = QueryBorrowedError;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     let q = req.uri().query().unwrap_or("");
     ready(

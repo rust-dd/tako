@@ -24,9 +24,9 @@
 
 use std::convert::Infallible;
 
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::types::Request;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::types::Request;
 
 /// Raw request body extractor that provides access to the underlying body stream.
 ///

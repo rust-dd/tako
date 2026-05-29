@@ -9,9 +9,9 @@ use criterion::criterion_group;
 use criterion::criterion_main;
 use http::Method;
 use http::Request;
-use tako_core::body::TakoBody;
-use tako_core::responder::Responder;
-use tako_core::router::Router;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::router::Router;
 
 async fn ok() -> impl Responder {
   "ok"

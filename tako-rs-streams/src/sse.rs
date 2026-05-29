@@ -44,9 +44,9 @@ use http::StatusCode;
 use http::header;
 use http_body_util::StreamBody;
 use pin_project_lite::pin_project;
-use tako_core::body::TakoBody;
-use tako_core::responder::Responder;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Response;
 
 const PREFIX: &[u8] = b"data: ";
 const SUFFIX: &[u8] = b"\n\n";

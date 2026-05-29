@@ -18,87 +18,87 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
-tako-extractors.workspace = true
-tako-macros.workspace = true
-tako-server.workspace = true
-tako-streams.workspace = true
-tako-plugins.workspace = true
+tako-rs-core.workspace = true
+tako-rs-extractors.workspace = true
+tako-rs-macros.workspace = true
+tako-rs-server.workspace = true
+tako-rs-streams.workspace = true
+tako-rs-plugins.workspace = true
 linkme.workspace = true
-tako-server-pt = { workspace = true, optional = true }
+tako-rs-server-pt = { workspace = true, optional = true }
 tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
 default = []
 
 # Plugin / middleware ecosystem
-plugins = ["tako-core/plugins", "tako-plugins/plugins"]
-signals = ["tako-core/signals", "tako-server/signals", "tako-plugins/signals"]
+plugins = ["tako-rs-core/plugins", "tako-rs-plugins/plugins"]
+signals = ["tako-rs-core/signals", "tako-rs-server/signals", "tako-rs-plugins/signals"]
 
 # Server transports
-tls = ["tako-server/tls", "tako-core/tls"]
-http2 = ["tako-server/http2", "tako-core/http2"]
-http3 = ["tako-server/http3", "tako-streams/http3", "tako-core/http3"]
-webtransport = ["tako-streams/webtransport", "tako-core/webtransport"]
+tls = ["tako-rs-server/tls", "tako-rs-core/tls"]
+http2 = ["tako-rs-server/http2", "tako-rs-core/http2"]
+http3 = ["tako-rs-server/http3", "tako-rs-streams/http3", "tako-rs-core/http3"]
+webtransport = ["tako-rs-streams/webtransport", "tako-rs-core/webtransport"]
 
 # Compio runtime
-compio = ["tako-core/compio", "tako-server/compio", "tako-streams/compio", "tako-plugins/compio"]
-# compio-tls / compio-ws imply `compio`: tako-server's `compio-tls` already
-# pulls in `tako-server/compio`, which turns off the tokio-based `Server` /
+compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio"]
+# compio-tls / compio-ws imply `compio`: tako-rs-server's `compio-tls` already
+# pulls in `tako-rs-server/compio`, which turns off the tokio-based `Server` /
 # `ServerBuilder` re-exports. If we didn't also flip `tako-rs/compio`, the
 # `#[cfg(not(feature = "compio"))]` gates in `src/lib.rs` would still try to
 # re-export items that are no longer present.
-compio-tls = ["compio", "tako-server/compio-tls", "tako-core/compio-tls"]
-compio-ws = ["compio", "tako-streams/compio-ws", "tako-core/compio-ws"]
+compio-tls = ["compio", "tako-rs-server/compio-tls", "tako-rs-core/compio-tls"]
+compio-ws = ["compio", "tako-rs-streams/compio-ws", "tako-rs-core/compio-ws"]
 
 # Body/streaming features
-file-stream = ["tako-streams/file-stream", "tako-core/file-stream"]
-client = ["tako-core/client"]
+file-stream = ["tako-rs-streams/file-stream", "tako-rs-core/file-stream"]
+client = ["tako-rs-core/client"]
 # Use the operating-system trust store via `rustls-native-certs`.
 # Implies `client`. Without this feature the bundled `webpki-roots` snapshot
 # is used (the historical default).
-native-certs = ["tako-core/native-certs"]
+native-certs = ["tako-rs-core/native-certs"]
 
 # Extractors
-multipart = ["tako-extractors/multipart", "tako-core/multipart"]
-protobuf = ["tako-extractors/protobuf", "tako-core/protobuf"]
-simd = ["tako-extractors/simd", "tako-core/simd"]
-simd-sonic = ["tako-extractors/simd-sonic", "tako-core/simd-sonic"]
-simd-json-impl = ["tako-extractors/simd-json-impl", "tako-core/simd-json-impl"]
-typed-header = ["tako-extractors/typed-header"]
-validator = ["tako-extractors/validator"]
-garde = ["tako-extractors/garde"]
-zero-copy-extractors = ["tako-extractors/zero-copy-extractors", "tako-core/zero-copy-extractors"]
-ahash = ["tako-core/ahash", "tako-extractors/ahash", "tako-plugins/ahash"]
-jwt-simple = ["tako-plugins/jwt-simple", "tako-core/jwt-simple"]
+multipart = ["tako-rs-extractors/multipart", "tako-rs-core/multipart"]
+protobuf = ["tako-rs-extractors/protobuf", "tako-rs-core/protobuf"]
+simd = ["tako-rs-extractors/simd", "tako-rs-core/simd"]
+simd-sonic = ["tako-rs-extractors/simd-sonic", "tako-rs-core/simd-sonic"]
+simd-json-impl = ["tako-rs-extractors/simd-json-impl", "tako-rs-core/simd-json-impl"]
+typed-header = ["tako-rs-extractors/typed-header"]
+validator = ["tako-rs-extractors/validator"]
+garde = ["tako-rs-extractors/garde"]
+zero-copy-extractors = ["tako-rs-extractors/zero-copy-extractors", "tako-rs-core/zero-copy-extractors"]
+ahash = ["tako-rs-core/ahash", "tako-rs-extractors/ahash", "tako-rs-plugins/ahash"]
+jwt-simple = ["tako-rs-plugins/jwt-simple", "tako-rs-core/jwt-simple"]
 
 # Metrics / OpenAPI / docs / GraphQL / gRPC
-metrics-prometheus = ["tako-plugins/metrics-prometheus", "tako-core/metrics-prometheus", "plugins", "signals"]
-metrics-opentelemetry = ["tako-plugins/metrics-opentelemetry", "tako-core/metrics-opentelemetry", "plugins", "signals"]
-async-graphql = ["tako-core/async-graphql"]
-graphiql = ["tako-core/graphiql"]
-grpc = ["tako-core/grpc"]
-utoipa = ["tako-core/utoipa"]
-# `utoipa-yaml` implies `utoipa` (here and in `tako-core`) so the
+metrics-prometheus = ["tako-rs-plugins/metrics-prometheus", "tako-rs-core/metrics-prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-rs-plugins/metrics-opentelemetry", "tako-rs-core/metrics-opentelemetry", "plugins", "signals"]
+async-graphql = ["tako-rs-core/async-graphql"]
+graphiql = ["tako-rs-core/graphiql"]
+grpc = ["tako-rs-core/grpc"]
+utoipa = ["tako-rs-core/utoipa"]
+# `utoipa-yaml` implies `utoipa` (here and in `tako-rs-core`) so the
 # `tako::openapi` re-export — gated on `any(utoipa, vespera)` — stays
 # visible whenever the YAML-only feature is enabled.
-utoipa-yaml = ["utoipa", "tako-core/utoipa-yaml"]
-vespera = ["tako-core/vespera"]
-tako-tracing = ["tako-core/tako-tracing", "tako-server/tako-tracing"]
-zstd = ["tako-plugins/zstd", "tako-core/zstd", "plugins"]
-jemalloc = ["dep:tikv-jemallocator", "tako-core/jemalloc"]
-ip-filter = ["tako-plugins/ip-filter"]
-hmac-signature = ["tako-plugins/hmac-signature"]
-json-schema = ["tako-plugins/json-schema"]
+utoipa-yaml = ["utoipa", "tako-rs-core/utoipa-yaml"]
+vespera = ["tako-rs-core/vespera"]
+tako-tracing = ["tako-rs-core/tako-tracing", "tako-rs-server/tako-tracing"]
+zstd = ["tako-rs-plugins/zstd", "tako-rs-core/zstd", "plugins"]
+jemalloc = ["dep:tikv-jemallocator", "tako-rs-core/jemalloc"]
+ip-filter = ["tako-rs-plugins/ip-filter"]
+hmac-signature = ["tako-rs-plugins/hmac-signature"]
+json-schema = ["tako-rs-plugins/json-schema"]
 
 # Thread-per-core runtime: existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
-per-thread = ["dep:tako-server-pt"]
+per-thread = ["dep:tako-rs-server-pt"]
 
 # Thread-per-core on the compio runtime: io_uring on Linux, IOCP on Windows, kqueue on macOS.
-# Does NOT enable `tako-core/compio` because that feature globally rewrites
+# Does NOT enable `tako-rs-core/compio` because that feature globally rewrites
 # signals/queue to compio spawn and conflicts with `serve()`. The per-thread
 # compio entry point pulls in the compio runtime directly.
-per-thread-compio = ["per-thread", "tako-server-pt/compio"]
+per-thread-compio = ["per-thread", "tako-rs-server-pt/compio"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
@@ -111,7 +111,7 @@ base64.workspace = true
 futures-util.workspace = true
 anyhow.workspace = true
 smallvec.workspace = true
-tako-core.workspace = true
+tako-rs-core.workspace = true
 # Needed so `#[compio::test]` resolves on integration tests built with the
 # workspace `--all-features` flag (compio runtime on).
 compio = { workspace = true, features = ["macros"] }

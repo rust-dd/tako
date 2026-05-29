@@ -43,12 +43,12 @@ use std::sync::Arc;
 use http::StatusCode;
 use http::header::CONTENT_LENGTH;
 use http_body_util::Limited;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Request body size limiting middleware configuration.
 ///

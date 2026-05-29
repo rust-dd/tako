@@ -25,9 +25,9 @@
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Represents a form extracted from an HTTP request body.
 ///
@@ -116,7 +116,7 @@ impl Responder for FormError {
   /// let response = error.into_response();
   /// assert_eq!(response.status(), StatusCode::BAD_REQUEST);
   /// ```
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       FormError::InvalidContentType => (
         StatusCode::BAD_REQUEST,

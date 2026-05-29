@@ -20,7 +20,7 @@
 //! ```
 
 use http::request::Parts;
-use tako_core::extractors::FromRequestParts;
+use tako_rs_core::extractors::FromRequestParts;
 
 /// Parsed Accept header with content negotiation helpers.
 #[derive(Debug, Clone)]

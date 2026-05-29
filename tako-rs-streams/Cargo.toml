@@ -1,22 +1,22 @@
 [package]
-name = "tako-streams"
+name = "tako-rs-streams"
 description = "Internal stream/upgrade transports for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-streams"
+documentation = "https://docs.rs/tako-rs-streams"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 
 [lib]
-name = "tako_streams"
+name = "tako_rs_streams"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
+tako-rs-core.workspace = true
 
 anyhow.workspace = true
 base64.workspace = true
@@ -47,10 +47,10 @@ rustls = { workspace = true, optional = true }
 default = []
 file-stream = []
 plugins = []
-signals = ["tako-core/signals"]
-compio = ["dep:compio", "tako-core/compio"]
+signals = ["tako-rs-core/signals"]
+compio = ["dep:compio", "tako-rs-core/compio"]
 compio-ws = ["compio", "compio/io", "compio/ws"]
-http3 = ["dep:quinn", "dep:rustls", "tako-core/http3"]
+http3 = ["dep:quinn", "dep:rustls", "tako-rs-core/http3"]
 webtransport = ["http3"]
 
 [lints]

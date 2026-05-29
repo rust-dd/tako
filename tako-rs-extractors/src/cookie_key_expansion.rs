@@ -26,10 +26,10 @@ use hkdf::Hkdf;
 use http::StatusCode;
 use http::request::Parts;
 use sha2::Sha256;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Key derivation contexts for different cryptographic purposes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -119,7 +119,7 @@ pub enum CookieKeyExpansionError {
 
 impl Responder for CookieKeyExpansionError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       CookieKeyExpansionError::MissingConfig => (
         StatusCode::INTERNAL_SERVER_ERROR,

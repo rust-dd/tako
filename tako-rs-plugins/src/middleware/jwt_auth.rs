@@ -26,11 +26,11 @@ use std::sync::Arc;
 use http::StatusCode;
 use http::header::AUTHORIZATION;
 use scc::HashSet as SccHashSet;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Trait for verifying JWT tokens.
 pub trait JwtVerifier: Send + Sync + Clone + 'static {
@@ -277,7 +277,7 @@ mod jwt_simple_impl {
   use ::jwt_simple::prelude::*;
   use serde::Serialize;
   use serde::de::DeserializeOwned;
-  use tako_core::types::BuildHasher;
+  use tako_rs_core::types::BuildHasher;
 
   /// Multi-algorithm JWT verification key wrapper.
   pub enum AnyVerifyKey {

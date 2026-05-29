@@ -29,7 +29,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tako_core::router::Router;
+use tako_rs_core::router::Router;
 #[cfg(not(feature = "compio"))]
 use tokio::net::TcpListener;
 
@@ -277,7 +277,7 @@ impl TlsCert {
 /// # #[cfg(feature = "tls")]
 /// # async fn _example() -> anyhow::Result<()> {
 /// use std::sync::Arc;
-/// use tako_server::{ReloadableResolver, Server, TlsCert};
+/// use tako_rs_server::{ReloadableResolver, Server, TlsCert};
 ///
 /// let resolver = Arc::new(ReloadableResolver::from_pem("cert.pem", "key.pem")?);
 /// let cert = TlsCert::resolver(resolver.clone());
@@ -340,8 +340,8 @@ fn build_certified_key(
   cert_path: &str,
   key_path: &str,
 ) -> anyhow::Result<rustls::sign::CertifiedKey> {
-  let certs = tako_core::tls::load_certs(cert_path)?;
-  let key = tako_core::tls::load_key(key_path)?;
+  let certs = tako_rs_core::tls::load_certs(cert_path)?;
+  let key = tako_rs_core::tls::load_key(key_path)?;
 
   // Use whatever rustls CryptoProvider is installed — server_h3 / webtransport
   // install `ring` on first use; pure-TLS apps may not have installed any yet.
@@ -438,8 +438,8 @@ pub fn build_rustls_server_config(
       key_path,
       ..
     } => {
-      let certs = tako_core::tls::load_certs(cert_path)?;
-      let key = tako_core::tls::load_key(key_path)?;
+      let certs = tako_rs_core::tls::load_certs(cert_path)?;
+      let key = tako_rs_core::tls::load_key(key_path)?;
       builder_with_auth
         .with_single_cert(certs, key)
         .map_err(|e| anyhow::anyhow!("rustls config build failed: {e}"))?

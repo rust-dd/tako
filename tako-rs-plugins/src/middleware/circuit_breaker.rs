@@ -30,12 +30,12 @@ use http::StatusCode;
 use http::header::RETRY_AFTER;
 use parking_lot::Mutex;
 use scc::HashMap as SccHashMap;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::router_state::MatchedPath;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::router_state::MatchedPath;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 const STATE_CLOSED: u8 = 0;
 const STATE_OPEN: u8 = 1;

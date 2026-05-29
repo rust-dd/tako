@@ -19,10 +19,10 @@ use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::router::Router;
-use tako_core::types::BoxError;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::BoxError;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -80,7 +80,7 @@ async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   let router: &'static Router = Box::leak(Box::new(router));
 

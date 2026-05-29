@@ -33,10 +33,10 @@ use cookie::Key;
 use http::HeaderMap;
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Key ring for rotation-aware cookie signing/verification.
 ///
@@ -146,7 +146,7 @@ pub enum CookieSignedError {
 
 impl Responder for CookieSignedError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       CookieSignedError::MissingKey => (
         StatusCode::INTERNAL_SERVER_ERROR,

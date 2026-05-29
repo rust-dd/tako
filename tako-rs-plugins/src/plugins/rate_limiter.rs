@@ -28,14 +28,14 @@ use http::StatusCode;
 use http::header::RETRY_AFTER;
 use parking_lot::Mutex;
 use scc::HashMap as SccHashMap;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::PeerAddr;
-use tako_core::middleware::Next;
-use tako_core::plugins::TakoPlugin;
-use tako_core::router::Router;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::plugins::TakoPlugin;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Rate-limiting algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

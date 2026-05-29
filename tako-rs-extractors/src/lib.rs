@@ -28,7 +28,7 @@ pub mod bearer;
 /// Raw byte data extraction from request bodies.
 pub mod bytes;
 
-/// `ConnectInfo<T>` typed view over `tako_core::conn_info::ConnInfo`.
+/// `ConnectInfo<T>` typed view over `tako_rs_core::conn_info::ConnInfo`.
 pub mod connect_info;
 
 /// `ContentLengthLimit<T, N>` body-bound extractor wrapper.

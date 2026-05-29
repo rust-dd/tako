@@ -1,12 +1,12 @@
 [workspace]
 members = [
-  "tako-core",
-  "tako-extractors",
-  "tako-macros",
-  "tako-server",
-  "tako-server-pt",
-  "tako-streams",
-  "tako-plugins",
+  "tako-rs-core",
+  "tako-rs-extractors",
+  "tako-rs-macros",
+  "tako-rs-server",
+  "tako-rs-server-pt",
+  "tako-rs-streams",
+  "tako-rs-plugins",
   "tako-rs",
 ]
 exclude = [
@@ -63,14 +63,15 @@ repository = "https://github.com/rust-dd/tako"
 authors = ["Daniel Boros <dancixx@gmail.com>"]
 
 [workspace.dependencies]
-# Internal sub-crates
-tako-core = { path = "tako-core", version = "2.0.0" }
-tako-extractors = { path = "tako-extractors", version = "2.0.0" }
-tako-macros = { path = "tako-macros", version = "2.0.0" }
-tako-plugins = { path = "tako-plugins", version = "2.0.0" }
-tako-server = { path = "tako-server", version = "2.0.0" }
-tako-server-pt = { path = "tako-server-pt", version = "2.0.0" }
-tako-streams = { path = "tako-streams", version = "2.0.0" }
+# Internal sub-crates — published as `tako-rs-*` on crates.io (the
+# unprefixed `tako-*` names are owned by a name-squatter at 0.0.0).
+tako-rs-core = { path = "tako-rs-core", version = "2.0.0" }
+tako-rs-extractors = { path = "tako-rs-extractors", version = "2.0.0" }
+tako-rs-macros = { path = "tako-rs-macros", version = "2.0.0" }
+tako-rs-plugins = { path = "tako-rs-plugins", version = "2.0.0" }
+tako-rs-server = { path = "tako-rs-server", version = "2.0.0" }
+tako-rs-server-pt = { path = "tako-rs-server-pt", version = "2.0.0" }
+tako-rs-streams = { path = "tako-rs-streams", version = "2.0.0" }
 
 # Required dependencies
 anyhow = "1.0.98"

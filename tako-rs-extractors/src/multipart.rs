@@ -43,9 +43,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Map;
 use serde_json::Value;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
@@ -167,7 +167,7 @@ impl MultipartConfig {
     if let Some(cfg) = req_ext.get::<MultipartConfig>() {
       return cfg.clone();
     }
-    if let Some(arc) = tako_core::state::get_state::<MultipartConfig>() {
+    if let Some(arc) = tako_rs_core::state::get_state::<MultipartConfig>() {
       return arc.as_ref().clone();
     }
     MultipartConfig::default()
@@ -218,7 +218,7 @@ pub enum MultipartError {
 
 impl Responder for MultipartError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       MultipartError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
@@ -275,7 +275,7 @@ pub enum TypedMultipartError {
 
 impl Responder for TypedMultipartError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       TypedMultipartError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
@@ -582,7 +582,7 @@ pub enum BufferedUploadedFile {
 
 impl FromMultipartField for BufferedUploadedFile {
   async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
-    let cfg = tako_core::state::get_state::<MultipartConfig>().map(|a| a.as_ref().clone());
+    let cfg = tako_rs_core::state::get_state::<MultipartConfig>().map(|a| a.as_ref().clone());
     let threshold = cfg.as_ref().and_then(|c| c.disk_spill_threshold);
 
     let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);

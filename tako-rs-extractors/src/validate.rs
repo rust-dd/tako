@@ -41,10 +41,10 @@
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Wraps an inner extractor and runs `Validate::validate` on the produced value.
 pub struct Validated<T>(pub T);
@@ -96,7 +96,7 @@ pub enum ValidatedError<E> {
 }
 
 impl<E: Responder> Responder for ValidatedError<E> {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       Self::Inner(e) => e.into_response(),
       Self::Failed(detail) => {
@@ -109,7 +109,7 @@ impl<E: Responder> Responder for ValidatedError<E> {
         let mut res = http::Response::builder()
           .status(StatusCode::UNPROCESSABLE_ENTITY)
           .header(CONTENT_TYPE, "application/problem+json")
-          .body(tako_core::body::TakoBody::from(body.to_string()))
+          .body(tako_rs_core::body::TakoBody::from(body.to_string()))
           .expect("valid problem+json response");
         // No-op: Responder for tuple already builds Response, but we want explicit
         // problem+json so we built it manually above.

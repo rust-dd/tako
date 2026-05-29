@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 
 use futures_util::future::ready;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
 
 pub struct HeaderMapBorrowed<'a>(pub &'a http::HeaderMap);
 
@@ -10,7 +10,7 @@ impl<'a> FromRequest<'a> for HeaderMapBorrowed<'a> {
   type Error = Infallible;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     ready(Ok(HeaderMapBorrowed(req.headers())))
   }

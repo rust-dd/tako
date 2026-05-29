@@ -135,13 +135,13 @@ async fn host_falls_back_to_host_header() {
 
 // --- helpers -----------------------------------------------------------------
 
-fn make_path_params(pairs: &[(&str, &str)]) -> tako_core::extractors::params::PathParams {
+fn make_path_params(pairs: &[(&str, &str)]) -> tako_rs_core::extractors::params::PathParams {
   use smallvec::SmallVec;
   let mut sv: SmallVec<[(String, String); 4]> = SmallVec::new();
   for (k, v) in pairs {
     sv.push(((*k).to_string(), (*v).to_string()));
   }
-  tako_core::extractors::params::PathParams(sv)
+  tako_rs_core::extractors::params::PathParams(sv)
 }
 
 #[tokio::test]

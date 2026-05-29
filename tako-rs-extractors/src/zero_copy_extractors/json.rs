@@ -3,12 +3,12 @@ use http::HeaderValue;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use serde::Serialize;
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::is_json_content_type;
-use tako_core::extractors::json::JsonError;
-use tako_core::responder::Responder;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::is_json_content_type;
+use tako_rs_core::extractors::json::JsonError;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Response;
 
 pub struct JsonBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
@@ -19,7 +19,7 @@ where
   type Error = JsonError;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     use crate::zero_copy_extractors::bytes::CachedRequestBody;
     async move {
@@ -64,7 +64,7 @@ impl<T> Responder for JsonBorrowed<'_, T>
 where
   T: Serialize,
 {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match serde_json::to_vec(&self.0) {
       Ok(buf) => {
         let mut res = Response::new(TakoBody::from(buf));
@@ -75,7 +75,7 @@ where
         res
       }
       Err(err) => {
-        let mut res = Response::new(tako_core::body::TakoBody::from(err.to_string()));
+        let mut res = Response::new(tako_rs_core::body::TakoBody::from(err.to_string()));
         *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
         res.headers_mut().insert(
           http::header::CONTENT_TYPE,

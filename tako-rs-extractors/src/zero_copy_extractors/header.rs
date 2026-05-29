@@ -4,9 +4,9 @@ use http::HeaderName;
 use http::HeaderValue;
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
 
 /// Borrowed reference to a single header value, addressed by a const name.
 ///
@@ -53,7 +53,7 @@ impl BorrowedHeader {
 pub struct MissingHeader(pub &'static str);
 
 impl Responder for MissingHeader {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (
       StatusCode::BAD_REQUEST,
       format!("missing required header: {}", self.0),
@@ -72,7 +72,7 @@ impl<'a> FromRequest<'a> for AuthorizationBorrowed<'a> {
   type Error = MissingHeader;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     futures_util::future::ready(
       req
@@ -107,7 +107,7 @@ impl<'a> FromRequest<'a> for AuthorizationOptBorrowed<'a> {
   type Error = std::convert::Infallible;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     futures_util::future::ready(Ok(AuthorizationOptBorrowed(
       req.headers().get(http::header::AUTHORIZATION),

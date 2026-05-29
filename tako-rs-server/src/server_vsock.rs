@@ -20,8 +20,8 @@
 //! ```rust,no_run
 //! # #[cfg(all(target_os = "linux", feature = "vsock"))]
 //! # async fn _ex() {
-//! use tako_server::server_vsock::serve_vsock_http;
-//! use tako_core::router::Router;
+//! use tako_rs_server::server_vsock::serve_vsock_http;
+//! use tako_rs_core::router::Router;
 //! use tokio_vsock::VMADDR_CID_ANY;
 //!
 //! let router = Router::new();
@@ -35,12 +35,12 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::PeerAddr;
-use tako_core::conn_info::Transport;
-use tako_core::router::Router;
-use tako_core::types::BoxError;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::conn_info::Transport;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::BoxError;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_vsock::VsockAddr;
@@ -108,7 +108,7 @@ async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   let listener = VsockListener::bind(VsockAddr::new(cid, port))?;
   let router = Arc::new(router);

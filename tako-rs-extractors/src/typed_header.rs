@@ -24,10 +24,10 @@
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// A strongly-typed header extractor.
 ///
@@ -50,7 +50,7 @@ pub enum TypedHeaderRejection {
 }
 
 impl Responder for TypedHeaderRejection {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       TypedHeaderRejection::Missing(name) => (
         StatusCode::BAD_REQUEST,

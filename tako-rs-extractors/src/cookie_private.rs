@@ -33,10 +33,10 @@ use cookie::Key;
 use http::HeaderMap;
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// A wrapper that provides methods for managing encrypted cookies in HTTP requests and responses.
 ///
@@ -86,7 +86,7 @@ pub enum CookiePrivateError {
 
 impl Responder for CookiePrivateError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       CookiePrivateError::MissingKey => (
         StatusCode::INTERNAL_SERVER_ERROR,

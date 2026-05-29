@@ -13,10 +13,10 @@ use std::path::PathBuf;
 use compio::fs;
 use http::StatusCode;
 use http::header;
-use tako_core::body::TakoBody;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 #[cfg(not(feature = "compio"))]
 use tokio::fs;
 #[cfg(not(feature = "compio"))]

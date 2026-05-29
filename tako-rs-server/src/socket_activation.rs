@@ -14,7 +14,7 @@
 //! ```rust,no_run
 //! # #[cfg(feature = "socket-activation")]
 //! # async fn _ex() -> std::io::Result<()> {
-//! use tako_server::socket_activation::ListenFds;
+//! use tako_rs_server::socket_activation::ListenFds;
 //! use tokio::net::TcpListener;
 //!
 //! let mut fds = ListenFds::from_env();

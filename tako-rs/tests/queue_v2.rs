@@ -9,9 +9,9 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tako::queue::Queue;
-use tako_core::queue::backend::MemoryBackend;
-use tako_core::queue::backend::PushOptions;
-use tako_core::queue::backend::QueueBackend;
+use tako_rs_core::queue::backend::MemoryBackend;
+use tako_rs_core::queue::backend::PushOptions;
+use tako_rs_core::queue::backend::QueueBackend;
 
 #[cfg(not(feature = "compio"))]
 #[tokio::test]

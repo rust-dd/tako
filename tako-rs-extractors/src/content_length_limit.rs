@@ -14,10 +14,10 @@
 
 use http::StatusCode;
 use http_body_util::Limited;
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Wraps another extractor and rejects with 413 when `Content-Length` exceeds `N`.
 pub struct ContentLengthLimit<T, const N: u64>(pub T);
@@ -42,7 +42,7 @@ impl<E> Responder for ContentLengthLimitError<E>
 where
   E: Responder,
 {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       Self::TooLarge { declared, limit } => (
         StatusCode::PAYLOAD_TOO_LARGE,

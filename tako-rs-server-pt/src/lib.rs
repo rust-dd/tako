@@ -11,7 +11,7 @@
 //!
 //! Two entry points:
 //!
-//! - [`serve_per_thread`] — uses the existing thread-safe [`tako_core::router::Router`]
+//! - [`serve_per_thread`] — uses the existing thread-safe [`tako_rs_core::router::Router`]
 //!   from `tako-core`. Drop-in alternative to `tako::serve`; no API changes.
 //! - `serve_per_thread_compio` (under the `compio` feature) — same `SO_REUSEPORT`
 //!   bootstrap but each worker runs a `compio` runtime (`io_uring` on Linux,
@@ -29,9 +29,9 @@ use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
 use socket2::Type;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::router::Router;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::router::Router;
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
 use tokio::task::LocalSet;
@@ -471,7 +471,7 @@ fn worker_main(
 /// Same `SO_REUSEPORT` bootstrap as [`serve_per_thread`] but each worker runs a
 /// single-threaded `compio` runtime — `io_uring` on Linux, IOCP on Windows,
 /// kqueue on macOS. The router type stays the standard thread-safe
-/// [`tako_core::router::Router`].
+/// [`tako_rs_core::router::Router`].
 #[cfg(feature = "compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
@@ -670,7 +670,7 @@ fn worker_main_compio(
           req.extensions_mut().insert(peer);
           req.extensions_mut().insert(ConnInfo::tcp(peer));
           let resp = router
-            .dispatch(req.map(tako_core::body::TakoBody::new))
+            .dispatch(req.map(tako_rs_core::body::TakoBody::new))
             .await;
           Ok::<_, Infallible>(resp)
         });

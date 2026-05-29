@@ -36,10 +36,10 @@ use http::StatusCode;
 use http_body::Frame;
 use sha1::Digest as _;
 use sha1::Sha1;
-use tako_core::body::TakoBody;
-use tako_core::responder::Responder;
-use tako_core::types::BoxError;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::BoxError;
+use tako_rs_core::types::Response;
 #[cfg(not(feature = "compio"))]
 use tokio::fs::File;
 #[cfg(not(feature = "compio"))]

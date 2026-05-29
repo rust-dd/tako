@@ -28,10 +28,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use http::HeaderValue;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Per-request CSP nonce inserted into request extensions when
 /// [`SecurityHeaders::csp_with_nonce`] is configured.

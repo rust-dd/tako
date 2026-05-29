@@ -1,6 +1,6 @@
 //! gRPC-specific interceptor middleware.
 //!
-//! HTTP middleware (`tako_core::middleware::Next`) operates on `Request` /
+//! HTTP middleware (`tako_rs_core::middleware::Next`) operates on `Request` /
 //! `Response`, so it can pre/post-process arbitrary HTTP traffic. gRPC adds
 //! two extra concerns that don't translate cleanly:
 //!

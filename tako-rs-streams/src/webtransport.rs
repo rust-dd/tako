@@ -176,8 +176,8 @@ where
   // not reach across into another transport crate's private surface.
   let _ = rustls::crypto::ring::default_provider().install_default();
 
-  let certs = tako_core::tls::load_certs(cert_path)?;
-  let key = tako_core::tls::load_key(key_path)?;
+  let certs = tako_rs_core::tls::load_certs(cert_path)?;
+  let key = tako_rs_core::tls::load_key(key_path)?;
 
   let mut tls_config = rustls::ServerConfig::builder()
     .with_no_client_auth()

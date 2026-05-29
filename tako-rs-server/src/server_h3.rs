@@ -48,13 +48,13 @@ use quinn::congestion::BbrConfig;
 use quinn::congestion::CubicConfig;
 use quinn::congestion::NewRenoConfig;
 use quinn::crypto::rustls::QuicServerConfig;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::TlsInfo;
-use tako_core::router::Router;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::TlsInfo;
+use tako_rs_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::transport as signal_tx;
-use tako_core::types::BoxError;
+use tako_rs_core::signals::transport as signal_tx;
+use tako_rs_core::types::BoxError;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::H3Congestion;
@@ -222,7 +222,7 @@ async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   // Install default crypto provider for rustls (required for QUIC/TLS).
   // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
@@ -258,7 +258,7 @@ async fn run_with_rustls_config(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   // Install default crypto provider for rustls (required for QUIC/TLS).
   // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
@@ -701,8 +701,8 @@ where
 }
 
 /// Loads TLS certificates from a PEM-encoded file. Re-export of
-/// [`tako_core::tls::load_certs`].
-pub use tako_core::tls::load_certs;
+/// [`tako_rs_core::tls::load_certs`].
+pub use tako_rs_core::tls::load_certs;
 /// Loads a private key from a PEM-encoded file. Accepts PKCS#8, PKCS#1 (RSA),
-/// and SEC1 (EC) PEM blocks. Re-export of [`tako_core::tls::load_key`].
-pub use tako_core::tls::load_key;
+/// and SEC1 (EC) PEM blocks. Re-export of [`tako_rs_core::tls::load_key`].
+pub use tako_rs_core::tls::load_key;

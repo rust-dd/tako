@@ -30,9 +30,9 @@ use cookie::CookieJar as RawJar;
 use http::HeaderMap;
 use http::header::COOKIE;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::types::Request;
 
 /// Shared `Cookie:` header parser: pulls every well-formed cookie out of the
 /// `Cookie:` header on `headers` and registers it as an *original* entry on

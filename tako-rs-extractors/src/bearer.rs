@@ -38,10 +38,10 @@
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Bearer token authentication credentials extracted from Authorization header.
 ///
@@ -87,7 +87,7 @@ impl std::error::Error for BearerAuthError {}
 
 impl Responder for BearerAuthError {
   /// Converts Bearer authentication errors into appropriate HTTP responses.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     let (status, message) = match self {
       BearerAuthError::MissingAuthHeader => {
         (StatusCode::UNAUTHORIZED, "Missing Authorization header")

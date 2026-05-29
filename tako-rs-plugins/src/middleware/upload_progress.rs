@@ -36,12 +36,12 @@ use http_body::Frame;
 use http_body::SizeHint;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::BoxError;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::BoxError;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Upload progress state accessible during and after upload.
 #[derive(Debug, Clone)]

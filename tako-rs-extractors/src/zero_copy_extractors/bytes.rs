@@ -7,7 +7,7 @@
 
 use bytes::Bytes;
 use http_body_util::BodyExt;
-use tako_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequest;
 
 /// Wrapper around the cached request body inserted into request extensions.
 ///
@@ -27,8 +27,8 @@ pub struct BytesBorrowed<'a>(pub &'a Bytes);
 #[derive(Debug)]
 pub struct BytesReadError(pub String);
 
-impl tako_core::responder::Responder for BytesReadError {
-  fn into_response(self) -> tako_core::types::Response {
+impl tako_rs_core::responder::Responder for BytesReadError {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (
       http::StatusCode::BAD_REQUEST,
       format!("failed to read request body: {}", self.0),
@@ -41,7 +41,7 @@ impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
   type Error = BytesReadError;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       if req.extensions().get::<CachedRequestBody>().is_none() {
@@ -77,7 +77,7 @@ impl<'a> FromRequest<'a> for BodySliceBorrowed<'a> {
   type Error = BytesReadError;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       if req.extensions().get::<CachedRequestBody>().is_none() {

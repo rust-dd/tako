@@ -72,13 +72,13 @@ pub mod deflate_stream;
 pub mod gzip_stream;
 pub mod zstd_stream;
 
-use tako_core::body::TakoBody;
-use tako_core::middleware::Next;
-use tako_core::plugins::TakoPlugin;
-use tako_core::responder::Responder;
-use tako_core::router::Router;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::plugins::TakoPlugin;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 #[cfg(feature = "zstd")]
 use zstd::stream::encode_all as zstd_encode;
 

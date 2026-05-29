@@ -1,19 +1,19 @@
 //! `ConnectInfo<T>` extractor — typed access to per-connection transport data.
 //!
 //! `T` may be `SocketAddr` (peer address from any IP transport),
-//! `tako_core::conn_info::ConnInfo` (full transport snapshot), or any other
+//! `tako_rs_core::conn_info::ConnInfo` (full transport snapshot), or any other
 //! type that implements [`FromConnInfo`](crate::connect_info::FromConnInfo).
 
 use std::net::SocketAddr;
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::PeerAddr;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Trait derived from `ConnInfo` to produce the `T` exposed by `ConnectInfo<T>`.
 pub trait FromConnInfo: Sized {
@@ -50,7 +50,7 @@ pub struct ConnectInfo<T>(pub T);
 pub struct ConnectInfoMissing;
 
 impl Responder for ConnectInfoMissing {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (
       StatusCode::INTERNAL_SERVER_ERROR,
       "connection info unavailable for this request",

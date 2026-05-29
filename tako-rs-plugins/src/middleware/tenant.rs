@@ -18,11 +18,11 @@ use std::sync::Arc;
 
 use http::HeaderName;
 use http::StatusCode;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Decoded tenant identifier inserted into request extensions.
 #[derive(Debug, Clone)]

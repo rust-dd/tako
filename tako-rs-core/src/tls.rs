@@ -1,8 +1,8 @@
 //! Shared TLS PEM loading helpers used by every TLS-capable Tako transport.
 //!
 //! Previously each `serve_tls*` / `serve_h3*` implementation carried its own
-//! copy of `load_certs` / `load_key`, and `tako_streams::webtransport` reached
-//! across crates into `tako_server::server_h3`. This module hosts the single
+//! copy of `load_certs` / `load_key`, and `tako_rs_streams::webtransport` reached
+//! across crates into `tako_rs_server::server_h3`. This module hosts the single
 //! authoritative implementation. Both functions accept PKCS#8, PKCS#1 (RSA),
 //! and SEC1 (EC) PEM blocks.
 

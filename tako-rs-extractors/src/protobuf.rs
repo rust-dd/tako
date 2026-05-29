@@ -38,9 +38,9 @@
 use http::StatusCode;
 use http_body_util::BodyExt;
 use prost::Message;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Protobuf request body extractor with automatic deserialization.
 #[doc(alias = "protobuf")]
@@ -61,7 +61,7 @@ pub enum ProtobufError {
 
 impl Responder for ProtobufError {
   /// Converts Protobuf extraction errors into appropriate HTTP error responses.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       ProtobufError::InvalidContentType => (
         StatusCode::BAD_REQUEST,
@@ -90,9 +90,9 @@ where
   T: Message,
 {
   /// Converts the wrapped protobuf message into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     let buf = self.0.encode_to_vec();
-    let mut res = tako_core::types::Response::new(tako_core::body::TakoBody::from(buf));
+    let mut res = tako_rs_core::types::Response::new(tako_rs_core::body::TakoBody::from(buf));
     res.headers_mut().insert(
       http::header::CONTENT_TYPE,
       http::HeaderValue::from_static("application/x-protobuf"),

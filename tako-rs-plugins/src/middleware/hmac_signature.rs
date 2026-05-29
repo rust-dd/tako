@@ -20,11 +20,11 @@ use http::StatusCode;
 use http_body_util::BodyExt;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 type HmacSha256 = Hmac<Sha256>;
 

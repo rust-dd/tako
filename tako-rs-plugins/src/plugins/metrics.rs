@@ -18,19 +18,19 @@ use prometheus::Registry;
 #[cfg(feature = "metrics-prometheus")]
 use prometheus::TextEncoder;
 #[cfg(feature = "metrics-prometheus")]
-use tako_core::Method;
-use tako_core::plugins::TakoPlugin;
+use tako_rs_core::Method;
+use tako_rs_core::plugins::TakoPlugin;
 #[cfg(feature = "metrics-prometheus")]
-use tako_core::responder::Responder;
-use tako_core::router::Router;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::Signal;
+use tako_rs_core::signals::Signal;
 #[cfg(feature = "signals")]
-use tako_core::signals::app_events;
+use tako_rs_core::signals::app_events;
 #[cfg(feature = "signals")]
-use tako_core::signals::ids;
+use tako_rs_core::signals::ids;
 #[cfg(feature = "metrics-prometheus")]
-use tako_extractors::state::State;
+use tako_rs_extractors::state::State;
 
 /// Common interface for metrics backends used by the metrics plugin.
 ///

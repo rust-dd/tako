@@ -19,10 +19,10 @@
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Extracts a clone of a typed extension value.
 pub struct Extension<T>(pub T);
@@ -52,7 +52,7 @@ impl MissingExtension {
 }
 
 impl Responder for MissingExtension {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     // Use the short name on the wire — the fully-qualified path is internal
     // detail that leaks crate structure and is hard to read in logs.
     let short = self.short_name();

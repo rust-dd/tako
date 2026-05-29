@@ -2,14 +2,14 @@
 
 //! Fuzz target: PROXY protocol v1 + v2 parser.
 //!
-//! Feeds arbitrary byte input through `tako_server::read_proxy_protocol`
+//! Feeds arbitrary byte input through `tako_rs_server::read_proxy_protocol`
 //! against an in-memory cursor. The parser must never panic on malformed
 //! input — it should return `Err(io::Error)` instead.
 
 use std::io::Cursor;
 
 use libfuzzer_sys::fuzz_target;
-use tako_server::proxy_protocol::read_proxy_protocol;
+use tako_rs_server::proxy_protocol::read_proxy_protocol;
 
 fuzz_target!(|data: &[u8]| {
   let runtime = tokio::runtime::Builder::new_current_thread()

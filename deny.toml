@@ -39,7 +39,7 @@ ignore = [
   # Other transitive crates without a patched version yet.
   { id = "RUSTSEC-2026-0007", reason = "bytes BytesMut::reserve overflow — patched in 1.11.1; bumped in lockfile" },
   { id = "RUSTSEC-2026-0037", reason = "quinn endpoint DoS — only triggers when http3 feature is enabled; awaiting upstream fix" },
-  { id = "RUSTSEC-2024-0437", reason = "protobuf uncontrolled recursion — only via protobuf feature; size limits in tako-extractors mitigate" },
+  { id = "RUSTSEC-2024-0437", reason = "protobuf uncontrolled recursion — only via protobuf feature; size limits in tako-rs-extractors mitigate" },
   { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack — transitive via jwt-simple; key recovery requires precise timing access to a Rust process serving RSA decryption" },
 
   # Unmaintained crates — not active vulnerabilities, just signals.

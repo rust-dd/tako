@@ -36,12 +36,12 @@ use http::StatusCode;
 use http::header;
 use subtle::Choice;
 use subtle::ConstantTimeEq;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Constant-time match against a list of candidate tokens. See `api_key_auth` for rationale.
 fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {

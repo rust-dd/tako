@@ -30,12 +30,12 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::router::Router;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::transport as signal_tx;
-use tako_core::types::BoxError;
+use tako_rs_core::signals::transport as signal_tx;
+use tako_rs_core::types::BoxError;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -99,7 +99,7 @@ async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   // Leak the router into a `&'static` reference to eliminate all Arc
   // refcount bumps on the per-connection and per-request hot paths.

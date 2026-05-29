@@ -60,13 +60,13 @@ fi
 # Topological order — each crate must come AFTER its internal deps.
 # Verified against `tako-*/Cargo.toml` `tako-*.workspace = true` entries.
 PUBLISH_ORDER=(
-  "tako-macros"        # no internal deps
-  "tako-core"          # no internal deps
-  "tako-extractors"    # tako-core
-  "tako-server"        # tako-core
-  "tako-server-pt"     # tako-core
-  "tako-streams"       # tako-core, tako-server
-  "tako-plugins"       # tako-core, tako-extractors
+  "tako-rs-macros"     # no internal deps
+  "tako-rs-core"       # no internal deps
+  "tako-rs-extractors" # tako-rs-core
+  "tako-rs-server"     # tako-rs-core
+  "tako-rs-server-pt"  # tako-rs-core
+  "tako-rs-streams"    # tako-rs-core, tako-rs-server
+  "tako-rs-plugins"    # tako-rs-core, tako-rs-extractors
   "tako-rs"            # umbrella — last
 )
 

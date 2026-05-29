@@ -1,17 +1,17 @@
 [package]
-name = "tako-core"
+name = "tako-rs-core"
 description = "Internal core implementation crate for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-core"
+documentation = "https://docs.rs/tako-rs-core"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 
 [lib]
-name = "tako_core"
+name = "tako_rs_core"
 path = "src/lib.rs"
 doctest = false
 

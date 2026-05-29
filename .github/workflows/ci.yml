@@ -185,7 +185,7 @@ jobs:
       # Verify the criterion harnesses still compile. We do not run them in
       # CI by default — bench numbers are PR-noise. A scheduled job runs the
       # full suite and posts the comparison.
-      - run: cargo bench --no-run -p tako-core
+      - run: cargo bench --no-run -p tako-rs-core
 
   autobahn:
     name: autobahn websocket suite
@@ -256,7 +256,7 @@ jobs:
             -- -max_total_time=60
 
   miri:
-    name: miri (tako-core + tako-extractors)
+    name: miri (tako-rs-core + tako-rs-extractors)
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: ""
@@ -275,8 +275,8 @@ jobs:
       # critical-correctness slice we want UB-checked.
       - run: |
           cargo +nightly miri test \
-            -p tako-core \
-            -p tako-extractors \
+            -p tako-rs-core \
+            -p tako-rs-extractors \
             --no-default-features \
             --features simd \
             -- \

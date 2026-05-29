@@ -32,12 +32,12 @@ use std::str::FromStr;
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::PeerAddr;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Extractor for the client IP address.
 ///
@@ -47,7 +47,7 @@ use tako_core::types::Request;
 /// any client that can reach the server directly can forge them.
 ///
 /// **Trusted-proxy mode:** Insert an [`IpAddrConfig`] into router state via
-/// `tako_core::state::set_state` with `trusted_proxies` listing the IPs of
+/// `tako_rs_core::state::set_state` with `trusted_proxies` listing the IPs of
 /// your real proxy/load-balancer fleet. When the direct peer matches one of
 /// those entries, forwarded headers are honored in priority order:
 /// 1. `Forwarded` (RFC 7239 — `for=`)
@@ -113,7 +113,7 @@ pub enum IpAddrError {
 
 impl Responder for IpAddrError {
   /// Converts the error into an HTTP response.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       IpAddrError::NoIpFound => (
         StatusCode::BAD_REQUEST,
@@ -197,7 +197,7 @@ impl IpAddr {
   ) -> Result<Self, IpAddrError> {
     let peer = peer_ip_from_extensions(extensions);
 
-    let cfg = tako_core::state::get_state::<IpAddrConfig>();
+    let cfg = tako_rs_core::state::get_state::<IpAddrConfig>();
     let trust_headers = match (peer.as_ref(), cfg.as_ref()) {
       (Some(p), Some(cfg)) => cfg.trusted_proxies.iter().any(|t| t == p),
       _ => false,

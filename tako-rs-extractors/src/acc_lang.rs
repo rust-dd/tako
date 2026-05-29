@@ -9,10 +9,10 @@
 
 use http::StatusCode;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Language preference with quality value from Accept-Language header.
 ///
@@ -47,7 +47,7 @@ pub enum AcceptLanguageError {
 
 impl Responder for AcceptLanguageError {
   /// Converts Accept-Language errors into appropriate HTTP error responses.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       AcceptLanguageError::MissingHeader => {
         (StatusCode::BAD_REQUEST, "Missing Accept-Language header").into_response()

@@ -36,8 +36,8 @@ use http_body::Body;
 use http_body::Frame;
 use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
-use tako_core::body::TakoBody;
-use tako_core::types::BoxError;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::types::BoxError;
 
 /// Compresses an HTTP body stream using Brotli compression algorithm.
 pub fn stream_brotli<B>(body: B, lvl: u32) -> TakoBody

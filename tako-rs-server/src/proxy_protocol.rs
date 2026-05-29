@@ -47,10 +47,10 @@ use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::router::Router;
-use tako_core::types::BoxError;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::BoxError;
 use tokio::io::AsyncReadExt;
 use tokio::task::JoinSet;
 

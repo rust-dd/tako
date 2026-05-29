@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use http::HeaderName;
 use http::HeaderValue;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// A request ID value that can be extracted from request extensions.
 #[derive(Debug, Clone)]

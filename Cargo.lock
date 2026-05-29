@@ -4167,7 +4167,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-core"
+name = "tako-rs"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bytes",
+ "compio",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "linkme",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tako-rs-core",
+ "tako-rs-extractors",
+ "tako-rs-macros",
+ "tako-rs-plugins",
+ "tako-rs-server",
+ "tako-rs-server-pt",
+ "tako-rs-streams",
+ "tikv-jemallocator",
+ "tokio",
+]
+
+[[package]]
+name = "tako-rs-core"
 version = "2.0.0"
 dependencies = [
  "ahash",
@@ -4241,7 +4267,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-extractors"
+name = "tako-rs-extractors"
 version = "2.0.0"
 dependencies = [
  "ahash",
@@ -4273,7 +4299,7 @@ dependencies = [
  "simd-json",
  "smallvec",
  "sonic-rs",
- "tako-core",
+ "tako-rs-core",
  "tokio",
  "tracing",
  "url",
@@ -4283,7 +4309,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-macros"
+name = "tako-rs-macros"
 version = "2.0.0"
 dependencies = [
  "proc-macro2",
@@ -4292,7 +4318,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-plugins"
+name = "tako-rs-plugins"
 version = "2.0.0"
 dependencies = [
  "ahash",
@@ -4329,8 +4355,8 @@ dependencies = [
  "sha2",
  "smallvec",
  "subtle",
- "tako-core",
- "tako-extractors",
+ "tako-rs-core",
+ "tako-rs-extractors",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -4341,33 +4367,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-rs"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "base64",
- "bytes",
- "compio",
- "futures-util",
- "http",
- "http-body-util",
- "linkme",
- "serde",
- "serde_json",
- "smallvec",
- "tako-core",
- "tako-extractors",
- "tako-macros",
- "tako-plugins",
- "tako-server",
- "tako-server-pt",
- "tako-streams",
- "tikv-jemallocator",
- "tokio",
-]
-
-[[package]]
-name = "tako-server"
+name = "tako-rs-server"
 version = "2.0.0"
 dependencies = [
  "anyhow",
@@ -4390,7 +4390,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "send_wrapper",
- "tako-core",
+ "tako-rs-core",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -4400,7 +4400,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tako-server-pt"
+name = "tako-rs-server-pt"
 version = "2.0.0"
 dependencies = [
  "compio",
@@ -4411,14 +4411,14 @@ dependencies = [
  "hyper-util",
  "send_wrapper",
  "socket2 0.5.10",
- "tako-core",
+ "tako-rs-core",
  "tokio",
  "tokio-util",
  "tracing",
 ]
 
 [[package]]
-name = "tako-streams"
+name = "tako-rs-streams"
 version = "2.0.0"
 dependencies = [
  "anyhow",
@@ -4438,7 +4438,7 @@ dependencies = [
  "quinn",
  "rustls",
  "sha1",
- "tako-core",
+ "tako-rs-core",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",

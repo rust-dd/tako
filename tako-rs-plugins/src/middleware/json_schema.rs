@@ -19,11 +19,11 @@ use http::header::CONTENT_TYPE;
 use http_body_util::BodyExt;
 use jsonschema::Validator;
 use serde_json::Value;
-use tako_core::body::TakoBody;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// What the middleware should validate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

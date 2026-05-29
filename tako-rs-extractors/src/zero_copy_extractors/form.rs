@@ -7,8 +7,8 @@
 use bytes::Bytes;
 use http::StatusCode;
 use http_body_util::BodyExt;
-use tako_core::extractors::FromRequest;
-use tako_core::responder::Responder;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::responder::Responder;
 
 /// Zero-copy `application/x-www-form-urlencoded` extractor.
 ///
@@ -28,7 +28,7 @@ pub enum FormBorrowedError {
 }
 
 impl Responder for FormBorrowedError {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       Self::InvalidContentType => (
         StatusCode::BAD_REQUEST,
@@ -56,7 +56,7 @@ where
   type Error = FormBorrowedError;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       use crate::zero_copy_extractors::bytes::CachedRequestBody;

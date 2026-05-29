@@ -1,22 +1,22 @@
 [package]
-name = "tako-extractors"
+name = "tako-rs-extractors"
 description = "Internal extractor implementations for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-extractors"
+documentation = "https://docs.rs/tako-rs-extractors"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 
 [lib]
-name = "tako_extractors"
+name = "tako_rs_extractors"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
+tako-rs-core.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -58,16 +58,16 @@ validator = { workspace = true, optional = true }
 
 [features]
 default = []
-ahash = ["dep:ahash", "tako-core/ahash"]
+ahash = ["dep:ahash", "tako-rs-core/ahash"]
 multipart = ["dep:multer", "dep:uuid"]
 protobuf = ["dep:prost"]
 # Meta-feature enabling both SIMD JSON backends. Prefer the split features
 # below when you only need one backend.
 simd = ["simd-sonic", "simd-json-impl"]
 # `sonic-rs` only — used by `SonicJson<T>` and tako-core's `Json<T>` fast path.
-simd-sonic = ["dep:sonic-rs", "tako-core/simd-sonic"]
+simd-sonic = ["dep:sonic-rs", "tako-rs-core/simd-sonic"]
 # `simd-json` only — used by `SimdJson<T>`.
-simd-json-impl = ["dep:simd-json", "tako-core/simd-json-impl"]
+simd-json-impl = ["dep:simd-json", "tako-rs-core/simd-json-impl"]
 zero-copy-extractors = []
 typed-header = ["dep:headers"]
 validator = ["dep:validator"]

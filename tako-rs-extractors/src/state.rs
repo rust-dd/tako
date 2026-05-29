@@ -21,12 +21,12 @@
 use std::sync::Arc;
 
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::router_state::RouterState;
-use tako_core::state::get_state;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::router_state::RouterState;
+use tako_rs_core::state::get_state;
+use tako_rs_core::types::Request;
 
 /// Extractor for accessing a value stored in Tako's global state by type.
 pub struct State<T>(pub Arc<T>);
@@ -41,7 +41,7 @@ impl<T> Clone for State<T> {
 pub struct MissingState;
 
 impl Responder for MissingState {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (
       http::StatusCode::INTERNAL_SERVER_ERROR,
       "missing application state",

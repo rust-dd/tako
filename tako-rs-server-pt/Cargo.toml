@@ -1,22 +1,22 @@
 [package]
-name = "tako-server-pt"
+name = "tako-rs-server-pt"
 description = "Internal thread-per-core server bootstrap for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-server-pt"
+documentation = "https://docs.rs/tako-rs-server-pt"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 
 [lib]
-name = "tako_server_pt"
+name = "tako_rs_server_pt"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
+tako-rs-core.workspace = true
 
 futures-util.workspace = true
 hyper.workspace = true
@@ -38,7 +38,7 @@ send_wrapper = { workspace = true, optional = true }
 [features]
 default = ["affinity"]
 affinity = ["dep:core_affinity"]
-signals = ["tako-core/signals"]
+signals = ["tako-rs-core/signals"]
 # The compio crate is enabled directly here without flipping `tako-core/compio`,
 # because that core feature globally switches signals/queue to compio spawn,
 # which conflicts with the existing tokio-based `tako_server::serve` path.

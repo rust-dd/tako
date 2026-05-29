@@ -25,11 +25,11 @@ use std::sync::Arc;
 use http::HeaderValue;
 use http::Method;
 use http::StatusCode;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 use super::session::SameSite;
 use super::session::Session;

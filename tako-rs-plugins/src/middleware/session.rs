@@ -33,10 +33,10 @@ use parking_lot::Mutex;
 use scc::HashMap as SccHashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tako_core::middleware::IntoMiddleware;
-use tako_core::middleware::Next;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::middleware::IntoMiddleware;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Session expiration policy.
 #[derive(Clone, Copy)]

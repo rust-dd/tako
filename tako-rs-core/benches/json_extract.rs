@@ -11,11 +11,11 @@ use http::Method;
 use http::Request;
 use serde::Deserialize;
 use serde::Serialize;
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::json::Json;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::json::Json;
 #[cfg(feature = "simd")]
-use tako_core::extractors::json::SimdJsonMode;
+use tako_rs_core::extractors::json::SimdJsonMode;
 
 #[derive(Deserialize, Serialize)]
 struct Payload {

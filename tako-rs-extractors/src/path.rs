@@ -28,11 +28,11 @@ use std::convert::Infallible;
 
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::extractors::params::Params;
-use tako_core::extractors::params::ParamsError;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::extractors::params::Params;
+use tako_rs_core::extractors::params::ParamsError;
+use tako_rs_core::types::Request;
 
 /// Owned URI-path extractor.
 ///

@@ -251,7 +251,7 @@ extensions for backward compatibility, alongside `ConnInfo`.
 
 ## 12. Backend traits
 
-`tako_plugins::stores` adds five traits:
+`tako_rs_plugins::stores` adds five traits:
 
 - `SessionStore`
 - `RateLimitStore`
@@ -268,12 +268,12 @@ traits to back middleware with Redis / Postgres / external services.
 
 ## 13. Extractors
 
-- `tako_extractors::Path<T>` is the new axum-style wrapper. The old
+- `tako_rs_extractors::Path<T>` is the new axum-style wrapper. The old
   zero-arg extractor was renamed `RawPath` (**breaking**). Migrate any
   call site that used `Path` as a no-argument extractor.
 - `JwtClaims<T>` is renamed `JwtClaimsUnverified<T>`. The old name
   remains as a `#[deprecated]` alias. The verifying counterpart is
-  `tako_plugins::extractors::jwt::JwtClaimsVerified<C>`, fed by
+  `tako_rs_plugins::extractors::jwt::JwtClaimsVerified<C>`, fed by
   `JwtAuth<V>` middleware.
 - New: `TypedHeader<H>` (feature `typed-header`), `Extension<T>`,
   `MatchedPath`, `OriginalUri`, `Host`, `Scheme`, `ConnectInfo<T>`,
@@ -335,7 +335,7 @@ matching thread-safe equivalent. The `per-thread-local` /
 - Cron scheduling behind the `queue-cron` cargo feature.
 - New signals: `queue.job.queued / started / completed / failed /
   retrying / dead_letter`. Canonical strings under
-  `tako_core::queue::signal_ids`.
+  `tako_rs_core::queue::signal_ids`.
 - `signals::bus::SignalBus` async trait + `LocalBus` no-op default for
   cluster-wide signal forwarding.
 
@@ -357,7 +357,7 @@ Enabling **both** the tokio and compio runtimes simultaneously
 (`cargo build --all-features`) is not supported. The `compio::time::sleep`
 future is `!Send`, while hyper's service bound (used for tokio
 transports) is `Send`. The middleware that bridges them — currently
-`tako_plugins::middleware::timeout::Timeout` — picks one runtime per
+`tako_rs_plugins::middleware::timeout::Timeout` — picks one runtime per
 build via `#[cfg(...)]`.
 
 If you need both runtimes in the same process, build separate binaries

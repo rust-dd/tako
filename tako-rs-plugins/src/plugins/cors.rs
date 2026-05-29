@@ -64,13 +64,13 @@ use http::header::ACCESS_CONTROL_REQUEST_HEADERS;
 use http::header::ACCESS_CONTROL_REQUEST_METHOD;
 use http::header::ORIGIN;
 use http::header::VARY;
-use tako_core::body::TakoBody;
-use tako_core::middleware::Next;
-use tako_core::plugins::TakoPlugin;
-use tako_core::responder::Responder;
-use tako_core::router::Router;
-use tako_core::types::Request;
-use tako_core::types::Response;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::Next;
+use tako_rs_core::plugins::TakoPlugin;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::router::Router;
+use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
 /// Origin matching mode.
 #[derive(Clone)]

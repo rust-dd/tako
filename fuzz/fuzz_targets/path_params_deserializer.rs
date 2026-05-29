@@ -14,10 +14,10 @@ use libfuzzer_sys::arbitrary::Unstructured;
 use libfuzzer_sys::fuzz_target;
 use serde::Deserialize;
 use smallvec::SmallVec;
-use tako_core::body::TakoBody;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::params::Params;
-use tako_core::extractors::params::PathParams;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::params::Params;
+use tako_rs_core::extractors::params::PathParams;
 
 #[derive(Debug, Deserialize)]
 struct Pair {

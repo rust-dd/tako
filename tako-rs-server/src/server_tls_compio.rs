@@ -53,13 +53,13 @@ use hyper::service::service_fn;
 use rustls::ServerConfig as RustlsServerConfig;
 #[cfg(feature = "http2")]
 use send_wrapper::SendWrapper;
-use tako_core::body::TakoBody;
-use tako_core::conn_info::ConnInfo;
-use tako_core::conn_info::TlsInfo;
-use tako_core::router::Router;
+use tako_rs_core::body::TakoBody;
+use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::TlsInfo;
+use tako_rs_core::router::Router;
 #[cfg(feature = "signals")]
-use tako_core::signals::transport as signal_tx;
-use tako_core::types::BoxError;
+use tako_rs_core::signals::transport as signal_tx;
+use tako_rs_core::types::BoxError;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -190,7 +190,7 @@ pub async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   let certs = load_certs(certs.unwrap_or("cert.pem"))?;
   let key = load_key(key.unwrap_or("key.pem"))?;
@@ -221,7 +221,7 @@ pub async fn run_with_config(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
-  tako_core::tracing::init_tracing();
+  tako_rs_core::tracing::init_tracing();
 
   let acceptor = TlsAcceptor::from(tls_config);
   let router = Arc::new(router);
@@ -496,11 +496,11 @@ pub async fn run_with_config(
 }
 
 /// Loads TLS certificates from a PEM-encoded file. Re-export of
-/// [`tako_core::tls::load_certs`].
-pub use tako_core::tls::load_certs;
+/// [`tako_rs_core::tls::load_certs`].
+pub use tako_rs_core::tls::load_certs;
 /// Loads a private key from a PEM-encoded file. Accepts PKCS#8, PKCS#1 (RSA),
-/// and SEC1 (EC) PEM blocks. Re-export of [`tako_core::tls::load_key`].
-pub use tako_core::tls::load_key;
+/// and SEC1 (EC) PEM blocks. Re-export of [`tako_rs_core::tls::load_key`].
+pub use tako_rs_core::tls::load_key;
 
 //
 // compio is a single-threaded, thread-per-core runtime whose futures are `!Send`.

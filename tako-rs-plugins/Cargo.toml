@@ -1,25 +1,25 @@
 [package]
-name = "tako-plugins"
+name = "tako-rs-plugins"
 description = "Internal plugin and concrete-middleware implementations for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-plugins"
+documentation = "https://docs.rs/tako-rs-plugins"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 keywords = ["web", "framework", "middleware", "plugin", "http"]
 categories = ["web-programming", "web-programming::http-server", "asynchronous"]
 
 [lib]
-name = "tako_plugins"
+name = "tako_rs_plugins"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
-tako-extractors.workspace = true
+tako-rs-core.workspace = true
+tako-rs-extractors.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -72,12 +72,12 @@ jwt-simple = { version = "0.12.12", optional = true }
 
 [features]
 default = []
-plugins = ["dep:brotli", "dep:flate2", "tako-core/plugins"]
-multipart = ["dep:multer", "tako-extractors/multipart"]
+plugins = ["dep:brotli", "dep:flate2", "tako-rs-core/plugins"]
+multipart = ["dep:multer", "tako-rs-extractors/multipart"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
-signals = ["tako-core/signals"]
-ahash = ["dep:ahash", "tako-core/ahash"]
+signals = ["tako-rs-core/signals"]
+ahash = ["dep:ahash", "tako-rs-core/ahash"]
 jwt-simple = ["dep:jwt-simple"]
 zstd = ["dep:zstd", "plugins"]
 # CIDR-aware IP filter middleware.
@@ -87,7 +87,7 @@ hmac-signature = ["dep:hmac"]
 # JSON-schema body validator middleware.
 json-schema = ["dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.
-compio = ["dep:compio", "tako-core/compio"]
+compio = ["dep:compio", "tako-rs-core/compio"]
 
 [lints]
 workspace = true

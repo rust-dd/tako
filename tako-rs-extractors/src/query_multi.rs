@@ -13,10 +13,10 @@ use std::borrow::Cow;
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Multi-value query extractor — preserves repeated keys and arrays.
 ///
@@ -112,7 +112,7 @@ pub enum QueryMultiError {
 }
 
 impl Responder for QueryMultiError {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       Self::DeserializationError(e) => (
         StatusCode::BAD_REQUEST,

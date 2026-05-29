@@ -9,8 +9,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-tako-core = { path = "../tako-core", features = ["grpc"] }
-tako-server = { path = "../tako-server" }
+tako-rs-core = { path = "../tako-rs-core", features = ["grpc"] }
+tako-rs-server = { path = "../tako-rs-server" }
 tokio = { version = "1", features = ["rt", "io-util", "macros"] }
 http = "1"
 smallvec = "1"

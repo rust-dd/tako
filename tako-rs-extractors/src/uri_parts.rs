@@ -20,10 +20,10 @@ use std::net::IpAddr;
 use http::StatusCode;
 use http::Uri;
 use http::request::Parts;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// Configuration governing which forwarding headers `Host` / `Scheme` are
 /// allowed to consult. The extractors only honor `Forwarded` /
@@ -50,7 +50,7 @@ impl UriPartsConfig {
 /// EXT-3: the module docs advertise the config can live in "application state
 /// (or request extensions)", but the original implementation only checked
 /// extensions. Trusted-proxy config set via `Router::with_state` or
-/// `tako_core::state::set_state` was silently inactive — `peer_is_trusted`
+/// `tako_rs_core::state::set_state` was silently inactive — `peer_is_trusted`
 /// always returned false, fail-safe in the security sense but a documented
 /// feature that did not work. Falls back through both state layers now, with
 /// a tiny ~2-3 extra hash probes (scc, lock-free) per Host/Scheme extraction
@@ -60,12 +60,12 @@ fn lookup_uri_parts_cfg(ext: &http::Extensions) -> Option<UriPartsConfig> {
   if let Some(cfg) = ext.get::<UriPartsConfig>() {
     return Some(cfg.clone());
   }
-  if let Some(rs) = ext.get::<std::sync::Arc<tako_core::router_state::RouterState>>()
+  if let Some(rs) = ext.get::<std::sync::Arc<tako_rs_core::router_state::RouterState>>()
     && let Some(arc) = rs.get::<UriPartsConfig>()
   {
     return Some((*arc).clone());
   }
-  tako_core::state::get_state::<UriPartsConfig>().map(|arc| (*arc).clone())
+  tako_rs_core::state::get_state::<UriPartsConfig>().map(|arc| (*arc).clone())
 }
 
 fn peer_is_trusted(ext: &http::Extensions) -> bool {
@@ -76,9 +76,9 @@ fn peer_is_trusted(ext: &http::Extensions) -> bool {
     return false;
   }
   let peer_ip = ext
-    .get::<tako_core::conn_info::ConnInfo>()
+    .get::<tako_rs_core::conn_info::ConnInfo>()
     .and_then(|info| match &info.peer {
-      tako_core::conn_info::PeerAddr::Ip(sa) => Some(sa.ip()),
+      tako_rs_core::conn_info::PeerAddr::Ip(sa) => Some(sa.ip()),
       _ => None,
     });
   match peer_ip {
@@ -140,7 +140,7 @@ pub struct Host(pub String);
 pub struct HostMissing;
 
 impl Responder for HostMissing {
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     (StatusCode::BAD_REQUEST, "request has no host").into_response()
   }
 }
@@ -230,7 +230,7 @@ fn extract_scheme(
   if let Some(s) = uri.scheme_str() {
     return s.to_ascii_lowercase();
   }
-  if let Some(info) = ext.get::<tako_core::conn_info::ConnInfo>()
+  if let Some(info) = ext.get::<tako_rs_core::conn_info::ConnInfo>()
     && info.tls.is_some()
   {
     return "https".into();

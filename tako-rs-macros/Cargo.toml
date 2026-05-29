@@ -1,12 +1,12 @@
 [package]
-name = "tako-macros"
+name = "tako-rs-macros"
 description = "Internal proc macros for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-macros"
+documentation = "https://docs.rs/tako-rs-macros"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 keywords = ["web", "framework", "macros", "proc-macro", "http"]

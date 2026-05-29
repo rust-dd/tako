@@ -1,8 +1,8 @@
 use std::convert::Infallible;
 use std::future::ready;
 
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
 
 /// Zero-copy path extractor borrowing the request URI path.
 pub struct PathBorrowed<'a>(pub &'a str);
@@ -11,7 +11,7 @@ impl<'a> FromRequest<'a> for PathBorrowed<'a> {
   type Error = Infallible;
 
   fn from_request(
-    req: &'a mut tako_core::types::Request,
+    req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     // The returned &str borrows from the request for the same lifetime 'a.
     ready(Ok(PathBorrowed(req.uri().path())))

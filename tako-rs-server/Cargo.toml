@@ -1,22 +1,22 @@
 [package]
-name = "tako-server"
+name = "tako-rs-server"
 description = "Internal server bootstrap for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-documentation = "https://docs.rs/tako-server"
+documentation = "https://docs.rs/tako-rs-server"
 homepage = "https://github.com/rust-dd/tako"
 readme = "../README.md"
 
 [lib]
-name = "tako_server"
+name = "tako_rs_server"
 path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-core.workspace = true
+tako-rs-core.workspace = true
 
 anyhow.workspace = true
 arc-swap.workspace = true
@@ -49,8 +49,8 @@ tokio-vsock = { workspace = true, optional = true }
 
 [features]
 default = []
-signals = ["tako-core/signals"]
-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-core/tls"]
+signals = ["tako-rs-core/signals"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-rs-core/tls"]
 # `http2` is a *gate flag* — it toggles HTTP/2 code paths inside tako-server
 # but does NOT disable hyper's `http2` feature, because the workspace pulls
 # hyper with `features = ["full"]`. Turning this flag off makes Tako skip
@@ -60,14 +60,14 @@ tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-core/tls"]
 http2 = []
 # http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
-http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-core/http3"]
-compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-core/compio"]
+http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3"]
+compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
 compio-tls = ["compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.
 # Also activates `tako-core/plugins` so `Router::setup_plugins_once` is available
 # in the compio server bootstrap.
-plugins = ["tako-core/plugins"]
-tako-tracing = ["tako-core/tako-tracing"]
+plugins = ["tako-rs-core/plugins"]
+tako-tracing = ["tako-rs-core/tako-tracing"]
 # Inherit systemd / s6 / catflap inherited file descriptors at startup.
 socket-activation = ["dep:listenfd"]
 # Linux vsock transport for VM-host bridges.

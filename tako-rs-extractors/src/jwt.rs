@@ -7,7 +7,7 @@
 //! malformed or expired tokens.
 //!
 //! For *verified* claims (signature checked against a JWKS or shared key) use
-//! `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` together with the
+//! `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` together with the
 //! `JwtAuth` middleware.
 //!
 //! # Examples
@@ -46,10 +46,10 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
-use tako_core::extractors::FromRequest;
-use tako_core::extractors::FromRequestParts;
-use tako_core::responder::Responder;
-use tako_core::types::Request;
+use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::FromRequestParts;
+use tako_rs_core::responder::Responder;
+use tako_rs_core::types::Request;
 
 /// JWT token extractor that provides access to the raw token string.
 #[doc(alias = "jwt")]
@@ -65,12 +65,12 @@ pub struct Jwt {
 /// ⚠️ **This extractor does NOT verify the token signature.** It only base64
 /// decodes the claims segment and checks `exp` / `nbf`. Treat its output as
 /// untrusted unless an upstream middleware (e.g.
-/// `tako_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
+/// `tako_rs_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
 /// signature for this request.
 ///
-/// For a verifying extractor that consults a `tako_plugins::stores::JwksProvider`
+/// For a verifying extractor that consults a `tako_rs_plugins::stores::JwksProvider`
 /// or a `JwtVerifier` from state, prefer
-/// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
+/// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
 #[doc(alias = "jwt_claims_unverified")]
 pub struct JwtClaimsUnverified<T>(pub T);
 
@@ -103,7 +103,7 @@ pub enum JwtError {
 
 impl Responder for JwtError {
   /// Converts JWT errors into appropriate HTTP responses.
-  fn into_response(self) -> tako_core::types::Response {
+  fn into_response(self) -> tako_rs_core::types::Response {
     let (status, message) = match self {
       JwtError::MissingAuthHeader => (StatusCode::UNAUTHORIZED, "Missing Authorization header"),
       JwtError::InvalidAuthHeader => (StatusCode::UNAUTHORIZED, "Invalid Authorization header"),
@@ -222,7 +222,7 @@ impl Jwt {
   ///
   /// Note: This is an unverified time check on a token whose signature has
   /// NOT been validated. For authenticated expiration enforcement, use
-  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
   /// validates the signature first.
   pub fn validate_expiration(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
@@ -245,7 +245,7 @@ impl Jwt {
   ///
   /// Note: This is an unverified time check on a token whose signature has
   /// NOT been validated. For authenticated nbf enforcement, use
-  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
   /// validates the signature first.
   pub fn validate_not_before(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
@@ -274,7 +274,7 @@ where
   /// **Does NOT verify the signature, expiration, or not-before time.** This
   /// extractor is for inspection of untrusted token payloads only. If you
   /// need authenticated claim validation, use
-  /// `tako_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` instead,
+  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` instead,
   /// which validates the signature against a JWKS / verifier and applies
   /// `exp`/`nbf`/`iss`/`aud` constraints.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {
