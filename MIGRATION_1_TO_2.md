@@ -1,13 +1,7 @@
 # Migrating from Tako 1.x to 2.0
 
-> **Status:** living document. Tracks every breaking change between the
-> released `1.x` line on crates.io and the unreleased 2.0 work on `main`.
-> Sections marked **(deferred)** are not yet on `main` and will land before
-> the 2.0 release tag.
-
-This guide is paired with [`V2_ROADMAP.md`](./V2_ROADMAP.md). The roadmap
-explains *why* a change happened; this guide explains *what to change in
-your code*.
+> **Status:** released. Covers every breaking change between the `1.x`
+> line on crates.io and the `2.0.0` release.
 
 ## At a glance
 
@@ -173,7 +167,7 @@ let handle = server.spawn_http(listener, router);
 handle.shutdown(Duration::from_secs(30)).await;
 ```
 
-Changes from the original v2 roadmap shape:
+Notes on the `Server::builder()` shape:
 
 - The listener is handed to `spawn_*`, not the builder, so a single
   `Server` instance can fan out to multiple listeners.
@@ -369,10 +363,10 @@ build via `#[cfg(...)]`.
 If you need both runtimes in the same process, build separate binaries
 or hand-pick a feature subset that activates only one runtime side.
 
-## Roadmap items intentionally not in this guide
+## Deferred to a future 2.x release
 
-The following are tracked in [`V2_ROADMAP.md`](./V2_ROADMAP.md) and have
-**not yet** landed on `main`:
+The following are tracked separately and have **not yet** landed on
+`main`:
 
 - `tako-stores-redis`, `tako-stores-postgres`
 - `TlsCert::Acme { ... }`
