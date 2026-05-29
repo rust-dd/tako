@@ -228,7 +228,8 @@ async fn bearer_auth_missing() {
   router.middleware(BearerAuth::static_token("my-token").into_middleware());
 
   let resp = router.dispatch(make_req(Method::GET, "/api")).await;
-  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  // PMW-07: missing/malformed Authorization → 401 + WWW-Authenticate (RFC 6750 §3).
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
   assert_eq!(body_str(resp).await, "Token is missing");
 }
 
@@ -263,7 +264,8 @@ async fn bearer_auth_wrong_scheme() {
     .insert("authorization", "Basic dXNlcjpwYXNz".parse().unwrap());
 
   let resp = router.dispatch(req).await;
-  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+  // PMW-07: wrong scheme → 401 + WWW-Authenticate (RFC 6750 §3 / RFC 7235 §3.1).
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
