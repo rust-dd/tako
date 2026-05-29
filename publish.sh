@@ -78,9 +78,12 @@ local_version() {
 }
 
 registry_version() {
-  # latest version on crates.io, "-" if not published
+  # latest version on crates.io, "-" if not published. crates.io rejects
+  # requests without a User-Agent (HTTP 403), so send one — otherwise this
+  # always returns "-" and the skip check below never fires.
   local crate="$1"
-  curl -fsS "https://crates.io/api/v1/crates/$crate" 2>/dev/null \
+  curl -fsS -H "User-Agent: tako-publish (dancixx@gmail.com)" \
+    "https://crates.io/api/v1/crates/$crate" 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('crate',{}).get('newest_version','-'))" \
     2>/dev/null || echo "-"
 }
@@ -106,12 +109,32 @@ publish_one() {
     return 0
   fi
 
+  local logf status
+  logf=$(mktemp)
   set -x
+  set +e
   cargo publish -p "$crate" \
     ${extra[@]+"${extra[@]}"} \
     ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
-    ${ALLOW_DIRTY[@]+"${ALLOW_DIRTY[@]}"}
+    ${ALLOW_DIRTY[@]+"${ALLOW_DIRTY[@]}"} 2>&1 | tee "$logf"
+  status=${PIPESTATUS[0]}
+  set -e
   set +x
+
+  if [[ $status -ne 0 ]]; then
+    # Fallback skip: if the registry pre-check missed an existing version (API
+    # lag, transient fetch failure), cargo still refuses with "already exists"
+    # / "already uploaded". Treat that as a skip so the script stays re-runnable
+    # instead of aborting under `set -e`.
+    if grep -qiE "already (exists|uploaded)" "$logf"; then
+      echo "    already on crates.io — skipping"
+      rm -f "$logf"
+      return 0
+    fi
+    rm -f "$logf"
+    return "$status"
+  fi
+  rm -f "$logf"
 }
 
 for spec in "${PUBLISH_ORDER[@]}"; do
