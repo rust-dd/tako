@@ -1,0 +1,114 @@
+---
+title: Installation
+description: Add tako-rs to a Cargo project, pick the Tokio or Compio runtime, and opt into the feature flags your service needs.
+category: guide
+since: 2.0.0
+status: stable
+crate: tako-rs
+---
+
+# Installation
+
+Tako is published on crates.io as **`tako-rs`**. The package name is
+`tako-rs`; the crate you import is `tako`. Everything ships through this one
+umbrella — you never depend on the sub-crates directly.
+
+## Add the dependency
+
+```toml
+[dependencies]
+tako-rs = "2"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+```
+
+`tokio` and `anyhow` are not required by Tako itself, but the default runtime
+is Tokio and the examples use `anyhow::Result` for `main`. With the default
+feature set you get HTTP/1.1, WebSocket, SSE, raw TCP/UDP, Unix sockets, and
+PROXY protocol on Tokio — no flags needed.
+
+## Toolchain
+
+Tako targets **Rust edition 2024** with an **MSRV of 1.95**. It relies on
+let-chains, async-fn-in-trait HRTB inference, and other edition-2024 features,
+so an older toolchain will not compile the crate.
+
+```toml
+# rust-toolchain.toml
+[toolchain]
+channel = "1.95"
+```
+
+Tracking the latest stable Rust is recommended.
+
+## Choosing a runtime
+
+Tako runs on two async runtimes, selected at build time:
+
+- **Tokio** (default) — multi-threaded, work-stealing scheduler with `Send`
+  futures end-to-end. This is what the standalone `Server` builder targets and
+  what every Tokio-only transport requires.
+- **Compio** (opt-in via the `compio` feature) — single-threaded
+  thread-per-core over io_uring / IOCP / kqueue, with `!Send` futures pinned to
+  their runtime thread.
+
+<Callout type="warn">
+You cannot enable both runtimes in one binary. `cargo build --all-features`
+does not produce a runnable binary. Pick one runtime per binary; if a
+deployment needs both, build separate binaries. See
+[Runtimes](/docs/concepts/runtimes) for the full trade-off.
+</Callout>
+
+To build on Compio instead of Tokio:
+
+```toml
+[dependencies]
+tako-rs = { version = "2", default-features = false, features = ["compio"] }
+```
+
+## Key feature flags
+
+The umbrella crate is the contractual surface: a feature like `tako-rs/http2`
+turns on the matching feature in every sub-crate at once. The flags you reach
+for most often:
+
+| Flag | Turns on |
+|---|---|
+| `http2` | HTTP/2 (h2c cleartext and ALPN-negotiated h2 over TLS) |
+| `http3` | HTTP/3 over QUIC (also enables `webtransport`) |
+| `tls` | Server-side HTTPS via rustls |
+| `grpc` | gRPC unary RPCs with protobuf |
+| `simd` | SIMD JSON parsing (`sonic-rs` + `simd-json`) |
+| `multipart` | `Multipart` / typed multipart body extractors |
+| `plugins` | Bundled middleware and plugins (CORS, compression, rate limiting, idempotency) |
+| `signals` | In-process pub/sub signal bus and lifecycle signals |
+| `file-stream` | File streaming, range requests, conditional GET |
+| `jemalloc` | Set `tikv-jemallocator` as the global allocator |
+
+Compio has its own TLS and WebSocket flags, since those features compile
+differently on the two runtimes:
+
+| Flag | Turns on |
+|---|---|
+| `compio` | The Compio runtime (mutually exclusive with the Tokio path) |
+| `compio-tls` | TLS on Compio (implies `compio`) |
+| `compio-ws` | WebSocket on Compio (implies `compio`) |
+
+Enable several at once:
+
+```toml
+[dependencies]
+tako-rs = { version = "2", features = ["http2", "tls", "simd", "plugins"] }
+```
+
+For the complete list — observability backends, OpenAPI integrations,
+validators, zero-copy extractors, and the combinations that do not compile —
+see the [feature reference](/docs/reference/features).
+
+## Next steps
+
+- [Quickstart](/docs/getting-started/quickstart) — write and serve your first
+  handler.
+- [Project layout](/docs/getting-started/project-layout) — what each workspace
+  crate owns.
+- [Runtimes](/docs/concepts/runtimes) — Tokio vs Compio in depth.

@@ -1,0 +1,133 @@
+---
+title: Transports
+description: Every Tako transport — HTTP, HTTP/3, WebSocket, WebTransport, SSE, gRPC, raw sockets, and PROXY protocol — with runtime and feature-flag support.
+category: transport
+since: 2.0.0
+status: stable
+---
+
+# Transports
+
+Tako runs the same `Router` across many transports. A single `ServerConfig`
+flows into every one of them, so header read timeouts, keep-alive, drain
+timeout, max connections, H2 caps, H3 caps, and the PROXY read timeout are all
+sourced from one struct. You pick which transport a listener serves at spawn
+time — the routing, middleware, and observability model does not change.
+
+## Transport matrix
+
+| Transport | Tokio | Compio | Feature flag |
+|---|---|---|---|
+| HTTP/1.1 | yes | yes | *default* |
+| HTTP/2 | yes | yes | `http2` |
+| HTTP/3 (QUIC) | yes | — | `http3` |
+| TLS (rustls) | yes | yes | `tls` / `compio-tls` |
+| WebSocket | yes | yes | *default* / `compio-ws` |
+| WebTransport (raw QUIC) | yes | — | `webtransport` |
+| SSE | yes | yes | *default* |
+| gRPC (unary) | yes | — | `grpc` |
+| Raw TCP | yes | — | *default* |
+| Raw UDP | yes | — | *default* |
+| Unix sockets | yes | — | *default* (unix only) |
+| PROXY protocol v1/v2 | yes | — | *default* |
+
+HTTP/3, WebTransport, gRPC, raw TCP/UDP, Unix sockets, and PROXY protocol are
+tokio-only. WebSocket and SSE run on both runtimes; on compio, WebSocket lives
+behind the `compio-ws` feature. See [Runtimes](/docs/concepts/runtimes) for the
+Tokio vs Compio split and [Feature flags](/docs/reference/features) for the full
+cargo graph.
+
+## How transports attach to a server
+
+There are two entry styles, and they coexist:
+
+- **Direct `serve_*` helpers** — the shortest path. `tako::serve(listener, router)`
+  binds an HTTP/1.1 listener and accepts until the process exits. There are
+  matching `serve_h2c`, `serve_tls`, `serve_h3`, `serve_unix_http`, `serve_tcp`,
+  and `serve_udp` helpers.
+- **The `Server` builder** — for graceful drain, max-connection caps, TLS
+  material, and an owned shutdown trigger. Pick a transport via a `spawn_*`
+  method; each returns a `ServerHandle` you can `join().await` or drive into a
+  graceful drain via `shutdown`.
+
+```rust
+use anyhow::Result;
+use tako::Method;
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", || async { "hello" });
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+The builder form gives you the same `Router` plus a handle:
+
+```rust
+use std::time::Duration;
+use tako::{Server, ServerConfig};
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.route(tako::Method::GET, "/", || async { "hi" });
+
+  let server = Server::builder()
+    .config(ServerConfig {
+      drain_timeout: Duration::from_secs(30),
+      max_connections: Some(10_000),
+      ..ServerConfig::default()
+    })
+    .build();
+
+  let handle = server.spawn_http(listener, router);
+  tokio::signal::ctrl_c().await?;
+  handle.shutdown(Duration::from_secs(30)).await;
+  Ok(())
+}
+```
+
+The handle is runtime-agnostic — both `Server` (tokio) and `CompioServer`
+(compio) return the same `ServerHandle` type.
+
+## Per-transport pages
+
+- [HTTP](/docs/transports/http) — HTTP/1.1, HTTP/2 cleartext (h2c), and HTTP/2
+  over TLS via ALPN.
+- [HTTP/3](/docs/transports/http3) — HTTP/3 over QUIC; tokio-only, TLS required.
+- [WebSocket](/docs/transports/websocket) — RFC-6455 upgrade inside an HTTP
+  handler, on both runtimes.
+- [WebTransport](/docs/transports/webtransport) — raw QUIC session helper;
+  tokio-only, requires the `webtransport` feature.
+- [SSE](/docs/streams) — Server-Sent Events; see the Streams primitives.
+- [gRPC](/docs/transports/grpc) — unary RPCs with protobuf; tokio-only.
+- [TCP / UDP / Unix](/docs/transports/tcp-udp-unix) — raw byte transports and
+  Unix domain sockets.
+- [PROXY protocol](/docs/transports/proxy-protocol) — v1/v2 header parsing
+  behind an L4 load balancer.
+
+## WebSocket, SSE, and the HTTP handler
+
+WebSocket and SSE are not separate listeners — they live *inside* an HTTP
+handler on whichever HTTP transport you already serve. `TakoWs::new(req, fut)`
+performs the upgrade; `tako::sse::Sse` wraps a stream into a `text/event-stream`
+body. Because they attach to a route, they ride on HTTP/1.1, h2c, or TLS without
+a separate bind.
+
+## Raw transports
+
+`spawn_tcp_raw` / `tako::server_tcp::serve_tcp` and `spawn_udp_raw` /
+`tako::server_udp::serve_udp` skip the HTTP layer entirely. The handler closure
+receives each accepted stream (TCP) or datagram (UDP), so you can implement a
+custom line protocol, relay, or proxy. These do not use a `Router`. See
+[TCP / UDP / Unix](/docs/transports/tcp-udp-unix).

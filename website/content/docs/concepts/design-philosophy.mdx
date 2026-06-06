@@ -1,0 +1,84 @@
+---
+title: Design philosophy
+description: The principles behind tako — one service many transports, one model two runtimes, primitives included, and performance knobs when they matter.
+category: concept
+since: 2.0.0
+status: stable
+---
+
+# Design philosophy
+
+Tako is built for teams that want fewer moving parts in production. Rather than
+gluing several partially overlapping libraries together, it offers one coherent
+framework that spans protocols, runtimes, and the operational primitives real
+services need. Four principles drive the design.
+
+## One service, many transports
+
+A single application surface covers HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE,
+gRPC, raw TCP, UDP, Unix sockets, and WebTransport — with one routing,
+middleware, and observability model. You serve REST, realtime, and
+protocol-gateway workloads from the same binary without switching frameworks.
+
+The mechanism behind this is the layering: routing, extraction, middleware, and
+responses live in `tako-rs-core` and are transport-agnostic, while
+`tako-rs-server` drives the concrete protocols and feeds requests into that
+unchanged core. Add a WebSocket or a gRPC endpoint next to your HTTP routes and
+the request model does not change.
+
+## One mental model, two runtimes
+
+The same framework style runs on **Tokio** or **Compio**, selected at build
+time to match the deployment constraint. Tokio gives you a multi-threaded
+work-stealing scheduler; Compio gives you single-threaded thread-per-core over
+io_uring / IOCP / kqueue. Handlers, extractors, and middleware are written once
+and work on either — only the I/O machinery underneath differs. See
+[Runtimes](/docs/concepts/runtimes) for the trade-offs and the transport
+coverage on each.
+
+## Application primitives included
+
+Middleware, auth, metrics, signals, queues, graceful shutdown, and streaming
+are part of the framework story, not an afterthought you assemble yourself. The
+bundled middleware covers JWT / Basic / Bearer / API-key auth, CSRF, sessions,
+body limits, request IDs, security headers, rate limiting, CORS, idempotency,
+and compression. Beyond request handling, an in-process signal bus, a background
+job queue, and first-class graceful shutdown ship in the box. This is what makes
+Tako a strong fit for protocol-heavy infrastructure — gateways, internal
+platforms, telemetry collectors, and control planes — where coordinating these
+concerns by hand is the bulk of the work.
+
+## Performance knobs when they matter
+
+The fast paths are available without fragmenting the API. SIMD JSON
+(`sonic-rs` / `simd-json`), optional zero-copy extractors, brotli / gzip /
+deflate / zstd compression, jemalloc, and HTTP/3 are all opt-in cargo features
+layered on the same types — you turn them on where they pay off and ignore them
+elsewhere. The default build stays lean; the knobs are there when a workload
+needs them. See the [feature reference](/docs/reference/features) for the full
+set.
+
+## Who this is for
+
+Tako is a strong fit when your service needs one or more of:
+
+- **More than REST** — HTTP APIs alongside WebSockets, SSE, gRPC, TCP, UDP, or
+  QUIC in the same application.
+- **Realtime coordination** — built-in signals, queues, and streaming
+  primitives instead of composing everything manually.
+- **Framework consolidation** — one coherent crate rather than several
+  overlapping libraries.
+- **Protocol-heavy infrastructure** — gateways, internal platforms, telemetry
+  collectors, control planes, and edge services.
+
+If you are building a plain JSON-over-HTTP service and never need the realtime
+or multi-transport surface, you can use Tako as a straight HTTP framework and
+ignore the rest. Nothing about the multi-transport design taxes the simple case.
+
+## Related
+
+- [Architecture](/docs/concepts/architecture) — how the layers realise these
+  principles.
+- [Project layout](/docs/getting-started/project-layout) — the crates that make
+  up the framework.
+- [Quickstart](/docs/getting-started/quickstart) — the simple case, end to end.

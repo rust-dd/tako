@@ -1,0 +1,64 @@
+---
+title: API reference
+description: The in-source rustdoc on docs.rs is the canonical per-item API reference for tako — here is the per-crate link list.
+category: reference
+since: 2.0.0
+status: stable
+crate: tako-rs
+---
+
+# API reference
+
+This site is the long-form *guide*. The canonical, per-item API reference is the
+in-source rustdoc published on [docs.rs](https://docs.rs). Every public type,
+trait, function, and feature flag is documented there, generated directly from
+the source, so it never drifts from the code.
+
+When this site and the rustdoc disagree about a single API, **the rustdoc
+wins** — it is generated from the exact released source. This site wins for
+intent, recommended patterns, and how the pieces fit together.
+
+## Where to read it
+
+Application code depends only on the umbrella crate and reaches everything
+through the `tako::*` path, so the umbrella docs are the entry point:
+
+- **[`tako-rs`](https://docs.rs/tako-rs)** — the umbrella. Start here. Everything
+  public is re-exported under `tako::*`, and this is the only crate covered by
+  the [stability policy](/docs/reference/stability).
+
+## Per-crate rustdoc
+
+The sub-crates are implementation detail — you rarely name them directly — but
+their rustdoc is published for browsing the source-level layout:
+
+| Crate | docs.rs | Owns |
+|---|---|---|
+| `tako-rs` | [docs.rs/tako-rs](https://docs.rs/tako-rs) | Umbrella re-export (`tako::*`), cargo features, prelude |
+| `tako-rs-core` | [docs.rs/tako-rs-core](https://docs.rs/tako-rs-core) | Router, handlers, middleware/plugin traits, body/request/response, state, signals, queue |
+| `tako-rs-extractors` | [docs.rs/tako-rs-extractors](https://docs.rs/tako-rs-extractors) | Concrete request extractors |
+| `tako-rs-server` | [docs.rs/tako-rs-server](https://docs.rs/tako-rs-server) | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP/UDP/Unix, PROXY protocol, compio variants |
+| `tako-rs-streams` | [docs.rs/tako-rs-streams](https://docs.rs/tako-rs-streams) | WebSocket, SSE, file streaming, static files, WebTransport |
+| `tako-rs-plugins` | [docs.rs/tako-rs-plugins](https://docs.rs/tako-rs-plugins) | Bundled middleware and plugins |
+| `tako-rs-macros` | [docs.rs/tako-rs-macros](https://docs.rs/tako-rs-macros) | The `#[tako::route]` / `#[tako::get]` attribute family |
+| `tako-rs-server-pt` | [docs.rs/tako-rs-server-pt](https://docs.rs/tako-rs-server-pt) | Thread-per-core entry point |
+
+<Callout type="info">
+Import from the umbrella (`tako::router::Router`), not the sub-crate
+(`tako_core::...`). Only the umbrella re-export path is covered by the
+[stability contract](/docs/reference/stability); a direct sub-crate path may move
+in a minor release.
+</Callout>
+
+## Building the docs locally
+
+To read the rustdoc for the exact version you depend on, build it from your own
+checkout:
+
+```bash
+cargo doc -p tako-rs --no-deps --open
+```
+
+Add the features you use so the gated items appear — for example
+`--features "http2 tls plugins"`. See the [feature
+reference](/docs/reference/features) for the full flag list.

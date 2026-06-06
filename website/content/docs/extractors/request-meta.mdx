@@ -1,0 +1,210 @@
+---
+title: Request metadata extractors
+description: Read URL, path, header, and connection metadata — Query, Path, Params, HeaderMap, Accept, AcceptLanguage, Range, and IpAddr.
+category: extractor
+since: 2.0.0
+status: stable
+crate: tako-rs-extractors
+---
+
+# Request metadata extractors
+
+These extractors read the URL, path captures, headers, and connection
+info — never the body. They implement
+[`FromRequestParts`](https://docs.rs/tako-rs/latest/tako/extractors/trait.FromRequestParts.html),
+so any number of them can be combined in one handler, and they run before
+a [body extractor](/docs/extractors/body).
+
+## `Query<T>`
+
+Deserializes the URL query string into `T` (any `serde::Deserialize`).
+Optional fields map naturally to `Option<_>`.
+
+```rust
+use serde::Deserialize;
+use tako::extractors::query::Query;
+
+#[derive(Deserialize)]
+struct SearchQuery {
+  q: String,
+  page: Option<u32>,
+  limit: Option<u32>,
+}
+
+async fn search(Query(query): Query<SearchQuery>) -> String {
+  let page = query.page.unwrap_or(1);
+  format!("searching '{}' (page {page})", query.q)
+}
+```
+
+`QueryError` distinguishes `MissingQueryString`, `ParseError`, and
+`DeserializationError`. For query strings with repeated keys (`?tag=a&tag=b`)
+reach for `QueryMulti<T>`.
+
+## `Path<T>`
+
+Typed route path parameters (axum parity). `T` may be a single primitive
+(`Path<u64>`), a tuple (`Path<(u64, String)>`), a `Vec<_>` for repeated
+captures, an `Option<_>` (`None` when nothing matched), or a struct
+deriving `serde::Deserialize`.
+
+```rust
+use serde::Deserialize;
+use tako::extractors::path::Path;
+use tako::responder::Responder;
+
+#[derive(Deserialize)]
+struct UserPath { id: u64 }
+
+async fn show_user(Path(p): Path<UserPath>) -> impl Responder {
+  format!("user_id={}", p.id)
+}
+```
+
+The route must declare the matching capture, e.g.
+`router.route(Method::GET, "/users/{id}", show_user)` — see
+[Routing](/docs/routing). For the verbatim request path (no captures, no
+decoding) use `RawPath`.
+
+## `Params<T>`
+
+The dynamic path-params extractor. Like `Path<T>`, it deserializes the
+captured segments into `T`, and it is the form the `#[tako::route]` macro
+family materializes for `{name}` slots.
+
+```rust
+use serde::Deserialize;
+use tako::extractors::params::Params;
+use tako::extractors::query::Query;
+
+#[derive(Deserialize)]
+struct UserPath { id: u64 }
+
+#[derive(Deserialize)]
+struct Pagination { page: u32, per_page: u32 }
+
+// GET /users/{id}/posts?page=2&per_page=10
+async fn list_posts(
+  Params(user): Params<UserPath>,
+  Query(p): Query<Pagination>,
+) -> String {
+  format!("user={}, page={}, per_page={}", user.id, p.page, p.per_page)
+}
+```
+
+`ParamsError` is either `MissingPathParams` (an internal routing error) or
+`DeserializationError`.
+
+## `HeaderMap`
+
+Gives a handler the full request header set. `HeaderMap(pub http::HeaderMap)`
+is owned, so you read values without lifetime juggling. Its error type is
+`Infallible`.
+
+```rust
+use tako::extractors::header_map::HeaderMap;
+
+async fn inspect(HeaderMap(headers): HeaderMap) {
+  if let Some(ua) = headers.get("user-agent") {
+    println!("user-agent: {ua:?}");
+  }
+}
+```
+
+For a single strongly-typed header, the `typed-header` feature adds
+`TypedHeader<H>`.
+
+<RustExample path="examples/json-header-map/src/main.rs" />
+
+## `Accept`
+
+Parses the `Accept` header into a preference-sorted media-type list and
+exposes content-negotiation helpers: `prefers(mt)`, `accepts(mt)`,
+`preferred()`, and `types()`. Wildcards (`*/*`, `image/*`) are matched
+correctly — `image/*` matches `image/png` but not `imagezzz`.
+
+```rust
+use tako::extractors::accept::Accept;
+use tako::responder::Responder;
+
+async fn negotiate(accept: Accept) -> impl Responder {
+  if accept.prefers("application/json") {
+    r#"{"message":"hello"}"#.to_string()
+  } else {
+    "hello".to_string()
+  }
+}
+```
+
+## `AcceptLanguage`
+
+Parses `Accept-Language` into a `Vec<LanguagePreference>` (each a
+`language` tag plus a `quality` from 0.0 to 1.0), sorted by quality per
+RFC 7231.
+
+```rust
+use tako::extractors::acc_lang::AcceptLanguage;
+
+async fn localize(langs: AcceptLanguage) -> String {
+  match langs.languages.first() {
+    Some(top) => format!("preferred language: {}", top.language),
+    None => "no preference".to_string(),
+  }
+}
+```
+
+`AcceptLanguageError` distinguishes `MissingHeader`, `InvalidHeader`, and
+`ParseError`.
+
+## `Range`
+
+Parses an RFC 9110 `bytes=` Range header into `Range { specs: Vec<RangeSpec> }`.
+Each `RangeSpec` is one of `Inclusive { start, end }`, `From { start }`, or
+`Suffix { length }`, and `RangeSpec::resolve(total_size)` turns a spec into
+a concrete inclusive `[start, end]` (or `None` when unsatisfiable).
+Multi-range requests populate the full `specs` list; single-range
+responders can take the first entry.
+
+```rust
+use tako::extractors::range::Range;
+
+async fn serve_partial(range: Range) -> String {
+  match range.specs.first().and_then(|s| s.resolve(10_000)) {
+    Some((start, end)) => format!("serving bytes {start}-{end}"),
+    None => "range not satisfiable".to_string(),
+  }
+}
+```
+
+## `IpAddr`
+
+Extracts the client IP. **By default it returns the transport-level peer
+IP** and ignores forwarded headers (`X-Forwarded-For`, `X-Real-IP`,
+`Forwarded`, …), because any direct client can forge them. It exposes
+inspection helpers like `is_private()`, `is_loopback()`, `is_ipv4()`.
+
+```rust
+use tako::extractors::ipaddr::IpAddr;
+
+async fn whoami(ip: IpAddr) -> String {
+  if ip.is_private() {
+    format!("private client: {ip}")
+  } else {
+    format!("client: {ip}")
+  }
+}
+```
+
+To honor forwarded headers behind a known proxy, set an `IpAddrConfig`
+with `trusted_proxies` listing your load-balancer fleet via
+`tako_rs_core::state::set_state`. Only when the direct peer is in that
+list are headers consulted, in priority order (`Forwarded`,
+`X-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, `CF-Connecting-IP`,
+`True-Client-IP`).
+
+## Related
+
+- Route capture syntax (`{name}`, `{*rest}`, typed `{name: T}`) —
+  [Routing](/docs/routing).
+- Body inputs — [body extractors](/docs/extractors/body).
+- Authorization headers and tokens — [auth extractors](/docs/extractors/auth).

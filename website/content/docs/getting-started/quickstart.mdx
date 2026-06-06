@@ -1,0 +1,129 @@
+---
+title: Quickstart
+description: Add the tako-rs dependency, write a handler, register a GET route on Router, and serve it with tako::serve and a TcpListener.
+category: tutorial
+since: 2.0.0
+status: stable
+crate: tako-rs
+runtime: tokio
+---
+
+# Quickstart
+
+This walks through installing Tako, writing your first handler, and running it
+on a local TCP listener. It mirrors the
+[`examples/hello-world`](https://github.com/rust-dd/tako/tree/main/examples/hello-world)
+crate in the repository.
+
+## 1. Add the dependency
+
+```toml
+[dependencies]
+tako-rs = "2"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+```
+
+The package is published as `tako-rs`; everything is re-exported under the
+`tako::*` path. The default feature set covers HTTP/1.1, WebSocket, SSE, raw
+TCP/UDP, Unix sockets, and PROXY protocol on Tokio. See
+[Installation](/docs/getting-started/installation) for the runtime choice and
+opt-in feature flags.
+
+## 2. Write the server
+
+<RustExample path="examples/hello-world/src/main.rs" />
+
+## 3. Run it
+
+```bash
+cargo run
+```
+
+Then, in another terminal:
+
+```bash
+curl http://127.0.0.1:8080/
+# Hello, World!
+```
+
+## What the code does
+
+A handler is any `async fn` whose arguments implement `FromRequest` /
+`FromRequestParts` and whose return type implements `Responder`. The hello-world
+handler takes zero arguments, so it extracts nothing from the request:
+
+```rust
+async fn hello_world() -> impl Responder {
+  "Hello, World!".into_response()
+}
+```
+
+`Router::new()` produces an empty router. `route(Method::GET, "/", handler)`
+registers a handler against a `(method, path)` pair. Convenience shorthands
+exist too — `router.get(path, handler)`, plus `.post`, `.put`, `.patch`,
+`.delete`, `.head`, and `.options`:
+
+```rust
+let mut router = Router::new();
+router.route(Method::GET, "/", hello_world);
+// equivalently: router.get("/", hello_world);
+```
+
+`tako::serve(listener, router)` is the simplest server entry point: it builds a
+default `Server` and drives it until the listener stops accepting. For finer
+control — graceful shutdown, drain timeouts, HTTP/2, or TLS — use
+`Server::builder()` directly.
+
+## Adding extractors
+
+Handlers compose by taking more arguments. Tako runs the extractor for each
+argument before invoking the handler:
+
+```rust
+use serde::Deserialize;
+use tako::Method;
+use tako::extractors::json::Json;
+use tako::extractors::path::Path;
+use tako::responder::Responder;
+use tako::router::Router;
+
+#[derive(Deserialize)]
+struct UserPath { id: u64 }
+
+#[derive(Deserialize)]
+struct CreateUser { name: String }
+
+async fn get_user(Path(p): Path<UserPath>) -> impl Responder {
+  format!("user_id={}", p.id)
+}
+
+async fn create_user(Json(body): Json<CreateUser>) -> impl Responder {
+  format!("created: {}", body.name)
+}
+
+let mut router = Router::new();
+router.route(Method::GET, "/users/{id}", get_user);
+router.route(Method::POST, "/users", create_user);
+```
+
+## Return types
+
+Anything implementing `Responder` can be returned from a handler. The blanket
+impls cover the common shapes:
+
+- `&'static str` / `String` — `text/plain` body
+- `Bytes` / `Vec<u8>` — raw body
+- `Json<T>` — JSON body with `Content-Type: application/json`
+- `(StatusCode, T)` — status plus body
+- `(StatusCode, HeaderMap, T)` — status, headers, and body
+- `StatusCode` alone — empty body, just the status line
+- `Result<T, E>` where both arms implement `Responder` — the preferred shape
+  for fallible handlers
+
+## Next steps
+
+- [Routing](/docs/routing) — path parameters, nesting, scopes, typed slots.
+- [Extractors](/docs/extractors) — the full catalog of request extractors.
+- [State](/docs/state) — share configuration and dependencies with handlers.
+- [Middleware](/docs/middleware) — auth, CORS, compression, metrics, rate limiting.

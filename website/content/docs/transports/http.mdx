@@ -1,0 +1,221 @@
+---
+title: HTTP
+description: Serve HTTP/1.1, HTTP/2 cleartext (h2c), and HTTP/2 over TLS with ALPN negotiation on either runtime.
+category: transport
+since: 2.0.0
+status: stable
+crate: tako-rs-server
+runtime: both
+features: [http2, tls]
+---
+
+# HTTP
+
+HTTP/1.1 is the default transport — no feature flag required. HTTP/2 is added
+with the `http2` feature, and TLS with `tls`. The same `Router` serves all
+three; you choose the wire protocol at spawn time. HTTP/1.1, HTTP/2, and TLS all
+run on both the Tokio and Compio runtimes.
+
+## HTTP/1.1
+
+`tako::serve` builds a default server, binds the listener, and accepts until the
+process exits. This is the shortest entry point.
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
+
+```rust
+use anyhow::Result;
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+async fn hello() -> impl Responder {
+  "Hello, World!".into_response()
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", hello);
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+</Tab>
+<Tab value="Compio">
+
+```rust
+use anyhow::Result;
+use compio::net::TcpListener;
+use tako::Method;
+use tako::responder::Responder;
+use tako::router::Router;
+
+async fn hello() -> impl Responder {
+  "Hello, World!".into_response()
+}
+
+#[compio::main]
+async fn main() -> Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+
+  let mut router = Router::new();
+  router.route(Method::GET, "/", hello);
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+</Tab>
+</Tabs>
+
+The only difference between the two runtimes is the listener type
+(`tokio::net::TcpListener` vs `compio::net::TcpListener`) and the `main`
+attribute. The `serve` call and `Router` are identical. See
+[Runtimes](/docs/concepts/runtimes) for how to pick.
+
+<RustExample path="examples/hello-world/src/main.rs" />
+
+## The Server builder
+
+For graceful drain, a max-connection ceiling, or an owned shutdown trigger,
+build a `Server` explicitly. `spawn_http` returns a `ServerHandle`.
+
+```rust
+use std::time::Duration;
+use tako::{Server, ServerConfig};
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.route(tako::Method::GET, "/", || async { "hi" });
+
+  let server = Server::builder()
+    .config(ServerConfig {
+      drain_timeout: Duration::from_secs(30),
+      max_connections: Some(10_000),
+      ..ServerConfig::default()
+    })
+    .build();
+
+  let handle = server.spawn_http(listener, router);
+  tokio::signal::ctrl_c().await?;
+  handle.shutdown(Duration::from_secs(30)).await;
+  Ok(())
+}
+```
+
+`ServerConfig` carries the production knobs shared by every transport: header
+read timeout, keep-alive and keep-alive timeout, HTTP/2 caps, HTTP/3 caps,
+`max_connections`, the PROXY read timeout, and the TLS handshake timeout. Its
+`Default` mirrors the historical hardcoded values (30 s drain, 30 s header read,
+100 H2 streams), so anything you do not set keeps a safe default.
+
+## HTTP/2 cleartext (h2c)
+
+Enable the `http2` feature. Prior-knowledge h2c is typically used behind an L7
+proxy (Envoy, Nginx) that terminates TLS and forwards cleartext h2c upstream.
+Use `spawn_h2c` on the builder, or the standalone `tako::serve_h2c(listener,
+router)` helper.
+
+```rust
+use tako::{Server, ServerConfig};
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.route(tako::Method::GET, "/", || async { "h2c!" });
+
+  let server = Server::builder().config(ServerConfig::default()).build();
+  let handle = server.spawn_h2c(listener, router);
+  handle.join().await;
+  Ok(())
+}
+```
+
+<Callout type="warn">
+h2c has no ALPN negotiation — the client must use prior knowledge that the
+endpoint speaks HTTP/2. Expose h2c only behind a proxy you control, never
+directly to browsers.
+</Callout>
+
+## HTTP/2 over TLS (ALPN h2)
+
+For browser-facing HTTP/2, combine `http2` with `tls` and use `spawn_tls`. When
+both features are on, Tako advertises `h2` and `http/1.1` via ALPN and the
+client negotiates the highest it supports — HTTP/2 if available, HTTP/1.1
+otherwise. Attach a `TlsCert` to the builder.
+
+```rust
+use tako::{Server, TlsCert};
+use tako::router::Router;
+use tokio::net::TcpListener;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = TcpListener::bind("127.0.0.1:8443").await?;
+  let mut router = Router::new();
+  router.route(tako::Method::GET, "/", || async { "h2!" });
+
+  let server = Server::builder()
+    .tls(TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build();
+
+  let handle = server.spawn_tls(listener, router);
+  handle.join().await;
+  Ok(())
+}
+```
+
+H2 caps — `h2_max_concurrent_streams`, `h2_max_header_list_size`,
+`h2_max_send_buf_size`, the `h2_max_pending_accept_reset_streams` CVE-2023-44487
+mitigation, and `h2_keep_alive_interval` — all live on `ServerConfig`.
+
+### TLS without HTTP/2
+
+The `tls` feature works on its own; without `http2`, ALPN advertises only
+`http/1.1`. The same `spawn_tls` path applies. The lower-level
+`tako::serve_tls(listener, router, Some("cert.pem"), Some("key.pem"))` helper is
+also available when you do not need a builder handle.
+
+## TLS material
+
+`TlsCert` is the certificate source handed to the builder via `.tls(...)`:
+
+- `TlsCert::pem_paths(cert, key)` — load PEM cert and key from disk.
+- `TlsCert::der(certs, key)` — pre-loaded DER chain and key (for certs sourced
+  from secret storage rather than the filesystem).
+- `TlsCert::resolver(resolver)` — a user-supplied
+  `rustls::server::ResolvesServerCert` for SNI multi-cert serving or
+  hot-reloadable certificates. `ReloadableResolver` backs the latter with an
+  atomic, lock-free swap per handshake.
+
+Mutual TLS is configured by attaching a `ClientAuth` policy (`Optional` or
+`Required`) to any `TlsCert` variant via `.with_client_auth(...)`.
+
+## Compio TLS
+
+On the Compio runtime, TLS lives behind the `compio-tls` feature.
+`CompioServer::builder().tls(cert).build().spawn_tls(listener, router)` mirrors
+the tokio path; the listener is a `compio::net::TcpListener`. HTTP/3 is **not**
+available on compio — for QUIC, use the tokio runtime. See
+[HTTP/3](/docs/transports/http3).
+
+## Related
+
+- [Routing](/docs/routing) — declaring routes and handlers.
+- [HTTP/3](/docs/transports/http3) — the QUIC transport.
+- [Feature flags](/docs/reference/features) — `http2`, `tls`, `compio-tls`.

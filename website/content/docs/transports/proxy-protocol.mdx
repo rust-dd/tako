@@ -1,0 +1,160 @@
+---
+title: PROXY protocol
+description: Recover the real client address behind an L4 load balancer by parsing PROXY protocol v1/v2 headers into request extensions.
+category: transport
+since: 2.0.0
+status: stable
+crate: tako-rs-server
+runtime: tokio
+---
+
+# PROXY protocol
+
+When Tako sits behind an L4 (TCP) load balancer — HAProxy, AWS NLB, fly.io edges —
+the kernel only sees the balancer's address, not the real client's. The
+[PROXY protocol](https://www.haproxy.org/download/2.8/doc/proxy-protocol.txt)
+solves this: the balancer prepends a small header to every TCP connection carrying
+the original source and destination. Tako parses that header and rewrites the
+request so handlers see the true client. Both **v1** (human-readable text) and
+**v2** (binary, TLV-extensible) formats are supported.
+
+This lives in `tako-rs-server` and is a **default** feature on the **tokio**
+runtime.
+
+## Serving with PROXY protocol
+
+`serve_http_with_proxy_protocol` wraps your [`Router`](/docs/routing) exactly like
+[`tako::serve`](/docs/transports/http), but reads and strips the PROXY header on
+each connection before dispatching:
+
+```rust
+use anyhow::Result;
+use tako::Method;
+use tako::proxy_protocol::{ProxyHeader, serve_http_with_proxy_protocol};
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::types::Request;
+
+async fn handler(req: Request) -> impl Responder {
+  let real_addr = req
+    .extensions()
+    .get::<std::net::SocketAddr>()
+    .map(|a| a.to_string())
+    .unwrap_or_else(|| "unknown".into());
+
+  let proxy_info = req
+    .extensions()
+    .get::<ProxyHeader>()
+    .map(|h| format!("version={:?}, transport={:?}, src={:?}", h.version, h.transport, h.source))
+    .unwrap_or_else(|| "no PROXY header".into());
+
+  format!("Real client: {real_addr}\nPROXY header: {proxy_info}\n")
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.route(Method::GET, "/", handler);
+  serve_http_with_proxy_protocol(listener, router).await;
+  Ok(())
+}
+```
+
+## What handlers see
+
+After parsing, the server populates the request extensions:
+
+- A `std::net::SocketAddr` — the real client address from the PROXY header. This
+  **overrides** the raw TCP peer address, so any extractor or middleware that reads
+  the client IP gets the true value.
+- A `ConnInfo` carrying the same address.
+- The full `ProxyHeader` struct, for code that needs the raw fields.
+
+The server also rewrites forwarding headers defensively: inbound `Forwarded` and
+`X-Forwarded-*` are stripped (a client behind the hop must not spoof its address),
+and a single RFC 7239 `Forwarded: for=…` is re-emitted from the PROXY-supplied
+source so downstream middleware sees a consistent view.
+
+## The ProxyHeader struct
+
+`ProxyHeader` exposes the parsed connection plus PROXY v2 metadata:
+
+- `version` — `ProxyVersion::V1` or `V2`.
+- `transport` — `ProxyTransport::Tcp`, `Udp`, or `Unknown`.
+- `source` / `destination` — the original `SocketAddr`s (`None` for `UNKNOWN`/`LOCAL`).
+- `source_unix` / `destination_unix` — `AF_UNIX` paths when the family is Unix.
+- `authority`, `alpn`, `aws_vpc_endpoint_id`, `tls`, `unique_id` — typed PROXY v2
+  TLVs surfaced where they map cleanly.
+- `tlvs` — the raw TLV list, for custom or future-defined types.
+- `crc32c_verified` — see below.
+
+## Security and robustness
+
+The v2 parser is TLV-aware and CRC32C-verified. When a `PP2_TYPE_CRC32C` TLV is
+present, the checksum is recomputed over the full reconstructed header (with the CRC
+field zeroed):
+
+- `Some(true)` — TLV present and matched.
+- `Some(false)` — present but **mismatched**; the header may be corrupt or spoofed.
+- `None` — no CRC TLV (it is optional), or a v1 header.
+
+<Callout type="warn">
+A CRC32C mismatch is logged but does **not** abort the parse — the framework hands
+you `crc32c_verified == Some(false)` and lets the operator decide. If you require
+verified headers, reject connections where it is `Some(false)`. The advertised v2
+address length is also capped (536 bytes) so a malformed header cannot force a large
+per-connection allocation.
+</Callout>
+
+<Callout type="info">
+The PROXY header is parsed under a `proxy_read_timeout` (from
+[`ServerConfig`](/docs/concepts/runtimes)) so a client that connects but never
+sends the header cannot pin a worker task forever.
+</Callout>
+
+## Manual parsing on raw TCP
+
+If you are running a custom protocol over [raw TCP](/docs/transports/tcp-udp-unix)
+rather than HTTP, call `tako::proxy_protocol::read_proxy_protocol(&mut stream)`
+yourself. It consumes the header and leaves the stream positioned at the start of
+your protocol data:
+
+```rust
+use tako::proxy_protocol::read_proxy_protocol;
+use tako::server_tcp::serve_tcp;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+  serve_tcp("0.0.0.0:8080", |mut stream, _addr| {
+    Box::pin(async move {
+      let header = read_proxy_protocol(&mut stream).await?;
+      eprintln!("real client: {:?}", header.source);
+      Ok(())
+    })
+  })
+  .await?;
+  Ok(())
+}
+```
+
+## Configuration and shutdown
+
+Variants cover the usual axes: `serve_http_with_proxy_protocol_and_shutdown` adds a
+shutdown-signal future, and the `…_and_config` forms accept a `ServerConfig` for
+connection caps, keep-alive, header/drain timeouts, and the PROXY read timeout —
+all sourced from one struct, as with every other transport.
+
+## Testing
+
+You can exercise the v1 text format by hand — prepend the header line to a raw HTTP
+request:
+
+```bash
+printf 'PROXY TCP4 192.168.1.100 10.0.0.1 56324 8080\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n' | nc 127.0.0.1 8080
+```
+
+## Example
+
+- `examples/proxy-protocol` — HTTP server reading the real client address from the
+  PROXY header, with a `nc`-based v1 test command.

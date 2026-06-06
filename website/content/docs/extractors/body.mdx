@@ -1,0 +1,209 @@
+---
+title: Body extractors
+description: Read and deserialize request bodies — Json, Form, raw Bytes, Protobuf, SIMD JSON, and multipart uploads.
+category: extractor
+since: 2.0.0
+status: stable
+crate: tako-rs-extractors
+features: [protobuf, simd, multipart]
+---
+
+# Body extractors
+
+Body extractors consume the request body and deserialize it into a typed
+handler argument. They implement
+[`FromRequest`](https://docs.rs/tako-rs/latest/tako/extractors/trait.FromRequest.html),
+so a handler may take **at most one** of them, and it must come after any
+[request-metadata extractors](/docs/extractors/request-meta) — the body is
+read once. On a content-type mismatch or a deserialization failure the
+extractor's error type becomes a `400 Bad Request` response and the
+handler is skipped.
+
+## `Json<T>`
+
+The default JSON body extractor. `T` must implement `serde::Deserialize`.
+`Json<T>` also implements `Responder`, so handlers can return it to emit a
+JSON response with `Content-Type: application/json`.
+
+```rust
+use serde::{Deserialize, Serialize};
+use tako::extractors::json::Json;
+
+#[derive(Deserialize, Serialize)]
+struct CreateUser {
+  name: String,
+  email: String,
+}
+
+async fn create_user(Json(user): Json<CreateUser>) -> Json<CreateUser> {
+  println!("creating {}", user.name);
+  Json(user)
+}
+```
+
+With the `simd` feature on, `Json<T>` automatically dispatches to a
+SIMD-accelerated parser for large payloads; the threshold is configurable
+per route via `Route::simd_json(SimdJsonMode)`. For an unconditional SIMD
+path, use [`SimdJson<T>`](#simdjsont) below.
+
+## `Form<T>`
+
+Parses an `application/x-www-form-urlencoded` body via `serde_urlencoded`.
+`T` must implement `serde::Deserialize`. The extractor checks that the
+`Content-Type` starts with `application/x-www-form-urlencoded` (the
+`; charset=utf-8` variant is accepted) and otherwise returns
+`FormError::InvalidContentType`.
+
+```rust
+use serde::Deserialize;
+use tako::extractors::form::Form;
+
+#[derive(Deserialize)]
+struct LoginForm {
+  username: String,
+  password: String,
+}
+
+async fn login(Form(form): Form<LoginForm>) {
+  println!("login attempt for {}", form.username);
+}
+```
+
+`FormError` covers `InvalidContentType`, `BodyReadError`, `InvalidUtf8`,
+`ParseError`, and `DeserializationError`; all map to `400 Bad Request`.
+
+## `Bytes`
+
+Raw access to the underlying body stream, without buffering. `Bytes<'a>`
+wraps `&'a mut TakoBody`, so you drive the read yourself (for streaming,
+custom framing, or hashing). Its error type is `Infallible`.
+
+```rust
+use http_body_util::BodyExt;
+use tako::extractors::bytes::Bytes;
+
+async fn raw_body(Bytes(body): Bytes<'_>) {
+  let collected = body.collect().await.unwrap().to_bytes();
+  println!("read {} bytes", collected.len());
+}
+```
+
+<Callout type="info">
+This `Bytes<'a>` is a body **reference**, distinct from the refcounted
+buffer `bytes::Bytes` from the `bytes` crate. In a handler that needs
+both, import it aliased:
+`use tako::extractors::bytes::Bytes as BytesBody;`.
+</Callout>
+
+## `Protobuf<T>`
+
+<Callout type="info">Requires the `protobuf` feature.</Callout>
+
+Decodes a Protocol Buffers body into a `prost::Message`. The extractor
+accepts `application/x-protobuf` or `application/protobuf` (with optional
+parameters) and rejects everything else with
+`ProtobufError::InvalidContentType`. `Protobuf<T>` also implements
+`Responder`, encoding the message back out with
+`Content-Type: application/x-protobuf`.
+
+```rust
+use prost::Message;
+use tako::extractors::protobuf::Protobuf;
+
+#[derive(Clone, PartialEq, Message)]
+struct CreateUserRequest {
+  #[prost(string, tag = "1")]
+  pub name: String,
+  #[prost(string, tag = "2")]
+  pub email: String,
+}
+
+async fn create_user(Protobuf(req): Protobuf<CreateUserRequest>) -> String {
+  format!("creating {}", req.name)
+}
+```
+
+## `SimdJson<T>`
+
+<Callout type="info">Requires the `simd` feature.</Callout>
+
+Forces SIMD-accelerated JSON parsing regardless of payload size, backed by
+the `simd_json` crate. The sibling `SonicJson<T>` uses the `sonic_rs`
+backend with the same API. Both validate the JSON content type, read the
+full body, and implement `Responder` for SIMD-serialized JSON responses.
+
+```rust
+use serde::{Deserialize, Serialize};
+use tako::extractors::simdjson::SimdJson;
+
+#[derive(Deserialize, Serialize)]
+struct User {
+  name: String,
+  email: String,
+  age: u32,
+}
+
+async fn create_user(SimdJson(user): SimdJson<User>) -> SimdJson<User> {
+  println!("creating {}", user.name);
+  SimdJson(user)
+}
+```
+
+`SimdJsonError` distinguishes `InvalidContentType`, `MissingContentType`,
+`BodyReadError`, and `DeserializationError`, all mapping to
+`400 Bad Request`.
+
+## `Multipart`
+
+<Callout type="info">Requires the `multipart` feature.</Callout>
+
+Two extractors handle `multipart/form-data` (file uploads and mixed
+forms):
+
+- **`TakoMultipart<'a>`** — raw access. Wraps a `multer::Multipart`; you
+  iterate fields manually with `next_field()`.
+- **`TakoTypedMultipart<'a, T, F>`** — strongly typed. Deserializes every
+  part into `T`, using the file-field type `F` (one of `UploadedFile`,
+  `InMemoryFile`, or `BufferedUploadedFile`) for parts that carry a
+  filename.
+
+```rust
+use serde::Deserialize;
+use tako::extractors::multipart::{TakoTypedMultipart, UploadedFile};
+
+#[derive(Deserialize)]
+struct FileUploadForm {
+  title: String,
+  description: String,
+  file: UploadedFile,
+}
+
+async fn upload(
+  TakoTypedMultipart { data: form, .. }: TakoTypedMultipart<'_, FileUploadForm, UploadedFile>,
+) {
+  println!("uploaded {:?} ({} bytes)", form.file.file_name, form.file.size);
+  println!("saved to {:?}", form.file.path);
+}
+```
+
+`UploadedFile` streams to a temp file whose on-disk name is a fresh UUID —
+the client-supplied filename is preserved only in `UploadedFile.file_name`
+and never influences the path, which closes off path-traversal. The temp
+file is removed on drop (RAII); call `persist(dest)` or `disarm_cleanup()`
+to keep it.
+
+Limits come from a `MultipartConfig` (inserted into request extensions or
+set as global state): `total_size_limit`, `per_part_size_limit` (default
+1 MiB), `max_parts`, `allowed_content_types`, `disk_spill_threshold`, and
+`field_chunk_timeout`. The typed extractor enforces `max_parts` and the
+content-type allow-list; the raw extractor leaves part-count enforcement
+to the caller.
+
+<RustExample path="examples/multipart/src/main.rs" />
+
+## Related
+
+- Return-side encoding and the `Responder` trait — see [Routing](/docs/routing).
+- Bound body sizes per handler with `ContentLengthLimit<T, N>`, or globally
+  with the [Body Limit middleware](/docs/middleware).
+- Non-body inputs — [request metadata extractors](/docs/extractors/request-meta).

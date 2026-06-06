@@ -1,0 +1,40 @@
+---
+title: Tutorials
+description: End-to-end, copy-along guides that build a complete tako service from a single example crate in the repository.
+category: tutorial
+since: 2.0.0
+status: stable
+---
+
+# Tutorials
+
+The rest of the documentation is a reference: one page per transport, per
+extractor, per concept. These tutorials are the opposite shape — each one
+builds a complete, runnable service end-to-end, wiring several pieces together
+the way a real application does.
+
+Every tutorial is grounded in a real crate under
+[`examples/`](https://github.com/rust-dd/tako/tree/main/examples) in the
+repository, so you can clone it, run it, and read the same code shown here.
+
+If you have not written a Tako handler yet, start with the
+[Quickstart](/docs/getting-started/quickstart) first — these tutorials assume
+you can already register a route and serve it.
+
+## Available tutorials
+
+- **[Building a REST API](/docs/tutorials/rest-api)** — a small JSON API with
+  path, query, and JSON-body extractors, shared application state, a custom
+  error type that maps to HTTP status codes, and a middleware layer. Grounded in
+  [`examples/extractors-multi`](https://github.com/rust-dd/tako/tree/main/examples/extractors-multi).
+- **[Realtime over WebSocket](/docs/tutorials/realtime-chat)** — an echo and a
+  server-push feed over a full-duplex WebSocket connection, plus the SSE
+  alternative for one-way streams. Grounded in
+  [`examples/websocket`](https://github.com/rust-dd/tako/tree/main/examples/websocket).
+
+## After the tutorials
+
+When you are ready to ship, the [Deployment guide](/docs/deployment) covers the
+single-binary, thread-per-core, and load-balancer deployment shapes, and the
+[feature reference](/docs/reference/features) lists every cargo flag you can opt
+into.

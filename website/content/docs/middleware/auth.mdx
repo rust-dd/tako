@@ -1,0 +1,170 @@
+---
+title: Authentication
+description: JWT, Basic, Bearer, and API-key authentication middleware for Tako routes.
+category: middleware
+crate: tako-rs-plugins
+since: 2.0.0
+status: stable
+---
+
+# Authentication
+
+Tako ships four authentication middleware in `tako-rs-plugins`, re-exported
+under `tako::middleware::*`. Each is a builder; configure it, then call
+`.into_middleware()` and attach it globally or per-route. All four return
+`401 Unauthorized` with the appropriate `WWW-Authenticate` challenge when
+credentials are missing or invalid, and the static-credential paths use
+constant-time comparison to avoid timing leaks.
+
+This page covers the **middleware** that *guards* a route. To read already-parsed
+credentials inside a handler (for example `JwtClaimsVerified<T>` produced by
+`JwtAuth`), see the [auth extractors](/docs/extractors/auth).
+
+## Basic auth
+
+RFC 7617 HTTP Basic. Configure a single user, multiple users, or a custom
+verify closure that returns `bool`.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::basic_auth::BasicAuth;
+
+// Single static user.
+let single = BasicAuth::single("admin", "pw")
+  .realm("Admin Area")
+  .into_middleware();
+
+// Multiple static users.
+let multi = BasicAuth::multiple([
+  ("alice", "secret1"),
+  ("bob", "secret2"),
+]).into_middleware();
+
+// Dynamic verification — returns bool, not a user object.
+let dynamic = BasicAuth::with_verify(|user, pass| {
+  user == "admin" && pass == "pw"
+}).into_middleware();
+```
+
+`realm(...)` sets the `WWW-Authenticate` realm (default `"Restricted"`).
+`users_with_verify(...)` combines a static map with a fallback closure.
+
+## Bearer auth
+
+RFC 6750 bearer tokens from the `Authorization` header. The scheme name is
+matched case-insensitively.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::bearer_auth::BearerAuth;
+
+// Single static token.
+let single = BearerAuth::static_token("my-secret-token").into_middleware();
+
+// Multiple valid tokens.
+let multi = BearerAuth::static_tokens([
+  "development-key",
+  "staging-key",
+]).into_middleware();
+
+// Dynamic verification.
+let dynamic = BearerAuth::with_verify(|token| {
+  token.starts_with("user_")
+}).into_middleware();
+```
+
+`static_tokens_with_verify(...)` combines static tokens with a fallback
+closure. For decoding *claims* out of a JWT bearer token, reach for `JwtAuth`
+below instead — `BearerAuth` only answers yes/no.
+
+## API-key auth
+
+Validate an API key drawn from a header (default `X-API-Key`), a query
+parameter, or either.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::api_key_auth::{ApiKeyAuth, ApiKeyLocation};
+
+// Single key from the default X-API-Key header.
+let basic = ApiKeyAuth::new("secret-api-key").into_middleware();
+
+// Multiple keys from a custom header.
+let multi = ApiKeyAuth::from_keys(["key1", "key2"])
+  .header_name("X-Custom-Key")
+  .into_middleware();
+
+// From a query parameter.
+let query = ApiKeyAuth::new("secret")
+  .location(ApiKeyLocation::Query("api_key"))
+  .into_middleware();
+
+// Dynamic verification.
+let dynamic = ApiKeyAuth::with_verify(|key| {
+  key.len() == 32 && key.chars().all(|c| c.is_ascii_hexdigit())
+}).into_middleware();
+```
+
+`ApiKeyLocation` is `Header(name)`, `Query(name)`, or
+`HeaderOrQuery(header, query)` (header tried first). `header_name(...)` and
+`query_param(...)` are shorthands.
+
+## JWT auth
+
+`JwtAuth<V>` is trait-based: implement `JwtVerifier` with your preferred JWT
+library, or enable the `jwt-simple` cargo feature for the bundled
+`MultiKeyVerifier` (HMAC, RSA, RSA-PSS, ECDSA, EdDSA, BLAKE2b). On success the
+decoded claims are inserted into the request extensions, where a handler can
+read them.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::jwt_auth::{JwtAuth, VerifyConstraints};
+
+// `verifier` implements JwtVerifier (e.g. the jwt-simple MultiKeyVerifier).
+let jwt = JwtAuth::new(verifier)
+  .constraints(VerifyConstraints {
+    issuer: Some("https://issuer.example".into()),
+    audience: Some("my-api".into()),
+    leeway_secs: 30,
+  })
+  .into_middleware();
+```
+
+Capabilities:
+
+- **JWKS rotation** — the `jwt-simple` `MultiKeyVerifier` selects keys by `kid`
+  and exposes `rotate_key` / `revoke_kid` for runtime rotation without a
+  restart.
+- **Constraints** — `VerifyConstraints` enforces `iss`, `aud`, and a clock
+  `leeway_secs` uniformly across algorithms. The default verifier **fails
+  closed** if constraints are set but the verifier cannot enforce them.
+- **Revocation** — `.revocation(list, extractor)` checks a `RevocationList`
+  (the bundled `InMemoryRevocationList` is keyed by `jti`) after signature
+  verification.
+- **Introspection** — `.introspect(closure)` runs an async callback on every
+  request, the correct hook for opaque tokens or tenant-scoped revocation.
+
+<Callout type="warn">
+  A `VerifyConstraints` set on `JwtAuth` only takes effect if the verifier
+  enforces it. The default `validate_constraints` rejects (returns `401`) when
+  any non-default constraint is configured on a verifier that does not override
+  it — this prevents silently dropping `iss` / `aud` / `leeway`.
+</Callout>
+
+## Where to register
+
+Attach an auth middleware per-route to guard only the protected paths, or
+globally if the whole router is behind auth:
+
+```rust
+use tako::Method;
+
+router
+  .route(Method::GET, "/admin", admin_only)
+  .middleware(BasicAuth::single("admin", "pw").into_middleware());
+```
+
+See the [middleware model](/docs/middleware) for chain ordering, and the
+runnable [`examples/auth`](https://github.com/rust-dd/tako/tree/main/examples/auth)
+for a full Basic + Bearer setup.

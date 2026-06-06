@@ -1,0 +1,73 @@
+---
+title: Benchmarks
+description: A baseline hello-world throughput comparison between tako, axum, and actix, with the wrk command and the methodology caveat.
+category: reference
+since: 2.0.0
+status: stable
+crate: tako-rs
+---
+
+# Benchmarks
+
+Hello-world throughput is not the whole story, but it is a useful sanity check
+that the framework's hot path is not leaving obvious performance on the table.
+The numbers below are from a clean local run of the current branch.
+
+## Baseline hello-world
+
+The current branch lands in this range on a clean local run:
+
+| Framework | Requests/sec | Avg Latency | Note |
+| --- | ---: | ---: | --- |
+| Tako | ~187,288 | ~505 us | latest local `30s` rerun |
+| Tako + `jemalloc` | ~187,638 | ~502 us | latest local `30s` rerun |
+| Axum | ~186,194 | ~498 us | latest local `30s` rerun |
+| Actix | ~155,307 | ~635 us | latest local `30s` rerun |
+
+Command used:
+
+```bash
+wrk -t4 -c100 -d30s http://127.0.0.1:8080/
+```
+
+## Methodology and caveats
+
+<Callout type="warn">
+Benchmarks are machine- and thermal-state-dependent, so treat these as **local
+baselines, not universal claims**. Axum and Actix were rerun with minimal
+temporary hello-world servers using the same `wrk` command.
+</Callout>
+
+The run uses [`wrk`](https://github.com/wg/wrk) with 4 threads, 100 connections,
+over 30 seconds, against a `GET /` route returning a static string. Each
+framework was served as a minimal hello-world binary so the comparison isolates
+the request hot path rather than any application logic.
+
+Because the absolute numbers move with CPU, kernel, allocator, and thermal
+state, reproduce them on your own hardware before drawing conclusions — the only
+claim made here is that Tako is in the same range as the other mainstream Rust
+HTTP frameworks for this microbenchmark, not that it is universally faster or
+slower.
+
+The `jemalloc` row enables the [`jemalloc` feature](/docs/reference/features),
+which sets `tikv-jemallocator` as the global allocator. On this workload the
+difference is within run-to-run noise; it matters more under allocation-heavy
+real workloads than for a static hello-world.
+
+## Reproducing locally
+
+The hello-world server used as the Tako baseline is
+[`examples/hello-world`](https://github.com/rust-dd/tako/tree/main/examples/hello-world).
+Build it in release mode, run it, and point `wrk` at it:
+
+```bash
+cargo run --release -p hello-world
+# in another terminal:
+wrk -t4 -c100 -d30s http://127.0.0.1:8080/
+```
+
+For the `jemalloc` row, build with the feature enabled:
+
+```bash
+cargo run --release --features jemalloc -p hello-world
+```

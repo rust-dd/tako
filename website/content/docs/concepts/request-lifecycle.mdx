@@ -1,0 +1,138 @@
+---
+title: Request lifecycle
+description: Trace a request through tako end to end — listener, server, Router match, middleware chain, extractors, handler, and Responder.
+category: concept
+since: 2.0.0
+status: stable
+crate: tako-rs-core
+---
+
+# Request lifecycle
+
+This page traces a single request through Tako from the moment bytes arrive on
+a socket to the moment a response goes back out. Every stage uses the real type
+names from `tako-rs-core`.
+
+## The path of a request
+
+1. **Listener** — a `TcpListener` (or TLS / HTTP/2 / HTTP/3 / Unix listener)
+   accepts a connection.
+2. **Server** — `tako::serve(listener, router)` drives the accept loop and
+   parses each request into a `Request` (`http::Request<TakoBody>`).
+3. **Router match** — `Router` looks up the `(Method, path)` pair against its
+   `matchit`-backed table.
+4. **Middleware chain** — matched route and global middleware wrap the handler,
+   each advancing the chain with `Next::run`.
+5. **Extractors** — each handler argument is produced from the request via
+   `FromRequest` / `FromRequestParts`.
+6. **Handler** — your `async fn` runs against the extracted arguments and
+   returns a value.
+7. **Responder** — the return value is converted to a `Response` via
+   `into_response`.
+8. **Response** — the `Response` (`http::Response<TakoBody>`) travels back out
+   the same connection.
+
+## 1–2. Listener and server
+
+The entry point is `tako::serve`:
+
+```rust
+let listener = TcpListener::bind("127.0.0.1:8080").await?;
+let mut router = Router::new();
+router.route(Method::GET, "/", hello_world);
+tako::serve(listener, router).await;
+```
+
+`serve` builds a default `Server`, accepts connections, and turns each one into
+a `Request`. `Request` is an alias for `http::Request<TakoBody>`, where
+`TakoBody` is Tako's streaming body type — so the body can be read incrementally
+rather than fully buffered. The matching `Response` alias is
+`http::Response<TakoBody>`.
+
+## 3. Router match
+
+`Router` maps each `(Method, path)` pair to a handler. Routes are registered
+with the explicit form or a method shorthand:
+
+```rust
+router.route(Method::GET, "/users/{id}", show_user);
+router.get("/health", health);
+```
+
+If the path matches but the method does not, the router returns `405 Method Not
+Allowed` with an `Allow` header listing the supported methods. If no route
+matches at all, the router's `fallback` runs. Path syntax is
+`matchit`-compatible: `{name}` for a free segment and `{*rest}` for a catch-all.
+
+## 4. Middleware chain
+
+Matched middleware wrap the handler. Each middleware takes the `Request` and a
+`Next`, does its work, and calls `next.run(req)` to advance the chain — the last
+link is the handler itself:
+
+```rust
+use tako::middleware::Next;
+use tako::types::{Request, Response};
+
+async fn auth(req: Request, next: Next) -> Response {
+  // inspect or reject the request before it reaches the handler
+  next.run(req).await
+}
+```
+
+Global middleware (added on the router) runs on every request; per-route
+middleware is attached by chaining `.middleware(mw)` on the `Arc<Route>` that
+`Router::route` returns. A middleware can short-circuit by returning a
+`Response` without calling `next.run`.
+
+## 5. Extractors
+
+A handler's arguments are produced from the request before the handler body
+runs. Extractors implement one of two traits:
+
+- **`FromRequestParts`** — reads from the request head only (method, URI,
+  headers, path/query parameters, state). Cheap and body-preserving.
+- **`FromRequest`** — consumes the body (e.g. `Json<T>`, `Form<T>`, `Bytes`,
+  `Multipart`). At most one body-consuming extractor per handler.
+
+```rust
+async fn show_user(Path(p): Path<UserPath>, State(db): State<Db>) -> impl Responder {
+  // Path reads parameters from the head; State reads shared application state
+  format!("user_id={}", p.id)
+}
+```
+
+If an extractor fails — malformed JSON, a path parameter that does not
+deserialise — the error is shaped by the router's error handlers
+(`client_error_handler` / `use_problem_json()`) instead of reaching the handler.
+
+## 6–7. Handler and Responder
+
+The handler is an ordinary `async fn`. Its return type must implement
+`Responder`, which converts the value into a `Response`:
+
+```rust
+async fn hello_world() -> impl Responder {
+  "Hello, World!".into_response()
+}
+```
+
+Blanket `Responder` impls cover `&str`, `String`, `Bytes` / `Vec<u8>`,
+`Json<T>`, `(StatusCode, T)`, `(StatusCode, HeaderMap, T)`, `StatusCode` alone,
+and `Result<T, E>` where both arms are responders — the preferred shape for
+fallible handlers.
+
+## 8. Response
+
+The resulting `Response` unwinds back through any middleware that is still
+awaiting `next.run`, giving each a chance to modify the response (add headers,
+compress the body, record metrics) before it is written to the connection and
+sent to the client.
+
+## Where to go next
+
+- [Routing](/docs/routing) — path parameters, nesting, scopes, fallbacks.
+- [Extractors](/docs/extractors) — the full extractor catalog and ordering.
+- [Middleware](/docs/middleware) — the bundled middleware and writing your own.
+- [Architecture](/docs/concepts/architecture) — the layered view of these
+  same pieces.

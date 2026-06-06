@@ -135,7 +135,10 @@ Choose Tako when your service needs one or more of these:
 
 ## Documentation
 
-[API Documentation](https://docs.rs/tako-rs/latest/tako/)
+- **Guide & reference:** [tako.rust-dd.com](https://tako.rust-dd.com) — the full handbook: getting started, transports, extractors, middleware, concepts, and reference.
+- **API docs:** [docs.rs/tako-rs](https://docs.rs/tako-rs/latest/tako/)
+
+The documentation site lives in [`website/`](./website) (Fumadocs + Next.js + MDX).
 
 MSRV 1.95 | Edition 2024
 

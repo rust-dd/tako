@@ -1,0 +1,147 @@
+---
+title: Traffic
+description: Rate limiting, CORS, response compression, and idempotency-key de-duplication for Tako.
+category: middleware
+crate: tako-rs-plugins
+since: 2.0.0
+status: stable
+features: [plugins]
+---
+
+# Traffic
+
+The traffic-shaping entries — rate limiter, CORS, compression, and idempotency
+— are **plugins**, not raw middleware. They implement `TakoPlugin` and are
+registered with `Router::plugin` (global) or `Route::plugin` (per-route)
+instead of `.into_middleware()`. All four require the `plugins` feature;
+compression's zstd path additionally needs `zstd`.
+
+```toml
+[dependencies]
+tako-rs = { version = "2", features = ["plugins"] }
+```
+
+## Rate limiter
+
+`plugins::rate_limiter::RateLimiterBuilder` builds a token-bucket (default) or
+GCRA limiter. The default key is the peer IP; `key_fn` composes per-route,
+per-tenant, or per-user buckets. It emits the IETF `RateLimit-Limit`,
+`RateLimit-Remaining`, `RateLimit-Reset`, and `Retry-After` headers.
+
+```rust
+use tako::plugins::rate_limiter::{Algorithm, RateLimiterBuilder, UnkeyedBehavior};
+
+let limiter = RateLimiterBuilder::new()
+  .requests_per_second(100)
+  .algorithm(Algorithm::TokenBucket)    // or Algorithm::Gcra
+  .on_unkeyed(UnkeyedBehavior::Reject)  // requests with no discoverable IP (or Allow)
+  .build();
+
+router.plugin(limiter);
+```
+
+`requests_per_second(n)` and `requests_per_minute(n)` are shorthands over the
+lower-level `max_requests` / `refill_rate` / `refill_interval_ms` knobs.
+
+<Callout type="warn">
+  `build()` panics on a zero `max_requests`, `refill_rate`, or
+  `refill_interval_ms` — a zero rate or cap would silently deny every request
+  or poison the GCRA arithmetic, so it is rejected at startup. For a hard
+  throttle use a deliberately tiny rate with a long interval.
+</Callout>
+
+## CORS
+
+`plugins::cors::CorsBuilder` handles preflight `OPTIONS` requests, validates
+origins, and adds the CORS response headers. Apply it router-wide or to a
+specific route for a tighter policy.
+
+```rust
+use http::Method;
+use tako::plugins::cors::CorsBuilder;
+
+let cors = CorsBuilder::new()
+  .allow_origin("https://app.example.com")
+  .allow_methods(&[Method::GET, Method::POST, Method::PUT])
+  .allow_headers(&[http::header::CONTENT_TYPE])
+  .allow_credentials(true)
+  .max_age_secs(86_400)
+  .build();
+
+router.plugin(cors);
+```
+
+Origin matching can also use `allow_origin_suffix(suffix)` or
+`allow_origin_predicate(closure)` for dynamic decisions, and
+`allow_private_network(true)` opts into the Private Network Access preflight.
+`try_build()` returns a `Result` instead of panicking on an invalid config
+(for example credentialed wildcards).
+
+## Compression
+
+`plugins::compression::CompressionBuilder` negotiates response compression from
+the client `Accept-Encoding` header. gzip, brotli, and deflate are available by
+default; zstd requires the `zstd` feature. Compression is applied selectively
+by content type, response size, and status.
+
+```rust
+use tako::plugins::compression::CompressionBuilder;
+
+let compression = CompressionBuilder::new()
+  .enable_gzip(true)
+  .enable_brotli(true)
+  .enable_deflate(true)
+  .enable_stream(true)        // compress streaming bodies
+  .min_size(1024)             // skip bodies smaller than this
+  .brotli_level(9)
+  .build();
+
+router.plugin(compression);
+```
+
+Per-algorithm levels are set with `gzip_level`, `brotli_level`,
+`deflate_level`, and `zstd_level`. `content_types(policy)` controls which MIME
+types are compressed, and `protect_sensitive(true)` skips compression on
+responses that could be vulnerable to compression side-channels.
+
+<Callout type="warn">
+  `enable_zstd(true)` only has an effect when the crate is built with the
+  `zstd` feature; without it the zstd path is compiled out. See the
+  [feature reference](/docs/reference/features).
+</Callout>
+
+## Idempotency
+
+`plugins::idempotency::IdempotencyBuilder` implements server-side idempotency
+for unsafe methods, keyed by a caller-supplied header (default
+`Idempotency-Key`). For a given key and scope it guarantees the same response
+within a TTL.
+
+```rust
+use tako::plugins::idempotency::{IdempotencyBuilder, Scope};
+
+let idempotency = IdempotencyBuilder::new()
+  .ttl_secs(3_600)
+  .scope(Scope::MethodAndPath)  // or Scope::KeyOnly
+  .coalesce_inflight(true)      // concurrent dupes wait for the first to finish
+  .verify_payload(true)         // same key + different body => 409 Conflict
+  .build();
+
+router.plugin(idempotency);
+```
+
+Behavior:
+
+- The first request with a new key is processed and its response cached.
+- Concurrent requests with the same key wait for completion and receive the
+  cached result.
+- Replays within the TTL return the cached result immediately.
+- Reusing a key with a *different* payload returns `409 Conflict` (when
+  `verify_payload` is on).
+
+Bodies are buffered to compute a stable signature and to cache the response;
+`max_request_body_bytes` and `max_cached_body_bytes` bound that buffering.
+Storage is in-memory with periodic TTL cleanup.
+
+See the [middleware model](/docs/middleware) for how plugins fit into the
+chain, and [Plugins](/docs/plugins) for the plugin-vs-middleware distinction.

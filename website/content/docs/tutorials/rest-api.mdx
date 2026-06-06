@@ -1,0 +1,220 @@
+---
+title: Building a REST API
+description: Build a small JSON REST API with path, query, and body extractors, shared state, a custom error type, and a middleware layer.
+category: tutorial
+since: 2.0.0
+status: stable
+crate: tako-rs
+features: ["plugins"]
+---
+
+# Building a REST API
+
+This tutorial builds a small JSON REST API end-to-end. It starts from the
+runnable [`examples/extractors-multi`](https://github.com/rust-dd/tako/tree/main/examples/extractors-multi)
+crate, then layers on the pieces a real service needs: shared application state,
+a custom error type that maps to HTTP status codes, and a middleware layer.
+
+By the end you will have:
+
+- `GET /users/{id}/posts?page=&per_page=` — path **and** query extraction
+- `POST /users` — a typed JSON body, echoed back as JSON
+- shared state read inside a handler
+- a fallible handler returning `Result<Json<T>, ApiError>`
+- a `RequestId` middleware on the router
+
+If you have not served a handler before, read the
+[Quickstart](/docs/getting-started/quickstart) first.
+
+## 1. The starting point
+
+The example crate is a two-route API: one route combines a path parameter with
+query parameters, the other accepts a JSON body and returns JSON. This is the
+whole file:
+
+<RustExample path="examples/extractors-multi/src/main.rs" />
+
+A few things to note:
+
+- Each handler argument is an **extractor**. `Params<UserPath>` pulls the
+  `{id}` path segment, `Query<Pagination>` parses the query string, and
+  `Json<CreateUser>` deserializes the request body. Tako runs every extractor
+  before calling the handler. See [Extractors](/docs/extractors) for the full
+  catalog.
+- The structs deriving `Deserialize` are the typed targets for those
+  extractors; the response struct derives `Serialize` so `Json<Created>` can
+  encode it.
+- `router.route(Method::GET, "/users/{id}/posts", …)` registers the handler.
+  `{id}` is a `matchit` path slot. (For compile-time-typed slots like
+  `{id: u64}`, see the [`#[tako::get]` macro family](/docs/routing).)
+
+## 2. The Cargo.toml
+
+The example depends only on the umbrella crate plus `serde` and a runtime:
+
+```toml
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+tako-rs = "2"
+tokio = { version = "1", features = ["full"] }
+```
+
+`tako-rs` is the package name; you import it as `tako`. The default feature set
+already covers HTTP/1.1, so no flags are needed yet. We add `plugins` later for
+the middleware section.
+
+## 3. Adding shared state
+
+Most APIs need to share something with every handler — a database pool, a
+config struct, a cache handle. Tako exposes this through the
+[`State<T>`](/docs/state) extractor backed by `Router::with_state`.
+
+Define a `Clone` config type, register it once with `with_state`, then pull it
+into any handler by adding a `State<T>` argument:
+
+```rust
+use std::sync::Arc;
+use tako::extractors::query::Query;
+use tako::extractors::state::State;
+use tako::responder::Responder;
+
+#[derive(Clone)]
+struct AppState {
+  default_per_page: u32,
+}
+
+async fn list_user_posts(
+  Params(user): Params<UserPath>,
+  Query(p): Query<Pagination>,
+  State(state): State<AppState>,
+) -> impl Responder {
+  let per_page = if p.per_page == 0 { state.default_per_page } else { p.per_page };
+  format!("user_id={}, page={}, per_page={}", user.id, p.page, per_page)
+}
+```
+
+Register the state on the router before serving:
+
+```rust
+let mut router = Router::new();
+router.with_state(AppState { default_per_page: 20 });
+router.route(Method::GET, "/users/{id}/posts", list_user_posts);
+```
+
+`State<T>` reads from the per-router store first and surfaces the value as
+`Arc<T>`. When no caller ever invoked `with_state`, the lookup short-circuits on
+a single `AtomicBool::Acquire`, so unused state costs nothing on the hot path.
+
+## 4. A custom error type
+
+Real handlers fail: a user is missing, a body is invalid, a downstream call
+errors. Tako lets a handler return `Result<R, E>` where **both** arms implement
+[`Responder`](/docs/routing) — the `Err` arm is turned into a response just like
+the `Ok` arm. Define an error enum and give it a `Responder` impl that picks the
+status code:
+
+```rust
+use http::StatusCode;
+use tako::extractors::json::Json;
+use tako::responder::Responder;
+use tako::types::Response;
+
+enum ApiError {
+  NotFound,
+  BadRequest(String),
+}
+
+impl Responder for ApiError {
+  fn into_response(self) -> Response {
+    let (status, msg) = match self {
+      ApiError::NotFound => (StatusCode::NOT_FOUND, "user not found".to_string()),
+      ApiError::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
+    };
+    (status, msg).into_response()
+  }
+}
+```
+
+Now a handler can fail with a typed error and Tako renders the right status:
+
+```rust
+async fn get_user(Params(user): Params<UserPath>) -> Result<Json<Created>, ApiError> {
+  if user.id == 0 {
+    return Err(ApiError::BadRequest("id must be non-zero".into()));
+  }
+  if user.id > 1_000 {
+    return Err(ApiError::NotFound);
+  }
+  Ok(Json(Created { id: user.id, name: "Ada".into(), email: "ada@example.com".into() }))
+}
+```
+
+<Callout type="info">
+For machine-readable error bodies, call `router.use_problem_json()` to emit
+RFC 7807 `application/problem+json` for 4xx/5xx responses, or implement the
+`Responder` for your error type to return `tako::problem::Problem` directly. See
+the [migration guide](/docs/reference/migration) for the full error-handling
+surface (`error_handler`, `client_error_handler`, `use_problem_json`).
+</Callout>
+
+## 5. Adding a middleware layer
+
+Cross-cutting concerns — request IDs, auth, rate limiting — attach as
+middleware without touching handler code. Anything implementing
+`IntoMiddleware` can be attached to the whole router or a single route. The
+bundled middleware lives in `tako-plugins`, enabled with the `plugins` feature.
+
+A `RequestId` middleware that tags every request with an `X-Request-ID` header:
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::request_id::RequestId;
+
+let mut router = Router::new();
+router.middleware(RequestId::new().into_middleware());
+router.route(Method::POST, "/users", create);
+```
+
+`router.middleware(…)` is global — every request passes through it. To scope a
+middleware to one route, chain `.middleware(…)` after the `route(…)` call:
+
+```rust
+use tako::middleware::bearer_auth::BearerAuth;
+
+let bearer = BearerAuth::static_token("my-secret-token").into_middleware();
+router
+  .route(Method::POST, "/users", create)
+  .middleware(bearer);
+```
+
+See [Middleware](/docs/middleware) for the full bundled set (auth, CORS,
+compression, rate limiting, sessions, CSRF, metrics, and more).
+
+## 6. Running it
+
+```bash
+cargo run
+```
+
+Then exercise the routes:
+
+```bash
+# query + path
+curl 'http://127.0.0.1:8080/users/7/posts?page=2&per_page=10'
+# user_id=7, page=2, per_page=10
+
+# JSON body in, JSON out
+curl -X POST http://127.0.0.1:8080/users \
+  -H 'content-type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com"}'
+# {"id":1,"name":"Ada","email":"ada@example.com"}
+```
+
+## Next steps
+
+- [Routing](/docs/routing) — nesting, scopes, typed path slots, the macro family.
+- [Extractors](/docs/extractors) — the full catalog of request extractors.
+- [Middleware](/docs/middleware) — the bundled production middleware set.
+- [Realtime over WebSocket](/docs/tutorials/realtime-chat) — the next tutorial.
+- [Deployment](/docs/deployment) — ship the binary.

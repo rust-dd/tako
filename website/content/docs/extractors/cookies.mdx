@@ -1,0 +1,122 @@
+---
+title: Cookie extractors
+description: Read and write request cookies — plain CookieJar, HMAC-signed CookieSigned, and encrypted CookiePrivate, with key rotation.
+category: extractor
+since: 2.0.0
+status: stable
+crate: tako-rs-extractors
+---
+
+# Cookie extractors
+
+Three cookie jars cover three trust levels. All parse the incoming
+`Cookie:` header into a jar and emit `Set-Cookie` headers for cookies you
+add; they differ in whether values are plaintext, signed, or encrypted.
+
+| Extractor | Catalog name | Protection |
+|---|---|---|
+| `CookieJar` | `CookieJar` | none (plaintext) |
+| `CookieSigned` | `SignedCookieJar` | HMAC integrity — readable but tamper-evident |
+| `CookiePrivate` | `PrivateCookieJar` | encryption — unreadable and tamper-proof |
+
+## `CookieJar`
+
+Plain cookie reading and writing. Wraps the `cookie` crate's jar and
+parses the `Cookie:` header on extraction. Its error type is `Infallible`.
+
+```rust
+use cookie::Cookie;
+use tako::extractors::cookie_jar::CookieJar;
+
+async fn handle(mut jar: CookieJar) {
+  if let Some(session) = jar.get("session_id") {
+    println!("session: {}", session.value());
+  }
+  jar.add(Cookie::new("visited", "true"));
+}
+```
+
+`remove(name)` copies the existing cookie's `Path` / `Domain` into the
+removal marker so the browser actually invalidates it (rather than leaving
+an identically-named cookie on another path or the apex domain in place).
+
+## `CookieSigned`
+
+HMAC-signed cookies (the catalog's `SignedCookieJar`). Values stay
+**readable** by the client but any tampering is detected on read. Construct
+with a `cookie::Key`; `add` signs and `get` verifies.
+
+```rust
+use cookie::{Cookie, Key};
+use tako::extractors::cookie_signed::CookieSigned;
+
+let key = Key::generate();
+let mut signed = CookieSigned::new(key);
+
+signed.add(Cookie::new("username", "alice"));
+if let Some(c) = signed.get("username") {
+  assert_eq!(c.value(), "alice"); // verified
+}
+```
+
+`CookieSignedError` covers `MissingKey` / `InvalidKey` (→ `500`) and
+`VerificationFailed` / `InvalidCookieFormat` / `InvalidSignature` (→ `400`).
+
+## `CookiePrivate`
+
+Encrypted cookies (the catalog's `PrivateCookieJar`). Values are
+**unreadable** by the client and tamper-proof. Same shape as `CookieSigned`
+— `add` encrypts, `get` decrypts.
+
+```rust
+use cookie::{Cookie, Key};
+use tako::extractors::cookie_private::CookiePrivate;
+
+let key = Key::generate();
+let mut private = CookiePrivate::new(key);
+
+private.add(Cookie::new("secret", "sensitive_data"));
+if let Some(c) = private.get("secret") {
+  assert_eq!(c.value(), "sensitive_data"); // decrypted
+}
+```
+
+`CookiePrivateError` covers `MissingKey` / `InvalidKey` (→ `500`) and
+`DecryptionFailed` / `InvalidCookieFormat` (→ `400`). Use `CookiePrivate`
+whenever the value is sensitive (session tokens, user identifiers); use
+`CookieSigned` when the value may be visible but must not be forged.
+
+## Key rotation with `KeyRing`
+
+Both the signed and private jars support a `KeyRing` so you can rotate keys
+without invalidating cookies signed under an older key. The ring has one
+`active` key (used to sign / encrypt new cookies) plus any number of
+`previous` keys (tried for verification / decryption only); each key
+carries a string `kid`.
+
+```rust
+use cookie::Key;
+use tako::extractors::cookie_signed::{CookieSigned, KeyRing};
+
+let ring = KeyRing::new("v2", Key::generate())
+  .with_previous("v1", Key::generate());
+
+let signed = CookieSigned::with_ring(ring);
+```
+
+`get_with_kid(name)` returns which `kid` admitted a cookie (handy for
+logging mid-rotation). `KeyRing::revoke(kid)` drops a previous key once it
+is past its retention window, and `previous_kids()` lists the currently
+trusted ids. The same `KeyRing` type from `cookie_signed` is reused by
+`CookiePrivate::with_ring`.
+
+When a jar is extracted from a request, a `KeyRing` placed in request
+extensions takes precedence over a bare single key — the standard way to
+provide the key material is to insert it via middleware on the route group.
+
+## Related
+
+- Enforcing cookie-based identity across a route group — see the
+  [auth middleware](/docs/middleware/auth).
+- Cookie sessions are also available as a bundled
+  [middleware](/docs/middleware).

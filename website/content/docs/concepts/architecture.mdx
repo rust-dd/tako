@@ -1,0 +1,85 @@
+---
+title: Architecture
+description: The big picture of tako — Router, handlers, extractors, middleware, and responders in the core, with the server crate driving transports.
+category: concept
+since: 2.0.0
+status: stable
+---
+
+# Architecture
+
+Tako separates *what* a service does from *how* it is served. The framework
+primitives — routing, extraction, middleware, responses, state — live in
+`tako-rs-core` and are independent of any transport. The `tako-rs-server` crate
+drives concrete transports and feeds requests into that core. The result is one
+application model that works the same whether the bytes arrive over HTTP/1.1,
+HTTP/2, HTTP/3, a raw TCP socket, or a Unix socket.
+
+## Layers
+
+| Layer | Crate | Responsibility |
+|---|---|---|
+| Transports | `tako-rs-server`, `tako-rs-streams` | Accept connections, parse protocol frames, hand each request to the router |
+| Routing | `tako-rs-core` (`router`) | Match `(Method, path)` to a handler; run the middleware chain; answer `405` / fallback |
+| Middleware | `tako-rs-core` (`middleware`), `tako-rs-plugins` | Wrap the handler — auth, CORS, compression, rate limiting, metrics |
+| Extraction | `tako-rs-core` (`extractors`), `tako-rs-extractors` | Turn raw request parts into typed handler arguments |
+| Handler | your code | `async fn` from extracted arguments to a `Responder` |
+| Response | `tako-rs-core` (`responder`) | Convert the handler's return value into a `Response` |
+
+## The core types
+
+A handful of types from `tako-rs-core` define the whole surface:
+
+- **`Router`** is the dispatch type. It maps `(Method, path)` pairs to handlers,
+  runs global and per-route middleware, and produces a `405 Method Not Allowed`
+  (with a populated `Allow` header) when the path matches but the method does
+  not. Path syntax is `matchit`-compatible.
+- **`Request`** and **`Response`** are thin aliases —
+  `http::Request<TakoBody>` and `http::Response<TakoBody>` — so the whole
+  `http` crate ecosystem composes directly. `TakoBody` is Tako's streaming body
+  type.
+- A **handler** is any `async fn` whose arguments implement `FromRequest` /
+  `FromRequestParts` and whose return type implements `Responder`. The
+  `Handler` trait is implemented automatically; you never write it by hand.
+- **`Responder`** converts a return value into a `Response`. Blanket impls
+  cover `&str`, `String`, `Bytes`, `Json<T>`, `(StatusCode, T)`, `StatusCode`,
+  and `Result<T, E>`.
+- **`IntoMiddleware`** plus the **`Next`** chain compose request processing.
+  Middleware takes `(Request, Next)` and returns a `Response`; calling
+  `next.run(req)` advances to the next middleware and eventually the handler.
+
+```rust
+use tako::middleware::Next;
+use tako::types::{Request, Response};
+
+async fn logging(req: Request, next: Next) -> Response {
+  println!("{} {}", req.method(), req.uri());
+  next.run(req).await
+}
+```
+
+## State model
+
+Application state is shared with handlers in two scopes. **Global state** is
+keyed by type and read with the `State<T>` extractor. **Per-router state** is
+instance-local: `Router::with_state` attaches a typed container to one router
+instance, replacing the v1 process-global slot. The
+[State](/docs/state) page covers both; per-router state is what lets two
+independently nested routers carry different configuration.
+
+## How transports plug in
+
+The server crate is the only layer that touches sockets. `tako::serve` builds a
+default `Server` and accepts connections on a `TcpListener`, dispatching each
+request through the same `Router`. Other transports follow the identical shape
+through dedicated entry points — `serve_tls`, `serve_h2c`, `serve_h3`,
+`server_tcp`, `server_udp`, `server_unix`, and the compio variants — all of
+which drive the unchanged core router. Streaming and upgrade transports
+(WebSocket, SSE, WebTransport, file streaming) live in `tako-rs-streams` and
+hook into the same request flow.
+
+This is the payoff of the layering: routing, middleware, extraction, and
+responses are written once and reused across every transport. To follow a
+single request through all of these layers in order, read the
+[request lifecycle](/docs/concepts/request-lifecycle). For the crate-by-crate
+breakdown, see [project layout](/docs/getting-started/project-layout).

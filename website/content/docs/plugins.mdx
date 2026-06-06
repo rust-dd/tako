@@ -1,0 +1,111 @@
+---
+title: Plugins
+description: The tako-rs-plugins crate — bundled middleware and plugins, the plugins feature flag, and how plugins differ from middleware.
+category: plugin
+crate: tako-rs-plugins
+since: 2.0.0
+status: stable
+features: [plugins]
+---
+
+# Plugins
+
+`tako-rs-plugins` is the crate that ships Tako's concrete middleware and
+plugins. The *traits* (`IntoMiddleware`, `Next`, `TakoPlugin`) live in
+`tako-rs-core`; this crate hosts the ready-to-use implementations, re-exported
+through the umbrella crate under `tako::middleware::*` and `tako::plugins::*`.
+
+## Middleware vs. plugin
+
+Tako has two extension mechanisms, and the catalog uses both. Knowing which is
+which tells you how to register it.
+
+| | Middleware | Plugin |
+|---|---|---|
+| Trait | `IntoMiddleware` | `TakoPlugin` |
+| Shape | a `Fn(Request, Next) -> Future<Response>` wrapping one handler | `setup(&self, router)` that installs onto the router |
+| Register | `router.middleware(x.into_middleware())` or `route.middleware(...)` | `router.plugin(x)` or `route.plugin(x)` |
+| Typical job | inspect / transform a single request-response | install middleware, add routes, register state |
+
+A **middleware** sits directly in the request path: it gets a `Request` and a
+`Next`, and either calls `next.run(req).await` or returns early. A **plugin** is
+a setup step — its `setup` hook can register middleware *and* mount extra routes
+or state. That is why the metrics plugin can add a `/metrics` scrape endpoint,
+and why CORS/compression/rate-limiting are plugins: they wire several pieces
+onto the router at once.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::request_id::RequestId;
+use tako::plugins::cors::CorsBuilder;
+
+// Middleware: build it, convert it, register it.
+router.middleware(RequestId::new().into_middleware());
+
+// Plugin: build it, register it directly.
+router.plugin(CorsBuilder::new().build());
+```
+
+Both can be scoped: `Router::middleware` / `Router::plugin` apply globally,
+while `Route::middleware` / `Route::plugin` apply to a single route.
+
+## What's bundled
+
+**Middleware** (`tako::middleware::*`):
+
+- **Auth** — `basic_auth::BasicAuth`, `bearer_auth::BearerAuth`,
+  `api_key_auth::ApiKeyAuth`, `jwt_auth::JwtAuth`. See
+  [Authentication](/docs/middleware/auth).
+- **Security** — `csrf::Csrf`, `session::SessionMiddleware`,
+  `security_headers::SecurityHeaders`, `body_limit::BodyLimit`. See
+  [Security](/docs/middleware/security).
+- **Observability** — `request_id::RequestId`, `upload_progress::UploadProgress`,
+  `access_log::AccessLog`, `traceparent::Traceparent`. See
+  [Metrics & Observability](/docs/middleware/metrics).
+- **Cross-cutting** — `etag::Etag`, `timeout::Timeout`, `tenant::Tenant`,
+  `circuit_breaker::CircuitBreaker`, `problem_json::ProblemJson`, `healthcheck`,
+  plus feature-gated `ip_filter::IpFilter`, `hmac_signature::HmacSignature`,
+  and `json_schema::JsonSchema`.
+
+**Plugins** (`tako::plugins::*`):
+
+- `cors::CorsBuilder`, `compression::CompressionBuilder`,
+  `rate_limiter::RateLimiterBuilder`, `idempotency::IdempotencyBuilder` — see
+  [Traffic](/docs/middleware/traffic).
+- `metrics::{PrometheusMetricsConfig, OtelMetricsConfig}` — see
+  [Metrics & Observability](/docs/middleware/metrics).
+
+## Enabling the set
+
+Most of the middleware (auth, CSRF, sessions, security headers, request ID,
+body limit, upload progress) compile without any extra flag. The **plugins** —
+CORS, compression, rate limiter, idempotency — require the `plugins` feature:
+
+```toml
+[dependencies]
+tako-rs = { version = "2", features = ["plugins"] }
+```
+
+A few capabilities layer on top of `plugins`:
+
+| Feature | Adds |
+|---|---|
+| `plugins` | CORS, compression (gzip/brotli/deflate), rate limiter, idempotency |
+| `zstd` | zstd compression in the compression plugin |
+| `metrics-prometheus` | Prometheus metrics export (pulls in `signals`) |
+| `metrics-opentelemetry` | OpenTelemetry metrics export (pulls in `signals`) |
+
+`metrics-prometheus` and `metrics-opentelemetry` both imply `plugins` and
+`signals`. See the [feature reference](/docs/reference/features) for the
+complete graph.
+
+## Stores
+
+Stateful middleware — sessions, rate limiting, idempotency, JWKS rotation, CSRF
+— keep their persistence behind the `tako_rs_plugins::stores` traits. The
+default backend is an in-process `scc::HashMap`; companion crates can implement
+the same traits to move state into Redis or Postgres without changing any
+handler or middleware code.
+
+For how the chain is assembled and ordered, start with the
+[middleware model](/docs/middleware).

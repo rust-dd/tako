@@ -1,0 +1,156 @@
+---
+title: Auth extractors
+description: Pull credentials and identity from a request — Basic, Bearer, ApiKey, and unverified vs verified JWT claims.
+category: extractor
+since: 2.0.0
+status: stable
+crate: tako-rs-extractors
+---
+
+# Auth extractors
+
+These extractors read credentials and identity out of a request. Most are
+header-only ([`FromRequestParts`](https://docs.rs/tako-rs/latest/tako/extractors/trait.FromRequestParts.html)),
+so they compose freely with the other extractors. They **extract and
+shape** credentials — enforcing a policy (rejecting unauthenticated
+requests for a whole route group, verifying a signature) is the job of the
+[auth middleware](/docs/middleware/auth).
+
+## `Basic`
+
+HTTP Basic credentials (RFC 7617), referred to as `BasicAuth` in the
+catalog. The Base64 token is decoded and split on the first colon into
+`username` and `password`; the raw token is preserved.
+
+```rust
+use tako::extractors::basic::Basic;
+
+async fn protected(basic: Basic) -> String {
+  // Validate against your user store — do not hardcode in production.
+  format!("authenticated user: {}", basic.username)
+}
+```
+
+`BasicAuthError` covers the missing / malformed / non-Basic / bad-Base64 /
+bad-UTF-8 / missing-colon cases.
+
+## `Bearer`
+
+A Bearer token (RFC 6750), referred to as `BearerAuth` in the catalog.
+`token` holds the value without the `Bearer ` prefix; `with_bearer` keeps
+the full header value.
+
+```rust
+use tako::extractors::bearer::Bearer;
+
+async fn api(bearer: Bearer) -> String {
+  // Verify the token (JWT signature, opaque-token lookup, …) here.
+  format!("token: {}", bearer.token)
+}
+```
+
+`BearerAuthError` distinguishes missing / invalid / non-Bearer header
+forms.
+
+## `ApiKey`
+
+API-key authentication is provided as the `ApiKeyAuth` middleware in
+`tako-rs-plugins`, not as a standalone extractor. It validates a key
+pulled from a configurable location — `ApiKeyLocation::Header(name)`,
+`Query(name)`, or `HeaderOrQuery(header, query)` — against a fixed key, a
+set of keys, or a custom verify closure.
+
+```rust
+use tako::middleware::api_key_auth::{ApiKeyAuth, ApiKeyLocation};
+
+// Single key from a custom header.
+let auth = ApiKeyAuth::new("secret-api-key").header_name("X-Custom-Key");
+
+// Multiple keys, read from a query parameter.
+let multi = ApiKeyAuth::from_keys(["key1", "key2"])
+  .location(ApiKeyLocation::Query("api_key"));
+
+// Dynamic verification.
+let dynamic = ApiKeyAuth::with_verify(|key| key.starts_with("live_"));
+```
+
+Attach it like any other middleware — see the
+[auth middleware](/docs/middleware/auth) page.
+
+## `JwtClaimsUnverified<T>`
+
+Decodes the claims segment of a JWT into `T` (any `serde::Deserialize`)
+and checks `exp` / `nbf` only.
+
+<Callout type="warn">
+`JwtClaimsUnverified<T>` does **NOT** verify the token signature. It only
+base64-decodes the claims and applies the time checks, neither of which is
+authenticated. Treat its output as untrusted unless an upstream middleware
+has already verified the signature for this request. For trusted claims,
+use [`JwtClaimsVerified<T>`](#jwtclaimsverifiedt).
+</Callout>
+
+```rust
+use serde::{Deserialize, Serialize};
+use tako::extractors::jwt::JwtClaimsUnverified;
+
+#[derive(Debug, Deserialize, Serialize)]
+struct UserClaims {
+  sub: String,
+  exp: u64,
+  email: String,
+  role: String,
+}
+
+// Inspection of an untrusted payload only.
+async fn inspect(JwtClaimsUnverified(claims): JwtClaimsUnverified<UserClaims>) -> String {
+  format!("claimed email (unverified): {}", claims.email)
+}
+```
+
+The lower-level `Jwt` extractor (`token`, `header`) exposes the raw token
+and the decoded `header()` / `claims()` / `signature()` segments, with the
+same no-signature-check caveat. `JwtError` maps every failure to a `401`.
+
+## `JwtClaimsVerified<T>`
+
+The verifying counterpart, from `tako-rs-plugins`. It does not parse the
+token itself — it reads the claims that the
+[`JwtAuth`](/docs/middleware/auth) middleware inserted into request
+extensions **after** verifying the signature (against a JWKS / shared key)
+and applying `exp` / `nbf` / `iss` / `aud`. `T` (here `C`) must be the
+verifier's `Claims` type.
+
+```rust
+use serde::{Deserialize, Serialize};
+use tako::middleware::jwt_auth::JwtClaimsVerified;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Claims {
+  sub: String,
+  role: String,
+}
+
+async fn dashboard(JwtClaimsVerified(claims): JwtClaimsVerified<Claims>) -> String {
+  format!("trusted user {} ({})", claims.sub, claims.role)
+}
+```
+
+If the `JwtAuth` middleware did not run for the request — a typical wiring
+mistake — extraction fails with `UnverifiedClaims`, returning
+`401 Unauthorized` ("request was not authenticated by JwtAuth
+middleware"). Wire the middleware on the route or group that uses this
+extractor; see [auth middleware](/docs/middleware/auth).
+
+## Choosing between them
+
+| Need | Use |
+|---|---|
+| Inspect an untrusted token payload | `JwtClaimsUnverified<T>` |
+| Trusted, signature-checked claims | `JwtAuth` middleware + `JwtClaimsVerified<T>` |
+| Raw user/password | `Basic` |
+| Opaque or custom bearer token | `Bearer` |
+| Shared API key | `ApiKeyAuth` middleware |
+
+See also the [auth middleware](/docs/middleware/auth) for enforcing these
+across a route group.

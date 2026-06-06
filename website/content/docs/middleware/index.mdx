@@ -1,0 +1,152 @@
+---
+title: Middleware
+description: How Tako's middleware model works — registering the chain, ordering, and the full catalog of bundled middleware.
+category: middleware
+since: 2.0.0
+status: stable
+---
+
+# Middleware
+
+Middleware in Tako wraps a handler with cross-cutting logic — auth, logging,
+rate limiting, compression — without changing the handler itself. Anything
+implementing `IntoMiddleware` (from `tako-rs-core`) can be attached either to a
+single route or to the whole router.
+
+## The model
+
+A middleware is a function `Fn(Request, Next) -> Future<Output = Response>`.
+The `Next` value is the rest of the chain: call `next.run(req).await` to
+continue, or return a `Response` early to short-circuit (the way every auth
+middleware returns `401` without ever invoking the handler).
+
+The bundled middleware types are *builders*. You configure one, then call
+`.into_middleware()` to produce the function Tako registers:
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::basic_auth::BasicAuth;
+
+let mw = BasicAuth::single("admin", "pw")
+  .realm("Admin")
+  .into_middleware();
+```
+
+## Registering the chain
+
+Register globally with `Router::middleware` (runs for every request), or
+per-route with `Route::middleware` (the `route(...)` / `route_with_tsr(...)`
+methods return an `Arc<Route>` you can chain onto):
+
+```rust
+use tako::Method;
+use tako::middleware::IntoMiddleware;
+use tako::middleware::basic_auth::BasicAuth;
+use tako::middleware::bearer_auth::BearerAuth;
+use tako::middleware::request_id::RequestId;
+use tako::responder::Responder;
+use tako::router::Router;
+use tako::types::Request;
+
+async fn admin_only(_: Request) -> impl Responder { "secret" }
+async fn webhook(_: Request) -> impl Responder { "ack" }
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+
+  let basic = BasicAuth::single("admin", "pw").realm("Admin").into_middleware();
+  let bearer = BearerAuth::static_token("hunter2").into_middleware();
+
+  let mut router = Router::new();
+  router.middleware(RequestId::new().into_middleware()); // global: every request gets X-Request-ID
+
+  router
+    .route(Method::GET, "/admin", admin_only)
+    .middleware(basic);
+
+  router
+    .route(Method::POST, "/webhook", webhook)
+    .middleware(bearer);
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+## Ordering
+
+Middleware wraps from the outside in: a middleware registered earlier sits
+*outside* one registered later, so it sees the request first and the response
+last. Global (router-level) middleware wraps route-level middleware. Put
+request-shaping and observability concerns (request ID, body limit, security
+headers) on the outside, and authorization closer to the handler.
+
+<Callout type="info">
+  Some entries in the catalog are **plugins**, not raw middleware. Plugins
+  (CORS, compression, rate limiter, idempotency, metrics) implement
+  `TakoPlugin` and are registered with `Router::plugin` / `Route::plugin`
+  rather than `.into_middleware()`. See [Plugins](/docs/plugins) for the
+  distinction.
+</Callout>
+
+## State and stores
+
+Stateful middleware — sessions, rate limiting, idempotency, JWKS rotation,
+CSRF — keep their persistence behind the `tako_rs_plugins::stores` traits. The
+in-process default is backed by `scc::HashMap`; companion crates can implement
+the same traits to swap in Redis or Postgres without touching handler code.
+
+## Catalog
+
+All of the following ship in `tako-rs-plugins` and are re-exported under
+`tako::middleware::*` (and `tako::plugins::*` for the plugin-style entries).
+
+### Authentication — [details](/docs/middleware/auth)
+
+| Middleware | Type | Description |
+|---|---|---|
+| JWT Auth | `jwt_auth::JwtAuth<V>` | Verify JWT tokens; pluggable `JwtVerifier`, JWKS rotation, revocation |
+| Basic Auth | `basic_auth::BasicAuth` | RFC 7617 HTTP Basic, constant-time credential compare |
+| Bearer Auth | `bearer_auth::BearerAuth` | RFC 6750 static/dynamic bearer-token validation |
+| API Key Auth | `api_key_auth::ApiKeyAuth` | Header- or query-based API keys |
+
+### Security — [details](/docs/middleware/security)
+
+| Middleware | Type | Description |
+|---|---|---|
+| CSRF | `csrf::Csrf` | Double-submit cookie, optional session binding |
+| Sessions | `session::SessionMiddleware` | Cookie sessions over an in-memory store |
+| Security Headers | `security_headers::SecurityHeaders` | HSTS, X-Frame-Options, CSP, COOP/COEP/CORP, Permissions-Policy |
+| Body Limit | `body_limit::BodyLimit` | Reject oversized request bodies |
+
+### Traffic — [details](/docs/middleware/traffic)
+
+| Middleware | Type | Description |
+|---|---|---|
+| Rate Limiter | `plugins::rate_limiter::RateLimiterBuilder` | Token-bucket or GCRA, composite keys, `RateLimit-*` headers |
+| CORS | `plugins::cors::CorsBuilder` | Cross-Origin Resource Sharing with preflight handling |
+| Compression | `plugins::compression::CompressionBuilder` | gzip / brotli / deflate / zstd, negotiated via `Accept-Encoding` |
+| Idempotency | `plugins::idempotency::IdempotencyBuilder` | `Idempotency-Key` de-duplication of unsafe methods |
+
+### Metrics & observability — [details](/docs/middleware/metrics)
+
+| Middleware | Type | Description |
+|---|---|---|
+| Metrics | `plugins::metrics::{PrometheusMetricsConfig, OtelMetricsConfig}` | Export request metrics to Prometheus or OpenTelemetry |
+| Request ID | `request_id::RequestId` | Generate / propagate `X-Request-ID` |
+| Upload Progress | `upload_progress::UploadProgress` | Track upload bytes via callback or extension |
+
+### Also bundled
+
+Beyond the grouped catalog, `tako-rs-plugins` ships several more middleware:
+`access_log::AccessLog`, `traceparent::Traceparent`, `etag::Etag`,
+`timeout::Timeout`, `tenant::Tenant`, `circuit_breaker::CircuitBreaker`,
+`problem_json::ProblemJson`, `healthcheck`, plus the feature-gated
+`ip_filter::IpFilter` (`ip-filter`), `hmac_signature::HmacSignature`
+(`hmac-signature`), and `json_schema::JsonSchema` (`json-schema`).
+
+<Callout type="warn">
+  `timeout::Timeout` currently ships a Tokio-runtime path. A Compio variant is
+  on the follow-up list — on Compio, prefer a per-route timeout instead.
+</Callout>

@@ -1,0 +1,133 @@
+---
+title: Contributing
+description: How to build and test the tako workspace, the rustfmt/MSRV/edition conventions, the crate layout, and the crates.io publish flow.
+category: reference
+since: 2.0.0
+status: stable
+crate: tako-rs
+---
+
+# Contributing
+
+Tako is a Cargo workspace of eight crates. This page covers how to build and
+test it, the style conventions the codebase follows, and the release flow.
+
+## Building and testing
+
+Clone the repository and build the workspace:
+
+```bash
+git clone https://github.com/rust-dd/tako
+cargo build --workspace
+```
+
+Run the test suite. The strictest configuration enables every feature, which
+activates both runtimes and every transport, extractor, and plugin:
+
+```bash
+cargo test --workspace --all-features
+```
+
+<Callout type="warn">
+`--all-features` is the right config for `cargo test` and `cargo clippy`, but it
+does **not** produce a runnable binary: enabling both the tokio and compio
+runtime sides at once is unsupported (the compio sleep future is `!Send` while
+hyper's tokio service bound is `Send`). To run an example or a server, pick a
+feature subset that activates only one runtime side. See the [feature
+reference](/docs/reference/features).
+</Callout>
+
+## Toolchain
+
+- **MSRV 1.95**, **edition 2024**, workspace-wide. The code relies on
+  let-chains and other edition-2024 features, so an older toolchain will not
+  compile it.
+- The MSRV is recorded in the workspace `Cargo.toml` under
+  `[workspace.package].rust-version`. Tako tracks the latest stable Rust; see
+  the [stability policy](/docs/reference/stability) for the MSRV-bump rules.
+
+## Formatting and lints
+
+Formatting runs on **nightly**, because `rustfmt.toml` uses the nightly-only
+`imports_granularity` and `group_imports` options:
+
+```bash
+cargo +nightly fmt --all
+```
+
+The house rustfmt config is 2-space indentation, item-granularity imports, and
+`StdExternalCrate` import grouping (std / external / local).
+
+Clippy must be clean at `-D warnings`. The workspace lint table sets
+`pedantic = warn`, so `-D warnings` catches pedantic regressions too:
+
+```bash
+cargo clippy --workspace --all-features --no-deps -- -D warnings
+```
+
+## Code style
+
+A few conventions the codebase holds to:
+
+- **No decorative comments.** No banner / divider comments, no ASCII section
+  headers, no commented-out code, and no "added for X / used by Y / changed in
+  PR Z" notes. A comment earns its place only when it explains a non-obvious
+  *why* — a hidden constraint, a workaround, an invariant, a surprising
+  performance choice. If a section feels big enough to need a header, split it
+  into a submodule instead.
+- **Don't restate the code.** Skip comments that paraphrase the next line; good
+  names carry the narration.
+- **Doc comments stay short.** A one-line summary plus an example covers most
+  public items. Walls of doc text get skimmed and go stale.
+- **No `#[non_exhaustive]` marker.** The codebase does not annotate public types
+  with `#[non_exhaustive]`; exhaustive matching is treated as leverage for
+  callers, and additive evolution is handled through the [stability
+  policy](/docs/reference/stability) rather than the marker.
+
+## Commit messages
+
+Use bare Conventional-Commit prefixes with **no scope**: `fix:`, `feat:`,
+`perf:`, `docs:`, `refactor:`, `chore:` — never the `fix(scope):` form.
+
+## Workspace layout
+
+Eight crates, published as `tako-rs` plus seven `tako-rs-*` sub-crates. The
+umbrella re-exports everything under `tako::*`; the sub-crates are
+implementation detail.
+
+| Crate | Owns |
+|---|---|
+| `tako-rs` | Umbrella re-export, cargo feature surface, prelude, allocator hook |
+| `tako-rs-core` | Router, handlers, middleware/plugin traits, body/request/response types, state, signals, queue, GraphQL / gRPC / OpenAPI helpers |
+| `tako-rs-extractors` | Concrete request extractors |
+| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP / UDP / Unix, PROXY protocol, compio variants |
+| `tako-rs-streams` | WebSocket, SSE, file streaming, static files, WebTransport |
+| `tako-rs-plugins` | Bundled middleware and plugins |
+| `tako-rs-macros` | The `#[tako::route]` / `#[tako::get]` attribute family |
+| `tako-rs-server-pt` | Thread-per-core entry point |
+
+For more on what each crate owns, see [Project
+layout](/docs/getting-started/project-layout).
+
+<Callout type="info">
+The unprefixed `tako-*` names on crates.io are owned by an unrelated party, so
+the workspace publishes under the `tako-rs-*` prefix. Application code depends on
+the umbrella `tako-rs` and imports it as `tako`.
+</Callout>
+
+## Publishing
+
+Releases go out through `publish.sh` at the repository root. It runs a
+pre-publish gate (fmt + clippy + workspace tests), then publishes each crate to
+crates.io in topological order — each sub-crate before any crate that depends on
+it, with the umbrella `tako-rs` last.
+
+```bash
+./publish.sh --dry-run    # validate without uploading (still runs the gate)
+./publish.sh              # publish for real
+```
+
+Other flags: `--allow-dirty` to publish with uncommitted changes, and
+`--skip-gate` to bypass the fmt/clippy/test gate (not recommended). The script is
+re-runnable — crates already published at the current version are skipped, so a
+partial failure can be retried safely.

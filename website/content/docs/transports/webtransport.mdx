@@ -1,0 +1,126 @@
+---
+title: WebTransport
+description: A raw QUIC session helper over quinn for server-to-server tunnels — tokio-only, behind the webtransport feature, TLS required.
+category: transport
+since: 2.0.0
+status: stable
+crate: tako-rs-streams
+runtime: tokio
+features: [webtransport]
+---
+
+# WebTransport
+
+The `webtransport` module exposes a thin wrapper over a `quinn` QUIC server
+endpoint. It accepts QUIC connections, enables datagrams, and surfaces
+bidirectional and unidirectional streams plus unreliable datagrams.
+
+<Callout type="error">
+This is **not** W3C WebTransport. The module does not implement the W3C draft
+handshake (`CONNECT :protocol = webtransport` over HTTP/3,
+`SETTINGS_ENABLE_WEBTRANSPORT`, per-session demultiplexing). **Browsers cannot
+reach this server through the WebTransport API** — only QUIC peers that speak the
+same private framing can. The W3C-compliant CONNECT handshake is a roadmap item.
+</Callout>
+
+Use this module when you want a private QUIC tunnel between Tako-aware peers
+(server-to-server, or a custom client you control). Do **not** advertise the
+endpoint as `WebTransport` to browsers; they will reject it.
+
+<Callout type="warn">
+WebTransport is **tokio-only** and lives behind the `webtransport` feature.
+Enabling `http3` enables `webtransport` automatically. Like all QUIC transports,
+TLS is required — you pass PEM cert and key paths at spawn time.
+</Callout>
+
+## Serving sessions
+
+`serve_webtransport(addr, cert_path, key_path, handler)` binds a QUIC endpoint
+and dispatches each accepted connection to your handler, wrapped in a
+`RawQuicSession`. The handler returns a boxed, pinned future.
+
+```rust
+use tako::webtransport::{RawQuicSession, serve_webtransport};
+
+async fn handle_session(session: RawQuicSession) {
+  let remote = session.remote_address();
+  println!("New session from {remote}");
+
+  loop {
+    tokio::select! {
+      result = session.accept_bi() => {
+        match result {
+          Ok((mut send, mut recv)) => {
+            tokio::spawn(async move {
+              let mut buf = vec![0u8; 4096];
+              while let Ok(Some(n)) = recv.read(&mut buf).await {
+                if send.write_all(&buf[..n]).await.is_err() {
+                  break;
+                }
+              }
+            });
+          }
+          Err(_) => break,
+        }
+      }
+      result = session.read_datagram() => {
+        match result {
+          Ok(data) => {
+            let _ = session.send_datagram(data);
+          }
+          Err(_) => break,
+        }
+      }
+    }
+  }
+}
+
+#[tokio::main]
+async fn main() {
+  serve_webtransport("[::]:4433", "cert.pem", "key.pem", |session| {
+    Box::pin(handle_session(session))
+  })
+  .await;
+}
+```
+
+`serve_webtransport_with_shutdown(addr, cert, key, handler, signal)` is the same
+entry point with a graceful-shutdown future. On shutdown the endpoint stops
+accepting, drains in-flight sessions up to a 30 s timeout, then aborts the
+remainder.
+
+<RustExample path="examples/webtransport/src/main.rs" />
+
+## RawQuicSession
+
+`RawQuicSession` wraps a `quinn::Connection` and exposes its stream and datagram
+surface directly:
+
+| Method | Purpose |
+|---|---|
+| `remote_address()` | Peer socket address. |
+| `accept_bi()` | Accept an incoming bidirectional stream (`SendStream`, `RecvStream`). |
+| `accept_uni()` | Accept an incoming unidirectional stream (`RecvStream`). |
+| `open_bi()` | Open a new bidirectional stream. |
+| `open_uni()` | Open a new unidirectional stream. |
+| `read_datagram()` | Read an unreliable datagram. |
+| `send_datagram(bytes)` | Send an unreliable datagram. |
+| `close(code, reason)` | Close the session with a QUIC error code. |
+| `connection()` | Borrow the underlying `quinn::Connection` for advanced use. |
+
+The stream and datagram types (`quinn::SendStream`, `quinn::RecvStream`,
+`bytes::Bytes`) are quinn's own, so anything quinn supports on a connection is
+reachable through `connection()`.
+
+## Certificate provider note
+
+The endpoint installs the `ring` rustls `CryptoProvider` on startup and
+advertises the `h3` ALPN protocol. If your process also serves plain TLS and you
+need a specific provider, pin it before constructing any server — see the same
+note on the [HTTP/3](/docs/transports/http3) page.
+
+## Related
+
+- [HTTP/3](/docs/transports/http3) — the QUIC transport WebTransport builds on;
+  enabling `http3` enables `webtransport`.
+- [Feature flags](/docs/reference/features) — the `webtransport` feature.

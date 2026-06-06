@@ -1,0 +1,151 @@
+---
+title: Security
+description: CSRF protection, security response headers, body-size limits, and cookie sessions for Tako.
+category: middleware
+crate: tako-rs-plugins
+since: 2.0.0
+status: stable
+---
+
+# Security
+
+`tako-rs-plugins` bundles the hardening middleware most services need: CSRF
+protection, a curated set of security response headers, request body limits,
+and cookie sessions. Each is a builder; configure it and call
+`.into_middleware()`.
+
+## CSRF
+
+`csrf::Csrf` defaults to the **double-submit cookie** pattern: a random token
+is placed in a cookie and must be echoed back in a request header (default
+`x-csrf-token`). The middleware verifies the two match. When a `Session`
+extension is present, the token is also bound to the active session id, so a
+token minted under a previous session (for example before privilege rotation)
+is rejected.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::csrf::Csrf;
+use tako::middleware::session::SameSite;
+
+let csrf = Csrf::new()
+  .cookie_name("csrf_token")
+  .header_name("x-csrf-token")
+  .secure(true)                       // set the cookie Secure flag
+  .same_site(SameSite::Strict)        // default
+  .exempt("/webhooks")                // bypass CSRF for a path prefix
+  .trust_origin("https://app.example.com")
+  .into_middleware();
+```
+
+Key knobs:
+
+- `secure(bool)` — toggles the cookie `Secure` flag (required when
+  `same_site = None`).
+- `same_site(...)` — `Strict` (default), `Lax`, or `None`.
+- `exempt(prefix)` — skip CSRF entirely for a path prefix (e.g. webhook
+  endpoints that authenticate by signature instead).
+- `trust_origin(origin)` — strict `Origin` / `Referer` allow-list used as a
+  fallback for legacy clients that send neither cookie nor header.
+- `bind_to_session(bool)` — defaults to `true`; bind the token to the session.
+
+## Sessions
+
+`session::SessionMiddleware` provides cookie-based sessions over an in-memory
+`scc::HashMap` store. Sessions are keyed by a random cookie value and carry
+arbitrary `serde`-compatible data.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::session::{SameSite, SessionMiddleware, SessionTtl};
+
+let sessions = SessionMiddleware::new()
+  .cookie_name("tako_session")        // default
+  .ttl(SessionTtl { idle_secs: 3_600, absolute_secs: Some(86_400) })
+  .secure(true)
+  .http_only(true)                    // default
+  .same_site(SameSite::Lax)           // default
+  .into_middleware();
+```
+
+`SessionTtl` separates an **idle** timeout (default 1 h) from an **absolute**
+lifetime cap (default 24 h), so a stolen session id cannot be refreshed
+forever. A dirty or touched session re-emits `Set-Cookie` with a refreshed
+`Max-Age` on every request (rolling refresh). `Session::rotate` swaps the
+session id while keeping the data — call it after login to defend against
+fixation. `SessionMiddleware::handle()` returns a handle with a `revoke_all`
+API for emergency purges.
+
+<Callout type="info">
+  The default store is in-process and not shared across instances. For a
+  clustered deployment, back sessions with a shared store via the
+  `tako_rs_plugins::stores` traits.
+</Callout>
+
+## Security headers
+
+`security_headers::SecurityHeaders` emits a curated set of response headers
+following OWASP / MDN guidance. Three are always on; the rest are opt-in.
+
+Always emitted:
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::security_headers::SecurityHeaders;
+
+let headers = SecurityHeaders::new()
+  .hsts(true)
+  .hsts_max_age(31_536_000)
+  .hsts_include_subdomains(true)
+  .hsts_preload(true)
+  .csp("default-src 'self'")
+  .frame_options("SAMEORIGIN")
+  .coop("same-origin")
+  .coep("require-corp")
+  .corp("same-origin")
+  .permissions_policy("geolocation=(), camera=()")
+  .into_middleware();
+```
+
+For inline scripts, `csp_with_nonce(template)` generates a per-request nonce,
+exposes it as a `CspNonce` extension for handlers to interpolate, and
+substitutes it into the emitted header. `csp_report_only(template)` emits a
+report-only policy instead.
+
+<Callout type="info">
+  `X-XSS-Protection` is intentionally **not** emitted — modern browsers ignore
+  it and OWASP recommends removing it. CSP is the authoritative replacement.
+</Callout>
+
+## Body limit
+
+`body_limit::BodyLimit` rejects oversized request bodies before they are read,
+preventing resource-exhaustion attacks. It fast-rejects using `Content-Length`
+when present.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::body_limit::BodyLimit;
+
+// Static 1 MiB limit.
+let limit = BodyLimit::new(1024 * 1024).into_middleware();
+
+// Dynamic limit based on the request.
+let dynamic = BodyLimit::with_dynamic_limit(|req| {
+  if req.uri().path().starts_with("/upload") {
+    50 * 1024 * 1024
+  } else {
+    1024 * 1024
+  }
+}).into_middleware();
+```
+
+`new_with_dynamic(static_limit, closure)` combines a static cap with a dynamic
+override.
+
+See the [middleware model](/docs/middleware) for chain ordering — register
+body limit and security headers on the outside of the chain.

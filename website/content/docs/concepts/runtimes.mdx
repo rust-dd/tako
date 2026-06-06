@@ -1,0 +1,119 @@
+---
+title: Runtimes
+description: Tako's dual-runtime model — Tokio vs Compio, which transports each supports, TLS and HTTP/2 coverage, and how to switch.
+category: concept
+since: 2.0.0
+status: stable
+runtime: both
+---
+
+# Runtimes
+
+Tako runs on two async runtimes, chosen at build time. The application model —
+`Router`, handlers, extractors, middleware, responders — is identical on both.
+What differs is the I/O machinery underneath and which transports are available.
+
+- **Tokio** (default) — multi-threaded, work-stealing scheduler with `Send`
+  futures end-to-end. This is what the standalone `Server` builder targets.
+- **Compio** (opt-in via the `compio` feature) — single-threaded
+  thread-per-core over io_uring / IOCP / kqueue. Futures are `!Send` and pinned
+  to the runtime thread that produced them.
+
+## You cannot enable both at once
+
+`cargo build --all-features` does **not** produce a runnable binary. The two
+runtimes are mutually exclusive because:
+
+- Hyper's HTTP/2 service bound requires `+ Send`.
+- `compio::time::sleep` is `!Send`.
+- Some middleware (notably `timeout::Timeout`) must pick one runtime per build
+  with `#[cfg(...)]`.
+
+<Callout type="warn">
+Pick **one** runtime per binary. If a single deployment genuinely needs both,
+build separate binaries — there is no way to host both in one process.
+</Callout>
+
+## Switching runtimes
+
+By default you get Tokio. To build on Compio, disable defaults and enable the
+`compio` feature; add `compio-tls` and `compio-ws` for TLS and WebSocket
+support on that runtime.
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
+
+```toml
+[dependencies]
+tako-rs = "2"
+```
+
+</Tab>
+<Tab value="Compio">
+
+```toml
+[dependencies]
+tako-rs = { version = "2", default-features = false, features = [
+  "compio",
+  "compio-tls",
+  "compio-ws",
+] }
+```
+
+</Tab>
+</Tabs>
+
+The umbrella crate swaps the server type for you: with `compio` on, the
+re-exports surface `CompioServer` / `CompioServerBuilder` instead of `Server` /
+`ServerBuilder`. The `serve` entry point and the core router are unchanged.
+
+## Transport coverage
+
+Not every transport is available on Compio. The protocols that depend on
+Tokio-only machinery (QUIC, the legacy hyper client, raw socket servers) are
+Tokio-only:
+
+| Protocol | Tokio | Compio | Feature flag |
+|---|---|---|---|
+| HTTP/1.1 | yes | yes | *default* |
+| HTTP/2 | yes | yes | `http2` |
+| HTTP/3 (QUIC) | yes | — | `http3` |
+| TLS (rustls) | yes | yes | `tls` / `compio-tls` |
+| WebSocket | yes | yes | *default* / `compio-ws` |
+| WebTransport | yes | — | `webtransport` |
+| SSE | yes | yes | *default* |
+| gRPC (unary) | yes | — | `grpc` |
+| Raw TCP | yes | — | *default* |
+| Raw UDP | yes | — | *default* |
+| Unix sockets | yes | — | *default* (unix only) |
+| PROXY protocol v1/v2 | yes | — | *default* |
+
+HTTP/2 and TLS are supported on **both** runtimes; QUIC-based protocols
+(HTTP/3, WebTransport), gRPC, the raw socket servers, and the outbound
+`tako::client` are Tokio-only.
+
+## Crossing the runtime boundary internally
+
+Where the framework itself must cross the boundary — for example, hyper's HTTP/2
+service running over Compio TLS — it uses `send_wrapper::SendWrapper` to satisfy
+hyper's `Send` bound at the type level. The wrapper panics on cross-thread
+access, so a misuse becomes a loud panic rather than undefined behaviour. The
+soundness contract is per-runtime, not global: every wrapped future is
+constructed and polled on the same Compio runtime thread and never handed back
+to a multi-threaded Tokio executor.
+
+## Thread-per-core
+
+The `per-thread` and `per-thread-compio` features host the same thread-safe
+`Router` on N current-thread workers, fanned out with `SO_REUSEPORT`.
+`serve_per_thread` returns a shutdown handle that drives a `select!` over each
+worker's accept loop so termination is clean. These live in the
+`tako-rs-server-pt` crate.
+
+## Related
+
+- [Installation](/docs/getting-started/installation) — selecting the runtime in
+  `Cargo.toml`.
+- [Feature reference](/docs/reference/features) — the full runtime-selection
+  feature table.
+- [Transports](/docs/transports) — per-protocol guides.

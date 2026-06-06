@@ -1,0 +1,65 @@
+---
+title: Project layout
+description: The eight-crate tako workspace — what the tako-rs umbrella re-exports and which sub-crate owns each part of the framework.
+category: concept
+since: 2.0.0
+status: stable
+---
+
+# Project layout
+
+Tako is a Cargo workspace of eight crates. Application code depends on a single
+one — the `tako-rs` umbrella — and reaches everything else through the
+`tako::*` path. The remaining seven crates are the internal building blocks;
+you rarely name them directly.
+
+## The umbrella crate
+
+`tako-rs` (imported as `tako`) re-exports every public type from the sub-crates
+at its original path. A handler imports `tako::router::Router`,
+`tako::responder::Responder`, `tako::extractors::json::Json`, and so on —
+regardless of which sub-crate actually defines each item. The umbrella also
+owns the cargo features: a feature like `tako-rs/multipart` turns on the
+matching feature in `tako-extractors` and `tako-core` together.
+
+```toml
+[dependencies]
+tako-rs = "2"
+```
+
+A `tako::prelude` module bundles the types most handlers reach for — `Router`,
+`Responder`, `Request`, `Response`, `Method`, `StatusCode`, the common body /
+query / form / path extractors, and the middleware traits — so a single
+`use tako::prelude::*;` covers everyday code.
+
+## The eight crates
+
+| Crate | Owns | Reach for it when |
+|---|---|---|
+| `tako-rs` | Umbrella re-export (`tako::*`), cargo feature surface, prelude, allocator hook | Always — this is your only direct dependency |
+| `tako-rs-core` | Router, handlers, middleware and plugin traits, body / request / response types, state, signals, queue, plus GraphQL / gRPC / OpenAPI helpers | Foundational — pulled in by everything |
+| `tako-rs-extractors` | Concrete request extractors: cookies, form, query, path, headers, JWT, multipart, simd-json, and more | Reading typed data out of requests |
+| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP / UDP / Unix, PROXY protocol, plus compio variants | Binding listeners and serving transports |
+| `tako-rs-streams` | WebSocket, SSE, file streaming, static file serving, WebTransport | Realtime and streaming responses |
+| `tako-rs-plugins` | Bundled middleware (auth, CSRF, sessions, …) and plugins (CORS, compression, rate limiting, idempotency, metrics) | Production middleware off the shelf |
+| `tako-rs-macros` | The `#[tako::route]` / `#[tako::get]` / `.post` / … attribute family | Declarative route registration with typed path slots |
+| `tako-rs-server-pt` | Optional thread-per-core entry point (`serve_per_thread`) | Thread-per-core deployments via `SO_REUSEPORT` |
+
+## How the pieces fit
+
+`tako-rs-core` defines the framework primitives every other crate depends on:
+the `Router` that maps `(method, path)` to handlers, the `Request` / `Response`
+type aliases, the `Responder` trait for return values, and the `IntoMiddleware`
+trait for the middleware chain. The extractor, server, streams, and plugins
+crates each layer concrete implementations on top of those traits, and the
+macros crate generates route registrations that plug into the same router.
+
+The `tako-rs-server` crate is what actually drives I/O: it accepts connections
+on a listener and dispatches each request through the core router. The
+thread-per-core variant lives separately in `tako-rs-server-pt` because it
+hosts the same thread-safe `Router` across N current-thread workers.
+
+For the architecture-level view of how a request flows through these layers,
+see [Architecture](/docs/concepts/architecture) and the
+[request lifecycle](/docs/concepts/request-lifecycle). For the cargo feature
+that each crate exposes, see the [feature reference](/docs/reference/features).

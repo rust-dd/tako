@@ -1,0 +1,29 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Start here---",
+    "getting-started",
+    "concepts",
+    "---Transports---",
+    "transports",
+    "---Request handling---",
+    "routing",
+    "state",
+    "extractors",
+    "middleware",
+    "plugins",
+    "---Primitives---",
+    "streams",
+    "queue",
+    "signals",
+    "observability",
+    "---Guides---",
+    "tutorials",
+    "deployment",
+    "benchmarks",
+    "---Reference---",
+    "reference",
+    "contributing"
+  ]
+}

@@ -1,0 +1,165 @@
+---
+title: TCP, UDP & Unix sockets
+description: Drop below HTTP to handle raw TCP streams, UDP datagrams, and Unix-domain-socket connections with a per-connection async handler.
+category: transport
+since: 2.0.0
+status: stable
+crate: tako-rs-server
+runtime: tokio
+---
+
+# TCP, UDP & Unix sockets
+
+Not every service speaks HTTP. Tako exposes three raw listeners in
+`tako-rs-server` that skip the HTTP layer entirely and hand each accepted
+connection (or datagram) straight to your async closure: raw **TCP**, raw **UDP**,
+and **Unix domain sockets**. Use them for custom line protocols, relays, gateways,
+game servers, telemetry collectors, or local IPC.
+
+All three are **default** features on the **tokio** runtime. Raw TCP and UDP also
+have compio variants, but Unix sockets and the patterns below are tokio-side.
+Unix domain sockets are **unix-only** and compile out on other platforms.
+
+| Listener | Function | Handler receives |
+|---|---|---|
+| TCP | `tako::server_tcp::serve_tcp` | `(TcpStream, SocketAddr)` |
+| UDP | `tako::server_udp::serve_udp` | `(Vec<u8>, SocketAddr, Arc<UdpSocket>)` |
+| Unix | `tako::server_unix::serve_unix` | `(UnixStream, SocketAddr)` |
+
+Each handler returns a `Pin<Box<dyn Future>>` — wrap the body in `Box::pin(async move { … })`.
+The address argument is the peer; for UDP you also get a clone of the bound socket
+so you can reply.
+
+## Raw TCP
+
+`serve_tcp` binds the address, sets `TCP_NODELAY` on each connection, and spawns
+your handler per accepted stream. The handler owns the `TcpStream` and reads/writes
+it directly with `tokio::io` traits. A common shape is a read loop that echoes:
+
+```rust
+use tako::server_tcp::serve_tcp;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+  serve_tcp("127.0.0.1:9001", |mut stream, addr| {
+    Box::pin(async move {
+      let mut buf = vec![0u8; 4096];
+      loop {
+        let n = stream.read(&mut buf).await?;
+        if n == 0 { break; }
+        stream.write_all(&buf[..n]).await?;
+        eprintln!("echoed {n} bytes for {addr}");
+      }
+      Ok(())
+    })
+  })
+  .await?;
+  Ok(())
+}
+```
+
+## Raw UDP
+
+UDP is datagram-oriented, so there is no per-connection stream. `serve_udp` binds
+one socket, receives each packet (buffer sized for the 64 KiB max datagram), and
+calls your handler with the bytes, the sender's address, and an `Arc` of the socket
+for sending replies:
+
+```rust
+use tako::server_udp::serve_udp;
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+  serve_udp("127.0.0.1:9000", |data, addr, socket| {
+    Box::pin(async move {
+      let _ = socket.send_to(&data, addr).await;
+    })
+  })
+  .await?;
+  Ok(())
+}
+```
+
+The UDP handler returns `()`, not a `Result` — there is no connection to tear down,
+so send errors are handled inside the closure (here ignored with `let _ =`).
+
+## Unix domain sockets
+
+Unix sockets give you local, file-backed IPC without binding a TCP port — ideal for
+sidecars, supervisors, and admin endpoints. `serve_unix` is the raw equivalent of
+`serve_tcp`, handing you a `UnixStream` per connection:
+
+```rust
+use tako::server_unix::serve_unix;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+  serve_unix("/tmp/tako.sock", |mut stream, _addr| {
+    Box::pin(async move {
+      let mut buf = vec![0u8; 4096];
+      let n = stream.read(&mut buf).await?;
+      stream.write_all(&buf[..n]).await?;
+      Ok(())
+    })
+  })
+  .await?;
+  Ok(())
+}
+```
+
+To serve your full HTTP [`Router`](/docs/routing) over a socket file instead of TCP
+— the typical "behind nginx/HAProxy on a local socket" deployment — use
+`serve_unix_http`. The peer path is exposed to handlers as `UnixPeerAddr` in the
+request extensions:
+
+```rust
+use tako::router::Router;
+use tako::server_unix::serve_unix_http;
+
+#[tokio::main]
+async fn main() {
+  let mut router = Router::new();
+  router.route(tako::Method::GET, "/", || async { "hello from unix" });
+  serve_unix_http("/tmp/tako-http.sock", router).await;
+}
+```
+
+```bash
+curl --unix-socket /tmp/tako-http.sock http://localhost/
+```
+
+<Callout type="info">
+A path starting with `@` is treated as a Linux **abstract-namespace** socket
+(e.g. `@tako.sock`), which never touches the filesystem. Abstract sockets are
+Linux-only; on other unix platforms an `@`-path returns an `Unsupported` error.
+</Callout>
+
+<Callout type="warn">
+Unix sockets are **unix-only** and are absent on non-unix targets. `serve_unix_http`
+cleans up a stale filesystem socket before binding — it refuses to unlink a path
+that is not actually an `AF_UNIX` socket (symlink-escalation guard) and removes the
+file again on graceful shutdown so the next run can re-bind.
+</Callout>
+
+## Graceful shutdown
+
+Each function has `…_with_shutdown` and `…_with_shutdown_and_drain` variants that
+take a shutdown-signal future. On signal the listener stops accepting and in-flight
+work is drained, with a default 30-second bound you can override on the
+`_and_drain` form. For HTTP-over-unix, `serve_unix_http_with_config` accepts a
+[`ServerConfig`](/docs/concepts/runtimes) for connection caps and timeouts.
+
+## HTTP alternatives
+
+If you want HTTP rather than a raw protocol, you usually do not need these: plain
+HTTP is covered in [HTTP/1.1 & HTTP/2](/docs/transports/http), and the
+builder's `spawn_unix_http` mirrors `serve_unix_http`. Reach for the raw listeners
+only when you control both ends of a non-HTTP protocol.
+
+## Examples
+
+- `examples/tcp-echo` — line-echo over raw TCP.
+- `examples/udp-echo` — datagram echo over raw UDP.
+- `examples/unix-socket` — HTTP `Router` served over a Unix socket with `UnixPeerAddr`.

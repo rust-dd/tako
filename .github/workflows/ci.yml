@@ -286,17 +286,25 @@ jobs:
             --skip h3_ \
             --skip tls_
 
-  mdbook:
-    name: mdbook build
+  docs:
+    name: docs site build
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
-      - uses: peaceiris/actions-mdbook@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          mdbook-version: "latest"
-      - run: mdbook build book
+          bun-version: latest
+      - name: Install
+        working-directory: website
+        run: bun install --frozen-lockfile
+      - name: Audit (frontmatter, meta.json coverage, internal links)
+        working-directory: website
+        run: bun run audit
+      - name: Build
+        working-directory: website
+        run: bun run build
 
   coverage:
     name: coverage

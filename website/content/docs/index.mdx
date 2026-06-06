@@ -1,0 +1,80 @@
+---
+title: tako
+description: A multi-transport Rust framework for HTTP, WebSocket, SSE, gRPC, HTTP/3, and raw sockets behind one routing, middleware, and observability model.
+category: concept
+status: stable
+since: 2.0.0
+---
+
+# tako
+
+**Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic, and extensible
+Rust framework for services that go beyond plain HTTP. One application
+surface covers HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP,
+Unix sockets, and WebTransport — with a shared routing, middleware, and
+observability model, running on **Tokio** or **Compio**.
+
+This site is the long-form companion to the in-source rustdoc. The
+rustdoc is the reference; this site is the *guide*. When the two disagree,
+the rustdoc wins for a single API; the site wins for the intent and the
+recommended pattern.
+
+## What's in here
+
+The framework is built around eight workspace crates, re-exported through
+the `tako-rs` umbrella under the `tako::*` path:
+
+```
+tako-rs              umbrella re-export (tako::*)
+tako-rs-core         routing, handlers, middleware, body/request types,
+                     state, signals, queue, GraphQL / gRPC / OpenAPI helpers
+tako-rs-extractors   concrete request extractors (cookies, form, query,
+                     path, JWT, multipart, simd-json, …)
+tako-rs-server       HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP/UDP/Unix,
+                     PROXY protocol, plus compio variants
+tako-rs-streams      WebSocket, SSE, file streaming, static files, WebTransport
+tako-rs-plugins      bundled middleware (auth, CSRF, sessions, …) and plugins
+                     (CORS, compression, rate limiting, idempotency, metrics)
+tako-rs-macros       the #[tako::route] / #[tako::get] attribute family
+tako-rs-server-pt    optional thread-per-core entry point
+```
+
+## Where to start
+
+- **New here?** [Quickstart](/docs/getting-started/quickstart) — install,
+  write a handler, and serve it, end-to-end.
+- **Need a specific transport?** Start at the
+  [Transports overview](/docs/transports) and pick the page for the
+  protocol you need.
+- **Wiring request handling?** [Routing](/docs/routing),
+  [Extractors](/docs/extractors), and [Middleware](/docs/middleware) walk
+  the request lifecycle.
+
+## Navigation
+
+The left sidebar is grouped into:
+
+1. **Start here** — getting-started + concepts (architecture, the routing
+   model, runtimes, feature flags). Read this once before diving into the
+   catalog.
+2. **Transports** — one page per protocol: HTTP, HTTP/3, WebSocket,
+   WebTransport, SSE, gRPC, raw sockets, PROXY protocol.
+3. **Request handling** — routing, the extractor catalog, the middleware
+   catalog, and bundled plugins.
+4. **Primitives** — streams, queue, signals, observability.
+5. **Guides** — long-form tutorials, deployment, and the benchmark page.
+6. **Reference** — migration, API stability policy, the cargo feature
+   graph, and the docs.rs API link.
+
+## Who this is for
+
+- **Service teams** building APIs that need more than plain REST —
+  WebSockets, SSE, gRPC, raw TCP/UDP, or QUIC in the same binary.
+- **Platform teams** that want one Rust framework story across protocols,
+  runtimes (Tokio + Compio), and deployment shapes.
+- **Operators** who want first-class signals, queues, and graceful
+  shutdown without composing them from scratch.
+
+If you are building a plain JSON-over-HTTP service and never need the
+realtime / multi-transport surface, you can use Tako as a straight HTTP
+framework and ignore the rest.

@@ -1,0 +1,147 @@
+---
+title: Metrics & Observability
+description: Prometheus / OpenTelemetry metrics export, request-ID propagation, and upload-progress callbacks.
+category: middleware
+crate: tako-rs-plugins
+since: 2.0.0
+status: stable
+features: [plugins]
+---
+
+# Metrics & Observability
+
+`tako-rs-plugins` provides the observability hooks: a metrics plugin that
+exports to Prometheus or OpenTelemetry, request-ID propagation, and
+upload-progress tracking. The metrics plugin is wired through Tako's signal
+system; see [Observability](/docs/observability) for the broader story.
+
+## Metrics export
+
+The metrics plugin listens to Tako's application- and route-level signals and
+forwards them to a backend. Two backends ship behind feature flags, each with a
+config type that installs the plugin and wires up the export path in one call.
+
+### Prometheus
+
+Requires the `metrics-prometheus` feature. `PrometheusMetricsConfig::install`
+registers the plugin and mounts a scrape endpoint (default `/metrics`),
+returning the `Arc<Registry>`.
+
+```rust
+use tako::plugins::metrics::PrometheusMetricsConfig;
+use tako::router::Router;
+
+let mut router = Router::new();
+
+let registry = PrometheusMetricsConfig::default()  // endpoint_path = "/metrics"
+  .install(&mut router);
+```
+
+`with_buckets(vec)` overrides the latency histogram bucket schedule. The scrape
+endpoint encodes the registry in the Prometheus text format and returns `500`
+(not a `200` with an error body) if encoding fails, so scraper alerting fires
+correctly.
+
+### OpenTelemetry
+
+Requires the `metrics-opentelemetry` feature. `OtelMetricsConfig::install`
+registers the plugin with an OTLP exporter and returns the `SdkMeterProvider`,
+which you keep alive for the process lifetime and `shutdown()` during graceful
+shutdown.
+
+```rust
+use tako::plugins::metrics::OtelMetricsConfig;
+use tako::router::Router;
+
+let mut router = Router::new();
+
+let meter_provider = OtelMetricsConfig::default()
+  .with_endpoint("http://localhost:4318/v1/metrics")
+  .install(&mut router)?;
+
+// ... serve ...
+
+meter_provider.shutdown()?;
+```
+
+`with_meter_name(name)` sets the meter name (default `"tako"`).
+
+<RustExample path="examples/metrics-opentelemetry" />
+
+<Callout type="info">
+  Both backends depend on the signal system, so the metrics features enable
+  `signals` transitively. See the [feature reference](/docs/reference/features)
+  for the full flag graph.
+</Callout>
+
+## Request ID
+
+`request_id::RequestId` generates or propagates a unique request identifier via
+the `X-Request-ID` header. If the incoming request already carries the header
+it is preserved (capped at 256 bytes); otherwise a UUID v4 is generated. The ID
+is inserted into the request extensions as `RequestIdValue` and echoed in the
+response header.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::request_id::RequestId;
+
+// Default: X-Request-ID with a UUID v4.
+let request_id = RequestId::new().into_middleware();
+
+// Custom header name.
+let correlation = RequestId::new()
+  .header_name("X-Correlation-ID")
+  .into_middleware();
+
+// Custom generator.
+let custom = RequestId::new()
+  .generator(|| ulid_like_id())
+  .into_middleware();
+```
+
+Register it globally so every request — and every log line and tracing span
+that reads `RequestIdValue` — is correlated:
+
+```rust
+router.middleware(RequestId::new().into_middleware());
+```
+
+## Upload progress
+
+`upload_progress::UploadProgress` wraps the request body to track bytes
+received, reporting through a callback and through request extensions. The
+`ProgressState` passed to the callback carries `bytes_read`, `total_bytes`
+(from `Content-Length`, when known), and a `percent()` helper.
+
+```rust
+use tako::middleware::IntoMiddleware;
+use tako::middleware::upload_progress::UploadProgress;
+
+let progress = UploadProgress::new()
+  .on_progress(|state| {
+    let pct = state.percent().map(|p| format!("{p}%")).unwrap_or_else(|| "?%".into());
+    println!("{pct}: {} / {:?} bytes", state.bytes_read, state.total_bytes);
+  })
+  .min_notify_interval_bytes(1024)   // throttle callbacks to ~once per KiB
+  .into_middleware();
+```
+
+Inside a handler, the live tracker is available as a `ProgressTracker`
+extension, exposing `bytes_read()`, `total_bytes()`, and `percent()`:
+
+```rust
+use tako::middleware::upload_progress::ProgressTracker;
+
+let pct = req
+  .extensions()
+  .get::<ProgressTracker>()
+  .and_then(|t| t.percent())
+  .unwrap_or(0);
+```
+
+<RustExample path="examples/upload-progress" />
+
+See the [middleware model](/docs/middleware) for chain ordering and
+[Observability](/docs/observability) for signals, tracing, and the broader
+metrics pipeline.

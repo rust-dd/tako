@@ -1,0 +1,152 @@
+---
+title: Extractors
+description: Typed handler arguments that read shape out of a request — JSON, form, query, path, headers, cookies, JWT, and more.
+category: extractor
+since: 2.0.0
+status: stable
+---
+
+# Extractors
+
+Extractors read shape out of a request and surface it as typed handler
+arguments. Any type implementing
+[`FromRequest`](https://docs.rs/tako-rs/latest/tako/extractors/trait.FromRequest.html)
+(consumes the body) or
+[`FromRequestParts`](https://docs.rs/tako-rs/latest/tako/extractors/trait.FromRequestParts.html)
+(headers / URL only) can be used as a handler parameter. A handler
+may take any number of extractors; Tako runs them in order before
+calling the handler.
+
+```rust
+use serde::{Deserialize, Serialize};
+use tako::Method;
+use tako::extractors::json::Json;
+use tako::extractors::path::Path;
+use tako::extractors::query::Query;
+use tako::extractors::state::State;
+use tako::responder::Responder;
+use tako::router::Router;
+
+#[derive(Deserialize)]
+struct ListQuery { page: u32, per_page: u32 }
+
+#[derive(Deserialize)]
+struct UserPath { id: u64 }
+
+#[derive(Deserialize, Serialize)]
+struct CreatePost { title: String, body: String }
+
+#[derive(Clone)]
+struct Db; // imagine a real pool here
+
+async fn list_posts(
+  Path(UserPath { id }): Path<UserPath>,
+  Query(q): Query<ListQuery>,
+  State(_db): State<Db>,
+) -> impl Responder {
+  format!("user={id}, page={}, per_page={}", q.page, q.per_page)
+}
+
+async fn create_post(
+  Path(UserPath { id }): Path<UserPath>,
+  Json(p): Json<CreatePost>,
+) -> Json<CreatePost> {
+  println!("creating post for user={id}: {:?}", p.title);
+  Json(p)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+
+  let mut router = Router::new();
+  router.with_state(Db);
+  router.route(Method::GET,  "/users/{id}/posts", list_posts);
+  router.route(Method::POST, "/users/{id}/posts", create_post);
+
+  tako::serve(listener, router).await;
+  Ok(())
+}
+```
+
+## How binding works
+
+Each extractor is a wrapper type you destructure in the argument
+position — `Json(payload): Json<T>`, `Path(p): Path<T>`, and so on. The
+body extractors (`FromRequest`) consume the request body and must come
+last in the argument list, because the body can only be read once. The
+parts extractors (`FromRequestParts`) only touch headers and the URI,
+so any number of them can run before the body extractor.
+
+If extraction fails — a malformed JSON body, a missing required query
+parameter, a bad `Authorization` header — the extractor's error type is
+turned into a `Responder` (usually a `400` or `401`) and the handler is
+never called. Route-level error handlers and
+[`use_problem_json()`](/docs/routing) can reshape those errors before
+they hit the wire.
+
+<RustExample path="examples/extractors-multi/src/main.rs" />
+
+## Catalog
+
+Tako ships 22+ bundled extractors. They fall into five groups, each
+with its own reference page.
+
+### Body — `/docs/extractors/body`
+
+| Extractor | Description |
+|---|---|
+| [`Json<T>`](/docs/extractors/body) | JSON body (with optional SIMD acceleration) |
+| [`Form<T>`](/docs/extractors/body) | URL-encoded form body |
+| [`Bytes`](/docs/extractors/body) | Raw request body stream |
+| [`Protobuf<T>`](/docs/extractors/body) | Protocol Buffers body (feature `protobuf`) |
+| [`SimdJson<T>`](/docs/extractors/body) | Force SIMD JSON parsing (feature `simd`) |
+| [`Multipart`](/docs/extractors/body) | Multipart form data (feature `multipart`) |
+
+### Request metadata — `/docs/extractors/request-meta`
+
+| Extractor | Description |
+|---|---|
+| [`Query<T>`](/docs/extractors/request-meta) | URL query parameters |
+| [`Path<T>`](/docs/extractors/request-meta) | Typed route path parameters |
+| [`Params<T>`](/docs/extractors/request-meta) | Dynamic path params map |
+| [`HeaderMap`](/docs/extractors/request-meta) | Full request headers |
+| [`Accept`](/docs/extractors/request-meta) | Content negotiation |
+| [`AcceptLanguage`](/docs/extractors/request-meta) | Language negotiation |
+| [`Range`](/docs/extractors/request-meta) | HTTP Range header |
+| [`IpAddr`](/docs/extractors/request-meta) | Client IP address |
+
+### Auth — `/docs/extractors/auth`
+
+| Extractor | Description |
+|---|---|
+| [`Basic`](/docs/extractors/auth) | HTTP Basic credentials (`BasicAuth`) |
+| [`Bearer`](/docs/extractors/auth) | Bearer token (`BearerAuth`) |
+| [`ApiKey`](/docs/extractors/auth) | API key from header or query |
+| [`JwtClaimsUnverified<T>`](/docs/extractors/auth) | JWT claims, signature **not** checked |
+| [`JwtClaimsVerified<T>`](/docs/extractors/auth) | Signature-verified JWT claims |
+
+### Cookies — `/docs/extractors/cookies`
+
+| Extractor | Description |
+|---|---|
+| [`CookieJar`](/docs/extractors/cookies) | Cookie reading / writing |
+| [`CookieSigned`](/docs/extractors/cookies) | HMAC-signed cookies (`SignedCookieJar`) |
+| [`CookiePrivate`](/docs/extractors/cookies) | Encrypted cookies (`PrivateCookieJar`) |
+
+### State — `/docs/state`
+
+| Extractor | Description |
+|---|---|
+| [`State<T>`](/docs/state) | Shared application state, as `Arc<T>` |
+
+## Beyond the catalog
+
+The crate also bundles `QueryMulti<T>` (repeated keys), `RawPath` /
+`RawQuery`, `MatchedPath`, `OriginalUri`, `Host`, `Scheme`,
+`TypedHeader<H>`, `Extension<T>`, `ConnectInfo<T>`, `ContentLengthLimit<T, N>`,
+and `Validated<T>` (behind the `validator` / `garde` features). The
+`zero-copy-extractors` feature enables borrowing variants of the body and
+header extractors for hot-path handlers. See the
+[crate rustdoc](https://docs.rs/tako-rs/latest/tako/extractors/) for the
+complete list.
