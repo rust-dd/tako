@@ -93,11 +93,15 @@ for (const file of walk(ROOT)) {
   let m: RegExpExecArray | null;
   while ((m = rustExampleRe.exec(src)) !== null) {
     const target = join(WORKSPACE, m[1]);
+    let isFile = false;
     try {
-      statSync(target);
+      isFile = statSync(target).isFile();
     } catch {
+      isFile = false;
+    }
+    if (!isFile) {
       errors++;
-      console.error(`✘ ${rel}: RustExample path "${m[1]}" does not exist`);
+      console.error(`✘ ${rel}: RustExample path "${m[1]}" is not a file`);
     }
   }
   rustExampleRe.lastIndex = 0;

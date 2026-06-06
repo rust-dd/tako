@@ -66,7 +66,7 @@ meter_provider.shutdown()?;
 
 `with_meter_name(name)` sets the meter name (default `"tako"`).
 
-<RustExample path="examples/metrics-opentelemetry" />
+<RustExample path="examples/metrics-opentelemetry/src/main.rs" />
 
 <Callout type="info">
   Both backends depend on the signal system, so the metrics features enable
@@ -140,7 +140,7 @@ let pct = req
   .unwrap_or(0);
 ```
 
-<RustExample path="examples/upload-progress" />
+<RustExample path="examples/upload-progress/src/main.rs" />
 
 See the [middleware model](/docs/middleware) for chain ordering and
 [Observability](/docs/observability) for signals, tracing, and the broader
