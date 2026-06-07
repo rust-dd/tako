@@ -22,10 +22,11 @@ pub(crate) fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Enco
 
   // Server preference order — Brotli first for ratio, Gzip second for compatibility.
   let server_order: [Encoding; 3] = [Encoding::Brotli, Encoding::Gzip, Encoding::Deflate];
-  for enc in server_order {
-    if enabled.contains(&enc) && acceptable(enc) {
-      return Some(enc);
-    }
+  if let Some(enc) = server_order
+    .into_iter()
+    .find(|&enc| enabled.contains(&enc) && acceptable(enc))
+  {
+    return Some(enc);
   }
 
   #[cfg(feature = "zstd")]
