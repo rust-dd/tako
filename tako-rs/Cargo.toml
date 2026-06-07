@@ -32,7 +32,7 @@ tikv-jemallocator = { workspace = true, optional = true }
 default = []
 
 # Plugin / middleware ecosystem
-plugins = ["tako-rs-core/plugins", "tako-rs-plugins/plugins"]
+plugins = ["tako-rs-core/plugins", "tako-rs-plugins/plugins", "tako-rs-server/plugins"]
 signals = ["tako-rs-core/signals", "tako-rs-server/signals", "tako-rs-plugins/signals"]
 
 # Server transports
