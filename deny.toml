@@ -58,6 +58,8 @@ license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Cargo omits path-only doctest dependencies from published packages.
+allow-wildcard-paths = true
 highlight = "all"
 # Workspace deps that intentionally appear with multiple versions through
 # transitive trees go here as the project ages.
