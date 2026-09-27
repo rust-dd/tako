@@ -42,8 +42,8 @@
 //! # }
 //! ```
 
-mod http;
-mod listener;
+pub(crate) mod http;
+pub(crate) mod listener;
 mod raw;
 
 pub use http::serve_unix_http;

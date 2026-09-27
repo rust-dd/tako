@@ -74,61 +74,62 @@ impl CompioServer {
     &self.config
   }
 
-  /// Spawn a compio HTTP/1 server.
+  /// Spawns HTTP/1. Startup failures are returned by `result()`.
   pub fn spawn_http(&self, listener: compio::net::TcpListener, router: Router) -> ServerHandle {
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    spawn_done_compio(handle.done.clone(), async move {
-      crate::server_compio::serve_with_shutdown_and_config(listener, router, shutdown_fut, config)
-        .await;
-    });
-    handle
+    self
+      .try_spawn_http(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn a compio TLS server.
+  /// Validates the router and listener before starting HTTP/1.
+  pub fn try_spawn_http(
+    &self,
+    listener: compio::net::TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done_compio(
+      &handle,
+      crate::server_compio::run(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns TLS HTTP. Startup failures are returned by `result()`.
   #[cfg(feature = "compio-tls")]
   pub fn spawn_tls(&self, listener: compio::net::TcpListener, router: Router) -> ServerHandle {
+    self
+      .try_spawn_tls(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Validates certificates, plugins, and the listener before starting TLS.
+  #[cfg(feature = "compio-tls")]
+  pub fn try_spawn_tls(
+    &self,
+    listener: compio::net::TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     let tls = self
       .tls
-      .clone()
-      .expect("CompioServer::spawn_tls requires a TlsCert (use builder().tls(...))");
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    let alpn = tls_alpn_for_tcp();
-    spawn_done_compio(handle.done.clone(), async move {
-      if let TlsCert::PemPaths {
-        cert_path,
-        key_path,
-        client_auth: None,
-      } = &tls
-      {
-        crate::server_tls_compio::serve_tls_with_shutdown_and_config(
-          listener,
-          router,
-          Some(cert_path.as_str()),
-          Some(key_path.as_str()),
-          shutdown_fut,
-          config,
-        )
-        .await;
-        return;
-      }
-      let rustls_cfg = match build_rustls_server_config(&tls, alpn) {
-        Ok(c) => c,
-        Err(e) => {
-          tracing::error!("CompioServer::spawn_tls: failed to build rustls config: {e}");
-          return;
-        }
-      };
-      crate::server_tls_compio::serve_tls_with_rustls_config_and_shutdown(
+      .as_ref()
+      .ok_or("TLS certificate configuration is required")?;
+    let tls = build_rustls_server_config(tls, tls_alpn_for_tcp())?;
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done_compio(
+      &handle,
+      crate::server_tls_compio::run_with_config(
         listener,
         router,
-        rustls_cfg,
-        shutdown_fut,
-        config,
-      )
-      .await;
-    });
-    handle
+        tls,
+        Some(signal),
+        self.config.clone(),
+      ),
+    );
+    Ok(handle)
   }
 }

@@ -6,6 +6,8 @@
 //! UDP, Unix sockets, plus the compio variants) and the PROXY protocol parser.
 //! Re-exported under the original `tako::*` paths via the umbrella crate.
 
+pub use tako_rs_core::server_support::shutdown_signal;
+
 mod config;
 pub use config::AcceptBackoff;
 pub use config::H3Congestion;
@@ -27,6 +29,7 @@ pub use builder::ReloadableResolver;
 pub use builder::Server;
 #[cfg(not(feature = "compio"))]
 pub use builder::ServerBuilder;
+pub use builder::ServerError;
 pub use builder::ServerHandle;
 pub use builder::TlsCert;
 #[cfg(feature = "tls")]

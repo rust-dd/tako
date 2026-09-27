@@ -11,6 +11,7 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
@@ -77,13 +78,23 @@ pub async fn serve_unix_http_with_shutdown_and_config(
   }
 }
 
-async fn run_http(
+pub(crate) async fn run_http(
   path: &Path,
   router: Router,
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   let listener = bind_unix_listener(path).await?;
+  run_listener(listener, path, router, signal, config).await
+}
+
+pub(crate) async fn run_listener(
+  listener: tokio::net::UnixListener,
+  path: &Path,
+  router: Router,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -100,9 +111,10 @@ async fn run_http(
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;
   let cancel = tokio_util::sync::CancellationToken::new();
+  let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -115,7 +127,10 @@ async fn run_http(
           Ok(v) => { accept_backoff.reset(); v }
           Err(err) => {
             tracing::warn!("Unix accept failed: {err}; backing off");
-            accept_backoff.sleep_and_grow().await;
+            tokio::select! {
+              () = cancel.cancelled() => break,
+              () = accept_backoff.sleep_and_grow() => {},
+            }
             continue;
           }
         };
@@ -138,6 +153,7 @@ async fn run_http(
           path: addr.as_pathname().map(std::path::Path::to_path_buf),
         };
 
+        let conn_cancel = cancel.clone();
         join_set.spawn(async move {
           let svc = service_fn(move |mut req| {
             let router = router.clone();
@@ -154,12 +170,10 @@ async fn run_http(
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
           http.timer(hyper_util::rt::TokioTimer::new());
-          if let Some(t) = header_read_timeout {
-            http.header_read_timeout(t);
-          }
+          http.header_read_timeout(header_read_timeout);
           let conn = http.serve_connection(io, svc).with_upgrades();
 
-          if let Err(err) = conn.await {
+          if let Err(err) = drive_connection(conn, conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
             if err.is_incomplete_message() {
               tracing::debug!("client disconnected mid-message on Unix socket: {err}");
             } else {
@@ -169,6 +183,7 @@ async fn run_http(
 
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("Unix HTTP server shutting down...");
@@ -186,12 +201,9 @@ async fn run_http(
       "Drain timeout exceeded, aborting {} remaining connections",
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
-  // Filesystem-backed paths get the socket file removed on shutdown so a
-  // subsequent run can re-bind cleanly. Abstract sockets disappear with the
-  // last reference, so there's nothing to clean.
   if !is_abstract_path(path) {
     let _ = std::fs::remove_file(path);
   }

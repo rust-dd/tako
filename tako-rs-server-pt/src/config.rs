@@ -12,6 +12,10 @@ pub struct PerThreadConfig {
   /// Maximum time the coordinator waits for in-flight requests after shutdown.
   /// Workers are dropped after this elapses.
   pub drain_timeout: Duration,
+  /// Request-header deadline. `None` disables it.
+  pub header_read_timeout: Option<Duration>,
+  /// Maximum concurrent connections per worker. `None` leaves it unlimited.
+  pub max_connections: Option<usize>,
 }
 
 impl Default for PerThreadConfig {
@@ -21,6 +25,8 @@ impl Default for PerThreadConfig {
       pin_to_core: cfg!(feature = "affinity"),
       backlog: 1024,
       drain_timeout: Duration::from_secs(30),
+      header_read_timeout: Some(Duration::from_secs(30)),
+      max_connections: None,
     }
   }
 }

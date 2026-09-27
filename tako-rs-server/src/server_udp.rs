@@ -101,7 +101,26 @@ where
     + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
-  let socket = Arc::new(tokio::net::UdpSocket::bind(addr).await?);
+  let socket = tokio::net::UdpSocket::bind(addr).await?;
+  run_socket(socket, handler, signal, std::time::Duration::from_secs(30)).await
+}
+
+#[cfg(not(feature = "compio"))]
+pub(crate) async fn run_socket<F, S>(
+  socket: tokio::net::UdpSocket,
+  handler: F,
+  signal: S,
+  drain_timeout: std::time::Duration,
+) -> std::io::Result<()>
+where
+  F: Fn(Vec<u8>, SocketAddr, Arc<tokio::net::UdpSocket>) -> Pin<Box<dyn Future<Output = ()> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  let socket = Arc::new(socket);
+  let mut tasks = tokio::task::JoinSet::new();
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
   let handler = Arc::new(handler);
@@ -117,9 +136,10 @@ where
         let socket = Arc::clone(&socket);
         let handler = Arc::clone(&handler);
 
-        tokio::spawn(async move {
+        tasks.spawn(async move {
           handler(data, peer, socket).await;
         });
+        while tasks.try_join_next().is_some() {}
       }
       () = &mut signal => {
         tracing::info!("UDP server shutting down");
@@ -128,6 +148,10 @@ where
     }
   }
 
+  let _ = tokio::time::timeout(drain_timeout, async {
+    while tasks.join_next().await.is_some() {}
+  })
+  .await;
   Ok(())
 }
 

@@ -26,6 +26,11 @@ The planned 2.1 release includes intentional breaking API and default changes.
 
 ### Changed
 
+- `TlsInfo` uses shared `Bytes` for ALPN and `Arc<str>` for SNI. The ineffective
+  `ServerConfig::keep_alive_timeout` field was removed; use the implemented
+  keep-alive toggle and request-header deadline. `PerThreadConfig` adds
+  `header_read_timeout` and a per-worker `max_connections` limit.
+
 - Updated public integrations to tungstenite 0.30, Prometheus 0.14, OpenTelemetry
   0.33, validator 0.21, garde 0.23 and utoipa 6. Applications sharing these
   dependency types must update their matching dependencies. Async-graphql uses
@@ -49,6 +54,10 @@ The planned 2.1 release includes intentional breaking API and default changes.
 
 ### Added
 
+- Fallible `try_spawn_*` server methods, `ServerHandle::result()` and
+  `local_addr()`, plus a SIGINT/SIGTERM `shutdown_signal` helper and
+  `ServerHandle::shutdown_on_signal()`.
+
 - Owned `bytes::Bytes` and `String` body extractors; any `Responder` can be the
   error branch of a handler's `Result`.
 - `error_handler_with_parts` exposes request metadata to error formatters;
@@ -58,6 +67,15 @@ The planned 2.1 release includes intentional breaking API and default changes.
 
 
 ### Fixed
+
+- HTTP/1 and HTTP/2 connections receive graceful shutdown notifications;
+  Compio connection tasks remain owned until drained or cancelled. The explicit
+  `ServerHandle::shutdown` deadline is enforced, including for stuck handlers.
+- Routers and state are released when servers stop. Global metrics callbacks
+  hold weak backend references, and TLS metadata clones avoid string allocation.
+- Per-thread servers initialize plugins before accepting requests, install
+  header timers, back off on accept errors, enforce connection limits and
+  propagate worker-spawn failures. TLS handshake failures log at debug level.
 
 - gRPC timeout parsing rejects non-ASCII units and invalid numeric prefixes
   without panicking. Parser fuzzing now covers ten input surfaces and runs

@@ -35,25 +35,6 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   Some(dur)
 }
 
-#[cfg(test)]
-mod tests {
-  use std::time::Duration;
-
-  use super::parse_grpc_timeout;
-
-  #[test]
-  fn malformed_units_and_numeric_prefixes_are_rejected_without_panicking() {
-    for value in ["99ƿ", "é", "1💥", "+1S", "123456789m", "S", ""] {
-      assert_eq!(parse_grpc_timeout(value), None, "{value:?}");
-    }
-    assert_eq!(
-      parse_grpc_timeout("99999999n"),
-      Some(Duration::from_nanos(99_999_999))
-    );
-    assert_eq!(parse_grpc_timeout("1H"), Some(Duration::from_secs(3600)));
-  }
-}
-
 /// Extract the deadline (if any) from a request's `grpc-timeout` header.
 ///
 /// Inserts a [`GrpcDeadline`] into request extensions when present so handlers
@@ -72,4 +53,23 @@ pub fn read_grpc_deadline(req: &mut Request) -> Option<GrpcDeadline> {
   let deadline = GrpcDeadline(Instant::now().checked_add(dur)?);
   req.extensions_mut().insert(deadline);
   Some(deadline)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::Duration;
+
+  use super::parse_grpc_timeout;
+
+  #[test]
+  fn malformed_units_and_numeric_prefixes_are_rejected_without_panicking() {
+    for value in ["99ƿ", "é", "1💥", "+1S", "123456789m", "S", ""] {
+      assert_eq!(parse_grpc_timeout(value), None, "{value:?}");
+    }
+    assert_eq!(
+      parse_grpc_timeout("99999999n"),
+      Some(Duration::from_nanos(99_999_999))
+    );
+    assert_eq!(parse_grpc_timeout("1H"), Some(Duration::from_secs(3600)));
+  }
 }

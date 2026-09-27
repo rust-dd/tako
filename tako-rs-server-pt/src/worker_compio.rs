@@ -17,60 +17,21 @@ fn compio_accept_backoff() -> Duration {
   Duration::from_millis(5)
 }
 
-/// RAII counter-decrementer used by the compio worker to track in-flight
-/// connections.
-///
-/// `Drop` always runs — normal completion, panic unwind, runtime shutdown —
-/// so the inflight count cannot leak. Mirrors the `ConnectionGuard` pattern
-/// in `tako-server`'s `server_compio.rs`. Without this the compio per-thread
-/// worker had no way to wait for in-flight work at shutdown: it spawned and
-/// detached connection tasks, and `cfg.drain_timeout` was silently ignored
-/// — every active request was abort-killed the moment `block_on` returned.
-#[cfg(feature = "compio")]
-struct PtConnGuard {
-  inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-  drain_notify: std::sync::Arc<tokio::sync::Notify>,
-}
-
-#[cfg(feature = "compio")]
-impl PtConnGuard {
-  fn new(
-    inflight: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    drain_notify: std::sync::Arc<tokio::sync::Notify>,
-  ) -> Self {
-    inflight.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    Self {
-      inflight,
-      drain_notify,
-    }
-  }
-}
-
-#[cfg(feature = "compio")]
-impl Drop for PtConnGuard {
-  fn drop(&mut self) {
-    self
-      .inflight
-      .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    self.drain_notify.notify_waiters();
-  }
-}
-
 #[cfg(feature = "compio")]
 #[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 pub(crate) fn worker_main_compio(
   worker_id: usize,
   addr: SocketAddr,
-  router: &'static Router,
+  router: std::sync::Arc<Router>,
   cfg: PerThreadConfig,
   shutdown: PerThreadShutdown,
 ) {
   use std::sync::Arc;
-  use std::sync::atomic::AtomicUsize;
-  use std::sync::atomic::Ordering;
 
   use cyper_core::HyperStream;
-  use tokio::sync::Notify;
+  use futures_util::FutureExt;
+  use futures_util::StreamExt;
+  use tako_rs_core::server_support::drive_connection;
 
   #[cfg(feature = "affinity")]
   if cfg.pin_to_core {
@@ -101,8 +62,7 @@ pub(crate) fn worker_main_compio(
     Ok(rt) => rt,
     Err(e) => {
       tracing::error!("worker {worker_id}: failed to build compio runtime: {e}");
-      // Unblock the parent's `wait_for_bind_outcome` on runtime-build
-      // failure too (worker never reaches its bind step otherwise).
+
       shutdown.report_bind_failure(io::Error::other(format!(
         "worker {worker_id}: failed to build compio runtime: {e}"
       )));
@@ -111,6 +71,14 @@ pub(crate) fn worker_main_compio(
   };
 
   rt.block_on(async move {
+    #[cfg(feature = "plugins")]
+    if let Err(error) = router.setup_plugins_once() {
+      shutdown.report_bind_failure(io::Error::other(error.clone()));
+      return;
+    }
+    let semaphore = cfg
+      .max_connections
+      .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
     let listener = match bind_reuseport_compio(addr, cfg.backlog) {
       Ok(l) => {
         shutdown.report_bind_success();
@@ -126,8 +94,7 @@ pub(crate) fn worker_main_compio(
 
     let cancel = shutdown.inner.clone();
     let mut backoff = compio_accept_backoff();
-    let inflight = Arc::new(AtomicUsize::new(0));
-    let drain_notify = Arc::new(Notify::new());
+    let mut connections = futures_util::stream::FuturesUnordered::new();
 
     loop {
       let accept_fut = listener.accept();
@@ -142,7 +109,13 @@ pub(crate) fn worker_main_compio(
         futures_util::future::Either::Left((Err(e), _)) => {
           let delay = backoff;
           tracing::warn!("worker {worker_id}: accept failed: {e}; backing off {delay:?}");
-          compio::time::sleep(delay).await;
+          let sleep = std::pin::pin!(compio::time::sleep(delay));
+          let stopped = std::pin::pin!(cancel.cancelled());
+          if let futures_util::future::Either::Right(_) =
+            futures_util::future::select(sleep, stopped).await
+          {
+            break;
+          }
           backoff = std::cmp::min(backoff * 2, Duration::from_secs(1));
           continue;
         }
@@ -151,82 +124,68 @@ pub(crate) fn worker_main_compio(
           break;
         }
       };
-      // Match the tokio variant: disable Nagle so HTTP/1 small writes don't
-      // pay a 40ms RTT penalty on the wire. Mirrors the tokio-pt path at the
-      // top of this file.
+
       if let Err(e) = stream.set_nodelay(true) {
         tracing::debug!("worker {worker_id}: set_nodelay failed for {peer}: {e}");
       }
+      let permit = if let Some(semaphore) = &semaphore {
+        let acquire = std::pin::pin!(semaphore.clone().acquire_owned());
+        let stopped = std::pin::pin!(cancel.cancelled());
+        match futures_util::future::select(acquire, stopped).await {
+          futures_util::future::Either::Left((result, _)) => result.ok(),
+          futures_util::future::Either::Right(_) => break,
+        }
+      } else {
+        None
+      };
       let io = HyperStream::new_plain(stream);
-      // Build the guard before spawn so the count is incremented on the
-      // current thread (lock-free atomic) instead of racing with the spawn.
-      let guard = PtConnGuard::new(inflight.clone(), drain_notify.clone());
+      let router = router.clone();
+      let conn_cancel = cancel.clone();
 
-      compio::runtime::spawn(async move {
-        // RAII: dropping `_guard` (on normal completion, panic, or task
-        // cancellation) decrements `inflight` and wakes drain waiters.
-        let _guard = guard;
-        let svc = service_fn(move |mut req| async move {
-          // Match the tokio variant: insert both the raw `SocketAddr`
-          // (legacy lookup key) and the typed `ConnInfo` so extractors that
-          // key off either type observe the same runtime regardless of
-          // whether the build is `compio` or `tokio`. The compio path used
-          // to insert only `peer`, breaking extractors that look up
-          // `ConnInfo` (notably the IP-trust / forwarded-host helpers).
-          req.extensions_mut().insert(peer);
-          req.extensions_mut().insert(ConnInfo::tcp(peer));
-          let resp = router
-            .dispatch(req.map(tako_rs_core::body::TakoBody::new))
-            .await;
-          Ok::<_, Infallible>(resp)
+      connections.push(compio::runtime::spawn(async move {
+        let _permit = permit;
+        let svc = service_fn(move |mut req| {
+          let router = router.clone();
+          async move {
+            req.extensions_mut().insert(peer);
+            req.extensions_mut().insert(ConnInfo::tcp(peer));
+            let resp = router
+              .dispatch(req.map(tako_rs_core::body::TakoBody::new))
+              .await;
+            Ok::<_, Infallible>(resp)
+          }
         });
 
         let mut http = http1::Builder::new();
         http.keep_alive(true);
-        if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
+        http
+          .timer(cyper_core::CompioTimer)
+          .header_read_timeout(cfg.header_read_timeout);
+        if let Err(err) = drive_connection(
+          http.serve_connection(io, svc).with_upgrades(),
+          conn_cancel.cancelled(),
+          hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
+        )
+        .await
+        {
           if err.is_incomplete_message() {
             tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
           } else {
             tracing::error!("worker {worker_id}: connection error: {err}");
           }
         }
-      })
-      .detach();
+      }));
+      while connections.next().now_or_never().flatten().is_some() {}
     }
 
-    // Drain phase: wait for in-flight connections to finish, but only up to
-    // `cfg.drain_timeout`. Mirrors the tokio worker (`join_all` + timeout)
-    // and the standalone compio server's `inflight + Notify` loop. Without
-    // this the compio worker silently aborted every active connection on
-    // shutdown — `drain_timeout` was a no-op on the per-thread + compio
-    // build.
-    let drain_deadline = std::time::Instant::now() + cfg.drain_timeout;
-    while inflight.load(Ordering::SeqCst) > 0 {
-      let now = std::time::Instant::now();
-      if now >= drain_deadline {
-        tracing::warn!(
-          worker_id,
-          drain_timeout = ?cfg.drain_timeout,
-          still_inflight = inflight.load(Ordering::SeqCst),
-          "drain timeout exceeded; remaining connections will be aborted"
-        );
-        break;
-      }
-      let remaining = drain_deadline - now;
-      let wait = drain_notify.notified();
-      let sleep = compio::time::sleep(remaining);
-      let wait = std::pin::pin!(wait);
-      let sleep = std::pin::pin!(sleep);
-      if let futures_util::future::Either::Right(_) =
-        futures_util::future::select(wait, sleep).await
-      {
-        tracing::warn!(
-          worker_id,
-          drain_timeout = ?cfg.drain_timeout,
-          still_inflight = inflight.load(Ordering::SeqCst),
-          "drain timeout exceeded; remaining connections will be aborted"
-        );
-        break;
+    if compio::time::timeout(cfg.drain_timeout, async {
+      while connections.next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+      for connection in connections {
+        connection.cancel().await;
       }
     }
   });

@@ -59,38 +59,40 @@ pub(crate) async fn run_with_rustls_config(
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  let endpoint = bind_endpoint(addr, tls_config, &config)?;
+  run_endpoint(endpoint, router, signal, config).await
+}
+
+pub(crate) fn bind_endpoint(
+  addr: &str,
+  tls_config: Arc<rustls::ServerConfig>,
+  config: &ServerConfig,
+) -> Result<quinn::Endpoint, BoxError> {
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
-  // Install default crypto provider for rustls (required for QUIC/TLS).
-  // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
-  // different providers in the same process was order-dependent and the
-  // loser silently dropped its `Err`, leaving connections to fail later.
   if rustls::crypto::CryptoProvider::get_default().is_none() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
   }
 
-  // Defensively disable 0-RTT before handing the config to QuicServerConfig:
-  // the PEM-loaded `run` path above already clears `max_early_data_size`, but
-  // every caller-supplied (`TlsCert::Der`, `Resolver`, mTLS) config reaches
-  // this function unmodified, and rustls' default permits 0-RTT — which Tako
-  // has no replay-protection wiring for. Without this clear an attacker could
-  // replay captured early-data application bytes to any idempotent endpoint.
-  // Clone-on-mutate: `tls_config: Arc<...>` is immutable, but we always need
-  // a fresh copy for `QuicServerConfig::try_from` below anyway.
+  // Early data requires replay protection, which this server does not provide.
   let mut tls_config_inner = (*tls_config).clone();
   tls_config_inner.max_early_data_size = 0;
 
-  // QuicServerConfig wraps a rustls::ServerConfig; it requires the underlying
-  // config to set ALPN to h3. Calling `try_from` errors otherwise, so we trust
-  // the caller (or the build_rustls_server_config helper) to pre-set ALPN.
   let mut server_config =
     quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config_inner)?));
-  server_config.transport_config(Arc::new(transport_config_from(&config)));
+  server_config.transport_config(Arc::new(transport_config_from(config)));
 
   let socket_addr: SocketAddr = addr.parse()?;
-  let endpoint = quinn::Endpoint::server(server_config, socket_addr)?;
+  quinn::Endpoint::server(server_config, socket_addr).map_err(Into::into)
+}
 
+pub(crate) async fn run_endpoint(
+  endpoint: quinn::Endpoint,
+  router: Router,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]

@@ -72,185 +72,201 @@ impl Server {
     &self.config
   }
 
-  // ── HTTP family (router-driven) ──
-
-  /// Spawn a plain HTTP/1 server.
+  /// Spawns HTTP/1; inspect [`ServerHandle::result`] for startup failures.
   pub fn spawn_http(&self, listener: TcpListener, router: Router) -> ServerHandle {
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      crate::server::serve_with_shutdown_and_config(listener, router, shutdown_fut, config).await;
-    });
-    handle
+    self
+      .try_spawn_http(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn an h2c (HTTP/2 cleartext, prior knowledge) server.
+  /// Validates the router and listener before starting HTTP/1.
+  pub fn try_spawn_http(
+    &self,
+    listener: TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done(
+      &handle,
+      crate::server::run(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns HTTP/2 prior knowledge over TCP.
   #[cfg(feature = "http2")]
   pub fn spawn_h2c(&self, listener: TcpListener, router: Router) -> ServerHandle {
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      crate::server_h2c::serve_h2c_with_shutdown_and_config(listener, router, shutdown_fut, config)
-        .await;
-    });
-    handle
+    self
+      .try_spawn_h2c(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn a TLS server. Requires that the builder was given a [`TlsCert`].
-  ///
-  /// Dispatches on the [`TlsCert`] variant: `PemPaths` keeps the legacy
-  /// path-loaded fast path; `Der` and `Resolver` (and any client-auth/mTLS
-  /// configuration) go through [`crate::build_rustls_server_config`].
+  /// Validates the router and listener before starting h2c.
+  #[cfg(feature = "http2")]
+  pub fn try_spawn_h2c(
+    &self,
+    listener: TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done(
+      &handle,
+      crate::server_h2c::run(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns TLS HTTP; missing or invalid certificates are returned by `result()`.
   #[cfg(feature = "tls")]
   pub fn spawn_tls(&self, listener: TcpListener, router: Router) -> ServerHandle {
-    let tls = self
-      .tls
-      .clone()
-      .expect("Server::spawn_tls requires a TlsCert (use builder().tls(...))");
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    let alpn = tls_alpn_for_tcp();
-    spawn_done(handle.done.clone(), async move {
-      // Plain `PemPaths` without mTLS keeps the no-overhead path-based loader;
-      // every other variant goes through the rustls-config helper.
-      if let TlsCert::PemPaths {
-        cert_path,
-        key_path,
-        client_auth: None,
-      } = &tls
-      {
-        crate::server_tls::serve_tls_with_shutdown_and_config(
-          listener,
-          router,
-          Some(cert_path.as_str()),
-          Some(key_path.as_str()),
-          shutdown_fut,
-          config,
-        )
-        .await;
-        return;
-      }
-      let rustls_cfg = match build_rustls_server_config(&tls, alpn) {
-        Ok(c) => c,
-        Err(e) => {
-          tracing::error!("Server::spawn_tls: failed to build rustls config: {e}");
-          return;
-        }
-      };
-      crate::server_tls::serve_tls_with_rustls_config_and_shutdown(
-        listener,
-        router,
-        rustls_cfg,
-        shutdown_fut,
-        config,
-      )
-      .await;
-    });
-    handle
+    self
+      .try_spawn_tls(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn an HTTP/3 (QUIC) server. Binds to `addr` internally; takes TLS
-  /// from the builder. Requires the `http3` feature.
+  /// Validates certificates, plugin setup, and the listener before starting TLS.
+  #[cfg(feature = "tls")]
+  pub fn try_spawn_tls(
+    &self,
+    listener: TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    let tls = self
+      .tls
+      .as_ref()
+      .ok_or("TLS certificate configuration is required")?;
+    let tls = build_rustls_server_config(tls, tls_alpn_for_tcp())?;
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done(
+      &handle,
+      crate::server_tls::run_with_config(listener, router, tls, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns HTTP/3; startup failures are returned by `result()`.
   #[cfg(feature = "http3")]
   pub fn spawn_h3(&self, addr: impl Into<String>, router: Router) -> ServerHandle {
-    let tls = self
-      .tls
-      .clone()
-      .expect("Server::spawn_h3 requires a TlsCert (use builder().tls(...))");
-    let addr = addr.into();
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      if let TlsCert::PemPaths {
-        cert_path,
-        key_path,
-        client_auth: None,
-      } = &tls
-      {
-        crate::server_h3::serve_h3_with_shutdown_and_config(
-          router,
-          &addr,
-          Some(cert_path.as_str()),
-          Some(key_path.as_str()),
-          shutdown_fut,
-          config,
-        )
-        .await;
-        return;
-      }
-      let rustls_cfg = match build_rustls_server_config(&tls, vec![b"h3".to_vec()]) {
-        Ok(c) => c,
-        Err(e) => {
-          tracing::error!("Server::spawn_h3: failed to build rustls config: {e}");
-          return;
-        }
-      };
-      crate::server_h3::serve_h3_with_rustls_config_and_shutdown(
-        router,
-        &addr,
-        rustls_cfg,
-        shutdown_fut,
-        config,
-      )
-      .await;
-    });
-    handle
+    self
+      .try_spawn_h3(addr, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn an HTTP-over-Unix-socket server.
+  /// Validates TLS and binds the QUIC endpoint before starting HTTP/3.
+  #[cfg(feature = "http3")]
+  pub fn try_spawn_h3(
+    &self,
+    addr: impl Into<String>,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    let tls = self
+      .tls
+      .as_ref()
+      .ok_or("TLS certificate configuration is required")?;
+    let tls = build_rustls_server_config(tls, vec![b"h3".to_vec()])?;
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let endpoint = crate::server_h3::run::bind_endpoint(&addr.into(), tls, &self.config)?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(endpoint.local_addr()?));
+    spawn_done(
+      &handle,
+      crate::server_h3::run::run_endpoint(endpoint, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns HTTP over a Unix socket. Bind failures are returned by `result()`.
   #[cfg(unix)]
   pub fn spawn_unix_http(&self, path: impl Into<PathBuf>, router: Router) -> ServerHandle {
     let path = path.into();
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
     let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      crate::server_unix::serve_unix_http_with_shutdown_and_config(
-        path,
-        router,
-        shutdown_fut,
-        config,
-      )
-      .await;
+    let (handle, signal) = make_handle(config.drain_timeout, None);
+    spawn_done(&handle, async move {
+      crate::server_unix::http::run_http(&path, router, Some(signal), config).await
     });
     handle
   }
 
-  /// Spawn an HTTP server bound to a Linux vsock `(cid, port)` pair. Requires
-  /// the `vsock` feature and Linux.
+  /// Binds the Unix socket and validates plugins before starting HTTP.
+  #[cfg(unix)]
+  pub async fn try_spawn_unix_http(
+    &self,
+    path: impl Into<PathBuf>,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    let path = path.into();
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let listener = crate::server_unix::listener::bind_unix_listener(&path).await?;
+    let config = self.config.clone();
+    let (handle, signal) = make_handle(config.drain_timeout, None);
+    spawn_done(&handle, async move {
+      crate::server_unix::http::run_listener(listener, &path, router, Some(signal), config).await
+    });
+    Ok(handle)
+  }
+
+  /// Spawns HTTP on a Linux vsock address.
   #[cfg(all(target_os = "linux", feature = "vsock"))]
   pub fn spawn_vsock_http(&self, cid: u32, port: u32, router: Router) -> ServerHandle {
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      crate::server_vsock::serve_vsock_http_with_shutdown_and_config(
-        cid,
-        port,
-        router,
-        shutdown_fut,
-        config,
-      )
-      .await;
-    });
-    handle
+    self
+      .try_spawn_vsock_http(cid, port, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Spawn an HTTP server fronted by PROXY-protocol parsing.
-  pub fn spawn_proxy_protocol(&self, listener: TcpListener, router: Router) -> ServerHandle {
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
+  /// Binds the vsock listener before accepting HTTP connections.
+  #[cfg(all(target_os = "linux", feature = "vsock"))]
+  pub fn try_spawn_vsock_http(
+    &self,
+    cid: u32,
+    port: u32,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(cid, port))?;
     let config = self.config.clone();
-    spawn_done(handle.done.clone(), async move {
-      crate::proxy_protocol::serve_http_with_proxy_protocol_shutdown_and_config(
+    let (handle, signal) = make_handle(config.drain_timeout, None);
+    spawn_done(
+      &handle,
+      crate::server_vsock::run_listener(listener, cid, port, router, Some(signal), config),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns HTTP behind a PROXY-protocol listener.
+  pub fn spawn_proxy_protocol(&self, listener: TcpListener, router: Router) -> ServerHandle {
+    self
+      .try_spawn_proxy_protocol(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Validates the router and listener before accepting PROXY connections.
+  pub fn try_spawn_proxy_protocol(
+    &self,
+    listener: TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done(
+      &handle,
+      crate::proxy_protocol::listener::run_proxy_http(
         listener,
         router,
-        shutdown_fut,
-        config,
-      )
-      .await;
-    });
-    handle
+        Some(signal),
+        self.config.clone(),
+      ),
+    );
+    Ok(handle)
   }
-
-  // ── Raw transports (handler-driven, no router) ──
 
   /// Spawn a raw TCP server. The handler receives each accepted stream.
   pub fn spawn_tcp_raw<F>(&self, addr: impl Into<String>, handler: F) -> ServerHandle
@@ -263,15 +279,37 @@ impl Server {
       + Sync
       + 'static,
   {
-    let addr = addr.into();
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    spawn_done(handle.done.clone(), async move {
-      if let Err(e) = crate::server_tcp::serve_tcp_with_shutdown(&addr, handler, shutdown_fut).await
-      {
-        tracing::error!("raw TCP server error: {e}");
-      }
+    self
+      .try_spawn_tcp_raw(addr, handler)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Binds the socket before starting the raw transport.
+  pub fn try_spawn_tcp_raw<F>(
+    &self,
+    addr: impl Into<String>,
+    handler: F,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError>
+  where
+    F: Fn(
+        tokio::net::TcpStream,
+        std::net::SocketAddr,
+      ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+      + Send
+      + Sync
+      + 'static,
+  {
+    let bound = std::net::TcpListener::bind(addr.into())?;
+    bound.set_nonblocking(true)?;
+    let listener = tokio::net::TcpListener::from_std(bound)?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    let drain_timeout = self.config.drain_timeout;
+    spawn_done(&handle, async move {
+      crate::server_tcp::run_listener(listener, handler, signal, drain_timeout)
+        .await
+        .map_err(Into::into)
     });
-    handle
+    Ok(handle)
   }
 
   /// Spawn a raw UDP server. The handler receives each datagram.
@@ -286,14 +324,37 @@ impl Server {
       + Sync
       + 'static,
   {
-    let addr = addr.into();
-    let (handle, shutdown_fut) = make_handle(self.config.drain_timeout);
-    spawn_done(handle.done.clone(), async move {
-      if let Err(e) = crate::server_udp::serve_udp_with_shutdown(&addr, handler, shutdown_fut).await
-      {
-        tracing::error!("raw UDP server error: {e}");
-      }
+    self
+      .try_spawn_udp_raw(addr, handler)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Binds the socket before starting the raw transport.
+  pub fn try_spawn_udp_raw<F>(
+    &self,
+    addr: impl Into<String>,
+    handler: F,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError>
+  where
+    F: Fn(
+        Vec<u8>,
+        std::net::SocketAddr,
+        Arc<tokio::net::UdpSocket>,
+      ) -> Pin<Box<dyn Future<Output = ()> + Send>>
+      + Send
+      + Sync
+      + 'static,
+  {
+    let bound = std::net::UdpSocket::bind(addr.into())?;
+    bound.set_nonblocking(true)?;
+    let socket = tokio::net::UdpSocket::from_std(bound)?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(socket.local_addr()?));
+    let drain_timeout = self.config.drain_timeout;
+    spawn_done(&handle, async move {
+      crate::server_udp::run_socket(socket, handler, signal, drain_timeout)
+        .await
+        .map_err(Into::into)
     });
-    handle
+    Ok(handle)
   }
 }

@@ -91,6 +91,9 @@ pub mod tracing;
 /// Core type definitions used throughout the framework.
 pub mod types;
 
+#[doc(hidden)]
+pub mod server_support;
+
 /// `GraphQL` support (request extractors, responses, and subscriptions).
 #[cfg(feature = "async-graphql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]

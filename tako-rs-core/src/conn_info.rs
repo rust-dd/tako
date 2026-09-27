@@ -60,9 +60,9 @@ pub enum Transport {
 #[derive(Debug, Clone, Default)]
 pub struct TlsInfo {
   /// Negotiated ALPN protocol (e.g. `b"h2"`, `b"http/1.1"`, `b"h3"`).
-  pub alpn: Option<Vec<u8>>,
+  pub alpn: Option<bytes::Bytes>,
   /// SNI hostname presented by the client.
-  pub sni: Option<String>,
+  pub sni: Option<std::sync::Arc<str>>,
   /// TLS protocol version label (e.g. `"TLSv1.3"`).
   pub version: Option<&'static str>,
 }
@@ -196,14 +196,14 @@ mod tests {
   fn conn_info_h2_tls_helper() {
     let addr: SocketAddr = "10.0.0.2:443".parse().unwrap();
     let tls = TlsInfo {
-      alpn: Some(b"h2".to_vec()),
-      sni: Some("example.com".to_string()),
+      alpn: Some(bytes::Bytes::from_static(b"h2")),
+      sni: Some("example.com".into()),
       version: Some("TLSv1.3"),
     };
     let info = ConnInfo::h2_tls(addr, tls.clone());
     assert_eq!(info.transport, Transport::Http2);
     let info_tls = info.tls.expect("tls present");
-    assert_eq!(info_tls.alpn, Some(b"h2".to_vec()));
+    assert_eq!(info_tls.alpn.as_deref(), Some(b"h2".as_slice()));
     assert_eq!(info_tls.sni.as_deref(), Some("example.com"));
     assert_eq!(info_tls.version, Some("TLSv1.3"));
   }

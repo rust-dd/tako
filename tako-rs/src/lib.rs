@@ -95,6 +95,7 @@ pub use tako_rs_server::Server;
 #[cfg(not(feature = "compio"))]
 pub use tako_rs_server::ServerBuilder;
 pub use tako_rs_server::ServerConfig;
+pub use tako_rs_server::ServerError;
 pub use tako_rs_server::ServerHandle;
 pub use tako_rs_server::TlsCert;
 pub use tako_rs_server::bind_with_port_fallback;
@@ -182,6 +183,7 @@ pub use tako_rs_server::server_udp;
   not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
 ))]
 pub use tako_rs_server::server_unix;
+pub use tako_rs_server::shutdown_signal;
 #[cfg(feature = "file-stream")]
 #[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub use tako_rs_streams::file_stream;
@@ -311,6 +313,8 @@ pub use tako_rs_server_pt::serve_per_thread;
 #[cfg(feature = "per-thread-compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread-compio")))]
 pub use tako_rs_server_pt::serve_per_thread_compio;
+#[cfg(feature = "per-thread-compio")]
+pub use tako_rs_server_pt::spawn_per_thread_compio;
 #[cfg(feature = "jemalloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
 pub use tikv_jemallocator::Jemalloc;

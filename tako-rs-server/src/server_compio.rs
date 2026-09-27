@@ -1,51 +1,24 @@
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use compio::net::TcpListener;
 use cyper_core::HyperStream;
+use futures_util::FutureExt;
+use futures_util::StreamExt;
 use futures_util::future::Either;
+use futures_util::stream::FuturesUnordered;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
-use tokio::sync::Notify;
 
 use crate::ServerConfig;
-
-/// RAII guard that increments `inflight` on construction and decrements it on
-/// drop, then wakes drain waiters. Captured into the spawned connection task
-/// so the counter stays consistent under panic, spawn failure, or any control
-/// flow that does not reach an explicit `fetch_sub`. Replaces the previous
-/// "`fetch_add` before spawn + manual `fetch_sub` at the end" pattern which leaked
-/// counts on any panic between the two operations.
-pub(crate) struct ConnectionGuard {
-  inflight: Arc<AtomicUsize>,
-  drain_notify: Arc<Notify>,
-}
-
-impl ConnectionGuard {
-  pub(crate) fn new(inflight: Arc<AtomicUsize>, drain_notify: Arc<Notify>) -> Self {
-    inflight.fetch_add(1, Ordering::SeqCst);
-    Self {
-      inflight,
-      drain_notify,
-    }
-  }
-}
-
-impl Drop for ConnectionGuard {
-  fn drop(&mut self) {
-    self.inflight.fetch_sub(1, Ordering::SeqCst);
-    self.drain_notify.notify_waiters();
-  }
-}
 
 pub async fn serve(listener: TcpListener, router: Router) {
   if let Err(e) = run(
@@ -90,7 +63,7 @@ pub async fn serve_with_shutdown_and_config(
   }
 }
 
-async fn run(
+pub(crate) async fn run(
   listener: TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()>>,
@@ -110,18 +83,18 @@ async fn run(
 
   tracing::debug!("Tako listening on {}", addr_str);
 
-  let inflight = Arc::new(AtomicUsize::new(0));
-  let drain_notify = Arc::new(Notify::new());
+  let mut connections = FuturesUnordered::new();
   let drain_timeout = config.drain_timeout;
   let keep_alive = config.keep_alive;
-  // C14: honor `max_connections` on the compio path. `tokio::sync::Semaphore`
-  // is runtime-agnostic for `acquire_owned` (no tokio timer/IO required).
+  let header_read_timeout = config.header_read_timeout;
+
   let max_conn_semaphore = config
     .max_connections
     .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
-  // C15: per-loop accept backoff for transient errors (EMFILE / ConnectionAborted).
+
   let mut accept_backoff = config.accept_backoff;
 
+  let cancel = tokio_util::sync::CancellationToken::new();
   let signal = signal.map(|s| Box::pin(s));
   let mut signal_fused = std::pin::pin!(async {
     if let Some(s) = signal {
@@ -141,13 +114,9 @@ async fn run(
             v
           }
           Err(err) => {
-            // C15: don't kill the server on a single transient accept error.
             tracing::warn!("compio accept failed: {err}; backing off");
             let d = accept_backoff.current_and_grow();
-            // SRV-06: race the backoff against the shutdown signal so a
-            // 1s sleep cannot delay graceful shutdown by up to 1s if the
-            // signal fires mid-backoff. `select`'s `Right` arm means the
-            // signal won; break the loop so the drain path runs.
+
             let sleep = std::pin::pin!(compio::time::sleep(d));
             match futures_util::future::select(sleep, signal_fused.as_mut()).await {
               Either::Left(((), _)) => continue,
@@ -156,9 +125,6 @@ async fn run(
           }
         };
 
-        // C14: park here until a permit is available, racing the wait
-        // against the shutdown signal so a saturated cap can't deadlock
-        // graceful shutdown.
         let permit = if let Some(sem) = max_conn_semaphore.as_ref() {
           let acquire = std::pin::pin!(sem.clone().acquire_owned());
           match futures_util::future::select(acquire, signal_fused.as_mut()).await {
@@ -172,13 +138,11 @@ async fn run(
 
         let io = HyperStream::new_plain(stream);
         let router = router.clone();
-        let guard = ConnectionGuard::new(inflight.clone(), drain_notify.clone());
 
-        compio::runtime::spawn(async move {
+        let conn_cancel = cancel.clone();
+        connections.push(compio::runtime::spawn(async move {
           let _permit = permit;
-          // RAII: dropping `_guard` (on normal completion, panic, or task
-          // cancellation) decrements `inflight` and wakes drain waiters.
-          let _guard = guard;
+
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 
@@ -194,9 +158,18 @@ async fn run(
 
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
+          http
+            .timer(cyper_core::CompioTimer)
+            .header_read_timeout(header_read_timeout);
           let conn = http.serve_connection(io, svc).with_upgrades();
 
-          if let Err(err) = conn.await {
+          if let Err(err) = drive_connection(
+            conn,
+            conn_cancel.cancelled(),
+            hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
+          )
+          .await
+          {
             if err.is_incomplete_message() {
               tracing::debug!("client disconnected mid-message: {err}");
             } else {
@@ -206,8 +179,8 @@ async fn run(
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), false, None).await;
-        })
-        .detach();
+        }));
+        while connections.next().now_or_never().flatten().is_some() {}
       }
       Either::Right(_) => {
         tracing::info!("Shutdown signal received, draining connections...");
@@ -216,32 +189,16 @@ async fn run(
     }
   }
 
-  // Drain in-flight connections — re-check inflight after every notification
-  // and bail when the overall deadline elapses, so a connection that closes
-  // between the load and the await still satisfies the drain.
-  let drain_deadline = std::time::Instant::now() + drain_timeout;
-  while inflight.load(Ordering::SeqCst) > 0 {
-    let now = std::time::Instant::now();
-    if now >= drain_deadline {
-      tracing::warn!(
-        "Drain timeout ({:?}) exceeded, {} connections still active",
-        drain_timeout,
-        inflight.load(Ordering::SeqCst)
-      );
-      break;
-    }
-    let remaining = drain_deadline - now;
-    let drain_wait = drain_notify.notified();
-    let sleep = compio::time::sleep(remaining);
-    let drain_wait = std::pin::pin!(drain_wait);
-    let sleep = std::pin::pin!(sleep);
-    if let Either::Right(_) = futures_util::future::select(drain_wait, sleep).await {
-      tracing::warn!(
-        "Drain timeout ({:?}) exceeded, {} connections still active",
-        drain_timeout,
-        inflight.load(Ordering::SeqCst)
-      );
-      break;
+  cancel.cancel();
+  if compio::time::timeout(drain_timeout, async {
+    while connections.next().await.is_some() {}
+  })
+  .await
+  .is_err()
+  {
+    tracing::warn!("drain timeout exceeded; cancelling remaining connections");
+    for connection in connections {
+      connection.cancel().await;
     }
   }
 

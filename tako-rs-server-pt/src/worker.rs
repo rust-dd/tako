@@ -1,12 +1,15 @@
 use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 use tokio::runtime::Builder;
 use tokio::task::LocalSet;
 
@@ -14,16 +17,11 @@ use crate::config::PerThreadConfig;
 use crate::listener::bind_reuseport;
 use crate::shutdown::PerThreadShutdown;
 
-// Without the `affinity` feature, `worker_id` and `cfg.pin_to_core` aren't
-// read past this point; mark the function tolerant of those unused names so
-// we don't need the awkward `let _ = (worker_id, &cfg.pin_to_core);` trick
-// that previously sat inside the function body for the sole purpose of
-// silencing the warning.
 #[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 pub(crate) fn worker_main(
   worker_id: usize,
   addr: SocketAddr,
-  router: &'static Router,
+  router: Arc<Router>,
   cfg: PerThreadConfig,
   shutdown: PerThreadShutdown,
 ) {
@@ -56,9 +54,7 @@ pub(crate) fn worker_main(
     Ok(rt) => rt,
     Err(e) => {
       tracing::error!("worker {worker_id}: failed to build runtime: {e}");
-      // Treat runtime-build failure as a bind failure so the parent is
-      // unblocked from `wait_for_bind_outcome` instead of waiting on
-      // Ctrl+C for a worker that never reached its bind step.
+
       shutdown.report_bind_failure(io::Error::other(format!(
         "worker {worker_id}: failed to build runtime: {e}"
       )));
@@ -68,10 +64,16 @@ pub(crate) fn worker_main(
 
   let local = LocalSet::new();
   local.block_on(&rt, async move {
+    #[cfg(feature = "plugins")]
+    if let Err(error) = router.setup_plugins_once() {
+      shutdown.report_bind_failure(io::Error::other(error.clone()));
+      return;
+    }
+    let mut backoff = Duration::from_millis(5);
+    let semaphore = cfg.max_connections.map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
     let listener = match bind_reuseport(addr, cfg.backlog) {
       Ok(l) => {
-        // Report success so `serve_per_thread` can stop blocking on
-        // `wait_for_bind_outcome` and proceed to the Ctrl+C wait.
+
         shutdown.report_bind_success();
         l
       }
@@ -86,45 +88,53 @@ pub(crate) fn worker_main(
     let shutdown_fut = shutdown.notified();
     tokio::pin!(shutdown_fut);
 
-    // SRV-07: track per-connection tasks in a `JoinSet` instead of a `Vec`
-    // so completed connections can be reaped lazily. The previous `Vec`
-    // grew unboundedly across a worker's lifetime (a million-connection
-    // day = a million `JoinHandle`s held forever — soft leak proportional
-    // to total connections handled, even though the underlying tasks were
-    // long done).
-    let mut connection_handles: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
+    let mut connection_handles = tokio::task::JoinSet::new();
 
     loop {
       tokio::select! {
         accept = listener.accept() => {
           let (stream, peer) = match accept {
-            Ok(v) => v,
+            Ok(v) => { backoff = Duration::from_millis(5); v },
             Err(e) => {
               tracing::warn!("worker {worker_id}: accept failed: {e}");
+              tokio::select! {
+                () = shutdown.notified() => break,
+                () = tokio::time::sleep(backoff) => {},
+              }
+              backoff = (backoff * 2).min(Duration::from_secs(1));
               continue;
             }
           };
-          // `set_nodelay` only fails for already-closed sockets (peer hung
-          // up between accept and here) or on platforms without TCP_NODELAY
-          // — either way the connection still works, but log at debug so an
-          // operator can investigate persistent failures.
+
           if let Err(e) = stream.set_nodelay(true) {
             tracing::debug!("worker {worker_id}: set_nodelay failed for {peer}: {e}");
           }
+          let permit = if let Some(semaphore) = &semaphore {
+            tokio::select! {
+              () = shutdown.notified() => break,
+              permit = semaphore.clone().acquire_owned() => permit.ok(),
+            }
+          } else { None };
           let io = hyper_util::rt::TokioIo::new(stream);
+          let router = router.clone();
+          let conn_shutdown = shutdown.clone();
 
           connection_handles.spawn_local(async move {
-            let svc = service_fn(move |mut req| async move {
+            let _permit = permit;
+            let svc = service_fn(move |mut req| {
+              let router = router.clone();
+              async move {
               req.extensions_mut().insert(peer);
               req.extensions_mut().insert(ConnInfo::tcp(peer));
               let resp = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(resp)
-            });
+            }});
 
             let mut http = http1::Builder::new();
             http.keep_alive(true);
             http.pipeline_flush(true);
-            if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
+            http.timer(hyper_util::rt::TokioTimer::new()).header_read_timeout(cfg.header_read_timeout);
+            if let Err(err) = drive_connection(http.serve_connection(io, svc).with_upgrades(), conn_shutdown.notified(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
               if err.is_incomplete_message() {
                 tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
               } else {
@@ -133,10 +143,6 @@ pub(crate) fn worker_main(
             }
           });
 
-          // Reap finished connection tasks opportunistically so the JoinSet
-          // does not retain `AbortHandle`s for already-completed tasks. Each
-          // `try_join_next` is non-blocking; the loop drains all currently
-          // finished entries.
           while connection_handles.try_join_next().is_some() {}
         }
         () = &mut shutdown_fut => {
@@ -145,13 +151,10 @@ pub(crate) fn worker_main(
         }
       }
     }
-    // Real graceful drain: wait on every in-flight connection task up to
-    // `drain_timeout`. `join_next()` yields one task at a time as it
-    // finishes; the timeout wraps the whole drain so a single hung
-    // connection cannot stall shutdown forever.
+
     let drain = tokio::time::timeout(cfg.drain_timeout, async {
       while connection_handles.join_next().await.is_some() {}
     });
-    let _ = drain.await;
+    if drain.await.is_err() { connection_handles.shutdown().await; }
   });
 }

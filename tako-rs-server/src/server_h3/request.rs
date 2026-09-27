@@ -143,7 +143,7 @@ where
   tako_req.extensions_mut().insert(ConnInfo::h3(
     remote_addr,
     TlsInfo {
-      alpn: Some(b"h3".to_vec()),
+      alpn: Some(bytes::Bytes::from_static(b"h3")),
       sni: None,
       version: Some("TLSv1.3"),
     },

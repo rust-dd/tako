@@ -29,6 +29,7 @@ mod tokio_server;
 pub use compio_server::CompioServer;
 #[cfg(feature = "compio")]
 pub use compio_server::CompioServerBuilder;
+pub use handle::ServerError;
 pub use handle::ServerHandle;
 pub use handle::either;
 #[cfg(feature = "tls")]

@@ -33,8 +33,7 @@ pub struct ServerConfig {
   pub header_read_timeout: Option<Duration>,
   /// HTTP/1 keep-alive (default `true`).
   pub keep_alive: bool,
-  /// HTTP/1 keep-alive idle timeout (Hyper default applies if `None`).
-  pub keep_alive_timeout: Option<Duration>,
+
   /// HTTP/2 `SETTINGS_MAX_CONCURRENT_STREAMS` cap.
   pub h2_max_concurrent_streams: u32,
   /// HTTP/2 `SETTINGS_MAX_HEADER_LIST_SIZE` cap (bytes).
@@ -91,7 +90,6 @@ impl Default for ServerConfig {
       drain_timeout: Duration::from_secs(30),
       header_read_timeout: Some(Duration::from_secs(30)),
       keep_alive: true,
-      keep_alive_timeout: None,
       h2_max_concurrent_streams: 100,
       h2_max_header_list_size: 16 * 1024,
       h2_max_send_buf_size: 1024 * 1024,

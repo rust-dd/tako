@@ -80,7 +80,6 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
     let backend = self.backend.clone();
     let app_arbiter = app_events();
 
-    // App-level request.completed metrics
     router
       .signals()
       .on(ids::REQUEST_COMPLETED, move |signal: Signal| {
@@ -90,20 +89,23 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
         }
       });
 
-    // Connection lifetime metrics
-    let backend_conn = self.backend.clone();
+    let backend_conn = Arc::downgrade(&self.backend);
     app_arbiter.on(ids::CONNECTION_OPENED, move |signal: Signal| {
-      let backend = backend_conn.clone();
+      let backend = backend_conn.upgrade();
       async move {
-        backend.on_connection_opened(&signal);
+        if let Some(backend) = backend {
+          backend.on_connection_opened(&signal);
+        }
       }
     });
 
-    let backend_close = self.backend.clone();
+    let backend_close = Arc::downgrade(&self.backend);
     app_arbiter.on(ids::CONNECTION_CLOSED, move |signal: Signal| {
-      let backend = backend_close.clone();
+      let backend = backend_close.upgrade();
       async move {
-        backend.on_connection_closed(&signal);
+        if let Some(backend) = backend {
+          backend.on_connection_closed(&signal);
+        }
       }
     });
 

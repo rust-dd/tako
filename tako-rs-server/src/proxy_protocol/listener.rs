@@ -10,6 +10,7 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
@@ -77,7 +78,7 @@ pub async fn serve_http_with_proxy_protocol_shutdown_and_config(
   }
 }
 
-async fn run_proxy_http(
+pub(crate) async fn run_proxy_http(
   listener: tokio::net::TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()> + Send + 'static>,
@@ -103,9 +104,10 @@ async fn run_proxy_http(
   let keep_alive = config.keep_alive;
   let proxy_read_timeout = config.proxy_read_timeout;
   let cancel = tokio_util::sync::CancellationToken::new();
+  let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -118,7 +120,10 @@ async fn run_proxy_http(
           Ok(v) => { accept_backoff.reset(); v }
           Err(err) => {
             tracing::warn!("PROXY accept failed: {err}; backing off");
-            accept_backoff.sleep_and_grow().await;
+            tokio::select! {
+              () = cancel.cancelled() => break,
+              () = accept_backoff.sleep_and_grow() => {},
+            }
             continue;
           }
         };
@@ -137,11 +142,15 @@ async fn run_proxy_http(
         let _ = stream.set_nodelay(true);
         let router = router.clone();
 
+        let conn_cancel = cancel.clone();
         join_set.spawn(async move {
-          // Parse PROXY protocol header under a read deadline so a stalled
-          // client cannot pin a worker task forever.
-          let proxy_header =
-            match tokio::time::timeout(proxy_read_timeout, read_proxy_protocol(&mut stream)).await {
+
+          let handshake = tokio::select! {
+            biased;
+            () = conn_cancel.cancelled() => return,
+            result = tokio::time::timeout(proxy_read_timeout, read_proxy_protocol(&mut stream)) => result,
+          };
+          let proxy_header = match handshake {
               Ok(Ok(h)) => h,
               Ok(Err(e)) => {
                 tracing::warn!("Failed to parse PROXY protocol: {e}");
@@ -164,13 +173,7 @@ async fn run_proxy_http(
             let proxy_header = proxy_header.clone();
             let real_addr = real_addr;
             async move {
-              // Strip any inbound X-Forwarded-* / Forwarded: clients behind a
-              // PROXY-protocol hop must not be able to spoof their address
-              // through the header. The PROXY-protocol-supplied source becomes
-              // the authoritative one; we re-emit a single `Forwarded` header
-              // built from it so downstream middleware that follows RFC 7239
-              // sees a consistent view instead of having to read the
-              // `ConnInfo`/`SocketAddr` extension out of band.
+
               req.headers_mut().remove(http::header::FORWARDED);
               req.headers_mut().remove("x-forwarded-for");
               req.headers_mut().remove("x-forwarded-host");
@@ -193,12 +196,10 @@ async fn run_proxy_http(
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
           http.timer(hyper_util::rt::TokioTimer::new());
-          if let Some(t) = header_read_timeout {
-            http.header_read_timeout(t);
-          }
+          http.header_read_timeout(header_read_timeout);
           let conn = http.serve_connection(io, svc).with_upgrades();
 
-          if let Err(err) = conn.await {
+          if let Err(err) = drive_connection(conn, conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
             if err.is_incomplete_message() {
               tracing::debug!("client disconnected mid-message on PROXY protocol connection: {err}");
             } else {
@@ -208,6 +209,7 @@ async fn run_proxy_http(
 
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("PROXY protocol HTTP server shutting down...");
@@ -225,7 +227,7 @@ async fn run_proxy_http(
       "Drain timeout exceeded, aborting {} remaining connections",
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
   tracing::info!("PROXY protocol HTTP server shut down gracefully");

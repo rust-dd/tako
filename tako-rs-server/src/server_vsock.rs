@@ -40,6 +40,7 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::PeerAddr;
 use tako_rs_core::conn_info::Transport;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -100,7 +101,7 @@ pub async fn serve_vsock_http_with_shutdown_and_config(
   }
 }
 
-async fn run(
+pub(crate) async fn run(
   cid: u32,
   port: u32,
   router: Router,
@@ -111,6 +112,17 @@ async fn run(
   tako_rs_core::tracing::init_tracing();
 
   let listener = VsockListener::bind(VsockAddr::new(cid, port))?;
+  run_listener(listener, cid, port, router, signal, config).await
+}
+
+pub(crate) async fn run_listener(
+  listener: VsockListener,
+  cid: u32,
+  port: u32,
+  router: Router,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -125,9 +137,10 @@ async fn run(
   let header_read_timeout = config.header_read_timeout;
   let keep_alive = config.keep_alive;
   let cancel = tokio_util::sync::CancellationToken::new();
+  let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -140,7 +153,10 @@ async fn run(
           Ok(v) => { accept_backoff.reset(); v }
           Err(err) => {
             tracing::warn!("vsock accept failed: {err}; backing off");
-            accept_backoff.sleep_and_grow().await;
+            tokio::select! {
+              () = cancel.cancelled() => break,
+              () = accept_backoff.sleep_and_grow() => {},
+            }
             continue;
           }
         };
@@ -159,6 +175,7 @@ async fn run(
         let io = hyper_util::rt::TokioIo::new(stream);
         let router = router.clone();
 
+        let conn_cancel = cancel.clone();
         join_set.spawn(async move {
           let peer_label = format!("vsock:{}:{}", peer.cid(), peer.port());
           let svc = service_fn(move |mut req| {
@@ -180,11 +197,9 @@ async fn run(
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
           http.timer(hyper_util::rt::TokioTimer::new());
-          if let Some(t) = header_read_timeout {
-            http.header_read_timeout(t);
-          }
+          http.header_read_timeout(header_read_timeout);
 
-          if let Err(err) = http.serve_connection(io, svc).with_upgrades().await {
+          if let Err(err) = drive_connection(http.serve_connection(io, svc).with_upgrades(), conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
             if err.is_incomplete_message() {
               tracing::debug!("vsock client disconnected mid-message: {err}");
             } else {
@@ -194,6 +209,7 @@ async fn run(
 
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("vsock HTTP server shutting down...");
@@ -211,7 +227,7 @@ async fn run(
       drain_timeout,
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
   tracing::info!("vsock HTTP server shut down gracefully");

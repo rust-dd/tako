@@ -33,6 +33,7 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -92,7 +93,7 @@ pub async fn serve_with_shutdown_and_config(
 }
 
 /// Runs the main server loop, accepting connections and dispatching requests.
-async fn run(
+pub(crate) async fn run(
   listener: TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()> + Send + 'static>,
@@ -101,12 +102,8 @@ async fn run(
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
-  // Leak the router into a `&'static` reference to eliminate all Arc
-  // refcount bumps on the per-connection and per-request hot paths.
-  // The allocation is reclaimed when the process exits.
-  let router: &'static Router = Box::leak(Box::new(router));
+  let router = Arc::new(router);
 
-  // Setup plugins
   #[cfg(feature = "plugins")]
   router.setup_plugins_once()?;
 
@@ -122,29 +119,13 @@ async fn run(
   let max_conn_semaphore = config.max_connections.map(|n| Arc::new(Semaphore::new(n)));
   let keep_alive = config.keep_alive;
   let header_read_timeout = config.header_read_timeout;
-  let keep_alive_timeout = config.keep_alive_timeout;
   let drain_timeout = config.drain_timeout;
 
-  // Emit the upstream-gap warning at startup rather than per-connection.
-  // The previous spot inside the accept loop used a `OnceLock` to dedupe,
-  // but that still cost an atomic load + branch per connection and ran
-  // the format args every loop iteration. Hoist to startup so the cost is
-  // exactly once per `serve` invocation.
-  if let Some(t) = keep_alive_timeout {
-    tracing::warn!(
-      "ServerConfig::keep_alive_timeout ({:?}) is not currently plumbed to hyper's http1 builder (upstream gap); the value will be ignored.",
-      t
-    );
-  }
-
-  // Lift the single-shot `signal` future to a `CancellationToken` so we can
-  // observe shutdown from multiple `select!`s. Without this the inner
-  // `Semaphore::acquire_owned().await` (when `max_connections` is saturated)
-  // could park forever, deadlocking graceful shutdown.
   let cancel = CancellationToken::new();
+  let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -156,18 +137,16 @@ async fn run(
         let (stream, addr) = match result {
           Ok(v) => { accept_backoff.reset(); v }
           Err(err) => {
-            // Accept errors (typically EMFILE/ENFILE under FD pressure, or
-            // ConnectionAborted under load) are not fatal — log, back off, retry.
+
             tracing::warn!("accept failed: {err}; backing off");
-            accept_backoff.sleep_and_grow().await;
+            tokio::select! {
+              () = cancel.cancelled() => break,
+              () = accept_backoff.sleep_and_grow() => {},
+            }
             continue;
           }
         };
 
-        // Optional connection cap: park here until a permit is available so
-        // we exert backpressure on the kernel listen queue rather than
-        // accepting unbounded work. Race the acquire against shutdown so a
-        // saturated `max_connections` cannot deadlock graceful shutdown.
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
@@ -184,38 +163,32 @@ async fn run(
         let _ = stream.set_nodelay(true);
         let io = hyper_util::rt::TokioIo::new(stream);
 
+        let router = router.clone();
+        let conn_cancel = cancel.clone();
         join_set.spawn(async move {
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 
-          // `router` is `&'static Router` — no Arc clone per connection or request.
-          // Per-request REQUEST_STARTED / REQUEST_COMPLETED signals fire from
-          // inside Router::dispatch, so transports stay free of that boilerplate.
-          let svc = service_fn(move |mut req| async move {
+          let svc = service_fn(move |mut req| {
+            let router = router.clone();
+            async move {
               req.extensions_mut().insert(addr);
               req.extensions_mut().insert(ConnInfo::tcp(addr));
               let response = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(response)
-          });
+          }});
 
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
           http.pipeline_flush(true);
-          // hyper requires a Timer when header_read_timeout is set; default
-          // installs the tokio timer integration.
+
           http.timer(hyper_util::rt::TokioTimer::new());
-          if let Some(t) = header_read_timeout {
-            http.header_read_timeout(t);
-          }
-          // `keep_alive_timeout` (currently ignored — upstream gap) is now
-          // logged once at startup; nothing to do here per connection.
-          let _ = keep_alive_timeout;
+          http.header_read_timeout(header_read_timeout);
+
           let conn = http.serve_connection(io, svc).with_upgrades();
 
-          if let Err(err) = conn.await {
-            // Hyper raises `IncompleteMessage` when the peer closes mid-request
-            // or mid-response. This is normal traffic (keep-alive races, client
-            // cancellation, NAT/proxy timeouts) and shouldn't pollute ERROR logs.
+          if let Err(err) = drive_connection(conn, conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
+
             if err.is_incomplete_message() {
               tracing::debug!("client disconnected mid-message: {err}");
             } else {
@@ -226,10 +199,9 @@ async fn run(
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), false, None).await;
 
-          // Permit lives until here; dropping it returns a slot to the
-          // max_connections semaphore so the next accept can proceed.
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, draining connections...");
@@ -238,7 +210,6 @@ async fn run(
     }
   }
 
-  // Drain in-flight connections
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });
@@ -249,7 +220,7 @@ async fn run(
       drain_timeout,
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
   tracing::info!("Server shut down gracefully");

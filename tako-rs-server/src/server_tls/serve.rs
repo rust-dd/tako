@@ -13,6 +13,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -37,7 +38,6 @@ pub async fn run_with_config(
   let acceptor = TlsAcceptor::from(tls_config);
   let router = Arc::new(router);
 
-  // Setup plugins
   #[cfg(feature = "plugins")]
   router.setup_plugins_once()?;
 
@@ -68,13 +68,11 @@ pub async fn run_with_config(
   #[cfg(feature = "http2")]
   let h2_keep_alive_interval = config.h2_keep_alive_interval;
 
-  // Lift `signal` into a `CancellationToken` so shutdown is observable from
-  // the inner `acquire_owned().await` — otherwise a saturated
-  // `max_connections` permit pool would deadlock graceful shutdown.
   let cancel = tokio_util::sync::CancellationToken::new();
+  let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -87,7 +85,10 @@ pub async fn run_with_config(
           Ok(v) => { accept_backoff.reset(); v }
           Err(err) => {
             tracing::warn!("TLS accept failed: {err}; backing off");
-            accept_backoff.sleep_and_grow().await;
+            tokio::select! {
+              () = cancel.cancelled() => break,
+              () = accept_backoff.sleep_and_grow() => {},
+            }
             continue;
           }
         };
@@ -107,18 +108,18 @@ pub async fn run_with_config(
         let acceptor = acceptor.clone();
         let router = router.clone();
 
+        let conn_cancel = cancel.clone();
         join_set.spawn(async move {
-          // Bound the TLS handshake so a slow / stalled client cannot
-          // indefinitely hold a `max_connections` permit (TLS slowloris).
-          let tls_stream = match tokio::time::timeout(
-            tls_handshake_timeout,
-            acceptor.accept(stream),
-          )
-          .await
-          {
+
+          let handshake = tokio::select! {
+            biased;
+            () = conn_cancel.cancelled() => return,
+            result = tokio::time::timeout(tls_handshake_timeout, acceptor.accept(stream)) => result,
+          };
+          let tls_stream = match handshake {
             Ok(Ok(s)) => s,
             Ok(Err(e)) => {
-              tracing::error!("TLS error: {e}");
+              tracing::debug!("TLS error: {e}");
               return;
             }
             Err(_) => {
@@ -132,17 +133,13 @@ pub async fn run_with_config(
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), true, None).await;
 
-          // Capture TLS metadata once per connection so each request can read
-          // the same ALPN / SNI / version without touching the live session.
-          let alpn_proto = tls_stream.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+          let alpn_proto = tls_stream.get_ref().1.alpn_protocol().map(bytes::Bytes::copy_from_slice);
           let sni = tls_stream
             .get_ref()
             .1
             .server_name()
-            .map(str::to_string);
-          // Capture the negotiated TLS protocol version (TLS 1.2 vs TLS 1.3)
-          // so `ConnInfo` consumers can branch on it for compliance /
-          // observability without going back through the rustls session.
+            .map(Arc::<str>::from);
+
           let tls_version = tls_stream
             .get_ref()
             .1
@@ -170,7 +167,7 @@ pub async fn run_with_config(
           let proto = alpn_proto;
 
           let io = TokioIo::new(tls_stream);
-          // Per-request signals fire from inside Router::dispatch.
+
           let svc = service_fn(move |mut req| {
             let r = router.clone();
             let conn_info = conn_info.clone();
@@ -194,8 +191,8 @@ pub async fn run_with_config(
               h2.keep_alive_interval(Some(interval));
             }
 
-            if let Err(e) = h2.serve_connection(io, svc).await {
-              tracing::error!("HTTP/2 error: {e}");
+            if let Err(e) = drive_connection(h2.serve_connection(io, svc), conn_cancel.cancelled(), hyper::server::conn::http2::Connection::graceful_shutdown).await {
+              tracing::debug!("HTTP/2 error: {e}");
             }
 
             #[cfg(feature = "signals")]
@@ -206,11 +203,9 @@ pub async fn run_with_config(
           let mut h1 = http1::Builder::new();
           h1.keep_alive(keep_alive);
           h1.timer(hyper_util::rt::TokioTimer::new());
-          if let Some(t) = header_read_timeout {
-            h1.header_read_timeout(t);
-          }
+          h1.header_read_timeout(header_read_timeout);
 
-          if let Err(e) = h1.serve_connection(io, svc).with_upgrades().await {
+          if let Err(e) = drive_connection(h1.serve_connection(io, svc).with_upgrades(), conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
             if e.is_incomplete_message() {
               tracing::debug!("TLS HTTP/1.1 client disconnected mid-message: {e}");
             } else {
@@ -223,6 +218,7 @@ pub async fn run_with_config(
 
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, draining TLS connections...");
@@ -231,7 +227,6 @@ pub async fn run_with_config(
     }
   }
 
-  // Drain in-flight connections
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });
@@ -242,7 +237,7 @@ pub async fn run_with_config(
       drain_timeout,
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
   tracing::info!("TLS server shut down gracefully");

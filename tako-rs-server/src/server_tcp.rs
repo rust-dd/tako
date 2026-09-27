@@ -123,6 +123,26 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   let listener = tokio::net::TcpListener::bind(addr).await?;
+  run_listener(listener, handler, signal, drain_timeout).await
+}
+
+#[cfg(not(feature = "compio"))]
+pub(crate) async fn run_listener<F, S>(
+  listener: tokio::net::TcpListener,
+  handler: F,
+  signal: S,
+  drain_timeout: std::time::Duration,
+) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::TcpStream,
+      SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
   let handler = Arc::new(handler);
@@ -142,6 +162,7 @@ where
             tracing::error!("TCP connection error from {peer_addr}: {e}");
           }
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = &mut signal => {
         tracing::info!("TCP server shutting down, draining {} connections", join_set.len());

@@ -31,7 +31,7 @@
 mod config;
 mod connection;
 mod request;
-mod run;
+pub(crate) mod run;
 mod serve;
 
 pub use serve::serve_h3;

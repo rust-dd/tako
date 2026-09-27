@@ -38,7 +38,7 @@
 //! ```
 
 mod header;
-mod listener;
+pub(crate) mod listener;
 mod v1;
 mod v2;
 

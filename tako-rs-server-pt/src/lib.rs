@@ -36,118 +36,95 @@ use crate::worker::worker_main;
 #[cfg(feature = "compio")]
 use crate::worker_compio::worker_main_compio;
 
-/// Starts a thread-per-core HTTP server with the given router.
-///
-/// Spawns `cfg.workers` OS threads. Each worker binds its own `SO_REUSEPORT`
-/// socket on `addr`, builds a single-threaded tokio runtime, and serves
-/// connections via [`tokio::task::spawn_local`].
-///
-/// This blocks the calling thread until all workers exit. To control shutdown
-/// externally use [`spawn_per_thread`] which returns a [`PerThreadShutdown`]
-/// handle.
+/// Runs Tokio workers until Ctrl+C or SIGTERM, then drains active requests.
 pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
   let workers = cfg.workers;
-  let (handle, shutdown) = spawn_per_thread(addr, router, cfg)?;
-  // Wait for SIGINT (Ctrl+C) on a dedicated mini-runtime and then trigger
-  // graceful shutdown. The earlier `drop(shutdown)` was a no-op — dropping
-  // one clone of the `CancellationToken` does not cancel anything; only
-  // `trigger()` does. Without this, the function would never return on a
-  // healthy process.
-  let rt = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .map_err(|e| io::Error::other(format!("ctrl-c runtime: {e}")))?;
-  // Block on bind-outcome first: if every worker failed to bind
-  // (SO_REUSEPORT unavailable, port already taken, …) we surface the first
-  // recorded `io::Error` instead of pretending the server is up and waiting
-  // forever on Ctrl+C. If at least one worker bound successfully, proceed
-  // to the Ctrl+C wait as usual.
-  let result: io::Result<()> = rt.block_on(async {
-    shutdown.wait_for_bind_outcome(workers).await?;
-    let _ = tokio::signal::ctrl_c().await;
-    Ok(())
-  });
-  shutdown.trigger();
-  for h in handle {
-    let _ = h.join();
-  }
-  result
+  let (handles, shutdown) = spawn_per_thread(addr, router, cfg)?;
+  wait_for_shutdown(handles, shutdown, workers)
 }
 
-/// Spawn the worker threads and return both the join handles and a
-/// [`PerThreadShutdown`] that the caller can use to signal a clean stop.
-///
-/// The returned thread handles are owned by the caller; dropping them does not
-/// stop the server. Trigger the shutdown via [`PerThreadShutdown::trigger`],
-/// then `join` each handle (or just drop them after the trigger if you're OK
-/// with detached cleanup).
+/// Starts Tokio workers and returns handles for explicit shutdown control.
 pub fn spawn_per_thread(
   addr: &str,
   router: Router,
   cfg: PerThreadConfig,
 ) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
-  let socket_addr =
+  spawn_workers(addr, router, cfg, worker_main)
+}
+
+/// Runs Compio workers until Ctrl+C or SIGTERM, then drains active requests.
+#[cfg(feature = "compio")]
+pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
+  let workers = cfg.workers;
+  let (handles, shutdown) = spawn_per_thread_compio(addr, router, cfg)?;
+  wait_for_shutdown(handles, shutdown, workers)
+}
+
+/// Starts Compio workers and returns handles for explicit shutdown control.
+#[cfg(feature = "compio")]
+pub fn spawn_per_thread_compio(
+  addr: &str,
+  router: Router,
+  cfg: PerThreadConfig,
+) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
+  spawn_workers(addr, router, cfg, worker_main_compio)
+}
+
+fn spawn_workers(
+  addr: &str,
+  router: Router,
+  cfg: PerThreadConfig,
+  worker: fn(usize, SocketAddr, std::sync::Arc<Router>, PerThreadConfig, PerThreadShutdown),
+) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
+  if cfg.workers == 0 || cfg.max_connections == Some(0) {
+    return Err(io::Error::new(
+      io::ErrorKind::InvalidInput,
+      "worker and connection counts must be positive",
+    ));
+  }
+  let addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-  // Leak the router so workers share a `&'static` reference — no Arc clones
-  // on the per-connection or per-request hot path.
-  let router: &'static Router = Box::leak(Box::new(router));
-
+  let router = std::sync::Arc::new(router);
   let shutdown = PerThreadShutdown::new();
   let mut handles = Vec::with_capacity(cfg.workers);
-  for worker_id in 0..cfg.workers {
+  for id in 0..cfg.workers {
     let cfg = cfg.clone();
-    let shutdown = shutdown.clone();
-    let h = std::thread::Builder::new()
-      .name(format!("tako-pt-{worker_id}"))
-      .spawn(move || worker_main(worker_id, socket_addr, router, cfg, shutdown))
-      .expect("spawn tako-pt worker");
-    handles.push(h);
+    let router = router.clone();
+    let worker_shutdown = shutdown.clone();
+    match std::thread::Builder::new()
+      .name(format!("tako-pt-{id}"))
+      .spawn(move || worker(id, addr, router, cfg, worker_shutdown))
+    {
+      Ok(handle) => handles.push(handle),
+      Err(error) => {
+        shutdown.trigger();
+        for handle in handles {
+          let _ = handle.join();
+        }
+        return Err(error);
+      }
+    }
   }
   Ok((handles, shutdown))
 }
 
-/// Starts a thread-per-core HTTP server with the compio runtime.
-///
-/// Same `SO_REUSEPORT` bootstrap as [`serve_per_thread`] but each worker runs a
-/// single-threaded `compio` runtime — `io_uring` on Linux, IOCP on Windows,
-/// kqueue on macOS. The router type stays the standard thread-safe
-/// [`tako_rs_core::router::Router`].
-#[cfg(feature = "compio")]
-#[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
-pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
-  let socket_addr =
-    SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-
-  let router: &'static Router = Box::leak(Box::new(router));
-
-  let workers = cfg.workers;
-  let shutdown = PerThreadShutdown::new();
-  let mut handles = Vec::with_capacity(cfg.workers);
-  for worker_id in 0..cfg.workers {
-    let cfg = cfg.clone();
-    let shutdown = shutdown.clone();
-    let h = std::thread::Builder::new()
-      .name(format!("tako-pt-compio-{worker_id}"))
-      .spawn(move || worker_main_compio(worker_id, socket_addr, router, cfg, shutdown))
-      .expect("spawn tako-pt-compio worker");
-    handles.push(h);
-  }
-
-  // Same Ctrl+C / shutdown discipline as `serve_per_thread`, plus the same
-  // bind-outcome wait so an all-bind-fail does not silently look healthy.
-  let rt = tokio::runtime::Builder::new_current_thread()
+fn wait_for_shutdown(
+  handles: Vec<std::thread::JoinHandle<()>>,
+  shutdown: PerThreadShutdown,
+  workers: usize,
+) -> io::Result<()> {
+  let result = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
-    .map_err(|e| io::Error::other(format!("ctrl-c runtime: {e}")))?;
-  let result: io::Result<()> = rt.block_on(async {
-    shutdown.wait_for_bind_outcome(workers).await?;
-    let _ = tokio::signal::ctrl_c().await;
-    Ok(())
-  });
+    .and_then(|rt| {
+      rt.block_on(async {
+        shutdown.wait_for_bind_outcome(workers).await?;
+        tako_rs_core::server_support::shutdown_signal().await
+      })
+    });
   shutdown.trigger();
-  for h in handles {
-    let _ = h.join();
+  for handle in handles {
+    let _ = handle.join();
   }
   result
 }
