@@ -181,11 +181,8 @@ async fn main() -> Result<()> {
   // Start background workers
   queue.start();
 
-  // Store queue in global state so handlers can access it
-  tako::state::set_state(queue.clone());
-
-  // Build router
   let mut router = Router::new();
+  router.with_state(queue.clone());
   router.route(Method::POST, "/email", send_email_handler);
   router.route(Method::POST, "/webhook", send_webhook_handler);
   router.route(Method::POST, "/delayed", delayed_handler);
@@ -215,9 +212,15 @@ async fn main() -> Result<()> {
   println!("  curl -X POST http://127.0.0.1:8080/fail");
   println!("  curl http://127.0.0.1:8080/stats");
 
-  tako::serve(listener, router).await;
+  let handle = tako::Server::builder().build().spawn_http(listener, router);
+  tokio::select! {
+    result = handle.result() => result?,
+    signal = tako::shutdown_signal() => {
+      signal?;
+      handle.shutdown(Duration::from_secs(5)).await;
+    }
+  }
 
-  // Graceful shutdown
   queue.shutdown(Duration::from_secs(5)).await;
 
   Ok(())

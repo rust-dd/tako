@@ -68,5 +68,10 @@ async fn main() {
   router.route(Method::GET, "/ws/echo", ws_echo);
   router.route(Method::GET, "/ws/tick", ws_tick);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 }

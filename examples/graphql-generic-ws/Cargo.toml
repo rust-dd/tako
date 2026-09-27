@@ -4,16 +4,30 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
+async-graphql = { workspace = true }
+base64 = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+sha1 = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
 anyhow = "1.0.98"
-async-graphql = "7.0.17"
+async-graphql = "7.2.1"
 base64 = "0.22"
 futures-util = "0.3"
 http = "1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 sha1 = "0.10"
-tako-rs = { path = "../../tako-rs", features = ["async-graphql", "graphiql"] }
+tako-rs = { path = "../../tako-rs", features = ["async-graphql", "ws", "graphiql"] }
 tokio = { version = "1.45.1", features = ["full"] }
-tokio-tungstenite = "0.29"
-
-[workspace]
+tokio-tungstenite = "0.30"

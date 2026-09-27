@@ -36,7 +36,13 @@ async fn main() -> Result<()> {
   println!("Test with the client: cargo run --bin client [::1]:4433 /count");
   println!("Or for events: cargo run --bin client [::1]:4433 /events");
 
-  tako::serve_h3(router, "[::]:4433", Some("cert.pem"), Some("key.pem")).await;
+  tako::Server::builder()
+    .tls(tako::TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .spawn_h3("[::]:4433", router)
+    .result()
+    .await
+    .expect("HTTP/3 server failed");
 
   Ok(())
 }

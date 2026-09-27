@@ -45,5 +45,10 @@ async fn main() {
   router.route(Method::GET, "/", echo);
 
   println!("autobahn-echo listening on ws://127.0.0.1:9001");
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 }

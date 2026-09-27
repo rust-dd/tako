@@ -72,7 +72,12 @@ async fn main() -> Result<()> {
   println!();
   println!("Use grpcurl or a gRPC client to test.");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_h2c(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

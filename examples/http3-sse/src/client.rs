@@ -84,8 +84,7 @@ async fn main() -> Result<()> {
   let conn = endpoint.connect(addr.parse()?, "localhost")?.await?;
   println!("Connected!");
 
-  let (mut driver, mut send_request) =
-    h3::client::new(h3_quinn::Connection::new(conn)).await?;
+  let (mut driver, mut send_request) = h3::client::new(h3_quinn::Connection::new(conn)).await?;
 
   tokio::spawn(async move {
     let _ = std::future::poll_fn(|cx| driver.poll_close(cx)).await;

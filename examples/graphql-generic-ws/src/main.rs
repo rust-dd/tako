@@ -14,6 +14,7 @@ use http::header;
 use hyper_util::rt::TokioIo;
 use tako::Method;
 use tako::extractors::FromRequest;
+use tako::extractors::state::State;
 use tako::graphql::GraphQLRequest;
 use tako::graphql::GraphQLResponse;
 use tako::graphql::GraphQLWebSocket;
@@ -48,19 +49,14 @@ impl SubscriptionRoot {
 
 type AppSchema = Schema<QueryRoot, EmptyMutation, SubscriptionRoot>;
 
-fn get_schema() -> AppSchema {
-  tako::state::get_state::<AppSchema>()
-    .expect("schema missing")
-    .as_ref()
-    .clone()
-}
-
-async fn graphql_http(GraphQLRequest(gql): GraphQLRequest) -> GraphQLResponse {
-  let schema = get_schema();
+async fn graphql_http(
+  State(schema): State<AppSchema>,
+  GraphQLRequest(gql): GraphQLRequest,
+) -> GraphQLResponse {
   GraphQLResponse(schema.execute(gql).await)
 }
 
-async fn ws_generic(mut req: TakoRequest) -> TakoResponse {
+async fn ws_generic(State(schema): State<AppSchema>, mut req: TakoRequest) -> TakoResponse {
   // Extract protocol using the extractor internally
   let tako::graphql::GraphQLProtocol(protocol) =
     match tako::graphql::GraphQLProtocol::from_request(&mut req).await {
@@ -110,7 +106,7 @@ async fn ws_generic(mut req: TakoRequest) -> TakoResponse {
         let ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>> =
           WebSocketStream::from_raw_socket(upgraded, Role::Server, None).await;
 
-        let driver = GraphQLWebSocket::new(ws, get_schema(), protocol);
+        let driver = GraphQLWebSocket::new(ws, schema.as_ref().clone(), protocol);
         driver.serve().await;
       }
     });
@@ -126,13 +122,18 @@ async fn main() -> Result<()> {
   let schema = Schema::build(QueryRoot, EmptyMutation, SubscriptionRoot).finish();
 
   let mut router = Router::new();
-  router.state(schema.clone());
+  router.with_state(schema.clone());
   router.route(Method::POST, "/graphql", graphql_http);
   router.route(Method::GET, "/ws-generic", ws_generic);
 
   println!("GraphQL (HTTP): POST http://127.0.0.1:8081/graphql");
   println!("Generic WS: ws://127.0.0.1:8081/ws-generic");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
   Ok(())
 }

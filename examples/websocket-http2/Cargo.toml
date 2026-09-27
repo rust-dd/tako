@@ -4,10 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-futures-util = "0.3.31"
-tako-rs = { path = "../../tako-rs", features = ["http2", "tls"] }
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-stream = "0.1.17"
-tokio-tungstenite = "0.29"
+futures-util = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
 
 [workspace]
+
+[workspace.dependencies]
+futures-util = "0.3.31"
+tako-rs = { path = "../../tako-rs", features = ["ws", "http2", "tls"] }
+tokio = { version = "1.45.1", features = ["full"] }
+tokio-stream = "0.1.17"
+tokio-tungstenite = "0.30"

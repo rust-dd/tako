@@ -25,7 +25,7 @@ async fn route_handler(State(bus): State<SignalArbiter>) -> impl Responder {
 fn init_route_signals(router: &mut Router) {
   // Expose the router-level arbiter to handlers via State<SignalArbiter>
   let arbiter = router.signal_arbiter();
-  router.state(arbiter.clone());
+  router.with_state(arbiter.clone());
 
   // Log all route-level hits
   router.on_signal("routes.hit", |signal: Signal| async move {
@@ -44,7 +44,12 @@ async fn main() -> Result<()> {
 
   router.route(Method::GET, "/route", route_handler);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

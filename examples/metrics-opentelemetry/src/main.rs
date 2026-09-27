@@ -47,7 +47,12 @@ async fn main() -> Result<()> {
   println!("Server running on http://127.0.0.1:8080");
   println!("Metrics being exported via OTLP to http://localhost:4318/v1/metrics");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   // Shutdown the meter provider to flush remaining metrics
   meter_provider.shutdown()?;

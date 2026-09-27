@@ -55,7 +55,12 @@ async fn main() -> Result<()> {
     .route_with_tsr(Method::POST, "/bearer_with_verify", bearer_auth_with_verify)
     .middleware(bearer_with_verify);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

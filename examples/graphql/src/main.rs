@@ -76,6 +76,11 @@ async fn main() -> Result<()> {
   println!("Subscriptions (WS): ws://127.0.0.1:8080/ws");
   println!("GraphiQL UI: http://127.0.0.1:8080/graphiql");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
   Ok(())
 }

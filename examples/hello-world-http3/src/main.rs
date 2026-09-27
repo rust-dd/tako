@@ -24,7 +24,13 @@ async fn main() -> Result<()> {
   println!("Starting HTTP/3 server on [::]:4433");
   println!("Test with: curl --http3 -k https://localhost:4433/");
 
-  tako::serve_h3(router, "[::]:4433", Some("cert.pem"), Some("key.pem")).await;
+  tako::Server::builder()
+    .tls(tako::TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .spawn_h3("[::]:4433", router)
+    .result()
+    .await
+    .expect("HTTP/3 server failed");
 
   Ok(())
 }

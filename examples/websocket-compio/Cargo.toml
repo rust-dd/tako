@@ -4,8 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-compio = { version = "0.18.0", features = ["macros", "time", "io", "ws"] }
-tako-rs = { path = "../../tako-rs", features = ["compio-ws"] }
-tracing = "0.1.41"
+compio = { workspace = true }
+tako-rs = { workspace = true }
+tracing = { workspace = true }
+
 
 [workspace]
+
+[workspace.dependencies]
+compio = { version = "0.19.2", features = ["macros", "time", "io", "ws"] }
+tako-rs = { path = "../../tako-rs", features = ["compio-ws"] }
+tracing = "0.1.41"

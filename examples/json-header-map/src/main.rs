@@ -44,7 +44,12 @@ async fn main() -> Result<()> {
   let mut router = Router::new();
   router.route(Method::POST, "/echo", echo_with_headers);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

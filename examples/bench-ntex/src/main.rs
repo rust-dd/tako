@@ -1,7 +1,10 @@
 use std::env;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
-use ntex::web::{self, App, HttpServer};
+use ntex::web::App;
+use ntex::web::HttpServer;
+use ntex::web::{self};
 
 static GLOBAL_HITS: AtomicU64 = AtomicU64::new(0);
 
@@ -26,7 +29,9 @@ fn spawn_reporter() {
 #[ntex::main]
 async fn main() -> std::io::Result<()> {
   let mode = env::args().nth(1).unwrap_or_else(|| "default".to_string());
-  let addr = env::args().nth(2).unwrap_or_else(|| "127.0.0.1:8080".to_string());
+  let addr = env::args()
+    .nth(2)
+    .unwrap_or_else(|| "127.0.0.1:8080".to_string());
   let workers: usize = env::args()
     .nth(3)
     .and_then(|s| s.parse().ok())
@@ -39,10 +44,9 @@ async fn main() -> std::io::Result<()> {
   eprintln!("bench-ntex mode={mode} addr={addr} workers={workers}");
   spawn_reporter();
 
-  let server = HttpServer::new(async || {
-    App::new().service(web::resource("/").route(web::get().to(hello)))
-  })
-  .bind(&addr)?;
+  let server =
+    HttpServer::new(async || App::new().service(web::resource("/").route(web::get().to(hello))))
+      .bind(&addr)?;
 
   match mode.as_str() {
     "default" => server.workers(workers).run().await,

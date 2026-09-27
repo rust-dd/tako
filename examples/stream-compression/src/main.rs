@@ -32,7 +32,12 @@ async fn main() -> Result<()> {
       .build(),
   );
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

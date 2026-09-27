@@ -68,5 +68,11 @@ async fn main() {
   router.route(Method::GET, "/ws/echo", ws_echo);
   router.route(Method::GET, "/ws/tick", ws_tick);
 
-  tako::serve_tls(listener, router, None, None).await;
+  tako::Server::builder()
+    .tls(tako::TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .spawn_tls(listener, router)
+    .result()
+    .await
+    .expect("TLS server failed");
 }

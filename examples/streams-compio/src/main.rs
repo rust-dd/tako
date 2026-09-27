@@ -20,8 +20,7 @@ use tako::types::Request;
 
 /// Streams numbers 0-9 as raw text
 async fn numbers(_: Request) -> impl Responder {
-  let s = stream::iter(0u8..=9)
-    .map(|n| Ok::<_, Infallible>(Bytes::from(format!("{}\n", n))));
+  let s = stream::iter(0u8..=9).map(|n| Ok::<_, Infallible>(Bytes::from(format!("{}\n", n))));
 
   http::Response::builder()
     .status(StatusCode::OK)
@@ -78,6 +77,11 @@ async fn main() -> Result<()> {
   println!("  - http://127.0.0.1:8080/json    (json ticks)");
   println!("  - http://127.0.0.1:8080/events  (SSE ticker)");
 
-  tako::serve(listener, router).await;
+  tako::CompioServer::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
   Ok(())
 }

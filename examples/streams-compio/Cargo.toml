@@ -4,12 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+compio = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+tako-rs = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
 anyhow = "1.0.98"
 bytes = "1"
-compio = { version = "0.18.0", features = ["macros", "net"] }
+compio = { version = "0.19.2", features = ["macros", "net"] }
 futures-util = "0.3"
 http = "1"
 http-body = "1"
-tako-rs = { path = "../../tako-rs", features = ["compio"] }
-
-[workspace]
+tako-rs = { path = "../../tako-rs", features = ["sse", "compio"] }

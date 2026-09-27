@@ -4,16 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.98"
-bytes = "1.10.1"
-futures-util = "0.3.31"
-h3 = "0.0.8"
-h3-quinn = "0.0.10"
-http = "1.3.1"
-quinn = "0.11.9"
-rustls = "0.23.28"
-tako-rs = { path = "../../tako-rs", features = ["http3"] }
-tokio = { version = "1.48.0", features = ["full"] }
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+h3 = { workspace = true }
+h3-quinn = { workspace = true }
+http = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
 
 [[bin]]
 name = "server"
@@ -24,3 +25,15 @@ name = "client"
 path = "src/client.rs"
 
 [workspace]
+
+[workspace.dependencies]
+anyhow = "1.0.98"
+bytes = "1.10.1"
+futures-util = "0.3.31"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+http = "1.3.1"
+quinn = "0.11.9"
+rustls = "0.23.28"
+tako-rs = { path = "../../tako-rs", features = ["sse", "http3"] }
+tokio = { version = "1.48.0", features = ["full"] }

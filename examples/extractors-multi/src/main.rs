@@ -60,7 +60,12 @@ async fn main() -> Result<()> {
   router.route(Method::GET, "/users/{id}/posts", list_user_posts);
   router.route(Method::POST, "/users", create);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

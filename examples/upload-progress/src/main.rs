@@ -1,10 +1,11 @@
 use anyhow::Result;
-use tako::middleware::upload_progress::{ProgressTracker, UploadProgress};
+use tako::Method;
 use tako::middleware::IntoMiddleware;
+use tako::middleware::upload_progress::ProgressTracker;
+use tako::middleware::upload_progress::UploadProgress;
 use tako::responder::Responder;
 use tako::router::Router;
 use tako::types::Request;
-use tako::Method;
 
 async fn upload_handler(req: Request) -> impl Responder {
   // Access the progress tracker from request extensions
@@ -28,11 +29,17 @@ async fn main() -> Result<()> {
 
   let progress = UploadProgress::new()
     .on_progress(|state| {
-      let pct = state.percent().map(|p| format!("{p}%")).unwrap_or_else(|| "?%".into());
+      let pct = state
+        .percent()
+        .map(|p| format!("{p}%"))
+        .unwrap_or_else(|| "?%".into());
       println!(
         "Upload progress: {} / {} bytes ({pct})",
         state.bytes_read,
-        state.total_bytes.map(|t| t.to_string()).unwrap_or_else(|| "unknown".into()),
+        state
+          .total_bytes
+          .map(|t| t.to_string())
+          .unwrap_or_else(|| "unknown".into()),
       );
     })
     .min_notify_interval_bytes(1024); // Notify at most every 1KB
@@ -48,7 +55,12 @@ async fn main() -> Result<()> {
   println!("Upload progress server on http://127.0.0.1:8080");
   println!("Test with: curl -X POST -d @somefile http://127.0.0.1:8080/upload");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

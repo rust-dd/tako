@@ -117,7 +117,12 @@ async fn main() -> Result<()> {
   router.route(Method::POST, "/raw_text", raw_text);
   router.route(Method::POST, "/typed_text", typed_text);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

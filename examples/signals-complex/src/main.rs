@@ -84,7 +84,7 @@ fn init_router_signals(router: &mut Router) {
   let arbiter = router.signal_arbiter();
 
   // Expose router-level arbiter to handlers
-  router.state(arbiter.clone());
+  router.with_state(arbiter.clone());
 
   // Route-level event logging
   router.on_signal("routes.hit", |signal: Signal| async move {
@@ -127,7 +127,12 @@ async fn main() -> Result<()> {
 
   // Let the server run; you can hit the endpoints from a browser or curl
   tokio::spawn(async move {
-    tako::serve(listener, router).await;
+    tako::Server::builder()
+      .build()
+      .spawn_http(listener, router)
+      .result()
+      .await
+      .expect("HTTP server failed");
   });
 
   // Keep the example alive for a bit for demonstration

@@ -4,9 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.98"
-tako-rs = { path = "../../tako-rs" }
-tokio = { version = "1.45.1", features = ["full"] }
-tracing-subscriber = "0.3"
+anyhow = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
+
 
 [workspace]
+
+[workspace.dependencies]
+anyhow = "1.0.98"
+tako-rs = { path = "../../tako-rs", features = ["proxy-protocol"] }
+tokio = { version = "1.45.1", features = ["full"] }
+tracing-subscriber = "0.3"

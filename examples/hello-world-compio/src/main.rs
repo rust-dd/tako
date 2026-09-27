@@ -15,7 +15,12 @@ async fn main() -> Result<()> {
   let mut router = Router::new();
   router.route(Method::GET, "/", hello_world);
 
-  tako::serve(listener, router).await;
+  tako::CompioServer::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

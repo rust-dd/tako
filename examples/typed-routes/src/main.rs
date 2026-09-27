@@ -1,7 +1,9 @@
+use tako::delete;
 use tako::extractors::typed_params::TypedParams;
+use tako::get;
+use tako::post;
 use tako::responder::Responder;
 use tako::router::Router;
-use tako::{delete, get, post};
 
 #[get("/users/{id: u64}")]
 async fn get_user(TypedParams(p): TypedParams<GetUserParams>) -> impl Responder {
@@ -35,6 +37,11 @@ async fn main() -> anyhow::Result<()> {
 
   let listener = tako::bind_with_port_fallback("127.0.0.1:3000").await?;
   println!("listening on {}", listener.local_addr()?);
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
   Ok(())
 }

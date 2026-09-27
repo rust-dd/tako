@@ -287,7 +287,12 @@ async fn main() -> Result<()> {
   println!("Swagger UI:   http://127.0.0.1:8080/docs");
   println!("Scalar UI:    http://127.0.0.1:8080/scalar");
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

@@ -1,5 +1,6 @@
 use std::env;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use tako::Method;
 use tako::PerThreadConfig;
@@ -41,7 +42,9 @@ fn spawn_reporter() {
 
 fn main() {
   let mode = env::args().nth(1).unwrap_or_else(|| "multi".to_string());
-  let addr = env::args().nth(2).unwrap_or_else(|| "127.0.0.1:8080".to_string());
+  let addr = env::args()
+    .nth(2)
+    .unwrap_or_else(|| "127.0.0.1:8080".to_string());
   let workers: usize = env::args()
     .nth(3)
     .and_then(|s| s.parse().ok())
@@ -55,13 +58,20 @@ fn main() {
   spawn_reporter();
 
   match mode.as_str() {
+    #[cfg(not(feature = "compio"))]
     "multi" => {
       let rt = tokio::runtime::Runtime::new().expect("tokio rt");
       rt.block_on(async {
         let listener = tokio::net::TcpListener::bind(&addr).await.expect("bind");
-        tako::serve(listener, build_router()).await;
+        tako::Server::builder()
+          .build()
+          .spawn_http(listener, build_router())
+          .result()
+          .await
+          .expect("HTTP server failed");
       });
     }
+    #[cfg(not(feature = "compio"))]
     "pt-tokio" => {
       let cfg = PerThreadConfig {
         workers,
@@ -71,6 +81,7 @@ fn main() {
       };
       tako::serve_per_thread(&addr, build_router(), cfg).expect("serve_per_thread");
     }
+    #[cfg(feature = "compio")]
     "pt-compio" => {
       let cfg = PerThreadConfig {
         workers,
@@ -78,11 +89,12 @@ fn main() {
         backlog: 1024,
         ..Default::default()
       };
-      tako::serve_per_thread_compio(&addr, build_router(), cfg)
-        .expect("serve_per_thread_compio");
+      tako::serve_per_thread_compio(&addr, build_router(), cfg).expect("serve_per_thread_compio");
     }
     _ => {
-      eprintln!("unknown mode '{mode}', expected: multi | pt-tokio | pt-compio");
+      eprintln!(
+        "unsupported mode {mode:?}; default build: multi | pt-tokio; --features compio: pt-compio"
+      );
       std::process::exit(2);
     }
   }

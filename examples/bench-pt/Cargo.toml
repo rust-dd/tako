@@ -7,12 +7,20 @@ edition = "2024"
 name = "bench-pt"
 path = "src/main.rs"
 
+[features]
+compio = ["tako-rs/per-thread-compio"]
+
 [dependencies]
-tako-rs = { path = "../../tako-rs", features = ["per-thread", "per-thread-compio"] }
-tokio = { version = "1", features = ["full"] }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
 
 [profile.release]
 lto = "fat"
 codegen-units = 1
 
 [workspace]
+
+[workspace.dependencies]
+tako-rs = { path = "../../tako-rs", features = ["per-thread"] }
+tokio = { version = "1", features = ["full"] }

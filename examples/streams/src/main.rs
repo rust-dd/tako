@@ -76,6 +76,11 @@ async fn main() -> Result<()> {
   router.route(Method::GET, "/json", json_ticks);
   router.route(Method::GET, "/events", ticker);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
   Ok(())
 }

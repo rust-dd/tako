@@ -184,7 +184,7 @@ fn init_router_signals(router: &mut Router) {
   let arbiter = router.signal_arbiter();
 
   // Expose router-level arbiter to handlers
-  router.state(arbiter.clone());
+  router.with_state(arbiter.clone());
 
   // Route-level event logging
   router.on_signal("routes.hit", |signal: Signal| async move {
@@ -229,7 +229,12 @@ async fn main() -> Result<()> {
     });
   router.route(Method::GET, "/error", error_route);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_http(listener, router)
+    .result()
+    .await
+    .expect("HTTP server failed");
 
   Ok(())
 }

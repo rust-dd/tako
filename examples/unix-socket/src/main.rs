@@ -1,11 +1,11 @@
 use anyhow::Result;
+use tako::Method;
 use tako::middleware::IntoMiddleware;
 use tako::middleware::request_id::RequestId;
 use tako::responder::Responder;
 use tako::router::Router;
-use tako::server_unix::{UnixPeerAddr, serve_unix_http};
+use tako::server_unix::UnixPeerAddr;
 use tako::types::Request;
-use tako::Method;
 
 async fn hello(req: Request) -> impl Responder {
   let peer = req
@@ -41,7 +41,12 @@ async fn main() -> Result<()> {
   println!("Test with: curl --unix-socket {socket_path} http://localhost/");
   println!("           curl --unix-socket {socket_path} http://localhost/health");
 
-  serve_unix_http(socket_path, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_unix_http(socket_path, router)
+    .result()
+    .await
+    .expect("Unix HTTP server failed");
 
   Ok(())
 }

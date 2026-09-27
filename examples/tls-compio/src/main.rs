@@ -31,7 +31,13 @@ async fn main() -> Result<()> {
 
   println!("TLS (compio) server running at https://127.0.0.1:8443");
 
-  tako::serve_tls(listener, router, Some("cert.pem"), Some("key.pem")).await;
+  tako::CompioServer::builder()
+    .tls(tako::TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .spawn_tls(listener, router)
+    .result()
+    .await
+    .expect("TLS server failed");
 
   Ok(())
 }

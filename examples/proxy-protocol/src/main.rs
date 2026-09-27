@@ -1,9 +1,9 @@
 use anyhow::Result;
-use tako::proxy_protocol::{ProxyHeader, serve_http_with_proxy_protocol};
+use tako::Method;
+use tako::proxy_protocol::ProxyHeader;
 use tako::responder::Responder;
 use tako::router::Router;
 use tako::types::Request;
-use tako::Method;
 
 async fn handler(req: Request) -> impl Responder {
   // The real client address is available as SocketAddr (from PROXY header)
@@ -43,9 +43,16 @@ async fn main() -> Result<()> {
   println!("Test with HAProxy or a PROXY protocol client.");
   println!();
   println!("Quick test (v1 text format):");
-  println!(r#"  echo -e "PROXY TCP4 192.168.1.100 10.0.0.1 56324 8080\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n" | nc 127.0.0.1 8080"#);
+  println!(
+    r#"  echo -e "PROXY TCP4 192.168.1.100 10.0.0.1 56324 8080\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n" | nc 127.0.0.1 8080"#
+  );
 
-  serve_http_with_proxy_protocol(listener, router).await;
+  tako::Server::builder()
+    .build()
+    .spawn_proxy_protocol(listener, router)
+    .result()
+    .await
+    .expect("PROXY server failed");
 
   Ok(())
 }

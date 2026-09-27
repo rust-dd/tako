@@ -4,9 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.98"
-async-graphql = "7.0.17"
-tako-rs = { path = "../../tako-rs", features = ["async-graphql", "graphiql"] }
-tokio = { version = "1.45.1", features = ["full"] }
+anyhow = { workspace = true }
+async-graphql = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
 
 [workspace]
+
+[workspace.dependencies]
+anyhow = "1.0.98"
+async-graphql = "7.2.1"
+tako-rs = { path = "../../tako-rs", features = ["async-graphql", "ws", "graphiql"] }
+tokio = { version = "1.45.1", features = ["full"] }

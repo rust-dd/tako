@@ -4,13 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+hyper = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
 anyhow = "1.0.98"
 bytes = "1.10.1"
 futures-util = "0.3.31"
 http = "1.3.1"
 http-body = "1"
 hyper = "1.6.0"
-tako-rs = { path = "../../tako-rs" }
+tako-rs = { path = "../../tako-rs", features = ["sse"] }
 tokio = { version = "1.45.1", features = ["full"] }
-
-[workspace]
