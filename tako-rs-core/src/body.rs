@@ -24,7 +24,7 @@
 //!
 //! // Create from stream
 //! let stream_data = stream::iter(vec![
-//!     Ok(Bytes::from("chunk1")),
+//!     Ok::<_, std::io::Error>(Bytes::from("chunk1")),
 //!     Ok(Bytes::from("chunk2")),
 //! ]);
 //! let stream_body = TakoBody::from_stream(stream_data);

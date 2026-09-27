@@ -3,12 +3,11 @@
 //! This module provides extractors for parsing JWT (JSON Web Token) tokens from HTTP
 //! Authorization headers and extracting claims into strongly-typed Rust structures.
 //! It supports both raw JWT access through [`crate::jwt::Jwt`] and automatic claims deserialization
-//! through [`crate::jwt::JwtClaimsUnverified`], with built-in token validation and error handling for
-//! malformed or expired tokens.
+//! through [`crate::jwt::JwtClaimsUnverified`]. Parsing does not verify signatures or
+//! validate expiration and other claims.
 //!
-//! For *verified* claims (signature checked against a JWKS or shared key) use
-//! `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` together with the
-//! `JwtAuth` middleware.
+//! For verified claims, install `JwtAuth` middleware and extract its verified
+//! `V::Claims` type with `tako::extractors::jwt::JwtClaimsVerified`.
 //!
 //! # Examples
 //!
@@ -27,7 +26,7 @@
 //!     role: String,
 //! }
 //!
-//! async fn protected_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//! async fn protected_handler(mut req: Request) -> Result<String, tako::extractors::jwt::JwtError> {
 //!     let jwt_claims: JwtClaimsUnverified<UserClaims> =
 //!         JwtClaimsUnverified::from_request(&mut req).await?;
 //!
@@ -63,14 +62,13 @@ pub struct Jwt {
 /// JWT claims extractor with automatic deserialization to typed structures.
 ///
 /// ⚠️ **This extractor does NOT verify the token signature.** It only base64
-/// decodes the claims segment and checks `exp` / `nbf`. Treat its output as
+/// decodes the claims segment. It does not check `exp` / `nbf`. Treat its output as
 /// untrusted unless an upstream middleware (e.g.
 /// `tako_rs_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
 /// signature for this request.
 ///
-/// For a verifying extractor that consults a `tako_rs_plugins::stores::JwksProvider`
-/// or a `JwtVerifier` from state, prefer
-/// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>`.
+/// For authenticated claims, install `JwtAuth` middleware and use
+/// `tako::extractors::jwt::JwtClaimsVerified<V::Claims>`.
 #[doc(alias = "jwt_claims_unverified")]
 pub struct JwtClaimsUnverified<T>(pub T);
 
@@ -222,7 +220,7 @@ impl Jwt {
   ///
   /// Note: This is an unverified time check on a token whose signature has
   /// NOT been validated. For authenticated expiration enforcement, use
-  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// `JwtAuth` middleware and read `Extension<V::Claims>` which
   /// validates the signature first.
   pub fn validate_expiration(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
@@ -245,7 +243,7 @@ impl Jwt {
   ///
   /// Note: This is an unverified time check on a token whose signature has
   /// NOT been validated. For authenticated nbf enforcement, use
-  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` which
+  /// `JwtAuth` middleware and read `Extension<V::Claims>` which
   /// validates the signature first.
   pub fn validate_not_before(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
@@ -274,7 +272,7 @@ where
   /// **Does NOT verify the signature, expiration, or not-before time.** This
   /// extractor is for inspection of untrusted token payloads only. If you
   /// need authenticated claim validation, use
-  /// `tako_rs_plugins::middleware::jwt_auth::JwtClaimsVerified<T>` instead,
+  /// `JwtAuth` middleware and read `Extension<V::Claims>` instead,
   /// which validates the signature against a JWKS / verifier and applies
   /// `exp`/`nbf`/`iss`/`aud` constraints.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {

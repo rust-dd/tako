@@ -18,6 +18,7 @@
 //! use tako::Method;
 //! use anyhow::Result;
 //!
+//! #[derive(Clone)]
 //! struct LoggingPlugin {
 //!     level: String,
 //! }
@@ -68,6 +69,7 @@ use crate::router::Router;
 /// use tako::Method;
 /// use anyhow::Result;
 ///
+/// #[derive(Clone)]
 /// struct CachePlugin {
 ///     ttl_seconds: u64,
 /// }

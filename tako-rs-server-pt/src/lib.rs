@@ -2,24 +2,33 @@
 
 //! Thread-per-core HTTP server bootstrap for the Tako framework.
 //!
-//! Spawns N OS threads (one per CPU by default), each running its own
-//! `tokio` `current_thread` runtime + [`tokio::task::LocalSet`]. Connections
-//! are distributed across workers at the kernel level via `SO_REUSEPORT`.
-//! Tasks never migrate between threads, eliminating tokio's work-stealing
-//! coordination on the hot path and improving cache locality (especially with
-//! the `affinity` feature which pins each worker to a specific core).
+//! Spawns OS threads with `SO_REUSEPORT` listeners. Each worker runs a Tokio
+//! current-thread runtime by default, or Compio when `compio` is enabled.
+//! The thread-safe router is shared; connections remain on their worker thread.
 //!
-//! Two entry points:
+//! [`serve_per_thread`] waits for process shutdown. [`spawn_per_thread`] returns
+//! worker handles and a shutdown trigger for explicit control.
 //!
-//! - [`serve_per_thread`] — uses the existing thread-safe [`tako_rs_core::router::Router`]
-//!   from `tako-core`. Drop-in alternative to `tako::serve`; no API changes.
-//! - `serve_per_thread_compio` (under the `compio` feature) — same `SO_REUSEPORT`
-//!   bootstrap but each worker runs a `compio` runtime (`io_uring` on Linux,
-//!   IOCP on Windows, kqueue on macOS).
+//! ```no_run
+//! use tako_rs_server_pt::{PerThreadConfig, serve_per_thread};
+//! use tako_rs_core::router::Router;
+//!
+//! fn main() -> std::io::Result<()> {
+//!     let mut router = Router::new();
+//!     router.get("/", || async { "hello" });
+//!     let config = PerThreadConfig {
+//!         workers: 4,
+//!         pin_to_core: false,
+//!         ..Default::default()
+//!     };
+//!     serve_per_thread("0.0.0.0:8080", router, config)
+//! }
+//! ```
 
 mod config;
 mod listener;
 mod shutdown;
+#[cfg(not(feature = "compio"))]
 mod worker;
 #[cfg(feature = "compio")]
 mod worker_compio;
@@ -32,24 +41,32 @@ use tako_rs_core::router::Router;
 
 pub use crate::config::PerThreadConfig;
 pub use crate::shutdown::PerThreadShutdown;
+#[cfg(not(feature = "compio"))]
 use crate::worker::worker_main;
 #[cfg(feature = "compio")]
 use crate::worker_compio::worker_main_compio;
 
-/// Runs Tokio workers until Ctrl+C or SIGTERM, then drains active requests.
+/// Runs workers on the selected runtime until Ctrl+C or SIGTERM, then drains requests.
 pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
   let workers = cfg.workers;
   let (handles, shutdown) = spawn_per_thread(addr, router, cfg)?;
   wait_for_shutdown(handles, shutdown, workers)
 }
 
-/// Starts Tokio workers and returns handles for explicit shutdown control.
+/// Starts workers on the selected runtime and returns handles for explicit shutdown.
 pub fn spawn_per_thread(
   addr: &str,
   router: Router,
   cfg: PerThreadConfig,
 ) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
-  spawn_workers(addr, router, cfg, worker_main)
+  #[cfg(not(feature = "compio"))]
+  {
+    spawn_workers(addr, router, cfg, worker_main)
+  }
+  #[cfg(feature = "compio")]
+  {
+    spawn_workers(addr, router, cfg, worker_main_compio)
+  }
 }
 
 /// Runs Compio workers until Ctrl+C or SIGTERM, then drains active requests.

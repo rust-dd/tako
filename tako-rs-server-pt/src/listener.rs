@@ -5,6 +5,7 @@ use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
 use socket2::Type;
+#[cfg(not(feature = "compio"))]
 use tokio::net::TcpListener;
 
 /// One-shot platform-capability warning. `SO_REUSEPORT` behaves like
@@ -58,6 +59,7 @@ fn bind_reuseport_std(addr: SocketAddr, backlog: i32) -> io::Result<std::net::Tc
   Ok(socket.into())
 }
 
+#[cfg(not(feature = "compio"))]
 pub(crate) fn bind_reuseport(addr: SocketAddr, backlog: i32) -> io::Result<TcpListener> {
   TcpListener::from_std(bind_reuseport_std(addr, backlog)?)
 }

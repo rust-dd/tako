@@ -1,9 +1,4 @@
-#![cfg(all(
-  unix,
-  feature = "per-thread",
-  feature = "plugins",
-  not(feature = "compio")
-))]
+#![cfg(all(unix, feature = "per-thread", feature = "plugins"))]
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -44,6 +39,8 @@ async fn per_thread_initializes_plugins_once_and_drains_idle_connections() {
   let mut router = Router::new();
   router.with_state(state.clone());
   router.plugin(StartupPlugin(calls.clone()));
+  router.plugin(tako::plugins::rate_limiter::RateLimiterBuilder::new().build());
+  router.timeout(Duration::from_secs(1));
   router.get("/", || async { "ok" });
   let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
   let address = listener.local_addr().unwrap();

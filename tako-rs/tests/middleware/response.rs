@@ -171,7 +171,7 @@ async fn request_id_custom_header() {
   router.route(Method::GET, "/", |_req: Request| async { "ok" });
   router.middleware(
     RequestId::new()
-      .header_name("x-correlation-id")
+      .header_name("X-Correlation-ID")
       .generator(|| "corr-123".to_string())
       .into_middleware(),
   );

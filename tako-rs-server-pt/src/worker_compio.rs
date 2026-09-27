@@ -92,6 +92,14 @@ pub(crate) fn worker_main_compio(
     };
     tracing::debug!("tako-pt-compio worker {worker_id} listening on {addr}");
 
+    #[cfg(feature = "signals")]
+    tako_rs_core::signals::transport::emit_server_started(
+      &listener.local_addr().unwrap_or(addr).to_string(),
+      "tcp",
+      false,
+    )
+    .await;
+
     let cancel = shutdown.inner.clone();
     let mut backoff = compio_accept_backoff();
     let mut connections = futures_util::stream::FuturesUnordered::new();
@@ -188,5 +196,12 @@ pub(crate) fn worker_main_compio(
         connection.cancel().await;
       }
     }
+    #[cfg(feature = "signals")]
+    tako_rs_core::signals::transport::emit_server_stopped(
+      &listener.local_addr().unwrap_or(addr).to_string(),
+      "tcp",
+      false,
+    )
+    .await;
   });
 }

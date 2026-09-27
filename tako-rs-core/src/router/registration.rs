@@ -36,7 +36,7 @@ impl Router {
   /// let mut router = Router::new();
   /// router.route(Method::GET, "/users/{id}", get_user);
   /// router.route(Method::POST, "/users", create_user);
-  /// router.route(Method::GET, "/health", |_req| async { "OK" });
+  /// router.route(Method::GET, "/health", || async { "OK" });
   /// ```
   pub fn route<H, T>(&mut self, method: Method, path: &str, handler: H) -> Arc<Route>
   where

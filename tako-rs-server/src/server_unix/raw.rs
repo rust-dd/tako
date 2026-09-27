@@ -29,6 +29,10 @@ where
   let listener = bind_unix_listener(path).await?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(&path.to_string_lossy(), "unix", false)
+    .await;
+
   let handler = Arc::new(handler);
 
   loop {
@@ -87,6 +91,10 @@ where
   let listener = bind_unix_listener(path).await?;
   tracing::info!("Unix socket server listening on {}", path.display());
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(&path.to_string_lossy(), "unix", false)
+    .await;
+
   let handler = Arc::new(handler);
   let mut join_set = JoinSet::new();
 
@@ -103,6 +111,7 @@ where
             tracing::error!("Unix socket connection error: {e}");
           }
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = &mut signal => {
         tracing::info!("Unix socket server shutting down, draining {} connections", join_set.len());
@@ -111,10 +120,17 @@ where
     }
   }
 
-  let _ = tokio::time::timeout(drain_timeout, async {
+  if tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
-  .await;
+  .await
+  .is_err()
+  {
+    join_set.shutdown().await;
+  }
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(&path.to_string_lossy(), "unix", false)
+    .await;
   Ok(())
 }

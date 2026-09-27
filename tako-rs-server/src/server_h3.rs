@@ -34,11 +34,15 @@ mod request;
 pub(crate) mod run;
 mod serve;
 
+#[allow(deprecated)]
 pub use serve::serve_h3;
+#[allow(deprecated)]
 pub use serve::serve_h3_with_config;
 pub use serve::serve_h3_with_rustls_config;
 pub use serve::serve_h3_with_rustls_config_and_shutdown;
+#[allow(deprecated)]
 pub use serve::serve_h3_with_shutdown;
+#[allow(deprecated)]
 pub use serve::serve_h3_with_shutdown_and_config;
 /// Loads TLS certificates from a PEM-encoded file. Re-export of
 /// [`tako_rs_core::tls::load_certs`].

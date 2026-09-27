@@ -3,6 +3,7 @@ name = "tako-rs-core"
 description = "Internal core implementation crate for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -13,7 +14,6 @@ readme = "../README.md"
 [lib]
 name = "tako_rs_core"
 path = "src/lib.rs"
-doctest = false
 
 [dependencies]
 ahash = { workspace = true, optional = true }
@@ -68,7 +68,7 @@ sonic-rs = { workspace = true, optional = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
-tokio-tungstenite = { workspace = true }
+tokio-tungstenite = { workspace = true, optional = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -87,49 +87,50 @@ jwt-simple = { workspace = true, features = ["pure-rust"], optional = true, defa
 jwt-simple = { workspace = true, optional = true, features = ["default"] }
 
 [features]
-async-graphql = ["dep:async-graphql"]
-compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
-compio-tls = ["compio", "tls", "dep:rustls"]
-compio-ws = ["compio", "compio/io", "compio/ws"]
-metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
-metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
-graphiql = ["dep:async-graphql", "async-graphql/graphiql"]
-client = ["tls", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots", "hyper-util/client", "hyper-util/client-legacy", "hyper-util/http1"]
+async-graphql = ["tako-rs/async-graphql", "dep:async-graphql"]
+compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+compio-tls = ["tako-rs/compio-tls", "compio", "tls", "dep:rustls"]
+compio-ws = ["tako-rs/compio-ws", "compio", "compio/io", "compio/ws"]
+metrics-prometheus = ["tako-rs/metrics-prometheus", "dep:prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
+graphiql = ["tako-rs/graphiql", "dep:async-graphql", "async-graphql/graphiql"]
+client = ["tako-rs/client", "tls", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots", "hyper-util/client", "hyper-util/client-legacy", "hyper-util/http1"]
 # Use the operating-system trust store (`rustls-native-certs`) instead of, or
 # in addition to, the bundled `webpki-roots` snapshot. When both feature gates
 # are active the native store is loaded first and `webpki-roots` is appended.
-native-certs = ["client", "dep:rustls-native-certs"]
+native-certs = ["tako-rs/native-certs", "client", "dep:rustls-native-certs"]
 default = []
-file-stream = []
-http2 = []
-jemalloc = []
-multipart = ["dep:multer", "dep:uuid"]
-plugins = ["dep:brotli", "dep:flate2"]
-protobuf = ["dep:prost"]
-signals = []
+ws = ["tako-rs/ws", "dep:tokio-tungstenite", "hyper/http1", "hyper/server"]
+file-stream = ["tako-rs/file-stream"]
+http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2"]
+jemalloc = ["tako-rs/jemalloc"]
+multipart = ["tako-rs/multipart", "dep:multer", "dep:uuid"]
+plugins = ["tako-rs/plugins", "dep:brotli", "dep:flate2"]
+protobuf = ["tako-rs/protobuf", "dep:prost"]
+signals = ["tako-rs/signals"]
 # `simd` is a meta-feature enabling both SIMD JSON backends. Prefer the
 # split features below when you only need one backend — they shrink the
 # binary by skipping the unused SIMD parser.
-simd = ["simd-sonic", "simd-json-impl"]
+simd = ["tako-rs/simd", "simd-sonic", "simd-json-impl"]
 # Enables the `sonic-rs` backend used by the built-in `Json<T>` extractor's
 # SIMD fast path. (Without this, `Json<T>` falls back to `serde_json`.)
-simd-sonic = ["dep:sonic-rs"]
+simd-sonic = ["tako-rs/simd-sonic", "dep:sonic-rs"]
 # Enables the `simd-json` backend used by the optional `SimdJson<T>` extractor
 # re-exported from `tako-extractors`.
-simd-json-impl = ["dep:simd-json"]
-tls = ["dep:tokio-rustls", "dep:rustls"]
-grpc = ["protobuf"]
-queue-cron = ["dep:cron", "dep:chrono"]
-http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls"]
-webtransport = ["http3"]
-ahash = ["dep:ahash"]
-tako-tracing = ["dep:tracing-subscriber"]
-utoipa = ["dep:utoipa"]
-utoipa-yaml = ["utoipa", "utoipa/yaml"]
-vespera = ["dep:vespera_core"]
-zero-copy-extractors = []
-jwt-simple = ["dep:jwt-simple"]
-zstd = ["dep:zstd", "plugins"]
+simd-json-impl = ["tako-rs/simd-json-impl", "dep:simd-json"]
+tls = ["tako-rs/tls", "dep:tokio-rustls", "dep:rustls"]
+grpc = ["tako-rs/grpc", "protobuf"]
+queue-cron = ["tako-rs/queue-cron", "dep:cron", "dep:chrono"]
+http3 = ["tako-rs/http3", "dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls"]
+webtransport = ["tako-rs/webtransport", "http3"]
+ahash = ["tako-rs/ahash", "dep:ahash"]
+tako-tracing = ["tako-rs/tako-tracing", "dep:tracing-subscriber"]
+utoipa = ["tako-rs/utoipa", "dep:utoipa"]
+utoipa-yaml = ["tako-rs/utoipa-yaml", "utoipa", "utoipa/yaml"]
+vespera = ["tako-rs/vespera", "dep:vespera_core"]
+zero-copy-extractors = ["tako-rs/zero-copy-extractors"]
+jwt-simple = ["tako-rs/jwt-simple", "dep:jwt-simple"]
+zstd = ["tako-rs/zstd", "dep:zstd", "plugins"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -137,6 +138,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 criterion = { workspace = true }
+tako-rs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[bench]]

@@ -46,9 +46,13 @@ pub(crate) mod http;
 pub(crate) mod listener;
 mod raw;
 
+#[allow(deprecated)]
 pub use http::serve_unix_http;
+#[allow(deprecated)]
 pub use http::serve_unix_http_with_config;
+#[allow(deprecated)]
 pub use http::serve_unix_http_with_shutdown;
+#[allow(deprecated)]
 pub use http::serve_unix_http_with_shutdown_and_config;
 pub use listener::UnixPeerAddr;
 pub use raw::serve_unix;

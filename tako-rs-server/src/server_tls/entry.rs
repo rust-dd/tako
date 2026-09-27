@@ -10,6 +10,10 @@ use super::run_with_config;
 use crate::ServerConfig;
 
 /// Starts a TLS-enabled HTTP server with the given listener, router, and certificates.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_tls(
   listener: TcpListener,
   router: Router,
@@ -31,6 +35,10 @@ pub async fn serve_tls(
 }
 
 /// Starts a TLS-enabled HTTP server with graceful shutdown support.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_tls_with_shutdown(
   listener: TcpListener,
   router: Router,
@@ -53,6 +61,10 @@ pub async fn serve_tls_with_shutdown(
 }
 
 /// Like [`serve_tls`] but with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_tls_with_config(
   listener: TcpListener,
   router: Router,
@@ -75,6 +87,10 @@ pub async fn serve_tls_with_config(
 }
 
 /// Like [`serve_tls_with_shutdown`] but with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_tls_with_shutdown_and_config(
   listener: TcpListener,
   router: Router,

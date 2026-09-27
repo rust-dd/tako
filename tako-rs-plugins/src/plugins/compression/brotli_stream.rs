@@ -11,15 +11,13 @@
 //! ```rust
 //! use tako::plugins::compression::brotli_stream::stream_brotli;
 //! use tako::body::TakoBody;
-//! use http_body_util::Full;
-//! use bytes::Bytes;
 //!
 //! // Compress a simple body with Brotli level 6
-//! let body = Full::from(Bytes::from("Hello, World! This is some test data."));
+//! let body = TakoBody::from("Hello, World! This is some test data.");
 //! let compressed = stream_brotli(body, 6);
 //!
 //! // High compression for static content
-//! let static_content = Full::from(Bytes::from("Large static content here..."));
+//! let static_content = TakoBody::from("Large static content here...");
 //! let high_compression = stream_brotli(static_content, 11);
 //! ```
 

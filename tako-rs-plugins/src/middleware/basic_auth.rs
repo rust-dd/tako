@@ -3,12 +3,11 @@
 //! This module provides middleware for implementing RFC 7617 Basic HTTP Authentication.
 //! It supports both static user credentials and dynamic verification functions, allowing
 //! flexible authentication strategies. The middleware validates credentials from the
-//! Authorization header and can inject user objects into request extensions for use
-//! by downstream handlers.
+//! Authorization header with a static credential set or a boolean verification callback.
 //!
 //! # Examples
 //!
-//! ```rust,ignore
+//! ```rust
 //! use tako::middleware::basic_auth::BasicAuth;
 //! use tako::middleware::IntoMiddleware;
 //!
@@ -46,49 +45,15 @@ use tako_rs_core::types::BuildHasher;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Basic HTTP authentication middleware configuration.
-///
-/// `BasicAuth` provides flexible configuration for HTTP Basic authentication using either
-/// static user credentials, dynamic verification functions, or both. The middleware
-/// validates credentials from the Authorization header and can inject authenticated
-/// user objects into request extensions for downstream handlers.
-///
-/// # Type Parameters
-///
-/// * `U` - User object type returned by verification functions
-/// * `F` - Verification function type that takes username/password and returns `Option<U>`
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::middleware::basic_auth::BasicAuth;
-/// use std::collections::HashMap;
-///
-/// // Simple static authentication
-/// let auth = BasicAuth::<(), _>::single("admin", "secret");
-///
-/// // Multiple static users
-/// let multi = BasicAuth::<(), _>::multiple([
-///     ("user1", "pass1"),
-///     ("user2", "pass2"),
-/// ]);
-///
-/// // Custom verification with user data
-/// #[derive(Clone)]
-/// struct UserInfo { id: u32, role: String }
-///
-/// let custom = BasicAuth::with_verify(|user, pass| {
-///     // Verify against database, LDAP, etc.
-///     if user == "admin" && pass == "secret" {
-///         Some(UserInfo { id: 1, role: "admin".to_string() })
-///     } else {
-///         None
-///     }
-/// });
-/// ```
 /// Custom verification closure for [`BasicAuth`].
 pub type BasicAuthVerifyFn = Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>;
 
+/// HTTP Basic authentication with static credentials or a boolean verifier.
+///
+/// ```rust
+/// use tako::middleware::basic_auth::BasicAuth;
+/// let auth = BasicAuth::with_verify(|user, password| user == "admin" && password == "secret");
+/// ```
 pub struct BasicAuth {
   /// Static user credentials map (username -> password).
   users: Option<Arc<HashMap<String, String, BuildHasher>>>,

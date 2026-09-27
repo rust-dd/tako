@@ -2,7 +2,7 @@
 //!
 //! `Router::dispatch` already emits the per-request `REQUEST_STARTED` /
 //! `REQUEST_COMPLETED` signals automatically; these helpers cover the
-//! connection-level events (`SERVER_STARTED`, `CONNECTION_OPENED`,
+//! connection-level events (`SERVER_STARTED`, `SERVER_STOPPED`, `CONNECTION_OPENED`,
 //! `CONNECTION_CLOSED`) that have no natural per-request hook. They keep the
 //! emit boilerplate out of every transport file.
 
@@ -14,6 +14,17 @@ use super::signal::ids;
 pub async fn emit_server_started(addr: &str, transport: &str, tls: bool) {
   SignalArbiter::emit_app(
     Signal::with_capacity(ids::SERVER_STARTED, 3)
+      .meta("addr", addr)
+      .meta("transport", transport)
+      .meta("tls", if tls { "true" } else { "false" }),
+  )
+  .await;
+}
+
+/// Emit after a listener has stopped accepting and its connection tasks have drained.
+pub async fn emit_server_stopped(addr: &str, transport: &str, tls: bool) {
+  SignalArbiter::emit_app(
+    Signal::with_capacity(ids::SERVER_STOPPED, 3)
       .meta("addr", addr)
       .meta("transport", transport)
       .meta("tls", if tls { "true" } else { "false" }),

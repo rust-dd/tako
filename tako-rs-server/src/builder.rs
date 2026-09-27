@@ -1,20 +1,9 @@
-//! Unified [`Server`] / [`CompioServer`] builder fronting every Tako transport.
+//! Server builders and owned shutdown handles.
 //!
-//! The direct `serve_*` / `serve_*_with_shutdown` / `*_with_config` functions
-//! still exist and keep working. This module is an additive convenience layer:
-//! pick a transport via `spawn_*`, hand it a [`crate::ServerConfig`], and get
-//! back a [`ServerHandle`] that owns a shutdown trigger.
-//!
-//! The handle itself is runtime-agnostic — both [`Server`] (tokio) and
-//! [`CompioServer`] (cfg `compio`) return the same [`ServerHandle`] type.
-//! Internally each `spawn_*` wraps the underlying `serve_*` future so that
-//! when it returns, a `done` [`Notify`] is signalled. [`ServerHandle::join`]
-//! awaits that notify; [`ServerHandle::shutdown`] triggers the shutdown
-//! signal and then awaits the same `done`.
-//!
-//! No additional allocation or atomic swap is introduced on the per-connection
-//! / per-request hot path — the spawn wrapper is a single async block over the
-//! underlying `serve_*_with_shutdown_and_config` call.
+//! Use `Server::builder()` for Tokio or `CompioServer::builder()` for Compio.
+//! The `try_spawn_*` methods validate configuration and return startup errors;
+//! `ServerHandle::result` reports failures after startup. `trigger` stops acceptance,
+//! and `shutdown` waits for bounded draining before cancelling remaining work.
 
 mod handle;
 mod spawn;

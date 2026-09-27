@@ -8,21 +8,39 @@
 //!
 //! ```rust,no_run
 //! use tako::server_tcp::serve_tcp;
-//! use tokio::io::{AsyncReadExt, AsyncWriteExt};
-//!
+//! # #[cfg(not(feature = "compio"))]
 //! # async fn example() -> std::io::Result<()> {
-//! serve_tcp("0.0.0.0:9001", |mut stream, addr| {
+//! use tokio::io::{AsyncReadExt, AsyncWriteExt};
+//! serve_tcp("0.0.0.0:9001", |mut stream, _addr| {
 //!     Box::pin(async move {
 //!         let mut buf = vec![0u8; 1024];
 //!         loop {
 //!             let n = stream.read(&mut buf).await?;
 //!             if n == 0 { break; }
-//!             stream.write_all(&buf[..n]).await?; // echo
+//!             stream.write_all(&buf[..n]).await?;
 //!         }
 //!         Ok(())
 //!     })
 //! }).await?;
 //! # Ok(())
+//! # }
+//! # #[cfg(feature = "compio")]
+//! # async fn example() -> std::io::Result<()> {
+//! # use compio::io::{AsyncRead, AsyncWriteExt};
+//! # serve_tcp("0.0.0.0:9001", |mut stream, _addr| Box::pin(async move {
+//! #     let mut buf = vec![0u8; 1024];
+//! #     loop {
+//! #         let compio::BufResult(result, mut returned) = stream.read(buf).await;
+//! #         let n = result?;
+//! #         if n == 0 { break; }
+//! #         returned.truncate(n);
+//! #         let compio::BufResult(result, mut returned) = stream.write_all(returned).await;
+//! #         result?;
+//! #         returned.resize(1024, 0);
+//! #         buf = returned;
+//! #     }
+//! #     Ok(())
+//! # })).await
 //! # }
 //! ```
 
@@ -68,6 +86,14 @@ where
 {
   let listener = tokio::net::TcpListener::bind(addr).await?;
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
+
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
 
   let handler = Arc::new(handler);
 
@@ -145,6 +171,14 @@ where
 {
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
+
   let handler = Arc::new(handler);
   let mut join_set = tokio::task::JoinSet::new();
 
@@ -171,12 +205,22 @@ where
     }
   }
 
-  // Drain in-flight connections with the caller-supplied timeout
-  let _ = tokio::time::timeout(drain_timeout, async {
+  if tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
-  .await;
+  .await
+  .is_err()
+  {
+    join_set.shutdown().await;
+  }
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
   Ok(())
 }
 
@@ -191,6 +235,14 @@ where
 {
   let listener = compio::net::TcpListener::bind(addr).await?;
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
+
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
 
   let handler = Arc::new(handler);
 
@@ -236,15 +288,22 @@ where
     + 'static,
   S: Future<Output = ()> + 'static,
 {
-  use std::sync::atomic::AtomicUsize;
-  use std::sync::atomic::Ordering;
+  use futures_util::FutureExt;
+  use futures_util::StreamExt;
 
   let listener = compio::net::TcpListener::bind(addr).await?;
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
+
   let handler = Arc::new(handler);
-  let inflight = Arc::new(AtomicUsize::new(0));
-  let drain_notify = Arc::new(tokio::sync::Notify::new());
+  let mut connections = futures_util::stream::FuturesUnordered::new();
 
   let signal = std::pin::pin!(signal);
   let mut signal = signal;
@@ -258,50 +317,40 @@ where
         let (stream, peer_addr) = result?;
         let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
-        let inflight = Arc::clone(&inflight);
-        let drain_notify = Arc::clone(&drain_notify);
-
-        inflight.fetch_add(1, Ordering::SeqCst);
-
-        compio::runtime::spawn(async move {
+        connections.push(compio::runtime::spawn(async move {
           if let Err(e) = handler(stream, peer_addr).await {
             tracing::error!("TCP connection error from {peer_addr}: {e}");
           }
-          inflight.fetch_sub(1, Ordering::SeqCst);
-          // Use `notify_waiters` (not `notify_one`) for consistency with the
-          // other accept-loops in this crate; pair it with a re-check loop on
-          // the drain side so we cannot miss the wake registered between
-          // `inflight.load()` and `notified().await`.
-          drain_notify.notify_waiters();
-        })
-        .detach();
+        }));
+        while connections.next().now_or_never().flatten().is_some() {}
       }
       futures_util::future::Either::Right(_) => {
         tracing::info!(
           "TCP server shutting down, draining {} connections",
-          inflight.load(Ordering::SeqCst)
+          connections.len()
         );
         break;
       }
     }
   }
 
-  // Drain in-flight connections — re-check `inflight` after every wake and
-  // bail when the overall deadline elapses, mirroring `server_compio.rs`.
-  let drain_deadline = std::time::Instant::now() + drain_timeout;
-  while inflight.load(Ordering::SeqCst) > 0 {
-    let now = std::time::Instant::now();
-    if now >= drain_deadline {
-      break;
-    }
-    let remaining = drain_deadline - now;
-    if compio::time::timeout(remaining, drain_notify.notified())
-      .await
-      .is_err()
-    {
-      break;
+  if compio::time::timeout(drain_timeout, async {
+    while connections.next().await.is_some() {}
+  })
+  .await
+  .is_err()
+  {
+    for connection in connections {
+      connection.cancel().await;
     }
   }
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
   Ok(())
 }

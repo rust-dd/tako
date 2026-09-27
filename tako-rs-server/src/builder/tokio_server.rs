@@ -2,6 +2,7 @@ use std::future::Future;
 #[cfg(unix)]
 use std::path::PathBuf;
 use std::pin::Pin;
+#[cfg(feature = "udp")]
 use std::sync::Arc;
 
 use tako_rs_core::router::Router;
@@ -32,7 +33,7 @@ impl ServerBuilder {
     self
   }
 
-  /// Attach TLS material so [`Server::spawn_tls`] / [`Server::spawn_h3`] become usable.
+  /// Attach TLS material for `spawn_tls` (`tls`) or `spawn_h3` (`http3`).
   #[must_use]
   pub fn tls(mut self, cert: TlsCert) -> Self {
     self.tls = Some(cert);
@@ -241,6 +242,7 @@ impl Server {
   }
 
   /// Spawns HTTP behind a PROXY-protocol listener.
+  #[cfg(feature = "proxy-protocol")]
   pub fn spawn_proxy_protocol(&self, listener: TcpListener, router: Router) -> ServerHandle {
     self
       .try_spawn_proxy_protocol(listener, router)
@@ -248,6 +250,7 @@ impl Server {
   }
 
   /// Validates the router and listener before accepting PROXY connections.
+  #[cfg(feature = "proxy-protocol")]
   pub fn try_spawn_proxy_protocol(
     &self,
     listener: TcpListener,
@@ -313,6 +316,7 @@ impl Server {
   }
 
   /// Spawn a raw UDP server. The handler receives each datagram.
+  #[cfg(feature = "udp")]
   pub fn spawn_udp_raw<F>(&self, addr: impl Into<String>, handler: F) -> ServerHandle
   where
     F: Fn(
@@ -330,6 +334,7 @@ impl Server {
   }
 
   /// Binds the socket before starting the raw transport.
+  #[cfg(feature = "udp")]
   pub fn try_spawn_udp_raw<F>(
     &self,
     addr: impl Into<String>,

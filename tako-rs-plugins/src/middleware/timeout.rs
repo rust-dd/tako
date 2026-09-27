@@ -14,23 +14,26 @@
 //! # Compio runtime
 //!
 //! The compio runtime ships `!Send` futures. The
-//! [`IntoMiddleware`](tako_rs_core::middleware::IntoMiddleware) contract is
+//! [`tako_rs_core::middleware::IntoMiddleware`] contract is
 //! `+ Send + 'static`, which means we cannot host `compio::time::sleep` here —
 //! the wrapping `Box::pin(async move { ... })` would not satisfy `Send`. When
 //! the `compio` cargo feature is active, the
-//! [`IntoMiddleware`](tako_rs_core::middleware::IntoMiddleware) impl is gated
+//! [`tako_rs_core::middleware::IntoMiddleware`] impl is gated
 //! off and `Timeout::into_middleware` is a compile error. Use
 //! [`Route::timeout`](tako_rs_core::route::Route::timeout) (per-route deadline,
 //! runtime-agnostic) on the compio path instead.
 //!
 //! # Examples
 //!
-//! ```rust,ignore
+//! ```rust
+//! # #[cfg(not(feature = "compio"))]
+//! # {
 //! use std::time::Duration;
 //! use tako::middleware::timeout::Timeout;
 //! use tako::middleware::IntoMiddleware;
 //!
 //! let mw = Timeout::new(Duration::from_secs(30)).into_middleware();
+//! # }
 //! ```
 
 #[cfg(not(feature = "compio"))]
@@ -57,9 +60,8 @@ pub type TimeoutDynamicFn = Arc<dyn Fn(&Request) -> Option<Duration> + Send + Sy
 /// Per-request timeout middleware configuration.
 ///
 /// All three fields stay populated even on the compio build so the struct
-/// remains constructible — there is just no [`IntoMiddleware`](tako_rs_core::middleware::IntoMiddleware)
-/// adapter for it. The `expect_used` allow keeps the compio compile clean
-/// while the fields wait for a `compio`-runtime adapter.
+/// remains constructible — there is just no [`tako_rs_core::middleware::IntoMiddleware`]
+/// adapter for it. Use router or route timeouts on Compio.
 #[cfg_attr(feature = "compio", allow(dead_code))]
 pub struct Timeout {
   duration: Duration,

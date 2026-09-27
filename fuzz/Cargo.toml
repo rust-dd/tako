@@ -19,8 +19,8 @@ smallvec = "1"
 tako-rs-core = { path = "../tako-rs-core", features = ["grpc", "plugins"] }
 tako-rs-extractors = { path = "../tako-rs-extractors", features = ["multipart"] }
 tako-rs-plugins = { path = "../tako-rs-plugins", features = ["plugins"] }
-tako-rs-server = { path = "../tako-rs-server" }
-tako-rs-streams = { path = "../tako-rs-streams" }
+tako-rs-server = { path = "../tako-rs-server", features = ["proxy-protocol"] }
+tako-rs-streams = { path = "../tako-rs-streams", features = ["sse"] }
 tokio = { version = "1", features = ["rt", "io-util", "macros", "time"] }
 
 [dependencies]

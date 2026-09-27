@@ -3,12 +3,11 @@
 //! This module provides middleware for implementing Bearer token authentication as defined
 //! in RFC 6750. It supports both static token validation and dynamic verification functions,
 //! enabling flexible authentication strategies for APIs. The middleware validates tokens
-//! from the Authorization header and can inject custom claims or user objects into request
-//! extensions for downstream handlers.
+//! from the Authorization header with a static token set or a boolean verification callback.
 //!
 //! # Examples
 //!
-//! ```rust,ignore
+//! ```rust
 //! use tako::middleware::bearer_auth::BearerAuth;
 //! use tako::middleware::IntoMiddleware;
 //!
@@ -52,53 +51,15 @@ fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
   bool::from(found)
 }
 
-/// Bearer token authentication middleware configuration.
-///
-/// `BearerAuth` provides flexible configuration for Bearer token authentication using either
-/// static token validation, dynamic verification functions, or both. The middleware validates
-/// tokens from the Authorization header and can inject custom claims or user objects into
-/// request extensions for use by downstream handlers.
-///
-/// # Type Parameters
-///
-/// * `C` - Claims or user object type returned by verification functions
-/// * `F` - Verification function type that takes a token and returns `Option<C>`
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::middleware::bearer_auth::BearerAuth;
-/// use std::collections::HashSet;
-///
-/// // Simple static token validation
-/// let auth = BearerAuth::<(), _>::static_token("api-key-12345");
-///
-/// // Multiple valid tokens
-/// let multi = BearerAuth::<(), _>::static_tokens([
-///     "development-key",
-///     "staging-key",
-///     "admin-key",
-/// ]);
-///
-/// // Custom verification with user claims
-/// #[derive(Clone)]
-/// struct UserClaims { id: u32, permissions: Vec<String> }
-///
-/// let custom = BearerAuth::with_verify(|token| {
-///     // Verify JWT, API key lookup, etc.
-///     if token == "valid-jwt-token" {
-///         Some(UserClaims {
-///             id: 42,
-///             permissions: vec!["read".to_string(), "write".to_string()],
-///         })
-///     } else {
-///         None
-///     }
-/// });
-/// ```
 /// Custom verification closure for [`BearerAuth`].
 pub type BearerAuthVerifyFn = Box<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 
+/// Bearer token authentication with static credentials or a boolean verifier.
+///
+/// ```rust
+/// use tako::middleware::bearer_auth::BearerAuth;
+/// let auth = BearerAuth::with_verify(|token| token == "valid-token");
+/// ```
 pub struct BearerAuth {
   /// Static tokens (raw bytes, scanned in constant time).
   tokens: Option<Vec<Vec<u8>>>,

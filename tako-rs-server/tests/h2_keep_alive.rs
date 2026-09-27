@@ -9,8 +9,8 @@ use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::router::Router;
+use tako_rs_server::Server;
 use tako_rs_server::ServerConfig;
-use tako_rs_server::serve_h2c_with_shutdown_and_config;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 
@@ -26,15 +26,10 @@ async fn h2c_keep_alive_has_a_timer_and_serves_requests() {
       drain_timeout: Duration::from_millis(100),
       ..ServerConfig::default()
     };
-    let (shutdown, signal) = tokio::sync::oneshot::channel();
-    let server = tokio::spawn(serve_h2c_with_shutdown_and_config(
-      listener,
-      router,
-      async {
-        let _ = signal.await;
-      },
-      config,
-    ));
+    let server = Server::builder()
+      .config(config)
+      .build()
+      .spawn_h2c(listener, router);
     let stream = TcpStream::connect(address).await.unwrap();
     let (mut client, connection) =
       hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(stream))
@@ -57,8 +52,7 @@ async fn h2c_keep_alive_has_a_timer_and_serves_requests() {
     }
     drop(client);
     connection.await.unwrap().unwrap();
-    shutdown.send(()).unwrap();
-    server.await.unwrap();
+    server.shutdown(Duration::from_secs(1)).await;
   })
   .await
   .expect("HTTP/2 keep-alive test timed out");

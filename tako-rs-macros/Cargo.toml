@@ -3,6 +3,7 @@ name = "tako-rs-macros"
 description = "Internal proc macros for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true

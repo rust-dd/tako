@@ -1,3 +1,5 @@
+#![cfg(feature = "plugins")]
+
 use super::*;
 
 #[cfg(feature = "plugins")]

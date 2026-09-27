@@ -23,6 +23,8 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::drive_connection;
+#[cfg(feature = "signals")]
+use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -31,6 +33,10 @@ use tokio::task::JoinSet;
 use crate::ServerConfig;
 
 /// Starts an h2c server with default [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h2c(listener: TcpListener, router: Router) {
   if let Err(e) = run(
     listener,
@@ -45,6 +51,10 @@ pub async fn serve_h2c(listener: TcpListener, router: Router) {
 }
 
 /// Starts an h2c server with graceful shutdown support.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h2c_with_shutdown(
   listener: TcpListener,
   router: Router,
@@ -56,6 +66,10 @@ pub async fn serve_h2c_with_shutdown(
 }
 
 /// Like [`serve_h2c`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h2c_with_config(listener: TcpListener, router: Router, config: ServerConfig) {
   if let Err(e) = run(listener, router, None::<std::future::Pending<()>>, config).await {
     tracing::error!("h2c server error: {e}");
@@ -63,6 +77,10 @@ pub async fn serve_h2c_with_config(listener: TcpListener, router: Router, config
 }
 
 /// Like [`serve_h2c_with_shutdown`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h2c_with_shutdown_and_config(
   listener: TcpListener,
   router: Router,
@@ -90,6 +108,9 @@ pub(crate) async fn run(
 
   let addr_str = listener.local_addr()?.to_string();
   tracing::info!("Tako h2c (HTTP/2 cleartext) listening on {addr_str}");
+
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_started(&addr_str, "tcp", false).await;
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
@@ -190,5 +211,7 @@ pub(crate) async fn run(
   }
 
   tracing::info!("h2c server shut down gracefully");
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_stopped(&addr_str, "tcp", false).await;
   Ok(())
 }

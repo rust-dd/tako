@@ -14,18 +14,17 @@
 //! # #[cfg(feature = "zstd")]
 //! use tako::plugins::compression::zstd_stream::stream_zstd;
 //! # #[cfg(feature = "zstd")]
-//! use http_body_util::Full;
+//! use tako::body::TakoBody;
 //! # #[cfg(feature = "zstd")]
-//! use bytes::Bytes;
 //!
 //! # #[cfg(feature = "zstd")]
 //! # fn example() {
 //! // Compress a response body with Zstandard level 3
-//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let body = TakoBody::from("Hello, World! This is test content.");
 //! let compressed = stream_zstd(body, 3);
 //!
 //! // High compression for static assets
-//! let static_content = Full::from(Bytes::from("Large static file content..."));
+//! let static_content = TakoBody::from("Large static file content...");
 //! let high_compressed = stream_zstd(static_content, 19);
 //! # }
 //! ```

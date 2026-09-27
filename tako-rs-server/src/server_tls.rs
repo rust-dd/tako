@@ -44,11 +44,15 @@ mod entry;
 mod serve;
 
 pub use config::run;
+#[allow(deprecated)]
 pub use entry::serve_tls;
+#[allow(deprecated)]
 pub use entry::serve_tls_with_config;
 pub use entry::serve_tls_with_rustls_config;
 pub use entry::serve_tls_with_rustls_config_and_shutdown;
+#[allow(deprecated)]
 pub use entry::serve_tls_with_shutdown;
+#[allow(deprecated)]
 pub use entry::serve_tls_with_shutdown_and_config;
 pub use serve::run_with_config;
 /// Loads TLS certificates from a PEM-encoded file.

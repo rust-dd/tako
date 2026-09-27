@@ -26,10 +26,6 @@ pub(crate) async fn run(
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
-  // Install default crypto provider for rustls (required for QUIC/TLS).
-  // Use `aws_lc_rs` to match the TLS path (`builder.rs`); installing two
-  // different providers in the same process was order-dependent and the
-  // loser silently dropped its `Err`, leaving connections to fail later.
   if rustls::crypto::CryptoProvider::get_default().is_none() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
   }
@@ -41,10 +37,7 @@ pub(crate) async fn run(
     .with_no_client_auth()
     .with_single_cert(certs_vec, key)?;
 
-  // 0-RTT (early data) is disabled by default: the server has no replay-protection
-  // wiring on the request path, so accepting early-data application bytes would
-  // expose idempotent endpoints to replay attacks. Re-enabling requires plumbing a
-  // replay cache and a typed extractor — see V2_ROADMAP.md § 1.5.
+  // Early data requires replay protection, which this server does not provide.
   tls_config.max_early_data_size = 0;
   tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
@@ -113,19 +106,13 @@ pub(crate) async fn run_endpoint(
     .max_connections
     .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
 
-  // Per-connection graceful shutdown signal. `CancellationToken` is sticky:
-  // once cancelled, all subsequent and pre-existing `.cancelled()` awaits
-  // resolve, so a connection that handshakes AFTER the outer shutdown signal
-  // still observes the GOAWAY trigger (this closes the H3 GOAWAY race that
-  // `Notify::notify_waiters` previously had — it only woke already-registered
-  // waiters, leaving late-handshaking connections hard-closing instead of
-  // draining gracefully).
   let conn_shutdown = tokio_util::sync::CancellationToken::new();
 
   let cancel = tokio_util::sync::CancellationToken::new();
+  let mut signal_tasks = tokio::task::JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
-    tokio::spawn(async move {
+    signal_tasks.spawn(async move {
       s.await;
       cancel_for_signal.cancel();
     });
@@ -185,6 +172,7 @@ pub(crate) async fn run_endpoint(
 
           drop(permit);
         });
+        while join_set.try_join_next().is_some() {}
       }
       () = cancel.cancelled() => {
         tracing::info!("Shutdown signal received, sending HTTP/3 GOAWAY...");
@@ -193,14 +181,9 @@ pub(crate) async fn run_endpoint(
     }
   }
 
-  // Phase 1: trigger the CancellationToken so every spawned connection task
-  // (including those that began their handshake just before this point) sees
-  // shutdown and emits a GOAWAY frame.
   conn_shutdown.cancel();
-
-  // Phase 2: wait for in-flight connections to finish gracefully, bounded by
-  // the global drain deadline.
-  let drain = tokio::time::timeout(drain_timeout, async {
+  let deadline = tokio::time::Instant::now() + drain_timeout;
+  let drain = tokio::time::timeout_at(deadline, async {
     while join_set.join_next().await.is_some() {}
   });
 
@@ -210,12 +193,14 @@ pub(crate) async fn run_endpoint(
       drain_timeout,
       join_set.len()
     );
-    join_set.abort_all();
+    join_set.shutdown().await;
   }
 
-  // Phase 3: close the endpoint after grace expired (or all conns settled).
   endpoint.close(0u32.into(), b"server shutting down");
-  endpoint.wait_idle().await;
+  let _ = tokio::time::timeout_at(deadline, endpoint.wait_idle()).await;
+  signal_tasks.shutdown().await;
   tracing::info!("HTTP/3 server shut down gracefully");
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_stopped(&addr_str, "quic", true).await;
   Ok(())
 }

@@ -18,7 +18,7 @@
 //! - Do **not** advertise this endpoint as `WebTransport` to browsers; they
 //!   will reject it.
 //!
-//! The canonical type is [`RawQuicSession`]; the historical
+//! The canonical type is [`crate::webtransport::RawQuicSession`]; the historical
 //! `WebTransportSession` alias was deprecated in 1.2 and removed in 2.0
 //! because the name implied a W3C handshake this module does not perform.
 //!
@@ -127,7 +127,7 @@ pub type WebTransportHandler =
 
 /// Starts a WebTransport server on the given address.
 ///
-/// Each accepted QUIC connection is wrapped in a [`RawQuicSession`] and
+/// Each accepted QUIC connection is wrapped in a [`crate::webtransport::RawQuicSession`] and
 /// dispatched to the handler.
 pub async fn serve_webtransport<F>(addr: &str, cert_path: &str, key_path: &str, handler: F)
 where

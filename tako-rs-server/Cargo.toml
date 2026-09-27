@@ -3,6 +3,7 @@ name = "tako-rs-server"
 description = "Internal server bootstrap for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -13,14 +14,13 @@ readme = "../README.md"
 [lib]
 name = "tako_rs_server"
 path = "src/lib.rs"
-doctest = false
 
 [dependencies]
 anyhow = { workspace = true }
 arc-swap = { workspace = true }
 bytes = { workspace = true }
 compio = { workspace = true, optional = true }
-crc32c = { workspace = true }
+crc32c = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
 futures-util = { workspace = true }
 h3 = { workspace = true, optional = true }
@@ -28,7 +28,7 @@ h3-quinn = { workspace = true, optional = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
-hyper = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true }
 listenfd = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
@@ -45,29 +45,25 @@ tracing = { workspace = true }
 
 [features]
 default = []
-signals = ["tako-rs-core/signals"]
-tls = ["dep:tokio-rustls", "dep:rustls", "tako-rs-core/tls"]
-# `http2` is a *gate flag* — it toggles HTTP/2 code paths inside tako-server
-# but does NOT disable hyper's `http2` feature, because the workspace pulls
-# hyper with `features = ["full"]`. Turning this flag off makes Tako skip
-# the H2 server builder, but hyper itself still ships H2 in the binary.
-# (Removing it from hyper would require a feature-conditional dependency
-# alias across the workspace — tracked for 2.x.)
-http2 = []
+proxy-protocol = ["tako-rs/proxy-protocol", "dep:crc32c"]
+udp = ["tako-rs/udp"]
+signals = ["tako-rs/signals", "tako-rs-core/signals"]
+tls = ["tako-rs/tls", "dep:tokio-rustls", "dep:rustls", "tako-rs-core/tls"]
+http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2", "tako-rs-core/http2"]
 # http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
-http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3"]
-compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
-compio-tls = ["compio", "tls"]
+http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3"]
+compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
+compio-tls = ["tako-rs/compio-tls", "compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.
 # Also activates `tako-core/plugins` so `Router::setup_plugins_once` is available
 # in the compio server bootstrap.
-plugins = ["tako-rs-core/plugins"]
-tako-tracing = ["tako-rs-core/tako-tracing"]
+plugins = ["tako-rs/plugins", "tako-rs-core/plugins"]
+tako-tracing = ["tako-rs/tako-tracing", "tako-rs-core/tako-tracing"]
 # Inherit systemd / s6 / catflap inherited file descriptors at startup.
-socket-activation = ["dep:listenfd"]
+socket-activation = ["tako-rs/socket-activation", "dep:listenfd"]
 # Linux vsock transport for VM-host bridges.
-vsock = ["dep:tokio-vsock"]
+vsock = ["tako-rs/vsock", "dep:tokio-vsock"]
 
 [lints]
 workspace = true
@@ -75,3 +71,8 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[dev-dependencies]
+hyper = { workspace = true, features = ["client"] }
+rcgen = { workspace = true }
+tako-rs = { workspace = true }

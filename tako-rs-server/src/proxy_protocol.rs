@@ -47,9 +47,13 @@ pub use header::ProxyTlsInfo;
 pub use header::ProxyTlv;
 pub use header::ProxyTransport;
 pub use header::ProxyVersion;
+#[allow(deprecated)]
 pub use listener::serve_http_with_proxy_protocol;
+#[allow(deprecated)]
 pub use listener::serve_http_with_proxy_protocol_and_config;
+#[allow(deprecated)]
 pub use listener::serve_http_with_proxy_protocol_and_shutdown;
+#[allow(deprecated)]
 pub use listener::serve_http_with_proxy_protocol_shutdown_and_config;
 use tokio::io::AsyncReadExt;
 

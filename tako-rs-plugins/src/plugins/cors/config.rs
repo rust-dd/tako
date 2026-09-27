@@ -25,6 +25,7 @@ use super::origin::OriginMatcher;
 ///     headers: vec![HeaderName::from_static("x-api-key")],
 ///     allow_credentials: true,
 ///     max_age_secs: Some(3600),
+///     ..Default::default()
 /// };
 /// ```
 #[derive(Clone)]

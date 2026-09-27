@@ -346,6 +346,7 @@ async fn tcp_server_multiple_connections() {
 // is `!Send` and incompatible with `tokio::spawn`. Gate the UDP tests off
 // when compio is enabled — they only exercise the tokio implementation.
 #[cfg(not(feature = "compio"))]
+#[cfg(feature = "udp")]
 #[tokio::test]
 async fn udp_echo_server() {
   use tako::server_udp::serve_udp_with_shutdown;
@@ -392,6 +393,7 @@ async fn udp_echo_server() {
 }
 
 #[cfg(not(feature = "compio"))]
+#[cfg(feature = "udp")]
 #[tokio::test]
 async fn udp_multiple_datagrams() {
   use tako::server_udp::serve_udp_with_shutdown;

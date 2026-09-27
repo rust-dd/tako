@@ -1,12 +1,15 @@
 use http::StatusCode;
+#[cfg(feature = "sse")]
 use http_body_util::BodyExt;
 use tako::responder::Responder;
 
+#[cfg(feature = "sse")]
 async fn body_str(resp: tako::types::Response) -> String {
   let bytes = resp.into_body().collect().await.unwrap().to_bytes();
   String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+#[cfg(feature = "sse")]
 #[tokio::test]
 async fn sse_response_headers() {
   use bytes::Bytes;
@@ -29,6 +32,7 @@ async fn sse_response_headers() {
   assert_eq!(resp.headers().get("x-accel-buffering").unwrap(), "no");
 }
 
+#[cfg(feature = "sse")]
 #[tokio::test]
 async fn sse_body_format() {
   use bytes::Bytes;

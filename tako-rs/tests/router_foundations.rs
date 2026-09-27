@@ -218,3 +218,43 @@ fn common_responders_set_content_types() {
     "application/octet-stream"
   );
 }
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn metadata_extractors_work_alone_and_before_a_raw_request() {
+  use tako::extractors::accept::Accept;
+  let mut router = Router::new();
+  router.get("/", |accept: Accept| async move {
+    accept.accepts("text/plain").to_string()
+  });
+  router.post("/", |accept: Accept, request: Request| async move {
+    assert!(accept.accepts("text/plain"));
+    request.into_body()
+  });
+  assert_eq!(
+    text(router.dispatch(Request::default()).await).await,
+    "true"
+  );
+  assert_eq!(
+    text(
+      router
+        .dispatch(request(Method::POST, "/", TakoBody::from("raw")))
+        .await
+    )
+    .await,
+    "raw"
+  );
+}
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn verified_claims_extractor_rejects_missing_authentication() {
+  use tako::extractors::jwt::JwtClaimsVerified;
+  let mut router = Router::new();
+  router.get(
+    "/",
+    |JwtClaimsVerified(claims): JwtClaimsVerified<String>| async move { claims },
+  );
+  let response = router.dispatch(Request::default()).await;
+  assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}

@@ -3,6 +3,7 @@ name = "tako-rs-plugins"
 description = "Internal plugin and concrete-middleware implementations for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -15,7 +16,6 @@ categories = ["web-programming", "web-programming::http-server", "asynchronous"]
 [lib]
 name = "tako_rs_plugins"
 path = "src/lib.rs"
-doctest = false
 
 [dependencies]
 ahash = { workspace = true, optional = true }
@@ -69,28 +69,29 @@ jwt-simple = { workspace = true, optional = true, features = ["default"] }
 
 [features]
 default = []
-plugins = ["dep:brotli", "dep:flate2", "tako-rs-core/plugins"]
-multipart = ["dep:multer", "tako-rs-extractors/multipart"]
-metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
-metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
-signals = ["tako-rs-core/signals"]
-ahash = ["dep:ahash", "tako-rs-core/ahash"]
-jwt-simple = ["dep:jwt-simple"]
-zstd = ["dep:zstd", "plugins"]
+plugins = ["tako-rs/plugins", "dep:brotli", "dep:flate2", "tako-rs-core/plugins"]
+multipart = ["tako-rs/multipart", "dep:multer", "tako-rs-extractors/multipart"]
+metrics-prometheus = ["tako-rs/metrics-prometheus", "dep:prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
+signals = ["tako-rs/signals", "tako-rs-core/signals"]
+ahash = ["tako-rs/ahash", "dep:ahash", "tako-rs-core/ahash"]
+jwt-simple = ["tako-rs/jwt-simple", "dep:jwt-simple"]
+zstd = ["tako-rs/zstd", "dep:zstd", "plugins"]
 # CIDR-aware IP filter middleware.
-ip-filter = ["dep:ipnet"]
+ip-filter = ["tako-rs/ip-filter", "dep:ipnet"]
 # HMAC signature verifier (Stripe / AWS-style request signing).
-hmac-signature = ["dep:hmac"]
+hmac-signature = ["tako-rs/hmac-signature", "dep:hmac"]
 # JSON-schema body validator middleware.
-json-schema = ["dep:jsonschema"]
+json-schema = ["tako-rs/json-schema", "dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.
-compio = ["dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
+compio = ["tako-rs/compio", "dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 criterion = { workspace = true }
+tako-rs = { workspace = true }
 
 [[bench]]
 name = "compression"

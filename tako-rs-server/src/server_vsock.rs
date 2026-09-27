@@ -50,6 +50,10 @@ use tokio_vsock::VsockListener;
 use crate::ServerConfig;
 
 /// Starts an HTTP server bound to a vsock `(cid, port)` pair.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_vsock_http(cid: u32, port: u32, router: Router) {
   if let Err(e) = run(
     cid,
@@ -65,6 +69,10 @@ pub async fn serve_vsock_http(cid: u32, port: u32, router: Router) {
 }
 
 /// Like [`serve_vsock_http`] with graceful shutdown.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_vsock_http_with_shutdown(
   cid: u32,
   port: u32,
@@ -77,6 +85,10 @@ pub async fn serve_vsock_http_with_shutdown(
 }
 
 /// Like [`serve_vsock_http`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_vsock_http_with_config(
   cid: u32,
   port: u32,
@@ -89,6 +101,10 @@ pub async fn serve_vsock_http_with_config(
 }
 
 /// Like [`serve_vsock_http_with_shutdown`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_vsock_http_with_shutdown_and_config(
   cid: u32,
   port: u32,
@@ -127,6 +143,10 @@ pub(crate) async fn run_listener(
 
   #[cfg(feature = "plugins")]
   router.setup_plugins_once()?;
+
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(&format!("{cid}:{port}"), "vsock", false)
+    .await;
 
   tracing::info!("Tako vsock HTTP listening on cid={cid} port={port}");
 
@@ -231,5 +251,8 @@ pub(crate) async fn run_listener(
   }
 
   tracing::info!("vsock HTTP server shut down gracefully");
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(&format!("{cid}:{port}"), "vsock", false)
+    .await;
   Ok(())
 }

@@ -56,7 +56,7 @@ impl RequestId {
 
   /// Sets a custom header name for the request ID.
   pub fn header_name(mut self, name: &'static str) -> Self {
-    self.header = HeaderName::from_static(name);
+    self.header = HeaderName::from_bytes(name.as_bytes()).expect("valid request ID header name");
     self
   }
 

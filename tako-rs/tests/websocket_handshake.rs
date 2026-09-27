@@ -1,4 +1,4 @@
-#![cfg(any(not(feature = "compio"), feature = "compio-ws"))]
+#![cfg(any(all(feature = "ws", not(feature = "compio")), feature = "compio-ws"))]
 
 use http::StatusCode;
 use http::header;

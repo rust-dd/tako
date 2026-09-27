@@ -3,6 +3,7 @@ name = "tako-rs"
 description = "Multi-transport Rust framework for modern network services."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -15,7 +16,6 @@ homepage = "https://github.com/rust-dd/tako"
 [lib]
 name = "tako"
 path = "src/lib.rs"
-doctest = false
 
 [dependencies]
 linkme = { workspace = true }
@@ -30,6 +30,10 @@ tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
 default = []
+ws = ["tako-rs-core/ws", "tako-rs-streams/ws"]
+sse = ["tako-rs-streams/sse"]
+proxy-protocol = ["tako-rs-server/proxy-protocol"]
+udp = ["tako-rs-server/udp"]
 queue-cron = ["tako-rs-core/queue-cron"]
 socket-activation = ["tako-rs-server/socket-activation"]
 vsock = ["tako-rs-server/vsock"]
@@ -45,7 +49,7 @@ http3 = ["tako-rs-server/http3", "tako-rs-streams/http3", "tako-rs-core/http3"]
 webtransport = ["tako-rs-streams/webtransport", "tako-rs-core/webtransport"]
 
 # Compio runtime
-compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio"]
+compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio", "tako-rs-server-pt?/compio"]
 # compio-tls / compio-ws imply `compio`: tako-rs-server's `compio-tls` already
 # pulls in `tako-rs-server/compio`, which turns off the tokio-based `Server` /
 # `ServerBuilder` re-exports. If we didn't also flip `tako-rs/compio`, the
@@ -60,7 +64,7 @@ client = ["tako-rs-core/client"]
 # Use the operating-system trust store via `rustls-native-certs`.
 # Implies `client`. Without this feature the bundled `webpki-roots` snapshot
 # is used (the historical default).
-native-certs = ["tako-rs-core/native-certs"]
+native-certs = ["client", "tako-rs-core/native-certs"]
 
 # Extractors
 multipart = ["tako-rs-extractors/multipart", "tako-rs-core/multipart"]
@@ -97,11 +101,8 @@ json-schema = ["tako-rs-plugins/json-schema"]
 # Thread-per-core runtime: existing Send+Sync Router on N×current_thread workers + SO_REUSEPORT.
 per-thread = ["dep:tako-rs-server-pt"]
 
-# Thread-per-core on the compio runtime: io_uring on Linux, IOCP on Windows, kqueue on macOS.
-# Does NOT enable `tako-rs-core/compio` because that feature globally rewrites
-# signals/queue to compio spawn and conflicts with `serve()`. The per-thread
-# compio entry point pulls in the compio runtime directly.
-per-thread-compio = ["per-thread", "tako-rs-server-pt/compio"]
+# Select the same runtime for workers, middleware, signals, and queues.
+per-thread-compio = ["per-thread", "compio", "tako-rs-server-pt/compio"]
 
 [dev-dependencies]
 anyhow = { workspace = true }

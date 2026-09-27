@@ -8,19 +8,19 @@
 //!
 //! This umbrella crate stitches together the workspace sub-crates:
 //!
-//! - `tako-core` — routing, handlers, middleware and plugin traits, body and
+//! - `tako-rs-core` — routing, handlers, middleware and plugin traits, body and
 //!   request types, state, signals, queue, plus `GraphQL`, gRPC and `OpenAPI`
 //!   helpers
-//! - `tako-extractors` — concrete request extractors (cookies, form, query,
+//! - `tako-rs-extractors` — concrete request extractors (cookies, form, query,
 //!   path, JWT, multipart, simdjson, …)
-//! - `tako-server` — HTTP/1, TLS, HTTP/3, raw TCP / UDP / Unix, PROXY protocol,
+//! - `tako-rs-server` — HTTP/1, TLS, HTTP/3, raw TCP / UDP / Unix, PROXY protocol,
 //!   plus the compio variants
-//! - `tako-streams` — WebSocket, SSE, file streaming, static file serving,
+//! - `tako-rs-streams` — WebSocket, SSE, file streaming, static file serving,
 //!   WebTransport
-//! - `tako-plugins` — built-in middleware (auth, CSRF, sessions, …) and
+//! - `tako-rs-plugins` — built-in middleware (auth, CSRF, sessions, …) and
 //!   plugins (CORS, compression, rate limiting, idempotency, metrics)
 //!
-//! All public types stay reachable at the original `tako::*` paths.
+//! Public APIs are re-exported under `tako::*` according to the selected features.
 
 pub use tako_rs_core::Bytes;
 pub use tako_rs_core::Full;
@@ -45,14 +45,6 @@ pub mod __private {
 }
 
 pub use tako_rs_core::body;
-// `tako_rs_core::client` is tokio-runtime-only (tokio-rustls + hyper-util
-// client-legacy). When `compio` is also enabled, the upstream crate refuses
-// to compile the `client` module, so we cannot re-export it either. We
-// surface this as a docs-only note rather than a `compile_error!`, because
-// the workspace `cargo check --workspace --all-features` invocation turns
-// every feature on simultaneously and we must not break that — when
-// `compio` is on, `tako::client` is intentionally absent, see the cfg
-// expression for the exact condition.
 #[cfg(all(feature = "client", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(all(feature = "client", not(feature = "compio")))))]
 pub use tako_rs_core::client;
@@ -100,31 +92,41 @@ pub use tako_rs_server::ServerHandle;
 pub use tako_rs_server::TlsCert;
 pub use tako_rs_server::bind_with_port_fallback;
 #[cfg(not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws")))]
+#[cfg(feature = "proxy-protocol")]
 pub use tako_rs_server::proxy_protocol;
+#[allow(deprecated)]
 pub use tako_rs_server::serve;
 #[cfg(all(feature = "http2", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h2c;
 #[cfg(all(feature = "http2", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h2c_with_config;
 #[cfg(all(feature = "http2", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h2c_with_shutdown;
 #[cfg(all(feature = "http2", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h2c_with_shutdown_and_config;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h3;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h3_with_config;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h3_with_shutdown;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_h3_with_shutdown_and_config;
 #[cfg(any(
   all(
@@ -134,12 +136,14 @@ pub use tako_rs_server::serve_h3_with_shutdown_and_config;
   feature = "compio-tls"
 ))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_tls;
 #[cfg(all(
   feature = "tls",
   not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
 ))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_config;
 #[cfg(any(
   all(
@@ -149,17 +153,22 @@ pub use tako_rs_server::serve_tls_with_config;
   feature = "compio-tls"
 ))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_shutdown;
 #[cfg(all(
   feature = "tls",
   not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
 ))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_shutdown_and_config;
 #[cfg(not(feature = "compio"))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_with_config;
+#[allow(deprecated)]
 pub use tako_rs_server::serve_with_shutdown;
 #[cfg(not(feature = "compio"))]
+#[allow(deprecated)]
 pub use tako_rs_server::serve_with_shutdown_and_config;
 #[cfg(feature = "compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
@@ -171,12 +180,13 @@ pub use tako_rs_server::server_h2c;
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_rs_server::server_h3;
 pub use tako_rs_server::server_tcp;
-#[cfg(all(not(feature = "compio-tls"), feature = "tls"))]
+#[cfg(all(not(feature = "compio"), feature = "tls"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 pub use tako_rs_server::server_tls;
 #[cfg(feature = "compio-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio-tls")))]
 pub use tako_rs_server::server_tls_compio;
+#[cfg(feature = "udp")]
 pub use tako_rs_server::server_udp;
 #[cfg(all(
   unix,
@@ -187,12 +197,14 @@ pub use tako_rs_server::shutdown_signal;
 #[cfg(feature = "file-stream")]
 #[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub use tako_rs_streams::file_stream;
+#[cfg(feature = "sse")]
 pub use tako_rs_streams::sse;
 pub use tako_rs_streams::r#static;
 #[cfg(all(feature = "webtransport", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
 pub use tako_rs_streams::webtransport;
 #[cfg(not(any(feature = "compio", feature = "compio-ws")))]
+#[cfg(feature = "ws")]
 pub use tako_rs_streams::ws;
 #[cfg(feature = "compio-ws")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio-ws")))]
@@ -224,7 +236,11 @@ pub mod extractors {
   pub use tako_rs_extractors::form;
   pub use tako_rs_extractors::header_map;
   pub use tako_rs_extractors::ipaddr;
-  pub use tako_rs_extractors::jwt;
+  /// JWT parsing and extraction of claims verified by `JwtAuth` middleware.
+  pub mod jwt {
+    pub use tako_rs_extractors::jwt::*;
+    pub use tako_rs_plugins::extractors::jwt::*;
+  }
   pub use tako_rs_extractors::matched_path;
   #[cfg(feature = "multipart")]
   #[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]

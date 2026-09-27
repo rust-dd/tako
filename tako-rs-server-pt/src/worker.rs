@@ -85,6 +85,9 @@ pub(crate) fn worker_main(
     };
     tracing::debug!("tako-pt worker {worker_id} listening on {addr}");
 
+    #[cfg(feature = "signals")]
+    tako_rs_core::signals::transport::emit_server_started(&listener.local_addr().unwrap_or(addr).to_string(), "tcp", false).await;
+
     let shutdown_fut = shutdown.notified();
     tokio::pin!(shutdown_fut);
 
@@ -156,5 +159,7 @@ pub(crate) fn worker_main(
       while connection_handles.join_next().await.is_some() {}
     });
     if drain.await.is_err() { connection_handles.shutdown().await; }
+    #[cfg(feature = "signals")]
+    tako_rs_core::signals::transport::emit_server_stopped(&listener.local_addr().unwrap_or(addr).to_string(), "tcp", false).await;
   });
 }

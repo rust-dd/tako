@@ -23,17 +23,14 @@ pub mod ids {
   pub const CONNECTION_CLOSED: &str = "connection.closed";
   pub const REQUEST_STARTED: &str = "request.started";
   pub const REQUEST_COMPLETED: &str = "request.completed";
+  /// Reserved for explicit application emission; router changes do not emit this event.
   pub const ROUTER_HOT_RELOAD: &str = "router.hot_reload";
   pub const RPC_ERROR: &str = "rpc.error";
   pub const ROUTE_REQUEST_STARTED: &str = "route.request.started";
   pub const ROUTE_REQUEST_COMPLETED: &str = "route.request.completed";
 }
 
-/// Cluster-scope signal bridge.
-///
-/// A `SignalBus` lifts the in-process `SignalArbiter` to a multi-node fan-out
-/// (Redis pub/sub, NATS, Kafka, …). Companion crates provide concrete impls;
-/// this trait is the contract.
+/// Experimental bridge contract; not connected to router or app arbiters.
 #[doc(hidden)]
 pub mod bus {
   use async_trait::async_trait;

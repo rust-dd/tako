@@ -23,6 +23,7 @@ impl Router {
   /// use anyhow::Result;
   ///
   /// # #[cfg(feature = "plugins")]
+  /// #[derive(Clone)]
   /// struct LoggingPlugin;
   ///
   /// # #[cfg(feature = "plugins")]

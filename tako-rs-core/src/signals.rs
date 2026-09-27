@@ -27,5 +27,6 @@ pub use signal::SignalExporter;
 pub use signal::SignalHandler;
 pub use signal::SignalPayload;
 pub use signal::SignalStream;
+#[doc(hidden)]
 pub use signal::bus;
 pub use signal::ids;

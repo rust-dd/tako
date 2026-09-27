@@ -10,15 +10,14 @@
 //!
 //! ```rust
 //! use tako::plugins::compression::gzip_stream::stream_gzip;
-//! use http_body_util::Full;
-//! use bytes::Bytes;
+//! use tako::body::TakoBody;
 //!
 //! // Compress a response body with Gzip level 6
-//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let body = TakoBody::from("Hello, World! This is test content.");
 //! let compressed = stream_gzip(body, 6);
 //!
 //! // Fast compression for dynamic API responses
-//! let api_response = Full::from(Bytes::from("JSON API data..."));
+//! let api_response = TakoBody::from("JSON API data...");
 //! let fast_compressed = stream_gzip(api_response, 1);
 //! ```
 

@@ -104,3 +104,13 @@ impl<'a> FromRequest<'a> for String {
     String::from_utf8(collect_body(req).await?.to_vec()).map_err(|_| BodyReadError::InvalidUtf8)
   }
 }
+
+impl<'a> FromRequest<'a> for Request {
+  type Error = std::convert::Infallible;
+
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
+    std::future::ready(Ok(std::mem::take(req)))
+  }
+}

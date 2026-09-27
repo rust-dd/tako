@@ -10,7 +10,7 @@
 //! use tako::extractors::header_map::HeaderMap;
 //! use tako::types::Request;
 //!
-//! async fn handle_headers(HeaderMap(headers): HeaderMap<'_>) {
+//! async fn handle_headers(HeaderMap(headers): HeaderMap) {
 //!     // Check for specific headers
 //!     if let Some(user_agent) = headers.get("user-agent") {
 //!         println!("User-Agent: {:?}", user_agent);
@@ -42,7 +42,7 @@ use tako_rs_core::types::Request;
 /// use tako::extractors::header_map::HeaderMap;
 /// use tako::types::Request;
 ///
-/// async fn handler(HeaderMap(headers): HeaderMap<'_>) {
+/// async fn handler(HeaderMap(headers): HeaderMap) {
 ///     // Get authorization header
 ///     if let Some(auth) = headers.get("authorization") {
 ///         if let Ok(auth_str) = auth.to_str() {

@@ -18,6 +18,10 @@ use crate::ServerConfig;
 /// * `addr` - The socket address to bind to (e.g., `"[::]:4433"` for IPv6)
 /// * `certs` - Optional path to the TLS certificate file (defaults to "cert.pem")
 /// * `key` - Optional path to the TLS private key file (defaults to "key.pem")
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h3(router: Router, addr: &str, certs: Option<&str>, key: Option<&str>) {
   if let Err(e) = run(
     router,
@@ -34,6 +38,10 @@ pub async fn serve_h3(router: Router, addr: &str, certs: Option<&str>, key: Opti
 }
 
 /// Starts an HTTP/3 server with graceful shutdown support.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h3_with_shutdown(
   router: Router,
   addr: &str,
@@ -56,6 +64,10 @@ pub async fn serve_h3_with_shutdown(
 }
 
 /// Like [`serve_h3`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h3_with_config(
   router: Router,
   addr: &str,
@@ -78,6 +90,10 @@ pub async fn serve_h3_with_config(
 }
 
 /// Like [`serve_h3_with_shutdown`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_h3_with_shutdown_and_config(
   router: Router,
   addr: &str,

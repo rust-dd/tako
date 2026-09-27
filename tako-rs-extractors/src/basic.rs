@@ -13,7 +13,7 @@
 //! use tako::extractors::FromRequest;
 //! use tako::types::Request;
 //!
-//! async fn protected_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//! async fn protected_handler(mut req: Request) -> Result<String, tako::extractors::basic::BasicAuthError> {
 //!     let basic_auth = Basic::from_request(&mut req).await?;
 //!
 //!     // Validate credentials (in production, check against database/LDAP/etc.)

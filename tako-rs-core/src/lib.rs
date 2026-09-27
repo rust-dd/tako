@@ -12,9 +12,9 @@
 //! traits, state, signals, queue, and a few cross-cutting features such as
 //! `graphql`, `grpc`, and `openapi` that interact tightly with the router.
 //!
-//! Concrete extractors live in `tako-extractors`, server bootstrap code in
-//! `tako-server`, streaming/upgrade transports in `tako-streams`, and concrete
-//! middleware/plugin implementations in `tako-plugins`. Users should depend on
+//! Concrete extractors live in `tako-rs-extractors`, server bootstrap code in
+//! `tako-rs-server`, streaming/upgrade transports in `tako-rs-streams`, and concrete
+//! middleware/plugin implementations in `tako-rs-plugins`. Users should depend on
 //! the `tako-rs` umbrella crate, which re-exports everything under the original
 //! `tako::*` paths.
 

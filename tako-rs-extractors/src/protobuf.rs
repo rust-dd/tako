@@ -25,7 +25,7 @@
 //!     pub age: u32,
 //! }
 //!
-//! async fn create_user_handler(mut req: Request) -> Result<String, Box<dyn std::error::Error>> {
+//! async fn create_user_handler(mut req: Request) -> Result<String, tako::extractors::protobuf::ProtobufError> {
 //!     let user_data: Protobuf<CreateUserRequest> = Protobuf::from_request(&mut req).await?;
 //!
 //!     // Access the deserialized data

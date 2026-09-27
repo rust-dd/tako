@@ -30,7 +30,7 @@ struct BindStatus {
 /// still observe the request immediately, fixing the `Notify::notify_waiters`
 /// race where late subscribers would miss the shutdown.
 ///
-/// Also carries a private [`BindStatus`] that workers update with the result
+/// Also carries a private `BindStatus` that workers update with the result
 /// of their `SO_REUSEPORT` bind so the parent (e.g. [`serve_per_thread`](crate::serve_per_thread)) can
 /// fail loudly on "every worker failed to bind" instead of returning Ok(()) —
 /// previously the function would await Ctrl+C indefinitely and then claim

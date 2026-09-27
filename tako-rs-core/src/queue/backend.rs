@@ -83,7 +83,7 @@ impl std::error::Error for BackendError {}
 /// replacement for the bundled `Queue` storage; suitable for tests and
 /// single-node deployments. Replace with a remote backend for multi-pod use.
 ///
-/// **Memory bound**: the pending queue is capped at [`MemoryBackend::max_pending`]
+/// **Memory bound**: the pending queue is capped at `max_pending`
 /// (`None` = unlimited, default). Configure via [`MemoryBackend::with_max_pending`]
 /// to protect against unbounded growth when producers outpace consumers.
 #[derive(Default)]

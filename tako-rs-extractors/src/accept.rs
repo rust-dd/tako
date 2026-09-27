@@ -134,6 +134,23 @@ impl<'a> FromRequestParts<'a> for Accept {
   }
 }
 
+impl<'a> tako_rs_core::extractors::FromRequest<'a> for Accept {
+  type Error = std::convert::Infallible;
+
+  fn from_request(
+    req: &'a mut tako_rs_core::types::Request,
+  ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
+    let header = req
+      .headers()
+      .get(http::header::ACCEPT)
+      .and_then(|value| value.to_str().ok())
+      .unwrap_or("*/*");
+    std::future::ready(Ok(Self {
+      media_types: parse_accept(header),
+    }))
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

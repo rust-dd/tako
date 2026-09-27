@@ -3,6 +3,7 @@ name = "tako-rs-server-pt"
 description = "Internal thread-per-core server bootstrap for tako-rs. Use the `tako-rs` umbrella crate instead."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
@@ -13,14 +14,13 @@ readme = "../README.md"
 [lib]
 name = "tako_rs_server_pt"
 path = "src/lib.rs"
-doctest = false
 
 [dependencies]
 compio = { workspace = true, optional = true }
 core_affinity = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
 futures-util = { workspace = true }
-hyper = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
 socket2 = { workspace = true, features = ["all"] }
@@ -32,12 +32,9 @@ tracing = { workspace = true }
 [features]
 default = ["affinity"]
 affinity = ["dep:core_affinity"]
-plugins = ["tako-rs-core/plugins"]
-signals = ["tako-rs-core/signals"]
-# The compio crate is enabled directly here without flipping `tako-core/compio`,
-# because that core feature globally switches signals/queue to compio spawn,
-# which conflicts with the existing tokio-based `tako_server::serve` path.
-compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+plugins = ["tako-rs/plugins", "tako-rs-core/plugins"]
+signals = ["tako-rs/signals", "tako-rs-core/signals"]
+compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
 
 [lints]
 workspace = true
@@ -45,3 +42,6 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[dev-dependencies]
+tako-rs = { workspace = true }

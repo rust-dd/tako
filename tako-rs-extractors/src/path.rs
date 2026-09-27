@@ -1,16 +1,16 @@
 //! Path extraction from HTTP requests.
 //!
 //! This module provides the [`Path`](crate::path::Path) extractor for accessing the URI path from
-//! incoming HTTP requests. It wraps a reference to the path string, allowing
-//! efficient access to the request path without copying the underlying data.
+//! incoming HTTP requests. It wraps an owned URI path string, allowing
+//! efficient access to the request path independently of the request lifetime.
 //!
 //! # Examples
 //!
 //! ```rust
-//! use tako::extractors::path::Path;
+//! use tako::extractors::path::RawPath;
 //! use tako::types::Request;
 //!
-//! async fn handle_path(Path(path): Path<'_>) {
+//! async fn handle_path(RawPath(path): RawPath) {
 //!     println!("Request path: {}", path);
 //!
 //!     // Check specific path patterns

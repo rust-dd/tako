@@ -80,7 +80,7 @@ use tako_rs_core::types::Response;
 ///     }
 /// });
 /// ```
-pub struct BodyLimit<F>
+pub struct BodyLimit<F = fn(&Request) -> usize>
 where
   F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
@@ -90,10 +90,7 @@ where
   dynamic_limit: Option<F>,
 }
 
-impl<F> BodyLimit<F>
-where
-  F: Fn(&Request) -> usize + Send + Sync + 'static,
-{
+impl BodyLimit<fn(&Request) -> usize> {
   /// Creates a body limit middleware with a fixed size limit.
   pub fn new(limit: usize) -> Self {
     Self {
@@ -101,7 +98,12 @@ where
       dynamic_limit: None,
     }
   }
+}
 
+impl<F> BodyLimit<F>
+where
+  F: Fn(&Request) -> usize + Send + Sync + 'static,
+{
   /// Creates a body limit middleware with a dynamic limit function.
   pub fn with_dynamic_limit(f: F) -> Self {
     Self {

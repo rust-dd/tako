@@ -10,7 +10,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use tako::handler::{Handler, BoxHandler};
+//! use tako::router::Router;
 //! use tako::types::{Request, Response};
 //! use tako::body::TakoBody;
 //! use std::future::Future;
@@ -25,8 +25,8 @@
 //!     Response::new(TakoBody::from(r#"{"message": "Hello, JSON!"}"#))
 //! }
 //!
-//! // Box handlers for dynamic storage
-//! let boxed = BoxHandler::new(hello_handler);
+//! let mut router = Router::new();
+//! router.get("/", hello_handler);
 //! ```
 
 use std::future::Future;
@@ -50,7 +50,7 @@ use crate::types::Response;
 /// # Examples
 ///
 /// ```rust
-/// use tako::handler::Handler;
+/// use tako_rs_core::handler::Handler;
 /// use tako::types::{Request, Response};
 /// use tako::responder::Responder;
 /// use http::StatusCode;
@@ -89,7 +89,7 @@ pub trait Handler<T>: Send + Sync + 'static {
 ///
 /// Handlers can now be written with or without extractor parameters, similar to Axum.
 /// For example: `async fn handler() -> impl Responder`, `async fn handler(Json<T>) -> _`,
-/// or `async fn handler(Path(p): Path<'_>, Query<Q>) -> _`.
+/// or `async fn handler(Path(p): Path<Params>, Query(q): Query<Search>) -> _`.
 #[derive(Clone)]
 pub struct BoxHandler {
   /// The inner function that processes requests and produces responses.
@@ -118,7 +118,6 @@ impl BoxHandler {
   }
 }
 
-// Zero-argument handlers: `async fn handler() -> impl Responder`
 impl<F, Fut, R> Handler<()> for F
 where
   F: FnOnce() -> Fut + Clone + Send + Sync + 'static,
@@ -127,18 +126,6 @@ where
 {
   fn call(self, _req: Request) -> impl Future<Output = Response> + Send + 'static {
     async move { (self)().await.into_response() }
-  }
-}
-
-// Back-compat: single Request arg handlers: `async fn handler(req: Request) -> impl Responder`
-impl<F, Fut, R> Handler<(Request,)> for F
-where
-  F: FnOnce(Request) -> Fut + Clone + Send + Sync + 'static,
-  Fut: Future<Output = R> + Send + 'static,
-  R: Responder,
-{
-  fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static {
-    async move { (self)(req).await.into_response() }
   }
 }
 

@@ -16,7 +16,9 @@ pub(crate) fn requested_range(
   size: u64,
   etag: Option<&str>,
 ) -> RequestedRange {
-  use RequestedRange::*;
+  use RequestedRange::Full;
+  use RequestedRange::Partial;
+  use RequestedRange::Unsatisfiable;
   if let Some(value) = headers.get(header::IF_RANGE) {
     // File timestamps alone cannot establish the strong validation If-Range requires.
     let matched = value

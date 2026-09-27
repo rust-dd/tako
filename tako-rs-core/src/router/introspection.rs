@@ -32,7 +32,7 @@ impl Router {
   ///
   /// let paths: Vec<_> = router.routes().iter().map(|r| r.path.clone()).collect();
   /// assert_eq!(router.routes().len(), 2);
-  /// assert!(paths.contains(&"/health".to_string()));
+  /// assert!(paths.iter().any(|path| path.as_ref() == "/health"));
   /// ```
   #[must_use]
   pub fn routes(&self) -> Vec<Arc<Route>> {

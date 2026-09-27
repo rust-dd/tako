@@ -31,6 +31,10 @@ fn format_forwarded(addr: SocketAddr) -> String {
 /// The real client address from the PROXY header is inserted into request
 /// extensions as `SocketAddr` (overriding the TCP peer address). The raw
 /// `ProxyHeader` is also available via `req.extensions().get::<ProxyHeader>()`.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_http_with_proxy_protocol(listener: tokio::net::TcpListener, router: Router) {
   if let Err(e) = run_proxy_http(
     listener,
@@ -45,6 +49,10 @@ pub async fn serve_http_with_proxy_protocol(listener: tokio::net::TcpListener, r
 }
 
 /// Starts an HTTP server with PROXY protocol support and graceful shutdown.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_http_with_proxy_protocol_and_shutdown(
   listener: tokio::net::TcpListener,
   router: Router,
@@ -56,6 +64,10 @@ pub async fn serve_http_with_proxy_protocol_and_shutdown(
 }
 
 /// Like [`serve_http_with_proxy_protocol`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_http_with_proxy_protocol_and_config(
   listener: tokio::net::TcpListener,
   router: Router,
@@ -67,6 +79,10 @@ pub async fn serve_http_with_proxy_protocol_and_config(
 }
 
 /// Like [`serve_http_with_proxy_protocol_and_shutdown`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_http_with_proxy_protocol_shutdown_and_config(
   listener: tokio::net::TcpListener,
   router: Router,
@@ -93,6 +109,14 @@ pub(crate) async fn run_proxy_http(
     "Tako PROXY protocol HTTP listening on {}",
     listener.local_addr()?
   );
+
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
@@ -231,5 +255,12 @@ pub(crate) async fn run_proxy_http(
   }
 
   tracing::info!("PROXY protocol HTTP server shut down gracefully");
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(
+    &listener.local_addr()?.to_string(),
+    "tcp",
+    false,
+  )
+  .await;
   Ok(())
 }

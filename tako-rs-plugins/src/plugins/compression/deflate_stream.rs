@@ -10,15 +10,14 @@
 //!
 //! ```rust
 //! use tako::plugins::compression::deflate_stream::stream_deflate;
-//! use http_body_util::Full;
-//! use bytes::Bytes;
+//! use tako::body::TakoBody;
 //!
 //! // Compress a response body with DEFLATE level 6
-//! let body = Full::from(Bytes::from("Hello, World! This is test content."));
+//! let body = TakoBody::from("Hello, World! This is test content.");
 //! let compressed = stream_deflate(body, 6);
 //!
 //! // Fast compression for dynamic content
-//! let dynamic_content = Full::from(Bytes::from("API response data..."));
+//! let dynamic_content = TakoBody::from("API response data...");
 //! let fast_compressed = stream_deflate(dynamic_content, 1);
 //! ```
 

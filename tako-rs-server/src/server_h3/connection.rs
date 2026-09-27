@@ -5,7 +5,6 @@ use std::time::Duration;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::BoxError;
 
-use super::request::H3BodyTracker;
 use super::request::handle_request;
 
 /// Handles a single HTTP/3 connection.
@@ -22,7 +21,6 @@ pub(crate) async fn handle_connection(
 ) -> Result<(), BoxError> {
   let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn)).await?;
   let mut request_tasks = tokio::task::JoinSet::new();
-  let body_tracker = Arc::new(H3BodyTracker::default());
 
   loop {
     tokio::select! {
@@ -30,11 +28,10 @@ pub(crate) async fn handle_connection(
         match accepted {
           Ok(Some(resolver)) => {
             let router = router.clone();
-            let body_tracker = body_tracker.clone();
             request_tasks.spawn(async move {
               match resolver.resolve_request().await {
                 Ok((req, stream)) => {
-                  if let Err(e) = handle_request(req, stream, router, remote_addr, body_tracker).await {
+                  if let Err(e) = handle_request(req, stream, router, remote_addr).await {
                     tracing::error!("HTTP/3 request error: {e}");
                   }
                 }
@@ -51,6 +48,7 @@ pub(crate) async fn handle_connection(
           }
         }
       }
+      _ = request_tasks.join_next(), if !request_tasks.is_empty() => {}
       () = shutdown.cancelled() => {
         // Send GOAWAY(0): the peer must not start any new request, but we
         // continue draining streams already in flight on this connection.
@@ -75,44 +73,7 @@ pub(crate) async fn handle_connection(
       goaway_grace,
       request_tasks.len()
     );
-    request_tasks.abort_all();
-  }
-
-  // Also wait for body-forwarder tasks spawned by `build_h3_body`. They were
-  // previously detached via `tokio::spawn`, so a forwarder still polling
-  // `recv_data` after its handler returned could run past the connection
-  // drain. Bounded by the same `goaway_grace` deadline.
-  //
-  // The previous shape was a `load > 0 → timeout_at(notified()).await` loop,
-  // racy with `notify_waiters` (no stored permit): if the last guard ran
-  // Drop between the load and the `notified()` future being polled, the
-  // wake was lost and we waited the full grace period for nothing.
-  //
-  // Mirror `server_compio.rs:215-238`: construct `notified()` first, call
-  // `enable()` to register as a waiter eagerly, then re-check the counter.
-  // Any `notify_waiters` issued after the load is now guaranteed to wake
-  // this future.
-  loop {
-    let notified = body_tracker.drained.notified();
-    tokio::pin!(notified);
-    notified.as_mut().enable();
-    if body_tracker
-      .active
-      .load(std::sync::atomic::Ordering::SeqCst)
-      == 0
-    {
-      break;
-    }
-    let now = tokio::time::Instant::now();
-    if now >= drain_deadline {
-      break;
-    }
-    if tokio::time::timeout_at(drain_deadline, notified)
-      .await
-      .is_err()
-    {
-      break;
-    }
+    request_tasks.shutdown().await;
   }
 
   Ok(())

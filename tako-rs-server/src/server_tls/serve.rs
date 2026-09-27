@@ -241,5 +241,7 @@ pub async fn run_with_config(
   }
 
   tracing::info!("TLS server shut down gracefully");
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_stopped(&addr_str, "tcp", true).await;
   Ok(())
 }

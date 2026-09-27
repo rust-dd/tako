@@ -44,9 +44,13 @@ pub use accept::run_with_config;
 pub use serve::load_certs;
 pub use serve::load_key;
 pub use serve::run;
+#[allow(deprecated)]
 pub use serve::serve_tls;
+#[allow(deprecated)]
 pub use serve::serve_tls_with_config;
 pub use serve::serve_tls_with_rustls_config;
 pub use serve::serve_tls_with_rustls_config_and_shutdown;
+#[allow(deprecated)]
 pub use serve::serve_tls_with_shutdown;
+#[allow(deprecated)]
 pub use serve::serve_tls_with_shutdown_and_config;

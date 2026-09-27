@@ -45,6 +45,10 @@ use tokio_util::sync::CancellationToken;
 use crate::ServerConfig;
 
 /// Starts the Tako HTTP server with the given listener and router.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve(listener: TcpListener, router: Router) {
   if let Err(e) = run(
     listener,
@@ -63,6 +67,10 @@ pub async fn serve(listener: TcpListener, router: Router) {
 /// When the `signal` future completes, the server stops accepting new connections
 /// and waits up to `ServerConfig::drain_timeout` (default 30 s) for in-flight
 /// requests to finish.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_with_shutdown(
   listener: TcpListener,
   router: Router,
@@ -74,6 +82,10 @@ pub async fn serve_with_shutdown(
 }
 
 /// Like [`serve`] but with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_with_config(listener: TcpListener, router: Router, config: ServerConfig) {
   if let Err(e) = run(listener, router, None::<std::future::Pending<()>>, config).await {
     tracing::error!("Server error: {e}");
@@ -81,6 +93,10 @@ pub async fn serve_with_config(listener: TcpListener, router: Router, config: Se
 }
 
 /// Like [`serve_with_shutdown`] but with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_with_shutdown_and_config(
   listener: TcpListener,
   router: Router,
@@ -224,5 +240,7 @@ pub(crate) async fn run(
   }
 
   tracing::info!("Server shut down gracefully");
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_stopped(&addr_str, "tcp", false).await;
   Ok(())
 }

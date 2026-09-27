@@ -31,12 +31,8 @@ impl std::fmt::Debug for ClientAuth {
 
 /// Optional TLS material the builder can attach to a TLS-mode server.
 ///
-/// Variants:
-/// - [`TlsCert::PemPaths`] — load cert and key from disk on every spawn.
-/// - [`TlsCert::Der`] — pre-loaded DER cert chain + key.
-/// - [`TlsCert::Resolver`] — user-supplied [`rustls::server::ResolvesServerCert`]
-///   for SNI multi-cert serving or hot-reloadable certificates (see
-///   [`ReloadableResolver`]).
+/// `PemPaths` names certificate files. With `tls`, `Der` accepts an in-memory
+/// certificate/key pair and `Resolver` accepts a rustls certificate resolver.
 #[derive(Clone)]
 pub enum TlsCert {
   /// Filesystem paths for cert + key PEM files.
@@ -176,11 +172,14 @@ impl TlsCert {
 /// # #[cfg(feature = "tls")]
 /// # async fn _example() -> anyhow::Result<()> {
 /// use std::sync::Arc;
-/// use tako_rs_server::{ReloadableResolver, Server, TlsCert};
+/// use tako_rs_server::{ReloadableResolver, TlsCert};
 ///
 /// let resolver = Arc::new(ReloadableResolver::from_pem("cert.pem", "key.pem")?);
 /// let cert = TlsCert::resolver(resolver.clone());
-/// let server = Server::builder().tls(cert).build();
+/// # #[cfg(not(feature = "compio"))]
+/// let server = tako_rs_server::Server::builder().tls(cert).build();
+/// # #[cfg(feature = "compio-tls")]
+/// # let server = tako_rs_server::CompioServer::builder().tls(cert).build();
 /// // Later, after a cert rotation:
 /// resolver.reload_from_pem("cert.pem", "key.pem")?;
 /// # Ok(())

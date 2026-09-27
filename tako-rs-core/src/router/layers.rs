@@ -76,6 +76,7 @@ impl Router {
   ///
   /// ```rust
   /// use tako::{router::Router, middleware::Next, types::Request};
+  /// use tako::responder::Responder;
   ///
   /// let mut router = Router::new();
   ///
@@ -133,7 +134,7 @@ impl Router {
   /// async fn not_found(_req: Request) -> impl Responder { "Not Found" }
   ///
   /// let mut router = Router::new();
-  /// router.route(Method::GET, "/", |_req| async { "Hello" });
+  /// router.route(Method::GET, "/", || async { "Hello" });
   /// router.fallback(not_found);
   /// ```
   pub fn fallback<F, Fut, R>(&mut self, handler: F) -> &mut Self

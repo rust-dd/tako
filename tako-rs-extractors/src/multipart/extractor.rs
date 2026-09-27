@@ -24,12 +24,15 @@ use crate::multipart::TypedMultipartError;
 /// ```rust,no_run
 /// use tako::extractors::multipart::TakoMultipart;
 /// use tako::extractors::FromRequest;
-/// use tako::types::Request;
+/// use tako::types::{Request, Response};
+/// use tako::responder::Responder;
 ///
-/// async fn manual_multipart_handler(mut req: Request) -> Result<(), Box<dyn std::error::Error>> {
-///     let TakoMultipart(mut multipart) = TakoMultipart::from_request(&mut req).await?;
+/// async fn manual_multipart_handler(mut req: Request) -> Result<(), Response> {
+///     let TakoMultipart(mut multipart) = TakoMultipart::from_request(&mut req).await.map_err(Responder::into_response)?;
 ///
-///     while let Some(field) = multipart.next_field().await? {
+///     while let Some(field) = multipart.next_field().await.map_err(|_|
+///         (http::StatusCode::BAD_REQUEST, "Invalid multipart field").into_response()
+///     )? {
 ///         if let Some(name) = field.name() {
 ///             println!("Field name: {}", name);
 ///             if let Some(filename) = field.file_name() {

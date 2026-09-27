@@ -99,7 +99,7 @@ async fn server_builder_handles_raw_tcp_echo() {
   handle.shutdown(Duration::from_secs(2)).await;
 }
 
-// Smoke-test the raw UDP path on the builder.
+#[cfg(feature = "udp")]
 #[tokio::test]
 async fn server_builder_handles_raw_udp_echo() {
   let probe = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();

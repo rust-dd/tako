@@ -1,7 +1,7 @@
 //! Async backends for stateful middleware.
 //!
 //! Builders accept these traits through `.store(...)`; memory implementations
-//! are available under [`memory`]. Remote stores must implement atomic quota
+//! are available under [`crate::stores::memory`]. Remote stores must implement atomic quota
 //! consumption and idempotency leases in the shared backend itself.
 
 use std::time::Duration;

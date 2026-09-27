@@ -63,9 +63,9 @@ pub mod limits;
 mod protocol;
 mod request;
 mod response;
-#[cfg(not(feature = "compio"))]
+#[cfg(all(feature = "ws", not(feature = "compio")))]
 mod subscription;
-#[cfg(not(feature = "compio"))]
+#[cfg(all(feature = "ws", not(feature = "compio")))]
 mod websocket;
 
 pub use protocol::GraphQLProtocol;
@@ -82,9 +82,9 @@ pub use request::receive_graphql_batch;
 pub use request::set_global_graphql_options;
 pub use response::GraphQLBatchResponse;
 pub use response::GraphQLResponse;
-#[cfg(not(feature = "compio"))]
+#[cfg(all(feature = "ws", not(feature = "compio")))]
 pub use subscription::GraphQLSubscription;
-#[cfg(not(feature = "compio"))]
+#[cfg(all(feature = "ws", not(feature = "compio")))]
 pub use websocket::GraphQLWebSocket;
 
 #[cfg(feature = "graphiql")]

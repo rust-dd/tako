@@ -1,20 +1,19 @@
-//! Global state extraction for retrieving shared application state.
+//! Typed state extraction from the router, with a legacy global fallback.
 //!
-//! This module exposes `State<T>` to access Tako's global state store from handlers.
-//! It retrieves a value by its concrete type (stored via `set_state`).
+//! Store per-router values with `Router::with_state`.
 //!
 //! # Examples
 //!
 //! ```rust
-//! use tako::{extractors::state::State, responder::Responder, router::Router, Method, state::set_state};
+//! use tako::{extractors::state::State, responder::Responder, router::Router, Method};
 //!
 //! #[derive(Clone)]
 //! struct AppConfig { name: String }
 //!
-//! async fn handler(State(cfg): State<AppConfig>) -> impl Responder { cfg.name }
+//! async fn handler(State(cfg): State<AppConfig>) -> impl Responder { cfg.name.clone() }
 //!
 //! let mut router = Router::new();
-//! set_state(AppConfig { name: "demo".into() });
+//! router.with_state(AppConfig { name: "demo".into() });
 //! router.route(Method::GET, "/", handler);
 //! ```
 

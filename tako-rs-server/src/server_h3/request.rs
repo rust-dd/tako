@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use bytes::Buf;
 use bytes::Bytes;
-use bytes::BytesMut;
 use h3::quic::BidiStream;
 use h3::quic::RecvStream;
 use h3::server::RequestStream;
@@ -16,104 +15,30 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::BoxError;
-use tokio_stream::wrappers::ReceiverStream;
 
-/// Channel buffer for the H3 streaming body.
-///
-/// Bounds the number of in-flight frames between the QUIC receiver task and the
-/// handler so that a slow handler exerts backpressure on the client instead of
-/// growing memory unboundedly.
-const H3_BODY_CHANNEL_CAPACITY: usize = 8;
-
-/// Tracks live H3 body-forwarder tasks per connection.
-///
-/// `build_h3_body` spawns a detached forwarder for every accepted stream. The
-/// connection drain (`handle_connection`) waits on `request_tasks` for handler
-/// completion, but the forwarders run in independent `tokio::spawn` tasks so
-/// they were previously not joined before the connection returned. This tracker
-/// (counter + Notify) lets the drain wait until every forwarder has finished
-/// emitting frames/trailers, bounded by the per-connection grace.
-#[derive(Default)]
-pub(crate) struct H3BodyTracker {
-  pub(crate) active: std::sync::atomic::AtomicUsize,
-  pub(crate) drained: tokio::sync::Notify,
-}
-
-pub(crate) struct H3BodyGuard {
-  tracker: Arc<H3BodyTracker>,
-}
-
-impl Drop for H3BodyGuard {
-  fn drop(&mut self) {
-    if self
-      .tracker
-      .active
-      .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
-      == 1
-    {
-      self.tracker.drained.notify_waiters();
-    }
-  }
-}
-
-impl H3BodyTracker {
-  pub(crate) fn guard(self: &Arc<Self>) -> H3BodyGuard {
-    self
-      .active
-      .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    H3BodyGuard {
-      tracker: self.clone(),
-    }
-  }
-}
-
-/// Builds a streaming `TakoBody` backed by an HTTP/3 receive stream.
-///
-/// Spawns a forwarder task that pulls QUIC chunks via `recv_data`, emits them as
-/// `Frame::data`, and then pulls trailers via `recv_trailers` to emit a
-/// `Frame::trailers`. The bounded channel provides natural backpressure.
-fn build_h3_body<R>(mut recv: RequestStream<R, Bytes>, tracker: Arc<H3BodyTracker>) -> TakoBody
+/// Poll QUIC data and trailers only while the application polls its request body.
+fn build_h3_body<R>(recv: RequestStream<R, Bytes>) -> TakoBody
 where
   R: RecvStream + Send + 'static,
 {
-  let (tx, rx) =
-    tokio::sync::mpsc::channel::<Result<Frame<Bytes>, BoxError>>(H3_BODY_CHANNEL_CAPACITY);
-  let guard = tracker.guard();
-  tokio::spawn(async move {
-    let _guard = guard;
-    loop {
-      match recv.recv_data().await {
-        Ok(Some(mut chunk)) => {
-          let mut buf = BytesMut::with_capacity(chunk.remaining());
-          while chunk.has_remaining() {
-            let slice = chunk.chunk();
-            buf.extend_from_slice(slice);
-            let len = slice.len();
-            chunk.advance(len);
-          }
-          if !buf.is_empty() && tx.send(Ok(Frame::data(buf.freeze()))).await.is_err() {
-            return;
-          }
-        }
-        Ok(None) => break,
-        Err(e) => {
-          let _ = tx.send(Err(Box::new(e) as BoxError)).await;
-          return;
-        }
+  let stream = futures_util::stream::try_unfold(Some(recv), |state| async move {
+    let Some(mut recv) = state else {
+      return Ok::<_, BoxError>(None);
+    };
+    match recv.recv_data().await? {
+      Some(mut chunk) => {
+        let bytes = chunk.copy_to_bytes(chunk.remaining());
+        Ok(Some((Frame::data(bytes), Some(recv))))
       }
-    }
-    match recv.recv_trailers().await {
-      Ok(Some(trailers)) => {
-        let _ = tx.send(Ok(Frame::trailers(trailers))).await;
-      }
-      Ok(None) => {}
-      Err(e) => {
-        let _ = tx.send(Err(Box::new(e) as BoxError)).await;
-      }
+      None => Ok(
+        recv
+          .recv_trailers()
+          .await?
+          .map(|trailers| (Frame::trailers(trailers), None)),
+      ),
     }
   });
-
-  TakoBody::from_try_stream(ReceiverStream::new(rx))
+  TakoBody::from_try_stream(stream)
 }
 
 /// Handles a single HTTP/3 request.
@@ -122,22 +47,18 @@ pub(crate) async fn handle_request<S>(
   stream: RequestStream<S, Bytes>,
   router: Arc<Router>,
   remote_addr: SocketAddr,
-  body_tracker: Arc<H3BodyTracker>,
 ) -> Result<(), BoxError>
 where
   S: BidiStream<Bytes> + Send + 'static,
   <S as BidiStream<Bytes>>::SendStream: Send + 'static,
   <S as BidiStream<Bytes>>::RecvStream: Send + 'static,
 {
-  // Per-request signals fire from inside Router::dispatch.
-
   // Split into send and recv halves so the handler can stream the body while we
   // hold the send half locally for the response.
   let (mut send_stream, recv_stream) = stream.split();
 
-  // Build request with a streaming body (data + trailers).
   let (parts, ()) = req.into_parts();
-  let body = build_h3_body(recv_stream, body_tracker);
+  let body = build_h3_body(recv_stream);
   let mut tako_req = Request::from_parts(parts, body);
   tako_req.extensions_mut().insert(remote_addr);
   tako_req.extensions_mut().insert(ConnInfo::h3(
@@ -149,15 +70,12 @@ where
     },
   ));
 
-  // Dispatch through router
   let response = router.dispatch(tako_req).await;
 
-  // Send response head
   let (parts, body) = response.into_parts();
   let resp = http::Response::from_parts(parts, ());
   send_stream.send_response(resp).await?;
 
-  // Stream response body frame by frame; preserve trailers through to send_trailers.
   let mut body = std::pin::pin!(body);
   let mut response_trailers: Option<HeaderMap> = None;
   while let Some(frame_res) = std::future::poll_fn(|cx| body.as_mut().poll_frame(cx)).await {

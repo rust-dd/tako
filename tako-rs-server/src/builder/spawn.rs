@@ -5,7 +5,7 @@ use super::handle::ServerHandle;
 
 /// ALPN list used by TCP-based TLS spawn paths. Mirrors the per-feature
 /// negotiation already done in `server_tls{,_compio}::run`.
-#[cfg(feature = "tls")]
+#[cfg(any(feature = "compio-tls", all(feature = "tls", not(feature = "compio"))))]
 #[inline]
 pub(crate) fn tls_alpn_for_tcp() -> Vec<Vec<u8>> {
   #[cfg(feature = "http2")]

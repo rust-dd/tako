@@ -12,6 +12,8 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::drive_connection;
+#[cfg(feature = "signals")]
+use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
@@ -24,6 +26,10 @@ use crate::ServerConfig;
 ///
 /// Ideal for production deployments behind a reverse proxy (nginx, `HAProxy`)
 /// where the app communicates via a local socket file instead of TCP.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_unix_http(path: impl AsRef<Path>, router: Router) {
   if let Err(e) = run_http(
     path.as_ref(),
@@ -38,6 +44,10 @@ pub async fn serve_unix_http(path: impl AsRef<Path>, router: Router) {
 }
 
 /// Starts an HTTP server over a Unix domain socket with graceful shutdown.
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_unix_http_with_shutdown(
   path: impl AsRef<Path>,
   router: Router,
@@ -49,6 +59,10 @@ pub async fn serve_unix_http_with_shutdown(
 }
 
 /// Like [`serve_unix_http`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_unix_http_with_config(
   path: impl AsRef<Path>,
   router: Router,
@@ -67,6 +81,10 @@ pub async fn serve_unix_http_with_config(
 }
 
 /// Like [`serve_unix_http_with_shutdown`] with caller-supplied [`ServerConfig`].
+#[deprecated(
+  since = "2.1.0",
+  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
+)]
 pub async fn serve_unix_http_with_shutdown_and_config(
   path: impl AsRef<Path>,
   router: Router,
@@ -101,6 +119,9 @@ pub(crate) async fn run_listener(
   router.setup_plugins_once()?;
 
   tracing::debug!("Tako Unix HTTP listening on {}", path.display());
+
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_started(&path.to_string_lossy(), "unix", false).await;
 
   let mut join_set = JoinSet::new();
   let mut accept_backoff = config.accept_backoff;
@@ -208,5 +229,7 @@ pub(crate) async fn run_listener(
     let _ = std::fs::remove_file(path);
   }
   tracing::info!("Unix HTTP server shut down gracefully");
+  #[cfg(feature = "signals")]
+  signal_tx::emit_server_stopped(&path.to_string_lossy(), "unix", false).await;
   Ok(())
 }

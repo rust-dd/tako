@@ -11,8 +11,10 @@
 //! # async fn example() -> std::io::Result<()> {
 //! serve_udp("0.0.0.0:9000", |data, addr, socket| {
 //!     Box::pin(async move {
-//!         // Echo back
+//!         # #[cfg(not(feature = "compio"))]
 //!         let _ = socket.send_to(&data, addr).await;
+//!         # #[cfg(feature = "compio")]
+//!         # let _ = socket.send_to(data, addr).await;
 //!     })
 //! }).await?;
 //! # Ok(())
@@ -23,6 +25,11 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+
+#[cfg(feature = "compio")]
+use futures_util::FutureExt;
+#[cfg(feature = "compio")]
+use futures_util::StreamExt;
 
 /// Handler function type for UDP datagrams.
 ///
@@ -74,6 +81,14 @@ where
   let socket = Arc::new(tokio::net::UdpSocket::bind(addr).await?);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
+  .await;
+
   let handler = Arc::new(handler);
   let mut buf = vec![0u8; 65535];
 
@@ -123,6 +138,14 @@ where
   let mut tasks = tokio::task::JoinSet::new();
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
+  .await;
+
   let handler = Arc::new(handler);
   let mut buf = vec![0u8; 65535];
 
@@ -148,9 +171,20 @@ where
     }
   }
 
-  let _ = tokio::time::timeout(drain_timeout, async {
+  if tokio::time::timeout(drain_timeout, async {
     while tasks.join_next().await.is_some() {}
   })
+  .await
+  .is_err()
+  {
+    tasks.shutdown().await;
+  }
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
   .await;
   Ok(())
 }
@@ -168,6 +202,14 @@ where
   #[allow(clippy::arc_with_non_send_sync)]
   let socket = Arc::new(compio::net::UdpSocket::bind(addr).await?);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
+
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
+  .await;
 
   let handler = Arc::new(handler);
 
@@ -201,10 +243,18 @@ where
   let socket = Arc::new(compio::net::UdpSocket::bind(addr).await?);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
+  let mut tasks = futures_util::stream::FuturesUnordered::new();
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_started(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
+  .await;
+
   let handler = Arc::new(handler);
   let signal = std::pin::pin!(signal);
 
-  // compio uses futures_util::future::select for cancellation
   let mut signal = signal;
 
   loop {
@@ -220,10 +270,10 @@ where
         let socket = Arc::clone(&socket);
         let handler = Arc::clone(&handler);
 
-        compio::runtime::spawn(async move {
+        tasks.push(compio::runtime::spawn(async move {
           handler(buf, peer, socket).await;
-        })
-        .detach();
+        }));
+        while tasks.next().now_or_never().flatten().is_some() {}
       }
       futures_util::future::Either::Right(_) => {
         tracing::info!("UDP server shutting down");
@@ -232,5 +282,22 @@ where
     }
   }
 
+  if compio::time::timeout(std::time::Duration::from_secs(30), async {
+    while tasks.next().await.is_some() {}
+  })
+  .await
+  .is_err()
+  {
+    for task in tasks {
+      task.cancel().await;
+    }
+  }
+  #[cfg(feature = "signals")]
+  tako_rs_core::signals::transport::emit_server_stopped(
+    &socket.local_addr()?.to_string(),
+    "udp",
+    false,
+  )
+  .await;
   Ok(())
 }
