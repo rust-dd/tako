@@ -66,28 +66,28 @@ authors = ["Daniel Boros <dancixx@gmail.com>"]
 ahash = { version = "0.8.12", features = ["serde"] }
 anyhow = "1.0.98"
 arc-swap = "1.7"
-async-graphql = { version = "7.0.17" }
+async-graphql = { version = "7.2.1" }
 async-trait = "0.1.88"
 base64 = "0.22.1"
 brotli = "8.0.1"
 bytes = "1.10.1"
 chrono = { version = "0.4" }
-compio = { version = "0.18.0", features = ["macros", "rustls", "time", "fs", "net"] }
+compio = { version = "0.19.2", features = ["macros", "rustls", "time", "fs", "net"] }
 cookie = { version = "0.18.1", features = ["private", "signed"] }
 core_affinity = { version = "0.8" }
 crc32c = "0.6"
-criterion = { version = "0.7.0", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 cron = "0.15.0"
-cyper-core = "0.8.0"
+cyper-core = "0.9.0"
 envy = "0.4"
 flate2 = "1.1.2"
 futures-util = "0.3.31"
-garde = { version = "0.22.1", features = ["derive"] }
+garde = { version = "0.23.0", features = ["derive"] }
 h3 = "0.0.8"
 h3-quinn = "0.0.10"
 headers = "0.4.1"
-hkdf = "0.12.4"
-hmac = "0.12.1"
+hkdf = "0.13.0"
+hmac = "0.13.0"
 http = "1.3.1"
 http-body = "1.0.1"
 http-body-util = "0.1.3"
@@ -95,7 +95,7 @@ httpdate = "1.0.3"
 hyper = { version = "1.6.0", features = ["full"] }
 hyper-util = { version = "0.1.14", features = ["tokio"] }
 ipnet = "2.11.0"
-jsonschema = { version = "0.30", default-features = false }
+jsonschema = { version = "0.58.1", default-features = false }
 jwt-simple = { version = "0.12.12", default-features = false }
 linkme = "0.3.36"
 listenfd = "1.0.2"
@@ -103,19 +103,18 @@ matchit = "0.9.1"
 mime = "0.3.17"
 mime_guess = "2.0.5"
 multer = "3.1.0"
-opentelemetry = "0.31.0"
-opentelemetry-otlp = { version = "0.31.0", features = ["metrics", "http-proto"] }
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
+opentelemetry = "0.33.0"
+opentelemetry-otlp = { version = "0.33.0", features = ["metrics", "http-proto"] }
+opentelemetry_sdk = { version = "0.33.0", features = ["rt-tokio"] }
 parking_lot = "0.12.5"
 pin-project-lite = "0.2.16"
 proc-macro2 = { version = "1" }
-prometheus = "0.13.4"
+prometheus = "0.14.0"
 prost = "0.14.1"
 quinn = "0.11.9"
 quote = { version = "1" }
-rustls = "0.23.28"
+rustls = "0.23.45"
 rustls-native-certs = "0.8"
-rustls-pemfile = "2.2.0"
 scc = "3.4.8"
 send_wrapper = "0.6.0"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -124,10 +123,10 @@ serde_html_form = "0.2.8"
 serde_json = "1.0.140"
 serde_urlencoded = "0.7"
 sha1 = "0.10.6"
-sha2 = "0.10.9"
-simd-json = "0.15.1"
+sha2 = "0.11.0"
+simd-json = "0.18.1"
 smallvec = "1.15.1"
-socket2 = { version = "0.5" }
+socket2 = { version = "0.6.5" }
 sonic-rs = "0.5.6"
 subtle = "2.6.1"
 syn = { version = "2" }
@@ -138,23 +137,23 @@ tako-rs-plugins = { path = "tako-rs-plugins", version = "2.0.2" }
 tako-rs-server = { path = "tako-rs-server", version = "2.0.2" }
 tako-rs-server-pt = { path = "tako-rs-server-pt", version = "2.0.2" }
 tako-rs-streams = { path = "tako-rs-streams", version = "2.0.2" }
-tikv-jemallocator = "0.6.0"
+tikv-jemallocator = "0.7.0"
 tokio = { version = "1.52.1", features = ["full"] }
 tokio-rustls = "0.26.2"
 tokio-stream = "0.1.17"
-tokio-tungstenite = "0.29.0"
+tokio-tungstenite = "0.30.0"
 tokio-util = { version = "0.7.15", features = ["compat"] }
 tokio-vsock = "0.7.2"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19" }
 url = "2.5.4"
 urlencoding = "2.1.3"
-utoipa = { version = "5.4" }
+utoipa = { version = "6.0.0" }
 uuid = { version = "1.17.0", features = ["v4"] }
-validator = { version = "0.20.0", features = ["derive"] }
-vespera_core = { version = "0.1.43" }
+validator = { version = "0.21.0", features = ["derive"] }
+vespera_core = { version = "0.4.0" }
 webpki-roots = "1.0.1"
-zstd = "0.13.3"
+zstd = "0.14.0"
 
 [profile.release]
 lto = "fat"

@@ -44,12 +44,12 @@ if [[ $SKIP_GATE -eq 0 ]]; then
   # nightly-only options — fmt has to run on nightly.
   cargo +nightly fmt --all -- --check
 
-  echo "==> pre-publish gate: cargo clippy --workspace --all-features -- -D warnings"
-  # `--all-features` is the strictest config: it activates both runtimes
-  # (tokio + compio), every transport (TLS / HTTP/2 / HTTP/3 / WebTransport),
-  # and every extractor / plugin. Workspace.lints sets `pedantic = warn`, so
-  # `-D warnings` catches pedantic regressions too.
-  cargo clippy --workspace --all-features --no-deps -- -D warnings
+  echo "==> pre-publish gate: cargo clippy --workspace --all-features --no-deps --tests --examples -- -D warnings"
+  # The rich Tokio configuration also covers paths excluded by compio.
+  cargo clippy --workspace --no-deps --tests --examples -- -D warnings
+  cargo clippy --workspace --all-features --no-deps --tests --examples -- -D warnings
+  cargo clippy --workspace --no-deps --tests --examples \
+    --features "tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql" -- -D warnings
 
   echo "==> pre-publish gate: cargo test --workspace --all-features"
   cargo test --workspace --all-features
@@ -65,7 +65,7 @@ PUBLISH_ORDER=(
   "tako-rs-extractors" # tako-rs-core
   "tako-rs-server"     # tako-rs-core
   "tako-rs-server-pt"  # tako-rs-core
-  "tako-rs-streams"    # tako-rs-core, tako-rs-server
+  "tako-rs-streams"    # tako-rs-core
   "tako-rs-plugins"    # tako-rs-core, tako-rs-extractors
   "tako-rs"            # umbrella — last
 )

@@ -29,6 +29,7 @@ hkdf = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
+ipnet = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
 multer = { workspace = true, optional = true }

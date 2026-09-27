@@ -9,6 +9,12 @@ The planned 2.1 release includes intentional breaking API and default changes.
 
 ### Security
 
+- Updated the dependency graph to patched h2 and rustls releases. Dependency
+  advisories now cover every feature; obsolete exceptions were removed.
+- Trusted-proxy IP extraction supports router-local CIDR policies, repeated
+  forwarding headers, and rejects malformed or opaque hops without trusting
+  client-supplied fallback headers.
+
 - Buffered JSON, form, protobuf, SIMD, borrowed, bytes and text extractors default
   to a 2 MiB limit. Configure `Router::body_limit` or explicitly opt out with
   `disable_body_limit`. Exceeding either this limit or a `BodyLimit` middleware
@@ -19,6 +25,12 @@ The planned 2.1 release includes intentional breaking API and default changes.
   propagates router plugin failures.
 
 ### Changed
+
+- Updated public integrations to tungstenite 0.30, Prometheus 0.14, OpenTelemetry
+  0.33, validator 0.21, garde 0.23 and utoipa 6. Applications sharing these
+  dependency types must update their matching dependencies. Async-graphql uses
+  stable 7.2.1. Compio/cyper, SIMD JSON, JSON Schema and compression libraries
+  were also updated; PEM loading uses Rustls `PemObject` directly.
 
 - Only the last handler argument may consume the body. Earlier arguments must
   implement `FromRequestParts`. Extractor futures no longer allocate a box.
@@ -46,6 +58,10 @@ The planned 2.1 release includes intentional breaking API and default changes.
 
 
 ### Fixed
+
+- gRPC timeout parsing rejects non-ASCII units and invalid numeric prefixes
+  without panicking. Parser fuzzing now covers ten input surfaces and runs
+  weekly alongside stable/beta Clippy and dependency checks.
 
 - Nested routes preserve scoped state, plugins, middleware, timeouts and body
   limits. Child state wins over parent state without leaking between siblings.

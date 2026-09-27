@@ -12,16 +12,17 @@ pub struct GrpcDeadline(pub Instant);
 
 /// Parse the `grpc-timeout` header value (e.g. `"100m"`, `"5S"`, `"1H"`).
 ///
-/// Uses `checked_mul` on the minute and hour units so a maliciously large
-/// numeric prefix (e.g. `"99999999999999H"`) cannot wrap to a small value
-/// and silently produce a near-zero deadline.
+/// Accepts one to eight ASCII digits followed by a supported unit.
 pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   let value = value.trim();
-  if value.is_empty() {
+  if !(2..=9).contains(&value.len()) || !value.is_ascii() {
     return None;
   }
   let (num, unit) = value.split_at(value.len() - 1);
-  let num: u64 = num.parse().ok()?;
+  if !num.bytes().all(|byte| byte.is_ascii_digit()) {
+    return None;
+  }
+  let num = num.parse::<u64>().ok()?;
   let dur = match unit {
     "n" => Duration::from_nanos(num),
     "u" => Duration::from_micros(num),
@@ -32,6 +33,25 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
     _ => return None,
   };
   Some(dur)
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::Duration;
+
+  use super::parse_grpc_timeout;
+
+  #[test]
+  fn malformed_units_and_numeric_prefixes_are_rejected_without_panicking() {
+    for value in ["99ƿ", "é", "1💥", "+1S", "123456789m", "S", ""] {
+      assert_eq!(parse_grpc_timeout(value), None, "{value:?}");
+    }
+    assert_eq!(
+      parse_grpc_timeout("99999999n"),
+      Some(Duration::from_nanos(99_999_999))
+    );
+    assert_eq!(parse_grpc_timeout("1H"), Some(Duration::from_secs(3600)));
+  }
 }
 
 /// Extract the deadline (if any) from a request's `grpc-timeout` header.

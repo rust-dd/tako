@@ -34,7 +34,6 @@ listenfd = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
 send_wrapper = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true }
@@ -47,7 +46,7 @@ tracing = { workspace = true }
 [features]
 default = []
 signals = ["tako-rs-core/signals"]
-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile", "tako-rs-core/tls"]
+tls = ["dep:tokio-rustls", "dep:rustls", "tako-rs-core/tls"]
 # `http2` is a *gate flag* — it toggles HTTP/2 code paths inside tako-server
 # but does NOT disable hyper's `http2` feature, because the workspace pulls
 # hyper with `features = ["full"]`. Turning this flag off makes Tako skip

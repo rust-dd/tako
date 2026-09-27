@@ -54,7 +54,6 @@ prost = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
 scc = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -90,7 +89,7 @@ jwt-simple = { workspace = true, optional = true, features = ["default"] }
 [features]
 async-graphql = ["dep:async-graphql"]
 compio = ["dep:compio", "dep:cyper-core", "dep:send_wrapper"]
-compio-tls = ["compio", "tls", "dep:rustls", "dep:rustls-pemfile"]
+compio-tls = ["compio", "tls", "dep:rustls"]
 compio-ws = ["compio", "compio/io", "compio/ws"]
 metrics-prometheus = ["dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
@@ -118,10 +117,10 @@ simd-sonic = ["dep:sonic-rs"]
 # Enables the `simd-json` backend used by the optional `SimdJson<T>` extractor
 # re-exported from `tako-extractors`.
 simd-json-impl = ["dep:simd-json"]
-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+tls = ["dep:tokio-rustls", "dep:rustls"]
 grpc = ["protobuf"]
 queue-cron = ["dep:cron", "dep:chrono"]
-http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls", "dep:rustls-pemfile"]
+http3 = ["dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls"]
 webtransport = ["http3"]
 ahash = ["dep:ahash"]
 tako-tracing = ["dep:tracing-subscriber"]

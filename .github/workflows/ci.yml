@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,11 +31,13 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: clippy (${{ matrix.label }})
+    name: clippy (${{ matrix.toolchain }} / ${{ matrix.label }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        toolchain: [stable, beta]
+        label: [default, tokio-rich, all-features]
         include:
           - label: default
             features: ""
@@ -43,12 +47,13 @@ jobs:
             features: --all-features
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ matrix.toolchain }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          key: clippy-${{ matrix.label }}
+          key: clippy-${{ matrix.toolchain }}-${{ matrix.label }}
       # `--tests --examples` extends the lint sweep to the integration test
       # crate (`tako-rs/tests/*.rs`) and every example. Workspace-level
       # `pedantic = warn` opts those in too, so `-D warnings` catches
@@ -182,9 +187,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: bench
-      # Verify the criterion harnesses still compile. We do not run them in
-      # CI by default — bench numbers are PR-noise. A scheduled job runs the
-      # full suite and posts the comparison.
+      # Compile benchmark harnesses; timing comparisons run locally.
       - run: cargo bench --no-run -p tako-rs-core
 
   autobahn:
@@ -224,16 +227,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: fuzz-build
-      # cargo-fuzz needs the host nightly target with libfuzzer; we only
-      # check that the targets compile here. Actual fuzz runs are
-      # scheduled separately and post their findings to the issue tracker.
+      # Compile every harness; scheduled and labeled runs exercise the inputs.
       - run: cargo install cargo-fuzz --version "^0.13"
       - run: cargo +nightly fuzz build
 
   fuzz-smoke:
     name: fuzz smoke (60s per target)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-fuzz')
+    if: github.event_name == 'schedule' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-fuzz'))
     env:
       RUSTFLAGS: ""
     strategy:
@@ -243,6 +244,13 @@ jobs:
           - proxy_protocol_parser
           - path_params_deserializer
           - grpc_timeout_parser
+          - range_header
+          - content_negotiation
+          - forwarded_ip
+          - multipart_body
+          - cookies
+          - query_multi
+          - sse_encoder
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

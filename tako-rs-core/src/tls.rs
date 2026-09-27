@@ -1,37 +1,19 @@
-//! Shared TLS PEM loading helpers used by every TLS-capable Tako transport.
-//!
-//! Previously each `serve_tls*` / `serve_h3*` implementation carried its own
-//! copy of `load_certs` / `load_key`, and `tako_rs_streams::webtransport` reached
-//! across crates into `tako_rs_server::server_h3`. This module hosts the single
-//! authoritative implementation. Both functions accept PKCS#8, PKCS#1 (RSA),
-//! and SEC1 (EC) PEM blocks.
+//! Shared PEM loading for TLS transports.
 
-use std::fs::File;
-use std::io::BufReader;
-
+use anyhow::Context;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
-use rustls_pemfile::certs;
-use rustls_pemfile::private_key;
+use rustls::pki_types::pem::PemObject;
 
 /// Loads X.509 certificates from a PEM file.
 pub fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
-  let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open cert file '{path}': {e}"))?,
-  );
-  certs(&mut rd)
+  CertificateDer::pem_file_iter(path)
+    .with_context(|| format!("failed to open certificates: {path}"))?
     .collect::<Result<Vec<_>, _>>()
-    .map_err(|e| anyhow::anyhow!("failed to parse certs from '{path}': {e}"))
+    .with_context(|| format!("failed to parse certificates: {path}"))
 }
 
-/// Loads the first PEM-encoded private key from a file.
-///
-/// Accepts PKCS#8, PKCS#1 (RSA), and SEC1 (EC) PEM blocks.
+/// Loads a PKCS#8, PKCS#1 (RSA), or SEC1 (EC) private key.
 pub fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
-  let mut rd = BufReader::new(
-    File::open(path).map_err(|e| anyhow::anyhow!("failed to open key file '{path}': {e}"))?,
-  );
-  private_key(&mut rd)
-    .map_err(|e| anyhow::anyhow!("bad private key in '{path}': {e}"))?
-    .ok_or_else(|| anyhow::anyhow!("no PEM private key (PKCS#8, PKCS#1 or SEC1) found in '{path}'"))
+  PrivateKeyDer::from_pem_file(path).with_context(|| format!("failed to load private key: {path}"))
 }

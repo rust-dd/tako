@@ -170,7 +170,7 @@ async fn run(
           None
         };
 
-        let io = HyperStream::new(stream);
+        let io = HyperStream::new_plain(stream);
         let router = router.clone();
         let guard = ConnectionGuard::new(inflight.clone(), drain_notify.clone());
 

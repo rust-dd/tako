@@ -191,19 +191,7 @@ pub async fn run_with_config(
             .negotiated_alpn()
             .map(std::borrow::Cow::into_owned);
           let is_h2 = matches!(alpn_proto.as_deref(), Some(b"h2"));
-          // SNI and the negotiated TLS protocol version are NOT exposed by
-          // `compio-tls::TlsStream` as of 0.9.1 — its public surface is only
-          // `negotiated_alpn()`. The inner `futures_rustls::TlsStream` does
-          // expose `server_name()` and `protocol_version()` accessors, but
-          // `compio-tls`'s `TlsStreamInner` is private (no `get_ref()`), so
-          // they are unreachable from this crate.
-          //
-          // Until upstream lands a `get_ref()`-style accessor (or surfaces
-          // `server_name()` / `protocol_version()` directly), SNI and version
-          // stay `None` on the compio path — workloads that depend on
-          // SNI-based vhost routing, mTLS peer-cert hooks, or TLS-version
-          // observability must use the tokio-rustls path (`server_tls.rs`),
-          // which populates both. Tracking: tako audit §9.3 SRV-04.
+          // The Compio TLS wrapper exposes ALPN but not its rustls session.
           let conn_info = if is_h2 {
             ConnInfo::h2_tls(
               addr,
@@ -227,7 +215,7 @@ pub async fn run_with_config(
           #[cfg(feature = "http2")]
           let proto = alpn_proto;
 
-          let io = HyperStream::new(tls_stream);
+          let io = HyperStream::new_tls(tls_stream);
           // Per-request signals fire from inside Router::dispatch.
           let svc = service_fn(move |mut req| {
             let r = router.clone();

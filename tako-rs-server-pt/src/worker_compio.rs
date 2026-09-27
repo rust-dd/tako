@@ -157,7 +157,7 @@ pub(crate) fn worker_main_compio(
       if let Err(e) = stream.set_nodelay(true) {
         tracing::debug!("worker {worker_id}: set_nodelay failed for {peer}: {e}");
       }
-      let io = HyperStream::new(stream);
+      let io = HyperStream::new_plain(stream);
       // Build the guard before spawn so the count is incremented on the
       // current thread (lock-free atomic) instead of racing with the spawn.
       let guard = PtConnGuard::new(inflight.clone(), drain_notify.clone());

@@ -35,7 +35,7 @@ struct Optional {
   name: Option<String>,
 }
 
-fn make_request(slots: SmallVec<[(String, String); 4]>) -> Request<TakoBody> {
+fn make_request(slots: SmallVec<[(std::sync::Arc<str>, String); 4]>) -> Request<TakoBody> {
   let mut req = Request::builder()
     .method(Method::GET)
     .uri("/")
@@ -52,11 +52,11 @@ fuzz_target!(|raw: &[u8]| {
   runtime.block_on(async {
     let mut u = Unstructured::new(raw);
     let count = u8::arbitrary(&mut u).unwrap_or(0).min(16) as usize;
-    let mut slots: SmallVec<[(String, String); 4]> = SmallVec::with_capacity(count);
+    let mut slots: SmallVec<[(std::sync::Arc<str>, String); 4]> = SmallVec::with_capacity(count);
     for _ in 0..count {
       let key = String::arbitrary(&mut u).unwrap_or_default();
       let value = String::arbitrary(&mut u).unwrap_or_default();
-      slots.push((key, value));
+      slots.push((key.into(), value));
     }
 
     // Each shape is exercised in isolation so the slot list survives.

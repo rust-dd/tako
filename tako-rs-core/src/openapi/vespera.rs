@@ -193,7 +193,7 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
         .security
         .iter()
         .map(|s| {
-          let mut map = std::collections::HashMap::new();
+          let mut map = std::collections::BTreeMap::new();
           map.insert(s.clone(), vec![]);
           map
         })
@@ -218,6 +218,10 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
     request_body,
     responses,
     security,
+    deprecated: None,
+    external_docs: None,
+    callbacks: None,
+    servers: None,
   }
 }
 
@@ -250,19 +254,7 @@ pub fn generate_openapi_from_routes(router: &crate::router::Router, info: Info) 
     let operation = route_openapi_to_operation(&route_openapi);
     let vespera_method = http_method_to_vespera(&method);
 
-    let path_item = paths.entry(path).or_insert_with(|| PathItem {
-      get: None,
-      post: None,
-      put: None,
-      patch: None,
-      delete: None,
-      head: None,
-      options: None,
-      trace: None,
-      parameters: None,
-      summary: None,
-      description: None,
-    });
+    let path_item = paths.entry(path).or_default();
     path_item.set_operation(vespera_method, operation);
   }
 

@@ -14,6 +14,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use hmac::Hmac;
+use hmac::KeyInit;
 use hmac::Mac;
 use http::HeaderName;
 use http::StatusCode;

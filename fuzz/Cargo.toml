@@ -7,14 +7,34 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
-[dependencies]
-libfuzzer-sys = "0.4"
-tako-rs-core = { path = "../tako-rs-core", features = ["grpc"] }
-tako-rs-server = { path = "../tako-rs-server" }
-tokio = { version = "1", features = ["rt", "io-util", "macros"] }
+[workspace]
+members = ["."]
+
+[workspace.dependencies]
 http = "1"
-smallvec = "1"
+http-body-util = "0.1"
+libfuzzer-sys = "0.4"
 serde = { version = "1", features = ["derive"] }
+smallvec = "1"
+tako-rs-core = { path = "../tako-rs-core", features = ["grpc", "plugins"] }
+tako-rs-extractors = { path = "../tako-rs-extractors", features = ["multipart"] }
+tako-rs-plugins = { path = "../tako-rs-plugins", features = ["plugins"] }
+tako-rs-server = { path = "../tako-rs-server" }
+tako-rs-streams = { path = "../tako-rs-streams" }
+tokio = { version = "1", features = ["rt", "io-util", "macros", "time"] }
+
+[dependencies]
+http = { workspace = true }
+http-body-util = { workspace = true }
+libfuzzer-sys = { workspace = true }
+serde = { workspace = true }
+smallvec = { workspace = true }
+tako-rs-core = { workspace = true }
+tako-rs-extractors = { workspace = true }
+tako-rs-plugins = { workspace = true }
+tako-rs-server = { workspace = true }
+tako-rs-streams = { workspace = true }
+tokio = { workspace = true }
 
 [[bin]]
 name = "proxy_protocol_parser"
@@ -39,3 +59,52 @@ bench = false
 
 [profile.release]
 debug = 1
+
+[[bin]]
+name = "range_header"
+path = "fuzz_targets/range_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "content_negotiation"
+path = "fuzz_targets/content_negotiation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "forwarded_ip"
+path = "fuzz_targets/forwarded_ip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "multipart_body"
+path = "fuzz_targets/multipart_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cookies"
+path = "fuzz_targets/cookies.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "query_multi"
+path = "fuzz_targets/query_multi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sse_encoder"
+path = "fuzz_targets/sse_encoder.rs"
+test = false
+doc = false
+bench = false

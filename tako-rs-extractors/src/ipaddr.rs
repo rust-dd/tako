@@ -29,6 +29,7 @@
 use std::net::IpAddr as StdIpAddr;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use http::StatusCode;
 use http::request::Parts;
@@ -47,11 +48,11 @@ use tako_rs_core::types::Request;
 /// any client that can reach the server directly can forge them.
 ///
 /// **Trusted-proxy mode:** Insert an [`IpAddrConfig`] into router state via
-/// `tako_rs_core::state::set_state` with `trusted_proxies` listing the IPs of
+/// `Router::with_state` with `trusted_proxies` listing the IPs of
 /// your real proxy/load-balancer fleet. When the direct peer matches one of
 /// those entries, forwarded headers are honored in priority order:
 /// 1. `Forwarded` (RFC 7239 — `for=`)
-/// 2. `X-Forwarded-For` (leftmost untrusted hop)
+/// 2. `X-Forwarded-For` (nearest untrusted hop)
 /// 3. `X-Real-IP`
 /// 4. `X-Client-IP`
 /// 5. `CF-Connecting-IP` (Cloudflare)
@@ -79,6 +80,8 @@ pub struct IpAddrConfig {
   /// Direct-peer IPs whose forwarded-IP headers we honor. Empty (default)
   /// means no header trust — only the direct peer IP is used.
   pub trusted_proxies: Vec<StdIpAddr>,
+  /// Networks whose forwarding headers may be trusted.
+  pub trusted_networks: Vec<ipnet::IpNet>,
 }
 
 impl IpAddrConfig {
@@ -91,6 +94,21 @@ impl IpAddrConfig {
   pub fn trust(mut self, ip: StdIpAddr) -> Self {
     self.trusted_proxies.push(ip);
     self
+  }
+
+  /// Adds a trusted proxy network.
+  pub fn trust_network(mut self, network: ipnet::IpNet) -> Self {
+    self.trusted_networks.push(network);
+    self
+  }
+
+  /// Checks a transport peer or a forwarded hop against the trust policy.
+  pub fn is_trusted(&self, ip: &StdIpAddr) -> bool {
+    self.trusted_proxies.contains(ip)
+      || self
+        .trusted_networks
+        .iter()
+        .any(|network| network.contains(ip))
   }
 
   /// Replace the trusted-proxy list.
@@ -174,16 +192,9 @@ impl IpAddr {
   /// - `::1` (loopback)
   pub fn is_private(&self) -> bool {
     match self.0 {
-      StdIpAddr::V4(ipv4) => ipv4.is_private(),
+      StdIpAddr::V4(ipv4) => ipv4.is_private() || ipv4.is_loopback(),
       StdIpAddr::V6(ipv6) => {
-        // IPv6 private address ranges
-        let segments = ipv6.segments();
-        // fc00::/7 (Unique Local Addresses)
-        (segments[0] & 0xfe00) == 0xfc00 ||
-                // fe80::/10 (Link-Local Addresses)
-                (segments[0] & 0xffc0) == 0xfe80 ||
-                // ::1 (Loopback)
-                ipv6.is_loopback()
+        ipv6.is_unique_local() || ipv6.is_unicast_link_local() || ipv6.is_loopback()
       }
     }
   }
@@ -191,21 +202,25 @@ impl IpAddr {
   /// Resolves the client IP from request extensions + headers using the
   /// configured trust policy. Secure-by-default: forwarded headers are only
   /// honored when the direct peer is listed in `IpAddrConfig::trusted_proxies`.
-  fn extract_from(
+  pub fn resolve(
     extensions: &http::Extensions,
     headers: &http::HeaderMap,
   ) -> Result<Self, IpAddrError> {
     let peer = peer_ip_from_extensions(extensions);
 
-    let cfg = tako_rs_core::state::get_state::<IpAddrConfig>();
+    let inherited = extensions
+      .get::<Arc<tako_rs_core::router_state::RouterState>>()
+      .and_then(|state| state.get::<IpAddrConfig>())
+      .or_else(tako_rs_core::state::get_state::<IpAddrConfig>);
+    let cfg = extensions.get::<IpAddrConfig>().or(inherited.as_deref());
     let trust_headers = match (peer.as_ref(), cfg.as_ref()) {
-      (Some(p), Some(cfg)) => cfg.trusted_proxies.iter().any(|t| t == p),
+      (Some(p), Some(cfg)) => cfg.is_trusted(p),
       _ => false,
     };
 
     if trust_headers
       && let Some(cfg) = cfg.as_ref()
-      && let Some(ip) = Self::parse_forwarded_headers(headers, &cfg.trusted_proxies)
+      && let Some(ip) = Self::parse_forwarded_headers(headers, cfg)
     {
       return Ok(Self(ip));
     }
@@ -213,84 +228,32 @@ impl IpAddr {
     peer.map(Self).ok_or(IpAddrError::NoIpFound)
   }
 
-  /// Parses the first non-trusted client IP from any of the recognized
-  /// forwarded headers, in priority order.
-  ///
-  /// For multi-hop headers (`Forwarded`, `X-Forwarded-For`) the walk goes
-  /// **right-to-left**, skipping entries that match `trusted_proxies` — the
-  /// first remaining entry is the leftmost untrusted hop (the real client).
-  /// Walking left-to-right was spoofable: an attacker could prepend a fake
-  /// `<spoofed>` to the header and a trusted proxy would append the real
-  /// `<peer>`, leaving the first parseable IP as `<spoofed>`.
-  ///
-  /// Single-IP headers (`X-Real-IP`, `CF-Connecting-IP`, …) carry one
-  /// already-resolved client IP from the proxy and are taken as-is.
   fn parse_forwarded_headers(
     headers: &http::HeaderMap,
-    trusted_proxies: &[StdIpAddr],
+    config: &IpAddrConfig,
   ) -> Option<StdIpAddr> {
-    const MULTI_HOP: &[&str] = &["forwarded", "x-forwarded-for"];
-    const SINGLE_HOP: &[&str] = &[
+    for name in ["forwarded", "x-forwarded-for"] {
+      if headers.contains_key(name) {
+        for value in headers.get_all(name).iter().rev() {
+          for part in value.to_str().ok()?.rsplit(',') {
+            // Opaque or malformed hops prevent trusting anything to their left.
+            let ip = Self::parse_ip_from_part(part.trim())?;
+            if !config.is_trusted(&ip) {
+              return Some(ip);
+            }
+          }
+        }
+        return None;
+      }
+    }
+    for name in [
       "x-real-ip",
       "x-client-ip",
       "cf-connecting-ip",
       "true-client-ip",
-    ];
-    for header_name in MULTI_HOP {
-      if let Some(v) = headers.get(*header_name)
-        && let Ok(s) = v.to_str()
-        && let Some(ip) = Self::parse_ip_right_to_left(s, trusted_proxies)
-      {
-        return Some(ip);
-      }
-    }
-    for header_name in SINGLE_HOP {
-      if let Some(v) = headers.get(*header_name)
-        && let Ok(s) = v.to_str()
-        && let Some(ip) = Self::parse_ip_from_header(s)
-      {
-        return Some(ip);
-      }
-    }
-    None
-  }
-
-  /// Walk a comma-separated header from right to left and return the first
-  /// IP that is not in `trusted_proxies`. Used for multi-hop headers where
-  /// the client appends to the left and proxies append to the right.
-  fn parse_ip_right_to_left(
-    header_value: &str,
-    trusted_proxies: &[StdIpAddr],
-  ) -> Option<StdIpAddr> {
-    let parts: Vec<&str> = header_value.split(',').collect();
-    for part in parts.iter().rev() {
-      let trimmed = part.trim();
-      if trimmed.is_empty() {
-        continue;
-      }
-      // An unparseable entry in the middle of the chain is not a stop
-      // condition — it's typically a missing-port or quoted-form variant
-      // we don't recognize yet; keep walking left.
-      let Some(ip) = Self::parse_ip_from_part(trimmed) else {
-        continue;
-      };
-      if !trusted_proxies.contains(&ip) {
-        return Some(ip);
-      }
-    }
-    None
-  }
-
-  /// Parses an IP address from a header value (comma-separated list, optional
-  /// `for=` prefix, optional `:port` or `[v6]:port` suffix).
-  fn parse_ip_from_header(header_value: &str) -> Option<StdIpAddr> {
-    for part in header_value.split(',') {
-      let part = part.trim();
-      if part.is_empty() {
-        continue;
-      }
-      if let Some(ip) = Self::parse_ip_from_part(part) {
-        return Some(ip);
+    ] {
+      if let Some(value) = headers.get(name) {
+        return Self::parse_ip_from_part(value.to_str().ok()?.trim());
       }
     }
     None
@@ -299,25 +262,31 @@ impl IpAddr {
   /// Parse one comma-separated entry into an IP, stripping `for=`, quotes,
   /// `[v6]` brackets, and an optional `:port` suffix.
   fn parse_ip_from_part(part: &str) -> Option<StdIpAddr> {
-    if part.is_empty() {
-      return None;
-    }
-    let ip_part = part.strip_prefix("for=").unwrap_or(part);
-    let ip_part = ip_part.trim_matches('"');
-
-    let ip_str = if ip_part.starts_with('[') {
-      if let Some(end) = ip_part.find(']') {
-        &ip_part[1..end]
-      } else {
-        ip_part
+    let node = if part.contains('=') {
+      let mut values = part.split(';').filter_map(|field| {
+        let (name, value) = field.trim().split_once('=')?;
+        name
+          .trim()
+          .eq_ignore_ascii_case("for")
+          .then_some(value.trim())
+      });
+      let value = values.next()?;
+      if values.next().is_some() {
+        return None;
       }
-    } else if ip_part.matches(':').count() == 1 {
-      ip_part.split(':').next().unwrap_or(ip_part)
+      value
     } else {
-      ip_part
+      part
     };
-
-    StdIpAddr::from_str(ip_str).ok()
+    let node = if node.starts_with('"') || node.ends_with('"') {
+      node.strip_prefix('"')?.strip_suffix('"')?
+    } else {
+      node
+    };
+    StdIpAddr::from_str(node)
+      .ok()
+      .or_else(|| SocketAddr::from_str(node).ok().map(|addr| addr.ip()))
+      .or_else(|| node.strip_prefix('[')?.strip_suffix(']')?.parse().ok())
   }
 }
 
@@ -357,7 +326,7 @@ impl<'a> FromRequest<'a> for IpAddr {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Self::extract_from(req.extensions(), req.headers()))
+    futures_util::future::ready(Self::resolve(req.extensions(), req.headers()))
   }
 }
 
@@ -367,6 +336,6 @@ impl<'a> FromRequestParts<'a> for IpAddr {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Self::extract_from(&parts.extensions, &parts.headers))
+    futures_util::future::ready(Self::resolve(&parts.extensions, &parts.headers))
   }
 }
