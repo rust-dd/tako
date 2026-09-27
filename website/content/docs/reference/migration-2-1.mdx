@@ -1,0 +1,219 @@
+---
+title: Migrating to 2.1
+description: Update handlers, middleware stores, transport features, cookies, static files, and server startup for the Tako 2.1 API.
+category: reference
+since: 2.1.0
+status: stable
+crate: tako-rs
+runtime: both
+---
+
+# Migrating to 2.1
+
+The 2.1 API includes breaking changes. This guide describes the current source;
+package versions remain on the existing release until release preparation.
+
+## Select transport features explicitly
+
+Enable `ws`, `sse`, `proxy-protocol`, and `udp` when your application uses those
+transports. They are no longer part of the default build. Compio WebSockets use
+`compio-ws`. GraphQL subscriptions on Tokio need both `async-graphql` and `ws`.
+
+```toml
+[dependencies]
+tako-rs = { version = "2.1", features = ["ws", "sse", "plugins", "signals"] }
+```
+
+`per-thread-compio` now enables `compio` throughout the workspace. A build has
+one runtime selection for routing, middleware, signals, and queues; per-thread
+workers follow that selection. `--all-features` selects Compio and omits the
+Tokio-only transport exports. See the [feature reference](/docs/reference/features).
+
+The `jemalloc` flag exposes the allocator without installing it. An application
+that wants it must declare:
+
+```rust
+#[global_allocator]
+static ALLOCATOR: tako::Jemalloc = tako::Jemalloc;
+```
+
+## Handlers, extractors, and responses
+
+Only the final handler argument may consume the body. Earlier arguments must
+implement `FromRequestParts`. Put `Json<T>`, `Form<T>`, `Bytes`, `String`, or the
+raw `Request` last. Implementations of `FromRequest` and `FromRequestParts`
+return a `Send` future; async methods can implement this contract without
+`async_trait` boxing. Borrowed extractor views are for manual extraction inside
+a handler; ordinary handler parameters must satisfy the handler's owned bounds.
+
+```rust
+use tako::extractors::json::Json;
+use tako::extractors::state::State;
+
+#[derive(Clone)]
+struct Settings { prefix: String }
+
+async fn create(State(settings): State<Settings>, Json(value): Json<String>) -> String {
+  format!("{}{}", settings.prefix, value)
+}
+```
+
+Buffered extractors default to a **2 MiB** limit, including chunked bodies.
+Use `router.body_limit(bytes)` to change it, or `router.disable_body_limit()`
+to explicitly allow unbounded buffering. Size failures return 413; malformed
+content returns the extractor's typed error. JSON accepts `application/*+json`
+media types and rejects unrelated content types.
+
+`Result<T, E>` requires both `T` and `E` to implement `Responder`. Implement
+`Responder` for application errors and select an appropriate status. `anyhow`
+errors log their details and return a generic 500 body. String responses now
+carry a text content type; byte responses carry `application/octet-stream`.
+The tuple `(StatusCode, R)` accepts any responder body.
+
+`Next` is an opaque middleware continuation; access its behavior through
+`next.run(request)`. Header-only `Accept` works alone or before a raw request.
+`HeaderMap` is owned, `RawPath` exposes the URI path, and `Path<T>` deserializes
+route parameters.
+
+## Router state, paths, and signals
+
+Use `Router::with_state` for instance-local state. Global state functions are
+deprecated. Replacing an existing value of the same type now takes effect.
+Nested routers preserve child state, route plugins, body limits, and timeouts;
+child values take precedence over parent values. Child fallback and error
+handlers are not inherited by `nest` or `merge`; configure them on the parent.
+
+Route paths and `MatchedPath` use `Arc<str>`. Signal IDs and metadata keys use
+`Cow<'static, str>`; use `.as_ref()` when comparing borrowed strings. TLS ALPN
+metadata uses `Bytes`, and SNI uses `Arc<str>`. Tokio TLS fills negotiated TLS
+metadata; Compio's current TLS backend does not expose SNI/version getters.
+
+Request signals reach the owning router and application arbiter. Route signals
+also reach the matching route arbiter. `request.completed` includes the matched
+route and elapsed microseconds. Lifecycle signals use the application arbiter;
+`server.stopped` is emitted after the listener's normal drain completes.
+Per-thread workers emit listener lifecycle events individually.
+`ROUTER_HOT_RELOAD` requires explicit application emission, and the experimental
+`SignalBus` contract is hidden because it is not connected to dispatch.
+
+## Shared middleware stores
+
+Each builder accepts `.store(backend)`:
+
+| Builder | Backend contract |
+|---|---|
+| `SessionMiddleware` | `SessionStore` |
+| `RateLimiterBuilder` | `RateLimitStore` |
+| `IdempotencyBuilder` | `IdempotencyStore` |
+| `Csrf` | `CsrfTokenStore` |
+| `JwtAuth` | `JwksProvider` |
+
+Import traits from `tako::stores` and reference implementations from
+`tako::stores::memory`. Async backend methods now return `StoreResult<T>`.
+An operational failure is logged and produces 503 without exposing backend
+details. A shared backend must enforce TTLs and atomic operations itself.
+The memory implementations share state across clones within one process.
+
+Session blobs include data and an absolute-lifetime Unix timestamp. Keep
+replica clocks synchronized. Session rotation and destruction remove the old
+ID. `SessionMiddleware::handle()` administers the default memory backend;
+custom backends expose their own administration API.
+
+A custom rate-limit backend owns capacity and refill policy. `consume` returns
+`StoreResult<RateLimitDecision>`; accepted and rejected snapshots determine the
+response headers. Local `max_requests` and algorithm settings apply to the
+built-in limiter. `.client_ip(true)` uses the router's `IpAddrConfig` trusted
+proxy policy. `.ipv6_prefix(64)` groups IPv6 addresses by subnet; 128 remains
+the default.
+
+Idempotency stores must atomically return `IdempotencyBegin::Acquired(lease)`
+or `Existing(entry)`. `complete` and `remove` compare that lease token before
+changing data. Set the pending lease lifetime above your maximum handler
+duration. `IdempotencyEntry` now uses a 32-byte SHA-256 fingerprint and `Bytes`
+for the response body. The fingerprint covers method, path/query, content type,
+and body. The method/path cache key encoding changed; clear old caches during
+migration. A backend can override `wait` with pub/sub; its default polls every
+20 ms. Unknown-length, oversized, and trailer-bearing responses pass through
+without caching. Replays omit `Set-Cookie` and hop-by-hop headers.
+
+Stored CSRF tokens require session middleware before CSRF, even if
+`bind_to_session(false)` is set. `.single_use(true)` consumes a token atomically;
+`.token_ttl(duration)` sets its lifetime. Stored mode uses backend-issued tokens
+and ignores the stateless seed hook. Stateless double-submit mode remains the
+default when no backend is supplied.
+
+JWT providers return `VerificationKey { algorithm, bytes }` values for a `kid`.
+The bundled `MultiKeyVerifier` accepts raw MAC bytes or DER public keys, bound
+to the declared algorithm and the verifier's allow-list. Use
+`.allowed_algorithms(...)` when external keys need an explicit allow-list.
+An empty provider result falls back to configured static keys; a provider error
+or a nonempty set of invalid keys fails closed. Custom verifiers must implement
+`verify_with_key` to use providers. Middleware constraints reach the bundled
+verifier before signature/time validation. Read verified claims through
+`extractors::jwt::JwtClaimsVerified<V::Claims>` after `JwtAuth`.
+
+## Cookies, streaming, and static files
+
+Session and CSRF cookies default to `Secure`. Use `.secure(false)` explicitly
+for local development over plain HTTP.
+
+Static files stream in bounded chunks. Metadata-generated ETags are weak;
+conditional requests, HEAD, single byte ranges, and precompressed sidecars are
+handled consistently. Dotfiles are denied by default; `.allow_dotfiles(true)`
+opts in. Keep served roots read-only to untrusted processes. Percent-encoded
+traversal paths and encoded separators are rejected.
+
+For `FileStream::try_range_response`, an inclusive end of zero means byte zero.
+Use `u64::MAX` for an open end. Multipart ranges remain unsupported.
+
+WebSocket upgrades validate method, HTTP version, required tokens, version 13,
+and the 16-byte decoded key. These are HTTP/1.1 upgrades, including over TLS;
+HTTP/2 Extended CONNECT is not implemented. `keep_alive(WsKeepAlive)` is
+deprecated and has no effect. Implement ping/pong timing in the handler that
+owns the socket; `max_lifetime` caps total lifetime rather than idle time.
+
+Compression skips buffered collection of open-ended streams and skips range
+responses. Larger buffered responses use a blocking worker; tune
+`CompressionBuilder::blocking_threshold` for your workload.
+
+## Server startup and shutdown
+
+Use `Server::builder()` on Tokio or `CompioServer::builder()` on Compio. The
+HTTP `serve_*`, shutdown, and configuration convenience matrix is deprecated.
+The explicit rustls-config entry points remain available for advanced TLS
+configuration, as do raw-transport and per-thread functions.
+
+```rust
+use tako::{Server, router::Router};
+
+#[tokio::main]
+async fn main() -> Result<(), tako::types::BoxError> {
+let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
+let mut router = Router::new();
+router.get("/", || async { "ok" });
+let handle = Server::builder().build().try_spawn_http(listener, router)?;
+handle.result().await?;
+  Ok(())
+}
+```
+
+`try_spawn_*` returns listener, certificate, and plugin initialization errors.
+`ServerHandle::result()` reports errors after startup; `local_addr()` includes
+an ephemeral port selected by port-zero binds. `trigger()` starts graceful
+draining; `shutdown(timeout)` uses the smaller of that timeout and the configured
+drain bound. `tako::shutdown_signal()` handles Ctrl+C and Unix SIGTERM.
+No listener leaks its router to obtain a static reference.
+
+To advertise an existing HTTP/3 endpoint on HTTP/1 or HTTP/2 responses, install
+`middleware::alt_svc::AltSvc::h3(port, max_age)`. Advertising does not start a
+QUIC listener. Existing Alt-Svc response headers are preserved.
+
+## Dependencies and validation
+
+The workspace stays on stable dependency releases and Rust 1.95. Major library
+updates include Compio, async-graphql, validation libraries, JWT dependencies,
+metrics exporters, OpenAPI integrations, and compression libraries. Check your
+application's direct imports when it shares those types with Tako.
+
+Doctests now run for every crate. Default, Tokio feature-rich, and Compio builds
+are checked separately because enabling all features selects the Compio path.

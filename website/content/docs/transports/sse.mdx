@@ -6,6 +6,7 @@ since: 2.0.0
 status: stable
 crate: tako-rs-streams
 runtime: both
+features: [sse]
 ---
 
 # Server-Sent Events
@@ -52,7 +53,8 @@ async fn main() {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await.unwrap();
   let mut router = Router::new();
   router.route(Method::GET, "/events", ticker);
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
 }
 ```
 

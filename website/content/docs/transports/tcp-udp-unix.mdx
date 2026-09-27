@@ -111,18 +111,19 @@ async fn main() -> std::io::Result<()> {
 
 To serve your full HTTP [`Router`](/docs/routing) over a socket file instead of TCP
 — the typical "behind nginx/HAProxy on a local socket" deployment — use
-`serve_unix_http`. The peer path is exposed to handlers as `UnixPeerAddr` in the
+`Server::spawn_unix_http`. The peer path is exposed to handlers as `UnixPeerAddr` in the
 request extensions:
 
 ```rust
 use tako::router::Router;
-use tako::server_unix::serve_unix_http;
+use tako::Server;
 
 #[tokio::main]
 async fn main() {
   let mut router = Router::new();
   router.route(tako::Method::GET, "/", || async { "hello from unix" });
-  serve_unix_http("/tmp/tako-http.sock", router).await;
+  Server::builder().build().spawn_unix_http("/tmp/tako-http.sock", router)
+    .result().await.expect("Unix HTTP server failed");
 }
 ```
 

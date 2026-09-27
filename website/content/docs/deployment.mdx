@@ -12,8 +12,7 @@ crate: tako-rs
 Tako accommodates three deployment shapes, plus a few production
 niceties (socket activation, PROXY protocol fronting, per-thread
 runtimes). Pick the shape that matches your infrastructure; you can
-mix and match (e.g. per-thread fan-out behind a PROXY-v2 load
-balancer) without changing handler code.
+use the same router and handler code across these deployment shapes.
 
 ```rust
 use std::time::Duration;
@@ -37,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
   let handle = server.spawn_http(listener, router);
 
-  tokio::signal::ctrl_c().await?;
+  tako::shutdown_signal().await?;
   handle.shutdown(Duration::from_secs(30)).await;
   Ok(())
 }
@@ -54,44 +53,42 @@ period for graceful shutdown. This is the shape most services need.
 Two flavours, both behind cargo features:
 
 - **`per-thread`** — N current-thread tokio runtimes, one per core,
-  sharing the same `Send + Sync` `Router` via `Box::leak`. Backed by
+  sharing an `Arc<Router>` that is released when workers exit. Backed by
   `SO_REUSEPORT` for kernel-level fan-out across the listeners.
 - **`per-thread-compio`** — io_uring (Linux), IOCP (Windows), or
   kqueue (macOS) via the
   [`compio`](https://github.com/compio-rs/compio) runtime, same
   per-worker shape.
 
-The entry point lives in `tako-server-pt`:
+The entry points are re-exported from `tako` with the `per-thread` feature:
 
 ```rust
-use std::time::Duration;
+use tako::{PerThreadConfig, serve_per_thread};
 use tako::router::Router;
-use tako_server_pt::{ PerThreadConfig, spawn_per_thread };
 
-fn main() -> anyhow::Result<()> {
+fn main() -> std::io::Result<()> {
   let mut router = Router::new();
   router.get("/", || async { "hello from per-thread" });
-
-  let cfg = PerThreadConfig::default()
-    .with_addr("0.0.0.0:8080")
-    .with_workers(num_cpus::get());
-
-  let (handles, shutdown) = spawn_per_thread(cfg, router)?;
-  // Wire shutdown to your signal handler:
-  // shutdown.trigger();
-  for h in handles { let _ = h.join(); }
-  Ok(())
+  let config = PerThreadConfig { workers: 4, ..PerThreadConfig::default() };
+  serve_per_thread("0.0.0.0:8080", router, config)
 }
 ```
 
-`spawn_per_thread` returns `(Vec<JoinHandle>, PerThreadShutdown)`.
-The shutdown handle drives a `select!` over each worker's accept
-loop so workers exit cleanly on signal.
+`serve_per_thread` waits for Ctrl+C or SIGTERM. For explicit control, use
+`spawn_per_thread(addr, router, config)`, await
+`shutdown.wait_for_bind_outcome(worker_count)`, then call `shutdown.trigger()`
+and join the returned OS thread handles during teardown. Bind and plugin setup
+errors are reported through the shutdown handle. These workers currently serve
+HTTP/1.1. TLS, h2c, and PROXY listeners use the regular server builder.
+
+`per-thread-compio` selects Compio consistently for workers, middleware,
+signals, and queues. Kernel load balancing with `SO_REUSEPORT` is intended for
+Linux; use one worker on platforms without equivalent balancing semantics.
 
 ## Behind a load balancer
 
 L4 proxies that prepend a PROXY v1/v2 header (HAProxy, AWS NLB, fly.io
-edges) are supported by `Server::spawn_proxy_protocol`. The parser is
+edges) are supported by `Server::spawn_proxy_protocol` with `proxy-protocol` enabled. The parser is
 TLV-aware and CRC32C-verified, and rewrites `X-Forwarded-*` from the
 parsed header so handlers see the real client address. See the
 [Transports overview](/docs/transports) and
@@ -105,17 +102,17 @@ for an h2c example.
 
 Behind the `socket-activation` cargo feature. `LISTEN_FDS` /
 `LISTEN_PID` (and the s6 / catflap equivalents) are read by
-`tako_server::socket_activation::ListenFds::from_env()`. The returned
+`tako::socket_activation::ListenFds::from_env()`. The returned
 listener types feed the existing `Server::spawn_*` methods, so the
 same handler code runs under systemd, runit, or supervised launch
 without source changes.
 
-## Hot reload
+## Router ownership
 
-The default path keeps `&'static Router` for hot-path performance.
-Hot-reload via `arc_swap::ArcSwap<Arc<Router>>` is on the v2
-follow-up list; once it lands, opt in via a single `Server::builder`
-flag.
+Listeners and their connection tasks own `Arc<Router>` references. Graceful
+shutdown stops accepting, drains active work within `drain_timeout`, then
+cancels remaining tasks. A runtime router-swap API is not provided;
+`ROUTER_HOT_RELOAD` is reserved for explicit application signals.
 
 ## Cross-references
 

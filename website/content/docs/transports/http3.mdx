@@ -17,14 +17,14 @@ for HTTP/1.1 and HTTP/2 drives HTTP/3 unchanged.
 
 <Callout type="warn">
 HTTP/3 is **tokio-only** — it is not available on the Compio runtime. TLS is
-**mandatory** for QUIC, so a `TlsCert` is always required. Enabling `http3` also
-enables the `webtransport` feature (see [WebTransport](/docs/transports/webtransport)).
+**mandatory** for QUIC, so a `TlsCert` is always required. Enable `webtransport` separately for the
+[raw QUIC session helper](/docs/transports/webtransport).
 </Callout>
 
 ## Quickstart
 
 QUIC binds a UDP socket, not a `TcpListener`, so the address is passed at spawn
-time. `tako::serve_h3` boots a single HTTP/3 server until the process exits.
+time. `Server::spawn_h3` returns a handle for startup errors and shutdown.
 
 ```rust
 use anyhow::Result;
@@ -41,7 +41,9 @@ async fn main() -> Result<()> {
   let mut router = Router::new();
   router.route(Method::GET, "/", hello);
 
-  tako::serve_h3(router, "[::]:4433", Some("cert.pem"), Some("key.pem")).await;
+  tako::Server::builder()
+    .tls(tako::TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build().spawn_h3("[::]:4433", router).result().await?;
   Ok(())
 }
 ```

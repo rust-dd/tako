@@ -20,7 +20,7 @@ crate, which serves two endpoints:
 
 These are the two halves of any chat-style feature: receiving messages from a
 client, and pushing messages to it on a schedule or from another source. WebSocket
-ships in the default feature set on the **tokio** runtime, so no flag is needed.
+requires the `ws` feature on Tokio.
 
 If you have not served a handler before, read the
 [Quickstart](/docs/getting-started/quickstart) first.
@@ -142,7 +142,7 @@ against oversized frames and slow-loris upgrades on a public endpoint. See the
 [WebSocket transport reference](/docs/transports/websocket) for the full builder.
 
 <Callout type="info">
-WebSocket runs on tokio by default and on compio behind the `compio-ws` feature.
+WebSocket uses `ws` on Tokio and `compio-ws` on Compio.
 HTTP/2 WebSocket (RFC 8441) and the deflate extension are covered in the
 [transport reference](/docs/transports/websocket).
 </Callout>

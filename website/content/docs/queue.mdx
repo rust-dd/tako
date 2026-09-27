@@ -58,7 +58,8 @@ async fn main() -> anyhow::Result<()> {
   router.route(Method::POST, "/emails", enqueue);
 
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```
@@ -86,9 +87,7 @@ Signals are emitted for every job lifecycle event:
 - `queue.job.queued`, `.started`, `.completed`, `.failed`,
   `.retrying`, `.dead_letter`
 
-The canonical strings live under `tako::queue::signal_ids`. They are
-part of the stable signal contract — see
-[API stability](/docs/reference/stability). The queue integrates with
+The canonical strings live under `tako::queue::signal_ids`. The queue integrates with
 the in-process [signals](/docs/signals) bus, so any listener can react
 to job lifecycle events.
 

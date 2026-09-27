@@ -18,8 +18,9 @@ run on both the Tokio and Compio runtimes.
 
 ## HTTP/1.1
 
-`tako::serve` builds a default server, binds the listener, and accepts until the
-process exits. This is the shortest entry point.
+Bind a listener and pass it to `Server::spawn_http` on Tokio, or
+`CompioServer::spawn_http` on Compio. The returned handle reports failures and
+controls graceful shutdown.
 
 <Tabs items={['Tokio','Compio']}>
 <Tab value="Tokio">
@@ -42,7 +43,8 @@ async fn main() -> Result<()> {
   let mut router = Router::new();
   router.route(Method::GET, "/", hello);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```
@@ -68,7 +70,8 @@ async fn main() -> Result<()> {
   let mut router = Router::new();
   router.route(Method::GET, "/", hello);
 
-  tako::serve(listener, router).await;
+  tako::CompioServer::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```
@@ -76,9 +79,8 @@ async fn main() -> Result<()> {
 </Tab>
 </Tabs>
 
-The only difference between the two runtimes is the listener type
-(`tokio::net::TcpListener` vs `compio::net::TcpListener`) and the `main`
-attribute. The `serve` call and `Router` are identical. See
+The listener type, server builder, and `main` attribute select the runtime.
+The `Router` API is shared. See
 [Runtimes](/docs/concepts/runtimes) for how to pick.
 
 <RustExample path="examples/hello-world/src/main.rs" />
@@ -125,8 +127,7 @@ read timeout, keep-alive and keep-alive timeout, HTTP/2 caps, HTTP/3 caps,
 
 Enable the `http2` feature. Prior-knowledge h2c is typically used behind an L7
 proxy (Envoy, Nginx) that terminates TLS and forwards cleartext h2c upstream.
-Use `spawn_h2c` on the builder, or the standalone `tako::serve_h2c(listener,
-router)` helper.
+Use `Server::spawn_h2c` on Tokio. Compio supports HTTP/2 over TLS.
 
 ```rust
 use tako::{Server, ServerConfig};
@@ -187,9 +188,7 @@ mitigation, and `h2_keep_alive_interval` — all live on `ServerConfig`.
 ### TLS without HTTP/2
 
 The `tls` feature works on its own; without `http2`, ALPN advertises only
-`http/1.1`. The same `spawn_tls` path applies. The lower-level
-`tako::serve_tls(listener, router, Some("cert.pem"), Some("key.pem"))` helper is
-also available when you do not need a builder handle.
+`http/1.1`. The same `spawn_tls` builder path applies.
 
 ## TLS material
 

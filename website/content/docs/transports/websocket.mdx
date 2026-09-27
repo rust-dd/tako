@@ -6,16 +6,17 @@ since: 2.0.0
 status: stable
 crate: tako-rs-streams
 runtime: both
+features: [ws, compio-ws]
 ---
 
 # WebSocket
 
 WebSocket is not a separate listener — it lives inside an HTTP handler on
-whichever HTTP transport you already serve. `TakoWs::new(req, fut)` performs the
+an HTTP/1.1 listener, optionally over TLS. `TakoWs::new(req, fut)` performs the
 RFC-6455 server-side handshake and hands the upgraded stream to your closure.
 The handler owns the stream and drives the message loop.
 
-WebSocket is available on both runtimes: it is on by default for Tokio
+WebSocket is available on both runtimes: enable `ws` for Tokio
 (`tako::ws`), and behind the `compio-ws` feature for Compio (`tako::ws_compio`).
 
 ## Tokio
@@ -67,12 +68,12 @@ async fn main() {
     .unwrap();
   let mut router = tako::router::Router::new();
   router.route(Method::GET, "/ws/echo", ws_echo);
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router).result().await.unwrap();
 }
 ```
 
 The handler is just another route — register it with `router.route` and serve
-it on any HTTP transport. Because the closure returns a `Responder`, the upgrade
+it on an HTTP/1.1 transport. Because the closure returns a `Responder`, the upgrade
 response (`101 Switching Protocols`) is produced for you; the upgraded socket is
 driven on a spawned task once the handshake completes.
 
@@ -126,7 +127,7 @@ async fn main() {
     .unwrap();
   let mut router = tako::router::Router::new();
   router.route(Method::GET, "/ws/echo", ws_echo);
-  tako::serve(listener, router).await;
+  tako::CompioServer::builder().build().spawn_http(listener, router).result().await.unwrap();
 }
 ```
 
@@ -145,7 +146,7 @@ handler runs:
 | `.allowed_origins(list)` | Reject upgrades whose `Origin` is not on the list with `403`. |
 | `.upgrade_timeout(d)` | Drop the task if the client never completes the upgrade. |
 | `.max_lifetime(d)` | Hard cap on total conversation lifetime after upgrade. |
-| `.keep_alive(WsKeepAlive { .. })` | Surface `ping_interval` / `pong_timeout` hints to the handler. |
+| `.keep_alive(WsKeepAlive { .. })` | Deprecated; has no effect. Implement keep-alive in the handler. |
 
 ```rust
 use std::time::Duration;
@@ -161,19 +162,16 @@ TakoWs::new(req, |ws| async move { /* ... */ })
 # }
 ```
 
-<Callout type="info">
-`WsKeepAlive` (`ping_interval`, `pong_timeout`) is surfaced to the handler as a
-hint — the framework does not run the ping loop itself, because the handler owns
-the stream. For unconditional disconnection of an idle peer, prefer
-`max_lifetime`.
-</Callout>
+The handler owns the socket and must implement ping intervals and pong deadlines.
+`max_lifetime` caps total conversation lifetime; it does not detect idle peers.
 
-## Behind HTTP/2
+## TLS and HTTP/2 listeners
 
-WebSocket can also be served over an HTTP/2-or-TLS listener. The
-`examples/websocket-http2` example registers the same `TakoWs` handlers and
-serves them with `tako::serve_tls`. The upgrade and message loop are identical;
-only the transport you bind changes.
+The `examples/websocket-http2` TLS listener supports HTTP/2 for ordinary HTTP
+requests. WebSocket upgrades on that listener still negotiate HTTP/1.1.
+HTTP/2 Extended CONNECT is not supported. Invalid upgrade methods return 405,
+unsupported WebSocket versions return 426 with `Sec-WebSocket-Version: 13`,
+and malformed handshake headers or keys return 400.
 
 ## Related
 

@@ -4,6 +4,7 @@ description: Recover the real client address behind an L4 load balancer by parsi
 category: transport
 since: 2.0.0
 status: stable
+features: [proxy-protocol]
 crate: tako-rs-server
 runtime: tokio
 ---
@@ -24,7 +25,7 @@ runtime.
 ## Serving with PROXY protocol
 
 `serve_http_with_proxy_protocol` wraps your [`Router`](/docs/routing) exactly like
-[`tako::serve`](/docs/transports/http), but reads and strips the PROXY header on
+[`Server::spawn_http`](/docs/transports/http), but reads and strips the PROXY header on
 each connection before dispatching:
 
 ```rust

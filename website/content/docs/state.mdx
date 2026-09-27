@@ -50,7 +50,8 @@ async fn main() -> anyhow::Result<()> {
   router.with_state(AppConfig { greeting: "Hello" });
   router.route(Method::GET, "/", hello);
 
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```

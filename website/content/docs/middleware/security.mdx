@@ -49,10 +49,17 @@ Key knobs:
   fallback for legacy clients that send neither cookie nor header.
 - `bind_to_session(bool)` — defaults to `true`; bind the token to the session.
 
+Both CSRF and session cookies default to `Secure`. For local plain HTTP,
+explicitly call `.secure(false)`.
+
+For shared CSRF state use `.store(backend)` with `CsrfTokenStore`, register
+session middleware first, and configure `.single_use(true)` for atomic token
+consumption. `.token_ttl(duration)` controls expiry. Backend failures return 503.
+
 ## Sessions
 
 `session::SessionMiddleware` provides cookie-based sessions over an in-memory
-`scc::HashMap` store. Sessions are keyed by a random cookie value and carry
+`MemorySessionStore` backend by default. Sessions are keyed by a random cookie value and carry
 arbitrary `serde`-compatible data.
 
 ```rust
@@ -70,7 +77,7 @@ let sessions = SessionMiddleware::new()
 
 `SessionTtl` separates an **idle** timeout (default 1 h) from an **absolute**
 lifetime cap (default 24 h), so a stolen session id cannot be refreshed
-forever. A dirty or touched session re-emits `Set-Cookie` with a refreshed
+forever. A live session re-emits `Set-Cookie` with a refreshed
 `Max-Age` on every request (rolling refresh). `Session::rotate` swaps the
 session id while keeping the data — call it after login to defend against
 fixation. `SessionMiddleware::handle()` returns a handle with a `revoke_all`
@@ -79,7 +86,7 @@ API for emergency purges.
 <Callout type="info">
   The default store is in-process and not shared across instances. For a
   clustered deployment, back sessions with a shared store via the
-  `tako_rs_plugins::stores` traits.
+  `SessionMiddleware::new().store(backend)` builder and `tako::stores::SessionStore`.
 </Callout>
 
 ## Security headers
@@ -122,6 +129,11 @@ report-only policy instead.
 </Callout>
 
 ## Body limit
+
+Buffered extractors already use a 2 MiB default router limit. Configure
+`router.body_limit(bytes)` or explicitly call `router.disable_body_limit()`.
+The middleware below can add route-dependent limits and early rejection.
+
 
 `body_limit::BodyLimit` rejects oversized request bodies before they are read,
 preventing resource-exhaustion attacks. It fast-rejects using `Content-Length`

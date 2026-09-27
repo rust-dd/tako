@@ -80,12 +80,11 @@ Attach it like any other middleware — see the
 ## `JwtClaimsUnverified<T>`
 
 Decodes the claims segment of a JWT into `T` (any `serde::Deserialize`)
-and checks `exp` / `nbf` only.
+without checking the signature, `exp`, or `nbf`.
 
 <Callout type="warn">
 `JwtClaimsUnverified<T>` does **NOT** verify the token signature. It only
-base64-decodes the claims and applies the time checks, neither of which is
-authenticated. Treat its output as untrusted unless an upstream middleware
+base64-decodes the claims. Treat its output as untrusted unless an upstream middleware
 has already verified the signature for this request. For trusted claims,
 use [`JwtClaimsVerified<T>`](#jwtclaimsverifiedt).
 </Callout>
@@ -118,12 +117,12 @@ The verifying counterpart, from `tako-rs-plugins`. It does not parse the
 token itself — it reads the claims that the
 [`JwtAuth`](/docs/middleware/auth) middleware inserted into request
 extensions **after** verifying the signature (against a JWKS / shared key)
-and applying `exp` / `nbf` / `iss` / `aud`. `T` (here `C`) must be the
+and applying the verifier’s time checks and configured issuer/audience constraints. `T` (here `C`) must be the
 verifier's `Claims` type.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use tako::middleware::jwt_auth::JwtClaimsVerified;
+use tako::extractors::jwt::JwtClaimsVerified;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Claims {

@@ -5,7 +5,7 @@ category: transport
 since: 2.0.0
 status: stable
 crate: tako-rs-core
-runtime: tokio
+runtime: both
 features: [grpc]
 ---
 
@@ -15,13 +15,13 @@ Tako serves gRPC **unary** RPCs by treating each method as a normal HTTP route.
 There is no separate gRPC server: a gRPC handler is an ordinary async function
 that takes a `GrpcRequest<T>` extractor and returns a `GrpcResponse<U>` responder,
 registered on the same [`Router`](/docs/routing) as your REST endpoints. The
-helpers live in `tako-rs-core` behind the `grpc` feature and require the **tokio**
-runtime — gRPC is not available on compio.
+helpers live in `tako-rs-core` behind `grpc` and work on either runtime. Use an
+HTTP/2 listener: h2c or TLS on Tokio, and TLS with `compio-tls` on Compio.
 
 ```toml
 [dependencies]
-tako-rs = { version = "2", features = ["grpc"] }
-prost = "0.13"
+tako-rs = { version = "2", features = ["grpc", "http2"] }
+prost = "0.14"
 ```
 
 The `grpc` feature gates the `tako::grpc` module. Protobuf message types come from
@@ -93,7 +93,8 @@ async fn main() -> Result<()> {
   router.route(Method::POST, "/grpc.Greeter/SayHello", say_hello);
 
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_h2c(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```

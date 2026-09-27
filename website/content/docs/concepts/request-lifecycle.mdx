@@ -17,7 +17,7 @@ names from `tako-rs-core`.
 
 1. **Listener** — a `TcpListener` (or TLS / HTTP/2 / HTTP/3 / Unix listener)
    accepts a connection.
-2. **Server** — `tako::serve(listener, router)` drives the accept loop and
+2. **Server** — `Server::spawn_http(listener, router)` drives the accept loop and
    parses each request into a `Request` (`http::Request<TakoBody>`).
 3. **Router match** — `Router` looks up the `(Method, path)` pair against its
    `matchit`-backed table.
@@ -34,13 +34,14 @@ names from `tako-rs-core`.
 
 ## 1–2. Listener and server
 
-The entry point is `tako::serve`:
+Start the listener through the server builder:
 
 ```rust
 let listener = TcpListener::bind("127.0.0.1:8080").await?;
 let mut router = Router::new();
 router.route(Method::GET, "/", hello_world);
-tako::serve(listener, router).await;
+tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
 ```
 
 `serve` builds a default `Server`, accepts connections, and turns each one into

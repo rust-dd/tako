@@ -69,10 +69,10 @@ independently nested routers carry different configuration.
 
 ## How transports plug in
 
-The server crate is the only layer that touches sockets. `tako::serve` builds a
+The server crate is the only layer that touches sockets. `Server::spawn_http` builds a
 default `Server` and accepts connections on a `TcpListener`, dispatching each
 request through the same `Router`. Other transports follow the identical shape
-through dedicated entry points — `serve_tls`, `serve_h2c`, `serve_h3`,
+through dedicated builder methods — `spawn_tls`, `spawn_h2c`, `spawn_h3`,
 `server_tcp`, `server_udp`, `server_unix`, and the compio variants — all of
 which drive the unchanged core router. Streaming and upgrade transports
 (WebSocket, SSE, WebTransport, file streaming) live in `tako-rs-streams` and

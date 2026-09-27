@@ -12,7 +12,7 @@ features: [file-stream]
 
 Tako's streaming surface covers Server-Sent Events, WebSocket,
 file streaming with range / conditional GET, and WebTransport over
-HTTP/3. All four live in the `tako-streams` crate and are re-exported
+HTTP/3. All four live in the `tako-rs-streams` crate and are re-exported
 under `tako::*`.
 
 ## Server-Sent Events
@@ -43,7 +43,8 @@ async fn main() -> anyhow::Result<()> {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
   let mut router = Router::new();
   router.route(Method::GET, "/events", ticker);
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router)
+    .result().await.expect("HTTP server failed");
   Ok(())
 }
 ```
@@ -55,6 +56,8 @@ during idle periods. `tako::sse::last_event_id(headers)` reads the
 `Last-Event-ID` header sent by EventSource clients on reconnect.
 
 See [SSE transport](/docs/transports/sse) for the full transport reference.
+
+SSE requires the `sse` feature.
 
 ## WebSocket
 
@@ -82,20 +85,20 @@ async fn ws_echo(req: Request) -> impl Responder {
 }
 ```
 
-Subprotocol negotiation, max frame / message sizes, allowed origins,
-upgrade timeout, ping / pong keep-alive policy, and
-`permessage-deflate` all live on `WebSocketConfig` — pass it via
-`TakoWs::with_config`.
+Enable `ws` for Tokio or `compio-ws` for Compio. Configure subprotocols,
+frame/message limits, allowed origins, and upgrade timeout on the responder.
+The handler implements its own ping/pong policy; permessage-deflate is not provided.
 
 See [WebSocket transport](/docs/transports/websocket) for the full transport reference.
 
 ## File serving
 
-`tako::file_stream::FileStream` serves a single file with strong
-ETag / `If-None-Match` / `If-Modified-Since` support and serves
-precompressed sidecars (`<file>.br`, `<file>.gz`) when present.
-`tako::r#static::ServeDirBuilder` mounts a directory with SPA
-fallback (`fallback("/index.html")`) and traversal hardening.
+`tako::file_stream::FileStream` (feature `file-stream`) streams an open file
+and provides conditional and single-range response helpers. Metadata validators
+are weak ETags. `tako::r#static::ServeDirBuilder` and `ServeFile` stream assets,
+handle HEAD and conditional/range requests, and optionally select `.br` / `.gz`
+sidecars. Dotfiles are denied by default. Use an explicit fallback file path
+and keep served roots read-only to untrusted processes.
 
 <RustExample path="examples/file-stream/src/main.rs" />
 

@@ -24,8 +24,7 @@ Application code depends only on the umbrella crate and reaches everything
 through the `tako::*` path, so the umbrella docs are the entry point:
 
 - **[`tako-rs`](https://docs.rs/tako-rs)** — the umbrella. Start here. Everything
-  public is re-exported under `tako::*`, and this is the only crate covered by
-  the [stability policy](/docs/reference/stability).
+  intended for applications is re-exported under `tako::*`.
 
 ## Per-crate rustdoc
 
@@ -45,9 +44,8 @@ their rustdoc is published for browsing the source-level layout:
 
 <Callout type="info">
 Import from the umbrella (`tako::router::Router`), not the sub-crate
-(`tako_core::...`). Only the umbrella re-export path is covered by the
-[stability contract](/docs/reference/stability); a direct sub-crate path may move
-in a minor release.
+(`tako_rs_core::...`). Use the [migration guide](/docs/reference/migration-2-1)
+when upgrading to the 2.1 API.
 </Callout>
 
 ## Building the docs locally

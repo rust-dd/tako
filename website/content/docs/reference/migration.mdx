@@ -34,7 +34,7 @@ This guide explains *what to change in your code* to move from 1.x to 2.0.
 │                   │                              │ ReloadableResolver +    │
 │                   │                              │ ClientAuth (mTLS)       │
 │ Connection info   │ SocketAddr / UnixPeerAddr    │ ConnInfo (unified)      │
-│ tako-core-local   │ separate !Send router        │ removed                 │
+│ tako-rs-core-local   │ separate !Send router        │ removed                 │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -262,7 +262,7 @@ extensions for backward compatibility, alongside `ConnInfo`.
 
 ## 12. Backend traits
 
-`tako_plugins::stores` adds five traits:
+`tako_rs_plugins::stores` adds five traits:
 
 - `SessionStore`
 - `RateLimitStore`
@@ -271,7 +271,9 @@ extensions for backward compatibility, alongside `ConnInfo`.
 - `CsrfTokenStore`
 
 Built-in middleware still defaults to in-memory stores. Implement these
-traits to back middleware with Redis / Postgres / external services.
+traits to back middleware with Redis / Postgres / external services. The
+`.store(backend)` builder connections and fallible, atomic store contracts are
+implemented in [2.1](/docs/reference/migration-2-1#shared-middleware-stores).
 
 > Companion crates `tako-stores-redis` and `tako-stores-postgres` are on
 > the follow-up list and intentionally not part of the framework
@@ -279,12 +281,12 @@ traits to back middleware with Redis / Postgres / external services.
 
 ## 13. Extractors
 
-- `tako_extractors::Path<T>` is the new axum-style wrapper. The old
+- `tako::extractors::path::Path<T>` is the new axum-style wrapper. The old
   zero-arg extractor was renamed `RawPath` (**breaking**). Migrate any
   call site that used `Path` as a no-argument extractor.
 - `JwtClaims<T>` is renamed `JwtClaimsUnverified<T>`. The old name
   remains as a `#[deprecated]` alias. The verifying counterpart is
-  `tako_plugins::extractors::jwt::JwtClaimsVerified<C>`, fed by
+  `tako_rs_plugins::extractors::jwt::JwtClaimsVerified<C>`, fed by
   `JwtAuth<V>` middleware.
 - New: `TypedHeader<H>` (feature `typed-header`), `Extension<T>`,
   `MatchedPath`, `OriginalUri`, `Host`, `Scheme`, `ConnectInfo<T>`,
@@ -292,7 +294,7 @@ traits to back middleware with Redis / Postgres / external services.
   `BufferedUploadedFile`, `KeyRing`-rotated cookie extractors,
   `Validated<T>` (features `validator` / `garde`).
 
-## 14. `tako-core-local` removed
+## 14. `tako-rs-core-local` removed
 
 The `!Send` `LocalRouter` was removed. Per-worker isolation is fully
 covered by `serve_per_thread` / `serve_per_thread_compio` with the
@@ -306,8 +308,9 @@ matching thread-safe equivalent. The `per-thread-local` /
   `Sse::keep_alive(...)`, `last_event_id(headers)` helper.
 - `TakoWs<H>` builder gained `protocols`, `max_frame_size`,
   `max_message_size`, `allowed_origins`, `upgrade_timeout`,
-  `keep_alive(WsKeepAlive)`. `permessage-deflate` is exposed via
-  `WebSocketConfig`. Autobahn green and built-in deflate are deferred.
+  `keep_alive(WsKeepAlive)`. The keep-alive option never scheduled pings and is
+  deprecated in 2.1; handlers own their ping/pong policy. Per-message deflate
+  is not implemented.
 - `FileStream::with_etag(..)`, `with_last_modified(..)`,
   `with_content_type(..)`, `evaluate_conditional(...)`,
   `weak_etag_from_metadata(...)`. Multipart/byteranges and `sendfile(2)`
@@ -346,9 +349,9 @@ matching thread-safe equivalent. The `per-thread-local` /
 - Cron scheduling behind the `queue-cron` cargo feature.
 - New signals: `queue.job.queued / started / completed / failed /
   retrying / dead_letter`. Canonical strings under
-  `tako_core::queue::signal_ids`.
-- `signals::bus::SignalBus` async trait + `LocalBus` no-op default for
-  cluster-wide signal forwarding.
+  `tako_rs_core::queue::signal_ids`.
+- `signals::bus::SignalBus` and `LocalBus` are unconnected scaffolding, not
+  automatic cluster forwarding. They are hidden from generated docs in 2.1.
 
 ## 19. v2 client
 
@@ -362,17 +365,12 @@ matching thread-safe equivalent. The `per-thread-local` /
 The legacy `TakoClient` / `TakoTlsClient` keep working for backward
 compatibility but new code should use `V2Client`.
 
-## Known incompatibility: `--all-features` does not compile
+## Runtime selection
 
-Enabling **both** the tokio and compio runtimes simultaneously
-(`cargo build --all-features`) is not supported. The `compio::time::sleep`
-future is `!Send`, while hyper's service bound (used for tokio
-transports) is `Send`. The middleware that bridges them — currently
-`tako_rs_plugins::middleware::timeout::Timeout` — picks one runtime per
-build via `#[cfg(...)]`.
-
-If you need both runtimes in the same process, build separate binaries
-or hand-pick a feature subset that activates only one runtime side.
+`--all-features` now compiles and selects Compio. Tokio-only transports are
+excluded from that configuration. Use a Tokio feature subset for HTTP/3,
+h2c, PROXY protocol, Unix HTTP, and the outbound client. See the
+[2.1 migration guide](/docs/reference/migration-2-1).
 
 ## Deferred to a future 2.x release
 

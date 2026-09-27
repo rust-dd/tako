@@ -13,7 +13,7 @@ Sections with a single page live as a flat
 manifest. Folder-form sections today: `getting-started/`, `concepts/`,
 `transports/`, `extractors/`, `middleware/`, `tutorials/`, `reference/`.
 All of them carry an `index.mdx` overview **except `reference/`**, whose
-`meta.json` lists only `migration, stability, features, api`.
+`meta.json` lists only `migration-2-1, migration, features, api`.
 
 This SKILL is the **per-page authoring contract**. The audit script
 (`website/scripts/docs-audit.ts`) and the linter
@@ -165,7 +165,7 @@ focused snippets.
 
 ### 3.8 Reference — base: `reference/features.mdx`
 
-Normative: the cargo feature graph, migration ledger, stability policy,
+Normative: the cargo feature graph, migration ledger,
 API index. Tables + exact, exhaustive content. The feature page must cover
 every flag in the README "Feature Flags" table.
 
@@ -205,7 +205,7 @@ Accuracy is the whole job. Read the crate source before writing — do not
 invent signatures or type names. Prefer `<RustExample>` pointing at a real
 file in `examples/` over a hand-written snippet. Keep tokio-only vs compio
 support correct (the README transport matrix is the reference: HTTP/2 +
-TLS on both runtimes; QUIC / gRPC / raw sockets are tokio-only). When a
+TLS and raw TCP/UDP on both runtimes; QUIC, h2c, Unix sockets, and PROXY protocol are tokio-only). When a
 type's friendly name in the README differs from its exported name, document
 the exported name and mention the catalog name once.
 

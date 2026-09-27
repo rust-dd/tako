@@ -11,7 +11,9 @@ runtime: both
 
 Tako runs on two async runtimes, chosen at build time. The application model —
 `Router`, handlers, extractors, middleware, responders — is identical on both.
-What differs is the I/O machinery underneath and which transports are available.
+Transport availability and some middleware adapters differ. Router and route
+timeouts work on both; `middleware::timeout::Timeout` currently has a Tokio
+adapter only.
 
 - **Tokio** (default) — multi-threaded, work-stealing scheduler with `Send`
   futures end-to-end. This is what the standalone `Server` builder targets.
@@ -19,20 +21,13 @@ What differs is the I/O machinery underneath and which transports are available.
   thread-per-core over io_uring / IOCP / kqueue. Futures are `!Send` and pinned
   to the runtime thread that produced them.
 
-## You cannot enable both at once
+## One runtime selection per build
 
-`cargo build --all-features` does **not** produce a runnable binary. The two
-runtimes are mutually exclusive because:
-
-- Hyper's HTTP/2 service bound requires `+ Send`.
-- `compio::time::sleep` is `!Send`.
-- Some middleware (notably `timeout::Timeout`) must pick one runtime per build
-  with `#[cfg(...)]`.
-
-<Callout type="warn">
-Pick **one** runtime per binary. If a single deployment genuinely needs both,
-build separate binaries — there is no way to host both in one process.
-</Callout>
+Without `compio`, Tako selects Tokio. Enabling `compio` switches the HTTP server,
+router timers, middleware, queues, and per-thread workers to Compio.
+`cargo build --all-features` compiles and selects Compio; Tokio-only transports
+are excluded from that build. To use HTTP/3 or the outbound client, choose a
+Tokio feature set without `compio`.
 
 ## Switching runtimes
 
@@ -65,12 +60,13 @@ tako-rs = { version = "2", default-features = false, features = [
 
 The umbrella crate swaps the server type for you: with `compio` on, the
 re-exports surface `CompioServer` / `CompioServerBuilder` instead of `Server` /
-`ServerBuilder`. The `serve` entry point and the core router are unchanged.
+`ServerBuilder`. The core router API is shared by both. The HTTP `serve_*` helpers are deprecated;
+use the selected builder and its `try_spawn_*` methods.
 
 ## Transport coverage
 
 Not every transport is available on Compio. The protocols that depend on
-Tokio-only machinery (QUIC, the legacy hyper client, raw socket servers) are
+Tokio-only machinery (QUIC, the outbound HTTP client, Unix socket servers) are
 Tokio-only:
 
 | Protocol | Tokio | Compio | Feature flag |
@@ -79,18 +75,18 @@ Tokio-only:
 | HTTP/2 | yes | yes | `http2` |
 | HTTP/3 (QUIC) | yes | — | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
-| WebSocket | yes | yes | *default* / `compio-ws` |
+| WebSocket | yes | yes | `ws` / `compio-ws` |
 | WebTransport | yes | — | `webtransport` |
-| SSE | yes | yes | *default* |
-| gRPC (unary) | yes | — | `grpc` |
-| Raw TCP | yes | — | *default* |
-| Raw UDP | yes | — | *default* |
+| SSE | yes | yes | `sse` |
+| gRPC (unary) | yes | yes | `grpc` |
+| Raw TCP | yes | yes | *default* |
+| Raw UDP | yes | yes | `udp` |
 | Unix sockets | yes | — | *default* (unix only) |
-| PROXY protocol v1/v2 | yes | — | *default* |
+| PROXY protocol v1/v2 | yes | — | `proxy-protocol` |
 
-HTTP/2 and TLS are supported on **both** runtimes; QUIC-based protocols
-(HTTP/3, WebTransport), gRPC, the raw socket servers, and the outbound
-`tako::client` are Tokio-only.
+HTTP/2 over TLS is supported on both runtimes. Cleartext h2c, QUIC-based
+protocols (HTTP/3, WebTransport), Unix sockets, PROXY protocol, and the outbound
+`tako::client` are Tokio-only. Raw TCP and UDP use each runtime’s native I/O API.
 
 ## Crossing the runtime boundary internally
 
@@ -106,9 +102,11 @@ to a multi-threaded Tokio executor.
 
 The `per-thread` and `per-thread-compio` features host the same thread-safe
 `Router` on N current-thread workers, fanned out with `SO_REUSEPORT`.
-`serve_per_thread` returns a shutdown handle that drives a `select!` over each
-worker's accept loop so termination is clean. These live in the
-`tako-rs-server-pt` crate.
+`serve_per_thread(addr, router, config)` blocks until Ctrl+C or SIGTERM and then
+drains the workers. `spawn_per_thread(addr, router, config)` returns the worker
+thread handles and a `PerThreadShutdown` for explicit control. Enabling
+`per-thread-compio` also selects Compio for all shared runtime-dependent code.
+These entry points live in `tako-rs-server-pt`.
 
 ## Related
 

@@ -34,6 +34,9 @@ tako-rs = "2"
 
 MSRV 1.95 · Edition 2024
 
+Select optional transports with `ws`, `sse`, `proxy-protocol`, and `udp`.
+The [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1) covers API and default changes.
+
 ## Quick Start
 
 ```rust
@@ -57,7 +60,7 @@ async fn main() -> Result<()> {
     let mut router = Router::new();
     router.route(Method::GET, "/", hello_world);
 
-    tako::serve(listener, router).await;
+    tako::Server::builder().build().spawn_http(listener, router).result().await?;
     Ok(())
 }
 ```

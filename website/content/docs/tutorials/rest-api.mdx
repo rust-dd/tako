@@ -163,7 +163,7 @@ surface (`error_handler`, `client_error_handler`, `use_problem_json`).
 Cross-cutting concerns — request IDs, auth, rate limiting — attach as
 middleware without touching handler code. Anything implementing
 `IntoMiddleware` can be attached to the whole router or a single route. The
-bundled middleware lives in `tako-plugins`, enabled with the `plugins` feature.
+bundled middleware lives in `tako-rs-plugins`, enabled with the `plugins` feature.
 
 A `RequestId` middleware that tags every request with an `X-Request-ID` header:
 

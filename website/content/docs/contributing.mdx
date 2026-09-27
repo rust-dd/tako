@@ -28,14 +28,10 @@ activates both runtimes and every transport, extractor, and plugin:
 cargo test --workspace --all-features
 ```
 
-<Callout type="warn">
-`--all-features` is the right config for `cargo test` and `cargo clippy`, but it
-does **not** produce a runnable binary: enabling both the tokio and compio
-runtime sides at once is unsupported (the compio sleep future is `!Send` while
-hyper's tokio service bound is `Send`). To run an example or a server, pick a
-feature subset that activates only one runtime side. See the [feature
-reference](/docs/reference/features).
-</Callout>
+`--all-features` selects Compio and excludes Tokio-only transports. Also run a
+Tokio feature subset to cover HTTP/3, h2c, PROXY protocol, and the outbound
+client. See the [feature reference](/docs/reference/features).
+
 
 ## Toolchain
 
@@ -43,8 +39,8 @@ reference](/docs/reference/features).
   let-chains and other edition-2024 features, so an older toolchain will not
   compile it.
 - The MSRV is recorded in the workspace `Cargo.toml` under
-  `[workspace.package].rust-version`. Tako tracks the latest stable Rust; see
-  the [stability policy](/docs/reference/stability) for the MSRV-bump rules.
+  `[workspace.package].rust-version`. CI checks this floor alongside stable
+  and beta toolchains.
 
 ## Formatting and lints
 
@@ -80,9 +76,8 @@ A few conventions the codebase holds to:
 - **Doc comments stay short.** A one-line summary plus an example covers most
   public items. Walls of doc text get skimmed and go stale.
 - **No `#[non_exhaustive]` marker.** The codebase does not annotate public types
-  with `#[non_exhaustive]`; exhaustive matching is treated as leverage for
-  callers, and additive evolution is handled through the [stability
-  policy](/docs/reference/stability) rather than the marker.
+  with `#[non_exhaustive]`. Document source-breaking changes in the migration
+  guide, including added enum variants and required struct fields.
 
 ## Commit messages
 

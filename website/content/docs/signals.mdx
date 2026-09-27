@@ -1,6 +1,6 @@
 ---
 title: Signals
-description: In-process pub/sub bus for framework events, typed RPC, and cluster-wide forwarding.
+description: Subscribe to application, router, and route events, observe listener shutdown, and use typed RPC with the in-process signal arbiter.
 category: guide
 since: 2.0.0
 status: stable
@@ -14,11 +14,6 @@ Signals are Tako's in-process pub/sub bus for framework-internal events
 and application-level RPC. The framework emits well-known signals on
 every request, connection, and queue job; you subscribe to the IDs
 that matter.
-
-Signal IDs emitted by `tako::signals::ids` are part of the stable
-contract — operators write dashboards and alerts against them, so
-renaming an ID is a major-version event. See
-[API stability](/docs/reference/stability) for the full list.
 
 ```rust
 use tako::Method;
@@ -56,22 +51,27 @@ async fn main() -> anyhow::Result<()> {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
   let mut router = Router::new();
   router.route(Method::GET, "/", hello);
-  tako::serve(listener, router).await;
+  tako::Server::builder().build().spawn_http(listener, router).result().await?;
   Ok(())
 }
 ```
 
-`app_events()` returns the process-wide `&'static SignalArbiter`.
-Per-router and connection-level signals (`request.started`,
-`request.completed`, `connection.opened`, `connection.closed`,
-`server.started`, plus per-route `route.request.*`) are emitted from
-a single site (`Router::dispatch` + the transport helpers in
-`tako::signals::transport`), so every transport gets the same
-payload for free.
+`app_events()` and `app_signals()` return the same process-wide arbiter.
+Delivery follows the owning scope:
 
-A router can have its own arbiter via `router.signal_arbiter()` —
-useful when you want application-level events to flow through the
-same fan-out infrastructure without colliding with the global bus.
+| Event | Recipients |
+|---|---|
+| `request.started`, `request.completed` | Owning router and application |
+| `route.request.started`, `route.request.completed` | Matching route, owning router, and application |
+| `server.started`, `server.stopped` | Application; per-thread workers emit once per listener |
+| Transport connection lifecycle events | Application |
+| Custom events | The arbiter on which you explicitly emit them |
+
+`request.completed` carries method, path, status, matched route, and
+`duration_us`. Listen with `router.on_signal(...)` for one service or
+`app_signals().on(...)` for all routers. `server.stopped` follows normal drain
+completion; cancelling the entire server future skips its final event.
+`ROUTER_HOT_RELOAD` is an application-defined convention, not an automatic event.
 
 ## RPC over signals
 
@@ -107,12 +107,11 @@ async fn main() {
 `call_rpc_timeout` / `call_rpc_result` invoke it. Errors are reported
 via the `RpcError` enum.
 
-## Cluster-wide forwarding
+## Forwarding events
 
-The `signals::bus::SignalBus` async trait is the integration point
-for cluster-wide forwarding. The default `LocalBus` is a no-op;
-companion crates can implement Redis pub/sub, NATS, or Kafka
-backends without changing application code.
+Register a callback or exporter on an arbiter to forward selected events.
+The hidden experimental `signals::bus` types are not wired into routing and do
+not provide automatic cluster fan-out.
 
 See:
 

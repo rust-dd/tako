@@ -136,6 +136,12 @@ Capabilities:
 - **JWKS rotation** — the `jwt-simple` `MultiKeyVerifier` selects keys by `kid`
   and exposes `rotate_key` / `revoke_kid` for runtime rotation without a
   restart.
+- **Shared key provider** — `.store(provider)` on `JwtAuth` calls
+  `JwksProvider::keys_for(kid)` before verification. Providers return
+  `VerificationKey { algorithm, bytes }`; the verifier checks its algorithm
+  allow-list before using raw MAC or DER key bytes. Provider failures return
+  `503`; invalid candidates return `401`. An empty key set permits the static
+  verifier fallback. No built-in network JWKS fetcher is supplied.
 - **Constraints** — `VerifyConstraints` enforces `iss`, `aud`, and a clock
   `leeway_secs` uniformly across algorithms. The default verifier **fails
   closed** if constraints are set but the verifier cannot enforce them.
