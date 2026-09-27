@@ -27,7 +27,7 @@ impl Csrf {
       cookie_name: "csrf_token".to_string(),
       header_name: "x-csrf-token".to_string(),
       exempt_paths: Vec::new(),
-      secure: false,
+      secure: true,
       same_site: SameSite::Strict,
       trusted_origins: Vec::new(),
       bind_to_session: true,
@@ -53,7 +53,7 @@ impl Csrf {
     self
   }
 
-  /// Toggle the cookie `Secure` flag. Required when `same_site = None`.
+  /// Toggle the cookie `Secure` flag (default true). Required when `same_site = None`.
   pub fn secure(mut self, secure: bool) -> Self {
     self.secure = secure;
     self

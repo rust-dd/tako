@@ -4,6 +4,7 @@
 //! (`Next`, `IntoMiddleware`) lives in `tako-core::middleware`.
 
 pub mod access_log;
+pub mod alt_svc;
 pub mod api_key_auth;
 pub mod basic_auth;
 pub mod bearer_auth;

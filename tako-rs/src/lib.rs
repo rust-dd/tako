@@ -252,6 +252,7 @@ pub mod middleware {
   pub use tako_rs_core::middleware::IntoMiddleware;
   pub use tako_rs_core::middleware::Next;
   pub use tako_rs_plugins::middleware::access_log;
+  pub use tako_rs_plugins::middleware::alt_svc;
   pub use tako_rs_plugins::middleware::api_key_auth;
   pub use tako_rs_plugins::middleware::basic_auth;
   pub use tako_rs_plugins::middleware::bearer_auth;

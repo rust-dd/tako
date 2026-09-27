@@ -49,7 +49,7 @@ impl SessionMiddleware {
       ttl: SessionTtl::default(),
       path: "/".to_string(),
       domain: None,
-      secure: false,
+      secure: true,
       http_only: true,
       same_site: SameSite::Lax,
       store: Store::new(),
@@ -87,7 +87,7 @@ impl SessionMiddleware {
     self
   }
 
-  /// Toggles the `Secure` flag.
+  /// Toggles the `Secure` flag (default true).
   pub fn secure(mut self, secure: bool) -> Self {
     self.secure = secure;
     self
