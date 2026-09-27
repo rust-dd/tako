@@ -132,7 +132,8 @@ socket2 = { version = "0.6.5" }
 sonic-rs = "0.5.6"
 subtle = "2.6.1"
 syn = { version = "2" }
-tako-rs = { path = "tako-rs", version = "2.1.0" }
+# Path-only doctest dependencies are omitted from published crates, avoiding an umbrella cycle.
+tako-rs = { path = "tako-rs" }
 tako-rs-core = { path = "tako-rs-core", version = "2.1.0" }
 tako-rs-extractors = { path = "tako-rs-extractors", version = "2.1.0" }
 tako-rs-macros = { path = "tako-rs-macros", version = "2.1.0" }
