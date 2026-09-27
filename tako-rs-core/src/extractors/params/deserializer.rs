@@ -323,6 +323,6 @@ mod tests {
   #[test]
   fn deserialize_rejects_non_integer_into_u64() {
     let err = deserialize::<u64>(&[("id", "not_a_number")]).unwrap_err();
-    assert!(!err.to_string().is_empty());
+    assert_ne!(err.to_string(), "");
   }
 }
