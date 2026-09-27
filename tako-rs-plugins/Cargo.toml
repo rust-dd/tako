@@ -87,3 +87,11 @@ compio = ["dep:compio", "tako-rs-core/compio"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "compression"
+harness = false
+required-features = ["plugins"]

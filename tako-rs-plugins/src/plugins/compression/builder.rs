@@ -103,6 +103,13 @@ impl CompressionBuilder {
     self
   }
 
+  /// Moves buffered compression to a blocking worker above this size.
+  /// Defaults to 64 KiB. `usize::MAX` keeps compression on the request task.
+  pub fn blocking_threshold(mut self, bytes: usize) -> Self {
+    self.0.blocking_threshold = bytes;
+    self
+  }
+
   /// Replaces the content-type matching policy.
   pub fn content_types(mut self, policy: ContentTypePolicy) -> Self {
     self.0.content_types = policy;

@@ -43,6 +43,8 @@ pub struct Config {
   pub enabled: Vec<Encoding>,
   /// Minimum response size in bytes required for compression to be applied.
   pub min_size: usize,
+  /// Buffered bodies at least this large are compressed on a blocking worker.
+  pub blocking_threshold: usize,
   /// Gzip compression level (1-9, where 9 is maximum compression).
   pub gzip_level: u32,
   /// Brotli compression level (1-11, where 11 is maximum compression).
@@ -71,6 +73,7 @@ impl Default for Config {
     Self {
       enabled: vec![Encoding::Gzip, Encoding::Brotli, Encoding::Deflate],
       min_size: 1024,
+      blocking_threshold: 64 * 1024,
       gzip_level: 5,
       brotli_level: 5,
       deflate_level: 5,

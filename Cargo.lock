@@ -4834,6 +4834,7 @@ dependencies = [
  "bytes",
  "compio",
  "cookie",
+ "criterion",
  "flate2",
  "futures-util",
  "hmac 0.13.0",

@@ -138,3 +138,37 @@ async fn delayed_jobs_do_not_block_ready_jobs_or_run_early() {
   wait_until(|| queue.dead_letter_count() == 1).await;
   assert_eq!(completed.load(Ordering::SeqCst), 100);
 }
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn earlier_delayed_jobs_wake_workers_waiting_on_a_later_deadline() {
+  let queue = Queue::builder().workers(2).build();
+  let completed = Arc::new(AtomicUsize::new(0));
+  let counter = completed.clone();
+  queue.register("scheduled", move |_| {
+    let counter = counter.clone();
+    async move {
+      counter.fetch_add(1, Ordering::SeqCst);
+      Ok(())
+    }
+  });
+  queue
+    .push_delayed("scheduled", &(), Duration::from_secs(60))
+    .await
+    .unwrap();
+  queue.start();
+  #[cfg(not(feature = "compio"))]
+  tokio::time::sleep(Duration::from_millis(5)).await;
+  #[cfg(feature = "compio")]
+  compio::time::sleep(Duration::from_millis(5)).await;
+  let enqueued = Instant::now();
+  queue
+    .push_delayed("scheduled", &(), Duration::from_millis(10))
+    .await
+    .unwrap();
+  wait_until(|| completed.load(Ordering::SeqCst) == 1).await;
+  assert!(enqueued.elapsed() >= Duration::from_millis(10));
+  assert_eq!(queue.pending_count(), 1);
+  queue.shutdown(Duration::from_secs(1)).await;
+  wait_until(|| queue.dead_letter_count() == 1).await;
+}

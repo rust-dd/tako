@@ -217,18 +217,15 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     return resp.into_response();
   }
 
-  // Compress the response body if a suitable encoding is chosen. If the
-  // encoder fails (out-of-memory, malformed input, etc.) we MUST NOT set
-  // `Content-Encoding` to the chosen scheme while serving the raw body —
-  // the client would attempt to decode plain bytes as gzip/brotli and
-  // fail. Track success explicitly and only advertise the encoding when
-  // the compressed buffer was produced.
-  let compressed = match enc {
-    Encoding::Gzip => compress_gzip(&body_bytes, cfg.gzip_level).ok(),
-    Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level).ok(),
-    Encoding::Deflate => compress_deflate(&body_bytes, cfg.deflate_level).ok(),
-    #[cfg(feature = "zstd")]
-    Encoding::Zstd => compress_zstd(&body_bytes, cfg.zstd_level).ok(),
+  let compressed = if body_bytes.len() >= cfg.blocking_threshold {
+    let input = body_bytes.clone();
+    #[cfg(not(feature = "compio"))]
+    let task = tokio::task::spawn_blocking(move || compress_buffer(&input, enc, &cfg));
+    #[cfg(feature = "compio")]
+    let task = compio::runtime::spawn_blocking(move || compress_buffer(&input, enc, &cfg));
+    task.await.ok().flatten()
+  } else {
+    compress_buffer(&body_bytes, enc, &cfg)
   };
   if let Some(buf) = compressed {
     *resp.body_mut() = TakoBody::from(Bytes::from(buf));
@@ -247,6 +244,16 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   }
 
   resp.into_response()
+}
+
+fn compress_buffer(body: &Bytes, encoding: Encoding, cfg: &Config) -> Option<Vec<u8>> {
+  match encoding {
+    Encoding::Gzip => compress_gzip(body, cfg.gzip_level).ok(),
+    Encoding::Brotli => compress_brotli(body, cfg.brotli_level).ok(),
+    Encoding::Deflate => compress_deflate(body, cfg.deflate_level).ok(),
+    #[cfg(feature = "zstd")]
+    Encoding::Zstd => compress_zstd(body, cfg.zstd_level).ok(),
+  }
 }
 
 /// Middleware function for streaming response compression.

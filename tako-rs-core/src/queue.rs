@@ -55,6 +55,7 @@ mod job;
 /// Retry/backoff configuration.
 mod retry;
 
+mod pending;
 /// Queue runtime: builder and lifecycle handles.
 mod runtime;
 

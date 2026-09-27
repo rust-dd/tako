@@ -147,5 +147,9 @@ harness = false
 name = "json_extract"
 harness = false
 
+[[bench]]
+name = "queue"
+harness = false
+
 [lints]
 workspace = true

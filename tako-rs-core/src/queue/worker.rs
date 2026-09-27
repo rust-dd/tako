@@ -3,7 +3,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 use std::time::Instant;
 
 use futures_util::FutureExt;
@@ -13,7 +12,7 @@ use super::Job;
 use super::QueueError;
 #[cfg(feature = "signals")]
 use super::emit_queue_signal;
-use super::runtime::PendingJob;
+use super::pending::PendingJob;
 use super::runtime::QueueInner;
 #[cfg(feature = "signals")]
 use super::signal_ids;
@@ -36,22 +35,19 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       processed = 0;
     }
 
+    let notified = inner.notify.notified();
+    let mut notified = std::pin::pin!(notified);
+    // Register before checking the queue so enqueue/shutdown cannot lose a wake-up.
+    notified.as_mut().enable();
+
     if inner.shutdown.load(Ordering::SeqCst) {
-      // Drain remaining pending jobs into the DLQ before exiting. Delayed
-      // and retry-scheduled jobs sit in `pending` with `run_after > now`;
-      // if we exited via `is_empty()` only, the worker would spin until
-      // every retry fired (defeating `shutdown(timeout)`) or until the
-      // runtime aborted the task — in which case the jobs would silently
-      // vanish from memory. Moving them to dead-letters preserves them
-      // for `dead_letters()` inspection and any out-of-band re-enqueue
-      // after the next startup. The drain happens under the pending lock
-      // so concurrent workers see an empty queue and exit cleanly.
+      // Preserve unstarted jobs for inspection without waiting for delayed deadlines.
       let drained = {
         let mut pending = inner.pending.lock();
         if pending.is_empty() {
           break;
         }
-        pending.drain(..).collect::<Vec<_>>()
+        pending.drain()
       };
       let mut dlq = inner.dead_letters.lock();
       for pj in drained {
@@ -67,36 +63,29 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       break;
     }
 
-    let job = {
+    let (job, deadline) = {
       let mut pending = inner.pending.lock();
       if inner.shutdown.load(Ordering::SeqCst) {
         continue;
       }
-      let now = Instant::now();
-
-      let pos = pending.iter().position(|j| match j.run_after {
-        Some(t) => now >= t,
-        None => true,
-      });
-
-      let job = pos.and_then(|i| pending.remove(i));
+      let job = pending.pop_ready(Instant::now());
       if job.is_some() {
         // Shutdown observes claimed jobs before it can acquire the same pending lock.
         inner.inflight.fetch_add(1, Ordering::SeqCst);
       }
-      job
+      (job, pending.next_deadline())
     };
 
     let Some(pending_job) = job else {
-      #[cfg(not(feature = "compio"))]
-      {
-        let _ = tokio::time::timeout(Duration::from_millis(100), inner.notify.notified()).await;
-      }
-      #[cfg(feature = "compio")]
-      {
-        let notified = std::pin::pin!(inner.notify.notified());
-        let sleep = std::pin::pin!(compio::time::sleep(Duration::from_millis(100)));
+      if let Some(deadline) = deadline {
+        #[cfg(not(feature = "compio"))]
+        let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline));
+        #[cfg(feature = "compio")]
+        let sleep = compio::time::sleep_until(deadline);
+        let sleep = std::pin::pin!(sleep);
         let _ = futures_util::future::select(notified, sleep).await;
+      } else {
+        notified.await;
       }
       processed = 0;
       continue;
@@ -206,15 +195,12 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         )
         .await;
 
-        inner.pending.lock().push_back(PendingJob {
+        inner.pending.lock().push(PendingJob {
           id: pending_job.id,
           name: pending_job.name,
           payload: pending_job.payload,
           attempt: next_attempt,
           run_after: Some(Instant::now() + delay),
-          // Preserve the original dedup_key so subsequent `push_dedup`
-          // callers continue to see the in-flight retry instead of
-          // re-enqueueing a duplicate while the retry sits in `pending`.
           dedup_key: pending_job.dedup_key,
         });
 

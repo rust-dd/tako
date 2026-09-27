@@ -1,6 +1,5 @@
 //! Queue runtime: builder and lifecycle handles.
 
-use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -19,6 +18,8 @@ use super::Job;
 use super::QueueBuilder;
 use super::QueueError;
 use super::RetryPolicy;
+use super::pending::PendingJob;
+use super::pending::PendingQueue;
 #[cfg(feature = "signals")]
 use super::signal_ids;
 use super::worker::worker_loop;
@@ -27,21 +28,12 @@ use crate::signals::Signal;
 #[cfg(feature = "signals")]
 use crate::signals::SignalArbiter;
 
-pub(crate) struct PendingJob {
-  pub(crate) id: u64,
-  pub(crate) name: String,
-  pub(crate) payload: Vec<u8>,
-  pub(crate) attempt: u32,
-  pub(crate) run_after: Option<Instant>,
-  pub(crate) dedup_key: Option<String>,
-}
-
 pub(crate) type BoxHandler =
   Arc<dyn Fn(Job) -> Pin<Box<dyn Future<Output = Result<(), QueueError>> + Send>> + Send + Sync>;
 
 pub(crate) struct QueueInner {
   /// Pending jobs waiting to be processed.
-  pub(crate) pending: Mutex<VecDeque<PendingJob>>,
+  pub(crate) pending: Mutex<PendingQueue>,
   /// Registered job handlers by name.
   pub(crate) handlers: SccHashMap<String, BoxHandler>,
   /// Dead letter queue.
@@ -174,29 +166,23 @@ impl Queue {
     let bytes =
       serde_json::to_vec(payload).map_err(|e| QueueError::SerializeError(e.to_string()))?;
 
-    // Hold the pending lock across the check-and-insert so two concurrent
-    // `push_dedup` callers cannot both observe "no duplicate" and then both
-    // enqueue their own copy of the job. Re-check `shutdown` inside the lock
-    // so a concurrent `shutdown()` (which itself grabs this lock around the
-    // flag flip) cannot slip in between the early check above and the push.
+    // Deduplication and shutdown share the lock with enqueueing.
     let id = {
       let mut pending = self.inner.pending.lock();
       if self.inner.shutdown.load(Ordering::SeqCst) {
         return Err(QueueError::Shutdown);
       }
-      for j in pending.iter() {
-        if j.dedup_key.as_deref() == Some(key.as_str()) {
-          return Ok(j.id);
-        }
+      if let Some(id) = pending.existing_id(&key) {
+        return Ok(id);
       }
       let id = self.inner.next_id.fetch_add(1, Ordering::SeqCst);
-      pending.push_back(PendingJob {
+      pending.push(PendingJob {
         id,
         name,
         payload: bytes,
         attempt: 0,
         run_after: None,
-        dedup_key: Some(key),
+        dedup_key: Some(key.into()),
       });
       id
     };
@@ -224,13 +210,11 @@ impl Queue {
     let job_name = name.clone();
     {
       let mut pending = self.inner.pending.lock();
-      // Re-check shutdown inside the lock — `shutdown()` flips the flag under
-      // the same lock, so this turns the check-and-push into an atomic test
-      // that cannot race with concurrent shutdown.
+      // Shutdown flips the flag under this same lock.
       if self.inner.shutdown.load(Ordering::SeqCst) {
         return Err(QueueError::Shutdown);
       }
-      pending.push_back(PendingJob {
+      pending.push(PendingJob {
         id,
         name,
         payload: bytes,
@@ -289,24 +273,11 @@ impl Queue {
   /// Stops accepting new jobs and waits for in-flight jobs to complete
   /// (up to the given timeout).
   pub async fn shutdown(&self, timeout: Duration) {
-    // Acquire the pending lock before flipping the flag so any concurrent
-    // `push_inner` / `push_dedup` (which re-check `shutdown` while holding
-    // the same lock) reliably observes the flip and rejects with
-    // `QueueError::Shutdown` instead of silently enqueuing a job into a
-    // queue whose workers are about to exit.
+    // Serialize the flag change with concurrent enqueueing.
     {
       let _guard = self.inner.pending.lock();
       self.inner.shutdown.store(true, Ordering::SeqCst);
     }
-    // Wake all workers so they see the shutdown flag.
-    //
-    // `Notify::notify_one` only stores ONE pending permit — sequential calls
-    // collapse onto non-parked workers, so this loop only reliably wakes the
-    // workers that happened to be parked at the moment of the first call.
-    // Any worker mid-job (most of them, in practice) wouldn't observe the
-    // wake; they only learned about shutdown via the 100ms park timeout.
-    // `notify_waiters` permits *all* currently-parked waiters at once, which
-    // is the desired shutdown semantics.
     self.inner.notify.notify_waiters();
 
     if self.inner.inflight.load(Ordering::SeqCst) > 0 {

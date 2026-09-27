@@ -1,6 +1,5 @@
 //! Builder for configuring a [`Queue`].
 
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -36,7 +35,7 @@ impl QueueBuilder {
   pub fn build(self) -> Queue {
     Queue {
       inner: Arc::new(QueueInner {
-        pending: Mutex::new(VecDeque::new()),
+        pending: Mutex::default(),
         handlers: SccHashMap::new(),
         dead_letters: Mutex::new(Vec::new()),
         notify: Notify::new(),
