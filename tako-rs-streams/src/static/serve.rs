@@ -1,155 +1,158 @@
-use std::path::Path;
 use std::path::PathBuf;
 
-#[cfg(feature = "compio")]
-use compio::fs;
+use http::HeaderMap;
 use http::StatusCode;
 use http::header;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
-#[cfg(not(feature = "compio"))]
-use tokio::fs;
-#[cfg(not(feature = "compio"))]
-use tokio::io::AsyncReadExt;
 
 use super::dir::ServeDir;
+use crate::file_io::OpenFile;
+use crate::file_io::response;
+
+struct Resolved {
+  original: PathBuf,
+  compressed: Option<(PathBuf, &'static str)>,
+}
 
 impl ServeDir {
-  async fn resolve_existing(
-    &self,
-    file_path: PathBuf,
-    headers: &http::HeaderMap,
-  ) -> Option<(Response, &'static str)> {
-    // Index resolution if pointing at a directory.
-    let target = if file_path.is_dir() {
-      let mut chosen: Option<PathBuf> = None;
-      for idx in &self.index_files {
-        let cand = file_path.join(idx);
-        if !cand.is_file() {
-          continue;
-        }
-        // Critical: re-run the canonical-within-base check on the index
-        // file. `cand.is_file()` follows symlinks, so an in-base
-        // `index.html` that links out of the base (e.g. to `/etc/passwd`)
-        // would otherwise be served — exactly the escape vector the
-        // sidecar fix (C8) closed on the `.br`/`.gz` path. Cold path —
-        // only fires when the request targets a directory.
-        if let Some(canonical) = self.canonical_within_base(&cand) {
-          chosen = Some(canonical);
-          break;
-        }
-      }
-      chosen?
-    } else {
-      file_path
+  /// Serve a GET or HEAD request, decoding the URL before checking path components.
+  pub async fn handle(&self, request: Request) -> Response {
+    let (parts, _) = request.into_parts();
+    if let Some(response) = response::method_error(&parts) {
+      return response;
+    }
+    let Ok(decoded) = percent_encoding::percent_decode_str(parts.uri.path()).decode_utf8() else {
+      return StatusCode::NOT_FOUND.into_response();
     };
+    let relative = decoded.trim_start_matches('/');
+    if !relative.is_empty() && !self.config.valid_relative(relative) {
+      return StatusCode::NOT_FOUND.into_response();
+    }
+    let mut encodings = [
+      ("br", self.config.precompressed.brotli),
+      ("gzip", self.config.precompressed.gzip),
+    ]
+    .map(|(name, enabled)| {
+      (
+        name,
+        if enabled {
+          quality(&parts.headers, name)
+        } else {
+          0.0
+        },
+      )
+    });
+    if encodings[1].1 > encodings[0].1 {
+      encodings.swap(0, 1);
+    }
+    let config = self.config.clone();
+    let relative = relative.to_owned();
+    let resolve = move || {
+      let base = config.base.canonicalize().ok()?;
+      let target = config
+        .within_base(&base.join(relative), &base)
+        .and_then(|path| {
+          if path.is_dir() {
+            config
+              .index_files
+              .iter()
+              .filter(|index| config.valid_relative(index))
+              .find_map(|index| {
+                let path = config.within_base(&path.join(index), &base)?;
+                path.is_file().then_some(path)
+              })
+          } else {
+            path.is_file().then_some(path)
+          }
+        })
+        .or_else(|| config.fallback.clone().filter(|path| path.is_file()))?;
+      let compressed = encodings
+        .into_iter()
+        .filter(|(_, q)| *q > 0.0)
+        .find_map(|(encoding, _)| {
+          let mut sidecar = target.as_os_str().to_owned();
+          sidecar.push(if encoding == "br" { ".br" } else { ".gz" });
+          let path = config.within_base(&PathBuf::from(sidecar), &base)?;
+          path.is_file().then_some((path, encoding))
+        });
+      Some(Resolved {
+        original: target,
+        compressed,
+      })
+    };
+    #[cfg(not(feature = "compio"))]
+    let resolved = tokio::task::spawn_blocking(resolve).await.ok().flatten();
+    #[cfg(feature = "compio")]
+    let resolved = send_wrapper::SendWrapper::new(compio::runtime::spawn_blocking(resolve))
+      .await
+      .ok()
+      .flatten();
+    let Some(resolved) = resolved else {
+      return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut encoding = None;
+    let mut opened = None;
+    if let Some((path, name)) = resolved.compressed
+      && let Ok(file) = OpenFile::open(&path).await
+    {
+      encoding = Some(name);
+      opened = Some(file);
+    }
+    let file = match opened {
+      Some(file) => file,
+      None => match OpenFile::open(&resolved.original).await {
+        Ok(file) => file,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+      },
+    };
+    response::serve(
+      file,
+      &resolved.original,
+      encoding,
+      self.config.precompressed.brotli || self.config.precompressed.gzip,
+      self.config.cache_control.as_ref(),
+      &parts,
+    )
+    .await
+    .unwrap_or_else(|error| {
+      tracing::debug!(%error, "could not stream static file");
+      StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
+  }
+}
 
-    if let Some((compressed, encoding)) = self.precompressed_variant(&target, headers) {
-      if let Some(resp) = Self::serve_file_with_encoding(&compressed, &target, encoding).await {
-        return Some((resp, encoding));
+fn quality(headers: &HeaderMap, encoding: &str) -> f32 {
+  let mut wildcard = 0.0;
+  let mut explicit = None;
+  for value in headers
+    .get_all(header::ACCEPT_ENCODING)
+    .iter()
+    .filter_map(|value| value.to_str().ok())
+  {
+    for entry in value.split(',') {
+      let mut parts = entry.split(';');
+      let name = parts.next().unwrap_or("").trim();
+      let mut quality = 1.0;
+      for parameter in parts {
+        if let Some((name, value)) = parameter.trim().split_once('=')
+          && name.eq_ignore_ascii_case("q")
+        {
+          quality = value
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|q| (0.0..=1.0).contains(q))
+            .unwrap_or(0.0);
+        }
       }
-      // Sidecar read failed (deleted between resolve and open, permission
-      // glitch, etc.) — fall through to the identity file instead of
-      // 404-ing the whole request.
-      tracing::debug!(
-        target = %target.display(),
-        encoding,
-        "precompressed sidecar read failed, falling back to identity"
-      );
+      if name.eq_ignore_ascii_case(encoding) {
+        explicit = Some(quality);
+      } else if name == "*" {
+        wildcard = quality;
+      }
     }
-
-    Some((Self::serve_file(&target).await?, "identity"))
   }
-
-  /// Open the file via a single `File::open` (resolves symlinks exactly once),
-  /// verify the result is a regular file via the open FD's metadata (defense
-  /// in depth against directory/special-file confusion), then read. This
-  /// replaces the prior `fs::read` pattern which would re-resolve the path
-  /// after the caller had already canonicalized it.
-  #[cfg(not(feature = "compio"))]
-  async fn open_and_read_regular(path: &Path) -> Option<Vec<u8>> {
-    let mut file = fs::File::open(path).await.ok()?;
-    let meta = file.metadata().await.ok()?;
-    if !meta.is_file() {
-      return None;
-    }
-    let mut contents = Vec::with_capacity(meta.len() as usize);
-    file.read_to_end(&mut contents).await.ok()?;
-    Some(contents)
-  }
-
-  #[cfg(feature = "compio")]
-  async fn open_and_read_regular(path: &Path) -> Option<Vec<u8>> {
-    // compio uses positional read with owned buffers; the high-level
-    // `fs::read` already wraps open + read + metadata. The canonical-prefix
-    // check is performed by the caller before we get here.
-    //
-    // STR-8: this loads the whole file into RAM, unlike the tokio path
-    // that streams via ReaderStream. Operators serving large static
-    // assets under compio must cap file sizes at the route level (or
-    // switch to the tokio backend) — a multi-GB asset will land as a
-    // single `Vec<u8>` per request. Replacing with a chunked
-    // `compio::fs::File::read_at` loop is a 2.x deferral; the type
-    // surface change ripples through `StaticDir`'s body shape.
-    let meta = fs::metadata(path).await.ok()?;
-    if !meta.is_file() {
-      return None;
-    }
-    fs::read(path).await.ok()
-  }
-
-  async fn serve_file(file_path: &Path) -> Option<Response> {
-    let contents = Self::open_and_read_regular(file_path).await?;
-    let mime = mime_guess::from_path(file_path).first_or_octet_stream();
-    Some(
-      http::Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime.to_string())
-        .body(TakoBody::from(contents))
-        .unwrap(),
-    )
-  }
-
-  async fn serve_file_with_encoding(
-    compressed: &Path,
-    original: &Path,
-    encoding: &'static str,
-  ) -> Option<Response> {
-    let contents = Self::open_and_read_regular(compressed).await?;
-    let mime = mime_guess::from_path(original).first_or_octet_stream();
-    Some(
-      http::Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, mime.to_string())
-        .header(header::CONTENT_ENCODING, encoding)
-        .header(header::VARY, "Accept-Encoding")
-        .body(TakoBody::from(contents))
-        .unwrap(),
-    )
-  }
-
-  /// Handles an HTTP request to serve a static file from the directory.
-  pub async fn handle(&self, req: Request) -> impl Responder {
-    let path = req.uri().path();
-    let headers = req.headers().clone();
-
-    if let Some(file_path) = self.sanitize_path(path)
-      && let Some((resp, _enc)) = self.resolve_existing(file_path, &headers).await
-    {
-      return resp;
-    }
-
-    if let Some(fallback) = &self.fallback
-      && let Some((resp, _)) = self.resolve_existing(fallback.clone(), &headers).await
-    {
-      return resp;
-    }
-
-    http::Response::builder()
-      .status(StatusCode::NOT_FOUND)
-      .body(TakoBody::from("File not found"))
-      .unwrap()
-  }
+  explicit.unwrap_or(wildcard)
 }

@@ -6,6 +6,10 @@
 //! WebTransport implementations. Re-exported under the original `tako::*` paths
 //! via the umbrella crate.
 
+mod file_io;
+#[cfg(any(not(feature = "compio"), feature = "compio-ws"))]
+mod ws_handshake;
+
 /// Server-Sent Events (SSE) support for real-time communication.
 pub mod sse;
 

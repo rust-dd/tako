@@ -1,47 +1,54 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use http::header;
+use http::HeaderValue;
 
-/// Static directory server with configurable fallback handling.
+/// Static directory with streaming, cache validators, single byte ranges, and SPA fallback.
+///
+/// Dotfiles are denied by default. Keep the served tree read-only to untrusted
+/// processes: canonical path checks cannot prevent concurrent filesystem replacement.
+#[derive(Clone)]
 #[doc(alias = "static")]
 #[doc(alias = "serve_dir")]
 pub struct ServeDir {
-  pub(crate) base_dir: PathBuf,
+  pub(crate) config: Arc<DirectoryConfig>,
+}
+
+pub(crate) struct DirectoryConfig {
+  pub(crate) base: PathBuf,
   pub(crate) fallback: Option<PathBuf>,
   pub(crate) index_files: Vec<String>,
   pub(crate) precompressed: PrecompressedPolicy,
-  pub(crate) sanitized_base: Option<PathBuf>,
+  pub(crate) allow_dotfiles: bool,
+  pub(crate) cache_control: Option<HeaderValue>,
 }
 
-/// Which precompressed sidecar files (if any) `ServeDir` should prefer when
-/// the client advertises support via `Accept-Encoding`.
+/// Precompressed sidecars to negotiate through `Accept-Encoding`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PrecompressedPolicy {
-  /// Serve `<file>.br` when the client accepts `br`.
+  /// Enable `<file>.br`.
   pub brotli: bool,
-  /// Serve `<file>.gz` when the client accepts `gzip`.
+  /// Enable `<file>.gz`.
   pub gzip: bool,
 }
 
 impl PrecompressedPolicy {
-  /// Both `br` and `gzip` enabled.
+  /// Enable Brotli and gzip.
   pub const fn both() -> Self {
     Self {
       brotli: true,
       gzip: true,
     }
   }
-
-  /// `br` only.
+  /// Enable Brotli.
   pub const fn brotli_only() -> Self {
     Self {
       brotli: true,
       gzip: false,
     }
   }
-
-  /// `gzip` only.
+  /// Enable gzip.
   pub const fn gzip_only() -> Self {
     Self {
       brotli: false,
@@ -50,157 +57,99 @@ impl PrecompressedPolicy {
   }
 }
 
-/// Builder for configuring a `ServeDir` instance.
+/// Configure a static directory.
 #[must_use]
 pub struct ServeDirBuilder {
-  base_dir: PathBuf,
-  fallback: Option<PathBuf>,
-  index_files: Vec<String>,
-  precompressed: PrecompressedPolicy,
+  config: DirectoryConfig,
 }
 
 impl ServeDirBuilder {
-  /// Creates a new builder with the specified base directory.
-  #[inline]
-  pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
+  /// Set the root directory.
+  pub fn new(base: impl Into<PathBuf>) -> Self {
     Self {
-      base_dir: base_dir.into(),
-      fallback: None,
-      index_files: vec!["index.html".into(), "index.htm".into()],
-      precompressed: PrecompressedPolicy::default(),
+      config: DirectoryConfig {
+        base: base.into(),
+        fallback: None,
+        index_files: vec!["index.html".into(), "index.htm".into()],
+        precompressed: PrecompressedPolicy::default(),
+        allow_dotfiles: false,
+        cache_control: None,
+      },
     }
   }
 
-  /// Sets a fallback file to serve when requested files are not found.
-  #[inline]
-  pub fn fallback<P: Into<PathBuf>>(mut self, fallback: P) -> Self {
-    self.fallback = Some(fallback.into());
+  /// Serve this trusted file for missing paths. It may be outside the root.
+  ///
+  /// Invalid traversal and denied dotfile requests never use the fallback.
+  pub fn fallback(mut self, path: impl Into<PathBuf>) -> Self {
+    self.config.fallback = Some(path.into());
     self
   }
 
-  /// Replace the index resolution priority list (defaults to
-  /// `["index.html", "index.htm"]`).
-  #[inline]
+  /// Replace the index filename priority list.
   pub fn index_files<I, S>(mut self, names: I) -> Self
   where
     I: IntoIterator<Item = S>,
     S: Into<String>,
   {
-    self.index_files = names.into_iter().map(Into::into).collect();
+    self.config.index_files = names.into_iter().map(Into::into).collect();
     self
   }
 
-  /// Configure preference for precompressed sidecar files.
-  #[inline]
+  /// Enable precompressed sidecar negotiation.
   pub fn precompressed(mut self, policy: PrecompressedPolicy) -> Self {
-    self.precompressed = policy;
+    self.config.precompressed = policy;
     self
   }
 
-  /// Builds and returns the configured `ServeDir` instance.
-  #[inline]
+  /// Allow dotfile path components, including `.well-known`. Defaults to false.
+  pub fn allow_dotfiles(mut self, allow: bool) -> Self {
+    self.config.allow_dotfiles = allow;
+    self
+  }
+
+  /// Set Cache-Control on successful and not-modified responses.
+  pub fn cache_control(mut self, value: HeaderValue) -> Self {
+    self.config.cache_control = Some(value);
+    self
+  }
+
+  /// Finish configuration. Filesystem work happens on a blocking worker per request.
   pub fn build(self) -> ServeDir {
-    let sanitized_base = self.base_dir.canonicalize().ok();
     ServeDir {
-      base_dir: self.base_dir,
-      fallback: self.fallback,
-      index_files: self.index_files,
-      precompressed: self.precompressed,
-      sanitized_base,
+      config: Arc::new(self.config),
     }
   }
 }
 
 impl ServeDir {
-  /// Creates a new builder for configuring a `ServeDir`.
-  pub fn builder<P: Into<PathBuf>>(base_dir: P) -> ServeDirBuilder {
-    ServeDirBuilder::new(base_dir)
+  /// Configure a static directory.
+  pub fn builder(base: impl Into<PathBuf>) -> ServeDirBuilder {
+    ServeDirBuilder::new(base)
+  }
+}
+
+impl DirectoryConfig {
+  pub(crate) fn valid_relative(&self, path: &str) -> bool {
+    !path.contains(['\0', '\\'])
+      && path.split('/').all(|segment| {
+        segment != "." && segment != ".." && (self.allow_dotfiles || !segment.starts_with('.'))
+      })
+      && Path::new(path)
+        .components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
   }
 
-  /// Sanitizes the requested path to prevent directory traversal attacks.
-  pub(crate) fn sanitize_path(&self, req_path: &str) -> Option<PathBuf> {
-    let rel_path = req_path.trim_start_matches('/');
-    // Refuse explicit `..` traversal segments before touching the FS.
-    if rel_path
-      .split(['/', '\\'])
-      .any(|seg| seg == ".." || seg == ".")
+  pub(crate) fn within_base(&self, path: &Path, base: &Path) -> Option<PathBuf> {
+    let canonical = path.canonicalize().ok()?;
+    let relative = canonical.strip_prefix(base).ok()?;
+    if !self.allow_dotfiles
+      && relative
+        .components()
+        .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
     {
       return None;
     }
-    let joined = self.base_dir.join(rel_path);
-    let canonical = joined.canonicalize().ok()?;
-    let base = self
-      .sanitized_base
-      .clone()
-      .or_else(|| self.base_dir.canonicalize().ok())?;
-    if canonical.starts_with(&base) {
-      Some(canonical)
-    } else {
-      None
-    }
-  }
-
-  fn accepts(headers: &http::HeaderMap, encoding: &str) -> bool {
-    let Some(v) = headers
-      .get(header::ACCEPT_ENCODING)
-      .and_then(|v| v.to_str().ok())
-    else {
-      return false;
-    };
-    for part in v.split(',') {
-      let part = part.trim();
-      // Strip any q-value parameter; reject q=0 explicitly.
-      let mut name_q = part.split(';');
-      let name = name_q.next().unwrap_or("").trim();
-      let q_zero = name_q.any(|p| p.trim().strip_prefix("q=").is_some_and(|q| q.trim() == "0"));
-      if q_zero {
-        continue;
-      }
-      if name.eq_ignore_ascii_case(encoding) || name == "*" {
-        return true;
-      }
-    }
-    false
-  }
-
-  /// Verifies a sidecar path (`<file>.br` / `<file>.gz`) canonicalizes to
-  /// somewhere inside the base directory before we hand it to the open
-  /// pipeline. The original base-prefix check only covered `file_path`; a
-  /// symlinked sidecar could otherwise escape outside the base.
-  pub(crate) fn canonical_within_base(&self, p: &Path) -> Option<PathBuf> {
-    let canonical = p.canonicalize().ok()?;
-    let base = self
-      .sanitized_base
-      .clone()
-      .or_else(|| self.base_dir.canonicalize().ok())?;
-    if canonical.starts_with(&base) {
-      Some(canonical)
-    } else {
-      None
-    }
-  }
-
-  pub(crate) fn precompressed_variant(
-    &self,
-    file_path: &Path,
-    headers: &http::HeaderMap,
-  ) -> Option<(PathBuf, &'static str)> {
-    if self.precompressed.brotli && Self::accepts(headers, "br") {
-      let mut p = file_path.as_os_str().to_owned();
-      p.push(".br");
-      let p = PathBuf::from(p);
-      if let Some(canonical) = self.canonical_within_base(&p) {
-        return Some((canonical, "br"));
-      }
-    }
-    if self.precompressed.gzip && Self::accepts(headers, "gzip") {
-      let mut p = file_path.as_os_str().to_owned();
-      p.push(".gz");
-      let p = PathBuf::from(p);
-      if let Some(canonical) = self.canonical_within_base(&p) {
-        return Some((canonical, "gzip"));
-      }
-    }
-    None
+    Some(canonical)
   }
 }

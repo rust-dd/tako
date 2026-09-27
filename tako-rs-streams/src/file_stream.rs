@@ -21,11 +21,11 @@
 
 #![cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 
-mod conditional;
-mod date;
-mod etag;
 mod stream;
 
-pub use conditional::evaluate_conditional;
-pub use etag::weak_etag_from_metadata;
 pub use stream::FileStream;
+
+pub use crate::file_io::FileByteStream;
+pub use crate::file_io::conditional::evaluate_conditional;
+pub use crate::file_io::conditional::evaluate_conditional_for_method;
+pub use crate::file_io::etag::weak_etag_from_metadata;

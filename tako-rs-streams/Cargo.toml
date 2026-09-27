@@ -29,9 +29,11 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
+percent-encoding = { workspace = true }
 pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
 sha1 = { workspace = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true }
@@ -45,7 +47,7 @@ default = []
 file-stream = []
 plugins = []
 signals = ["tako-rs-core/signals"]
-compio = ["dep:compio", "tako-rs-core/compio"]
+compio = ["dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
 compio-ws = ["compio", "compio/io", "compio/ws"]
 http3 = ["dep:quinn", "dep:rustls", "tako-rs-core/http3"]
 webtransport = ["http3"]

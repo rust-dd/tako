@@ -107,6 +107,7 @@ opentelemetry = "0.33.0"
 opentelemetry-otlp = { version = "0.33.0", features = ["metrics", "http-proto"] }
 opentelemetry_sdk = { version = "0.33.0", features = ["rt-tokio"] }
 parking_lot = "0.12.5"
+percent-encoding = "2.3.2"
 pin-project-lite = "0.2.16"
 proc-macro2 = { version = "1" }
 prometheus = "0.14.0"
@@ -116,7 +117,7 @@ quote = { version = "1" }
 rustls = "0.23.45"
 rustls-native-certs = "0.8"
 scc = "3.4.8"
-send_wrapper = "0.6.0"
+send_wrapper = { version = "0.6.0", features = ["futures"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_bytes = "0.11.17"
 serde_html_form = "0.2.8"

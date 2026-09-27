@@ -1,79 +1,79 @@
 use std::path::PathBuf;
 
-#[cfg(feature = "compio")]
-use compio::fs;
+use http::HeaderValue;
 use http::StatusCode;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
-#[cfg(not(feature = "compio"))]
-use tokio::fs;
 
-/// Static file server for serving individual files.
+use crate::file_io::OpenFile;
+use crate::file_io::response;
+
+/// A single streaming file responder with cache and byte-range support.
 #[doc(alias = "serve_file")]
 pub struct ServeFile {
   path: PathBuf,
+  cache_control: Option<HeaderValue>,
 }
 
-/// Builder for configuring a `ServeFile` instance.
+/// Configure a single file responder.
 #[must_use]
 pub struct ServeFileBuilder {
-  path: PathBuf,
+  file: ServeFile,
 }
 
 impl ServeFileBuilder {
-  /// Creates a new builder with the specified file path.
-  #[inline]
-  pub fn new<P: Into<PathBuf>>(path: P) -> Self {
-    Self { path: path.into() }
+  /// Set the trusted file path.
+  pub fn new(path: impl Into<PathBuf>) -> Self {
+    Self {
+      file: ServeFile {
+        path: path.into(),
+        cache_control: None,
+      },
+    }
   }
 
-  /// Builds and returns the configured `ServeFile` instance.
-  #[inline]
-  #[must_use]
+  /// Set Cache-Control on successful and not-modified responses.
+  pub fn cache_control(mut self, value: HeaderValue) -> Self {
+    self.file.cache_control = Some(value);
+    self
+  }
+
+  /// Finish configuration.
   pub fn build(self) -> ServeFile {
-    ServeFile { path: self.path }
+    self.file
   }
 }
 
 impl ServeFile {
-  /// Creates a new builder for configuring a `ServeFile`.
-  pub fn builder<P: Into<PathBuf>>(path: P) -> ServeFileBuilder {
+  /// Configure a single file responder.
+  pub fn builder(path: impl Into<PathBuf>) -> ServeFileBuilder {
     ServeFileBuilder::new(path)
   }
 
-  /// Serves the configured file with appropriate MIME type.
-  async fn serve_file(&self) -> Option<Response> {
-    match fs::read(&self.path).await {
-      Ok(contents) => {
-        let mime = mime_guess::from_path(&self.path).first_or_octet_stream();
-        Some(
-          http::Response::builder()
-            .status(StatusCode::OK)
-            .header(http::header::CONTENT_TYPE, mime.to_string())
-            .body(TakoBody::from(contents))
-            .unwrap(),
-        )
-      }
-      Err(_) => None,
-    }
-  }
-
-  /// Handles an HTTP request to serve the configured static file.
+  /// Serve the configured file for GET/HEAD, irrespective of the request URI.
   ///
-  /// The request itself is **ignored** — `ServeFile` always serves the file
-  /// configured on the builder, regardless of `req.uri()`. Mount this
-  /// handler on a single specific route (e.g. `/manifest.json`), not on a
-  /// catch-all glob, otherwise every URL under that glob will return the
-  /// same file. Use [`ServeDir`](super::ServeDir) when you want path-aware static serving.
-  pub async fn handle(&self, _req: Request) -> impl Responder {
-    if let Some(resp) = self.serve_file().await {
-      resp
-    } else {
-      let mut resp = http::Response::new(TakoBody::from("File not found"));
-      *resp.status_mut() = StatusCode::NOT_FOUND;
-      resp
+  /// Mount on a specific route; use [`ServeDir`](super::ServeDir) for path-aware serving.
+  pub async fn handle(&self, request: Request) -> Response {
+    let (parts, _) = request.into_parts();
+    if let Some(response) = response::method_error(&parts) {
+      return response;
     }
+    let Ok(file) = OpenFile::open(&self.path).await else {
+      return StatusCode::NOT_FOUND.into_response();
+    };
+    response::serve(
+      file,
+      &self.path,
+      None,
+      false,
+      self.cache_control.as_ref(),
+      &parts,
+    )
+    .await
+    .unwrap_or_else(|error| {
+      tracing::debug!(%error, "could not stream static file");
+      StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
   }
 }

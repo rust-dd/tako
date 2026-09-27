@@ -1,31 +1,20 @@
 //! WebSocket connection handling and message processing utilities.
 //!
 //! `TakoWs<H>` performs the RFC-6455 server-side handshake and hands the
-//! upgraded stream to a user-supplied handler. v2 builder additions:
+//! upgraded stream to a handler. The builder configures subprotocols, size limits,
+//! allowed origins, upgrade timeout, and total connection lifetime.
 //!
-//! - subprotocol negotiation (echoes the first match from a configured list)
-//! - per-connection size caps (`max_frame_size`, `max_message_size`)
-//! - origin allow-list (rejects mismatching `Origin` with `403`)
-//! - upgrade timeout (drops leaked tasks when the client never finishes the upgrade)
-//! - configurable initial `WebSocketConfig` (forwarded to tokio-tungstenite)
-//!
-//! Application-level keep-alive (`ping_interval` / `pong_timeout`) is exposed
-//! as a [`WsKeepAlive`](crate::ws::WsKeepAlive) config value the handler can read; the framework
-//! itself does not run the ping loop because the handler owns the stream.
+//! Handlers own the stream and must implement application ping/pong loops themselves.
 
 use std::future::Future;
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use futures_util::FutureExt;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
-use sha1::Digest;
-use sha1::Sha1;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
@@ -34,12 +23,8 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
-/// Application-level keep-alive hints attached to the `TakoWs` builder.
-///
-/// The framework does not drive these intervals itself — they're surfaced
-/// to the handler via request extensions so handlers can implement their
-/// own ping logic. For unconditional disconnection of an idle peer, prefer
-/// the `max_lifetime` cap on the builder.
+/// Legacy configuration accepted by the deprecated, ineffective `keep_alive` method.
+/// Applications should capture their timing configuration in the handler closure.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WsKeepAlive {
   /// Period between server-initiated pings; `None` disables.
@@ -63,7 +48,6 @@ where
   max_message_size: Option<usize>,
   allowed_origins: Option<Vec<String>>,
   upgrade_timeout: Option<Duration>,
-  keep_alive: WsKeepAlive,
   /// Hard cap on how long a single WebSocket conversation may live after a
   /// successful upgrade. When set, the handler future is wrapped in
   /// `tokio::time::timeout(max_lifetime, …)`; expiry drops the connection.
@@ -87,7 +71,6 @@ where
       max_message_size: None,
       allowed_origins: None,
       upgrade_timeout: None,
-      keep_alive: WsKeepAlive::default(),
       max_lifetime: None,
     }
   }
@@ -137,9 +120,9 @@ where
     self
   }
 
-  /// Configure server-initiated keep-alive hints.
-  pub fn keep_alive(mut self, k: WsKeepAlive) -> Self {
-    self.keep_alive = k;
+  /// This legacy method has no effect. Implement ping/pong timing inside the handler.
+  #[deprecated(note = "no effect; implement ping/pong in the handler or use max_lifetime")]
+  pub fn keep_alive(self, _config: WsKeepAlive) -> Self {
     self
   }
 
@@ -165,9 +148,6 @@ where
       .get(header::SEC_WEBSOCKET_PROTOCOL)
       .and_then(|v| v.to_str().ok())?;
     let offered: Vec<&str> = header.split(',').map(str::trim).collect();
-    // Iterate server preference order first: the first server-preferred
-    // subprotocol that the client also offers wins. The previous loop
-    // iterated client order, letting a downgrade-favoring client choose.
     self
       .protocols
       .iter()
@@ -189,17 +169,7 @@ where
   }
 }
 
-/// Normalize an `Origin` value to `scheme://host[:port]` for comparison.
-/// The scheme and host are lowercased; the default port (80/443 for
-/// http/https) is stripped so callers don't have to spell it out. Returns an
-/// empty string when parsing fails, which `origin_allowed` treats as
-/// non-matching.
-///
-/// Uses [`url::Url::parse`] to correctly handle IPv6 literals (`[::1]:8443`),
-/// userinfo (`user@host` — never legal in an Origin and rejected), and trailing
-/// paths/queries that leaked into the header. The previous string-splitting
-/// implementation mishandled IPv6 (the colon-rsplit cut the address mid-segment)
-/// and userinfo (the `@` prefix leaked into the host comparison).
+/// Normalize scheme, host, and port for the origin allow-list.
 fn normalize_origin(raw: &str) -> String {
   let raw = raw.trim();
   if raw.is_empty() || raw.eq_ignore_ascii_case("null") {
@@ -234,6 +204,10 @@ where
   Fut: Future<Output = ()> + Send + 'static,
 {
   fn into_response(self) -> Response {
+    let accept = match crate::ws_handshake::accept(&self.request) {
+      Ok(accept) => accept,
+      Err(status) => return crate::ws_handshake::rejection(status),
+    };
     let ws_config = self.websocket_config();
     if !self.origin_allowed(self.request.headers()) {
       return http::Response::builder()
@@ -250,20 +224,6 @@ where
     } = self;
     let (parts, body) = request.into_parts();
     let req = http::Request::from_parts(parts, body);
-
-    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
-      return http::Response::builder()
-        .status(StatusCode::BAD_REQUEST)
-        .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
-        .expect("valid bad request response");
-    };
-
-    let accept = {
-      let mut sha1 = Sha1::new();
-      sha1.update(key.as_bytes());
-      sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-      STANDARD.encode(sha1.finalize())
-    };
 
     let mut builder = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)
@@ -292,7 +252,8 @@ where
         };
         let upgraded = TokioIo::new(upgraded);
         let ws = WebSocketStream::from_raw_socket(upgraded, Role::Server, ws_config).await;
-        let handler_fut = std::panic::AssertUnwindSafe(handler(ws)).catch_unwind();
+        let handler_fut =
+          std::panic::AssertUnwindSafe(async move { handler(ws).await }).catch_unwind();
         match max_lifetime {
           Some(d) => {
             let _ = tokio::time::timeout(d, handler_fut).await;

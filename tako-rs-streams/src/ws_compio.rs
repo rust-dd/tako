@@ -7,11 +7,8 @@
 use std::future::Future;
 use std::io::ErrorKind;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use compio::io::compat::SyncStream;
 use compio::ws::tungstenite;
-// Re-export Message for convenience
 pub use compio::ws::tungstenite::Message;
 use compio::ws::tungstenite::protocol::CloseFrame;
 use compio::ws::tungstenite::protocol::Role;
@@ -20,8 +17,6 @@ use futures_util::FutureExt;
 use http::StatusCode;
 use http::header;
 use hyper::upgrade::Upgraded;
-use sha1::Digest;
-use sha1::Sha1;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
@@ -53,24 +48,7 @@ impl compio::io::AsyncRead for UpgradedStream {
 
     use hyper::rt::Read;
 
-    // STR-6 (perf): the previous implementation allocated `vec![0u8; len]`
-    // + zero-filled + memcopied into `buf` on EVERY read. `len` here is
-    // `buf.buf_capacity()` — the buffer's writable spare — which can be up
-    // to 64 MiB for tuned WebSocket connections. Per-read `alloc + memset(spare)
-    // + memcpy` is exactly the cost the `IoBufMut::buf_mut_ptr` zero-copy
-    // contract is designed to avoid.
-    //
-    // Switch to `hyper::rt::ReadBuf::uninit(buf.as_uninit())` so hyper writes
-    // directly into the buffer's uninitialised spare, then `set_len` advances
-    // the buffer's logical length by the number of bytes hyper reports as
-    // filled. Zero alloc, zero memset, zero memcpy on the read hot path.
     let result = std::future::poll_fn(|cx: &mut Context<'_>| -> Poll<std::io::Result<usize>> {
-      // Re-borrow `buf`'s writable spare each poll. `as_uninit()` returns
-      // `&mut [MaybeUninit<u8>]` — the slice hyper's `ReadBuf::uninit`
-      // expects. Constructing the ReadBuf fresh each poll is fine because
-      // `poll_read` either fills bytes and returns Ready, or returns Pending
-      // without touching the cursor (so the previous ReadBuf's filled bytes
-      // were always zero in the Pending case).
       let uninit_slice = buf.as_uninit();
       let mut read_buf = hyper::rt::ReadBuf::uninit(uninit_slice);
       match Pin::new(&mut self.inner).poll_read(cx, read_buf.unfilled()) {
@@ -83,28 +61,8 @@ impl compio::io::AsyncRead for UpgradedStream {
 
     match result {
       Ok(filled_len) => {
-        // SAFETY: precise reasoning, taking compio's Slice semantics
-        // into account (the previous version just compared `filled_len`
-        // against `buf.buf_capacity()` without acknowledging that the
-        // buffer is a `Slice` re-base into a parent allocation):
-        //
-        // 1. `buf` is `IoBufMut`. `as_uninit()` returns
-        //    `&mut [MaybeUninit<u8>]` covering exactly the writable
-        //    spare of *this* slice — already rebased relative to the
-        //    parent allocation, so any `set_len` we perform here only
-        //    advances *this* slice's logical length, never the parent's.
-        // 2. hyper's `Read::poll_read` contract guarantees that the
-        //    first `read_buf.filled().len() == filled_len` bytes of the
-        //    cursor it received are initialised on Ok(()), and
-        //    `filled_len <= unfilled.len() <= self.as_uninit().len()
-        //                                  == buf.buf_capacity()`.
-        // 3. The cursor was constructed from `as_uninit()` directly, so
-        //    the initialised bytes live inside the same slice region
-        //    that `set_len` will publish.
-        //
-        // Therefore `set_len(filled_len)` is in-bounds for this slice
-        // and the bytes it covers are initialised — matching the
-        // `IoBufMut::set_buf_init`-equivalent contract.
+        // SAFETY: hyper initialized exactly `filled_len` bytes in this buffer's
+        // writable slice, so publishing that length stays within the same allocation.
         unsafe { buf.set_len(filled_len) };
         (Ok(filled_len), buf).into()
       }
@@ -180,9 +138,7 @@ where
 
   /// Sends a WebSocket message.
   pub async fn send(&mut self, message: Message) -> Result<(), tungstenite::Error> {
-    // Send the message (buffers it)
     self.inner.send(message)?;
-    // Flush the buffer to the network
     self.flush().await
   }
 
@@ -341,19 +297,9 @@ where
     let (parts, body) = self.request.into_parts();
     let req = http::Request::from_parts(parts, body);
 
-    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
-      return http::Response::builder()
-        .status(StatusCode::BAD_REQUEST)
-        .body(TakoBody::from("Missing Sec-WebSocket-Key".to_string()))
-        .expect("valid bad request response");
-    };
-
-    // RFC-6455 accept hash
-    let accept = {
-      let mut sha1 = Sha1::new();
-      sha1.update(key.as_bytes());
-      sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-      STANDARD.encode(sha1.finalize())
+    let accept = match crate::ws_handshake::accept(&req) {
+      Ok(accept) => accept,
+      Err(status) => return crate::ws_handshake::rejection(status),
     };
 
     let response = http::Response::builder()
@@ -370,7 +316,7 @@ where
         if let Ok(upgraded) = on_upgrade.await {
           let stream = UpgradedStream::new(upgraded);
           let ws = CompioWebSocket::from_raw_socket(stream, Role::Server, None);
-          let _ = std::panic::AssertUnwindSafe(handler(ws))
+          let _ = std::panic::AssertUnwindSafe(async move { handler(ws).await })
             .catch_unwind()
             .await;
         }
