@@ -11,70 +11,72 @@
 
 ## Why Tako
 
-- **One service, many transports** — REST, WebSockets, SSE, gRPC, raw TCP/UDP, Unix sockets, and QUIC without switching frameworks.
-- **One model, two runtimes** — the same framework style on **Tokio** or **Compio**, TLS and HTTP/2 on both.
-- **Batteries included** — middleware, auth, metrics, signals, queues, graceful shutdown, and streaming are part of the framework, not an afterthought.
-- **Performance when it matters** — SIMD JSON, optional zero-copy extractors, brotli/gzip/deflate/zstd, jemalloc, and HTTP/3 — without fragmenting the API.
+- **Typed handlers** — ordinary async functions, typed request extractors, and flexible response types.
+- **Beyond HTTP** — add WebSockets, event streams, gRPC, or raw socket services as your application grows.
+- **Your choice of runtime** — Tokio or Compio, with TLS and HTTP/2 support on both.
+- **Room to tune** — opt into SIMD JSON, zero-copy extractors, compression, or jemalloc when your workload calls for them.
 
-## At a glance
+## Quick start
 
-- **Transports** — HTTP/1.1, HTTP/2, HTTP/3 (QUIC), WebSocket, WebTransport, SSE, gRPC, TCP, UDP, Unix sockets, PROXY protocol.
-- **Extraction** — 22+ typed extractors: JSON (SIMD optional), form, query, path, headers, cookies, JWT claims, API keys, Accept, Range, protobuf, multipart.
-- **Middleware** — JWT/Basic/Bearer/API-key auth, CSRF, sessions, security headers, request IDs, body limits, rate limiting, CORS, idempotency, compression, metrics.
+Requires **Rust 1.95+**. Tako uses edition 2024.
 
-The full transport matrix, extractor catalog, middleware reference, and cargo
-feature graph live in the [documentation](https://tako.rust-dd.com).
-
-## Installation
+Add these dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "2"
+tako-rs = "2.1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
-MSRV 1.95 · Edition 2024
-
-Select optional transports with `ws`, `sse`, `proxy-protocol`, and `udp`.
-The [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1) covers API and default changes.
-
-## Quick Start
+Then create `src/main.rs`. The package is `tako-rs`; the Rust import is `tako`.
 
 ```rust
-use anyhow::Result;
-use tako::{
-    responder::Responder,
-    router::Router,
-    types::Request,
-    Method,
-};
+use tako::{router::Router, types::BoxError, Server};
 use tokio::net::TcpListener;
 
-async fn hello_world(_: Request) -> impl Responder {
-    "Hello, World!".into_response()
-}
-
 #[tokio::main]
-async fn main() -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-
+async fn main() -> Result<(), BoxError> {
     let mut router = Router::new();
-    router.route(Method::GET, "/", hello_world);
+    router.get("/", || async { "Hello, Tako!" });
 
-    tako::Server::builder().build().spawn_http(listener, router).result().await?;
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    Server::builder()
+        .build()
+        .try_spawn_http(listener, router)?
+        .result()
+        .await?;
+
     Ok(())
 }
 ```
 
-Keep going with the [Quickstart guide](https://tako.rust-dd.com/docs/getting-started/quickstart).
+Start it with `cargo run`, then visit <http://127.0.0.1:8080> or run:
 
-## In Production
+```sh
+curl http://127.0.0.1:8080/
+```
 
-Tako already powers real-world services:
+Continue with the [Quickstart guide](https://tako.rust-dd.com/docs/getting-started/quickstart)
+or explore the [runnable examples](./examples).
 
-- `stochastic-api` — https://stochasticlab.cloud/
-- `shrtn.ink` — https://app.shrtn.ink/
+## At a glance
 
-## Benchmark
+| Area | Capabilities |
+| --- | --- |
+| Transports | HTTP/1.1, HTTP/2, HTTP/3, WebSocket, WebTransport, SSE, TCP, UDP, Unix sockets, PROXY protocol |
+| Extractors | JSON, form, query, path, headers, cookies, JWT claims, API keys, multipart, protobuf |
+| Middleware | Authentication, CSRF, sessions, security headers, request IDs, body limits, rate limiting, CORS, idempotency, compression |
+| Integrations | GraphQL, unary gRPC, OpenAPI, Prometheus, OpenTelemetry, queues, signals |
+
+The default setup uses Tokio and includes HTTP/1.1. Enable additional protocols
+and integrations through [Cargo features](https://tako.rust-dd.com/docs/reference/features).
+See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
+for transport support on Tokio and Compio.
+
+For upgrades from 2.0, the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
+covers API changes and the new opt-in transport features.
+
+## Benchmarks
 
 Hello-world throughput on a clean local run (`wrk -t4 -c100 -d30s`):
 
@@ -85,8 +87,8 @@ Hello-world throughput on a clean local run (`wrk -t4 -c100 -d30s`):
 | Axum | ~186,194 | ~498 µs |
 | Actix | ~155,307 | ~635 µs |
 
-Machine- and thermal-state-dependent — treat as local baselines, not universal
-claims. Details on the [benchmarks page](https://tako.rust-dd.com/docs/benchmarks).
+Results depend on hardware, configuration, and thermal state. See the
+[benchmark setup and results](https://tako.rust-dd.com/docs/benchmarks) for context.
 
 ## License
 
