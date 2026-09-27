@@ -28,6 +28,7 @@ pub(crate) struct Bucket {
 }
 
 struct Outcome {
+  limit: u32,
   allowed: bool,
   remaining: u32,
   reset_secs: u64,
@@ -58,6 +59,7 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
       };
       let retry_after_secs = if allowed { 0 } else { reset_secs.max(1) };
       Outcome {
+        limit: cfg.max_requests,
         allowed,
         remaining,
         reset_secs,
@@ -92,6 +94,7 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
         ((bucket.available + increment - burst_tolerance).max(0.0)).ceil() as u64
       };
       Outcome {
+        limit: cfg.max_requests,
         allowed,
         remaining,
         reset_secs,
@@ -101,11 +104,11 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
   }
 }
 
-fn write_rate_limit_headers(headers: &mut http::HeaderMap, cfg: &Config, outcome: &Outcome) {
+fn write_rate_limit_headers(headers: &mut http::HeaderMap, outcome: &Outcome) {
   // Inner middleware decisions survive outer limiters on the response path.
   headers
     .entry("ratelimit-limit")
-    .or_insert(HeaderValue::from(cfg.max_requests));
+    .or_insert(HeaderValue::from(outcome.limit));
   headers
     .entry("ratelimit-remaining")
     .or_insert(HeaderValue::from(outcome.remaining));
@@ -120,6 +123,7 @@ pub(crate) async fn handle(
   cfg: Config,
   store: Arc<SccHashMap<BucketKey, Mutex<Bucket>>>,
   key_fn: Option<KeyFn>,
+  backend: Option<Arc<dyn crate::stores::RateLimitStore>>,
 ) -> Response {
   let key = match key_fn.as_ref() {
     Some(f) => f(&req).map(BucketKey::Custom),
@@ -135,7 +139,23 @@ pub(crate) async fn handle(
     };
   };
 
-  let outcome = {
+  let outcome = if let Some(backend) = backend {
+    let decision = match backend.consume(&key.storage_key(), 1).await {
+      Ok(decision) => decision,
+      Err(error) => return crate::stores::runtime::unavailable(error),
+    };
+    let (allowed, snapshot) = match decision {
+      Ok(snapshot) => (true, snapshot),
+      Err(snapshot) => (false, snapshot),
+    };
+    Outcome {
+      limit: snapshot.limit,
+      allowed,
+      remaining: snapshot.remaining,
+      reset_secs: snapshot.reset_secs,
+      retry_after_secs: snapshot.retry_after_secs,
+    }
+  } else {
     let entry = store.entry_async(key).await.or_insert_with(|| {
       Mutex::new(Bucket {
         available: match cfg.algorithm {
@@ -155,7 +175,7 @@ pub(crate) async fn handle(
       .status(cfg.status_on_limit)
       .body(TakoBody::empty())
       .expect("valid rate-limit response");
-    write_rate_limit_headers(resp.headers_mut(), &cfg, &outcome);
+    write_rate_limit_headers(resp.headers_mut(), &outcome);
     resp
       .headers_mut()
       .insert(RETRY_AFTER, HeaderValue::from(outcome.retry_after_secs));
@@ -163,6 +183,6 @@ pub(crate) async fn handle(
   }
 
   let mut resp = next.run(req).await;
-  write_rate_limit_headers(resp.headers_mut(), &cfg, &outcome);
+  write_rate_limit_headers(resp.headers_mut(), &outcome);
   resp
 }

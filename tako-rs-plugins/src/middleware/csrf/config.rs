@@ -12,6 +12,9 @@ pub struct Csrf {
   pub(crate) trusted_origins: Vec<String>,
   pub(crate) bind_to_session: bool,
   pub(crate) session_key: String,
+  pub(crate) store: Option<std::sync::Arc<dyn crate::stores::CsrfTokenStore>>,
+  pub(crate) single_use: bool,
+  pub(crate) token_ttl: std::time::Duration,
 }
 
 impl Default for Csrf {
@@ -32,7 +35,29 @@ impl Csrf {
       trusted_origins: Vec::new(),
       bind_to_session: true,
       session_key: "__csrf".to_string(),
+      store: None,
+      single_use: false,
+      token_ttl: std::time::Duration::from_secs(3600),
     }
+  }
+
+  /// Use server-side token storage. Session middleware must run before CSRF.
+  /// The default without a store is the session-bound double-submit cookie scheme.
+  pub fn store(mut self, store: impl crate::stores::CsrfTokenStore) -> Self {
+    self.store = Some(std::sync::Arc::new(store));
+    self
+  }
+
+  /// Consume stored tokens on successful unsafe requests; defaults to false.
+  pub fn single_use(mut self, enabled: bool) -> Self {
+    self.single_use = enabled;
+    self
+  }
+
+  /// Stored token lifetime, default one hour.
+  pub fn token_ttl(mut self, ttl: std::time::Duration) -> Self {
+    self.token_ttl = ttl;
+    self
   }
 
   /// CSRF cookie name. Default: `"csrf_token"`.

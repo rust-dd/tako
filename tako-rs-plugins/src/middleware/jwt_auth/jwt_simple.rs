@@ -101,6 +101,7 @@ impl Clone for AnyVerifyKey {
 /// kid-keyed lookup that wins when the JWT header carries `kid`. Updating
 /// the kid map at runtime rotates without restarting.
 pub struct MultiKeyVerifier<C> {
+  allowed_algorithms: Arc<std::collections::HashSet<&'static str>>,
   keys_by_alg: HashMap<&'static str, AnyVerifyKey, BuildHasher>,
   keys_by_kid: Arc<parking_lot::RwLock<HashMap<String, AnyVerifyKey>>>,
   constraints: Arc<super::VerifyConstraints>,
@@ -111,6 +112,7 @@ impl<C> Clone for MultiKeyVerifier<C> {
   fn clone(&self) -> Self {
     Self {
       keys_by_alg: self.keys_by_alg.clone(),
+      allowed_algorithms: self.allowed_algorithms.clone(),
       keys_by_kid: self.keys_by_kid.clone(),
       constraints: self.constraints.clone(),
       _phantom: std::marker::PhantomData,
@@ -122,11 +124,18 @@ impl<C> MultiKeyVerifier<C> {
   /// Builds a verifier with algorithm-only key selection.
   pub fn new(keys: HashMap<&'static str, AnyVerifyKey, BuildHasher>) -> Self {
     Self {
+      allowed_algorithms: Arc::new(keys.keys().copied().collect()),
       keys_by_alg: keys,
       keys_by_kid: Arc::new(parking_lot::RwLock::new(HashMap::new())),
       constraints: Arc::new(super::VerifyConstraints::default()),
       _phantom: std::marker::PhantomData,
     }
+  }
+
+  /// Allow these algorithms for externally supplied keys. Defaults to the static key algorithms.
+  pub fn allowed_algorithms(mut self, algorithms: impl IntoIterator<Item = &'static str>) -> Self {
+    self.allowed_algorithms = Arc::new(algorithms.into_iter().collect());
+    self
   }
 
   /// Adds / replaces the rotation key for `kid`.
@@ -197,6 +206,31 @@ where
       .map_err(|e| e.to_string())
   }
 
+  fn verify_with_key(
+    &self,
+    token: &str,
+    key: &crate::stores::VerificationKey,
+  ) -> Option<Result<Self::Claims, Self::Error>> {
+    Some((|| {
+      let metadata =
+        ::jwt_simple::token::Token::decode_metadata(token).map_err(|error| error.to_string())?;
+      let algorithm = metadata.algorithm();
+      if algorithm != key.algorithm || !self.allowed_algorithms.contains(algorithm) {
+        return Err("algorithm not allowed".into());
+      }
+      let key = super::provider_key::decode(algorithm, &key.bytes)?;
+      let mut keys = HashMap::with_hasher(BuildHasher::default());
+      let algorithm = key.alg_id();
+      keys.insert(algorithm, key);
+      let verifier = Self::new(keys).constraints((*self.constraints).clone());
+      verifier.verify(token)
+    })())
+  }
+
+  fn with_constraints(&self, constraints: &super::VerifyConstraints) -> Self {
+    self.clone().constraints(constraints.clone())
+  }
+
   fn validate_constraints(
     &self,
     claims: &Self::Claims,
@@ -221,11 +255,6 @@ where
         }
       }
     }
-    // `leeway_secs` is applied to exp/nbf by the underlying verify() call
-    // when this verifier's internal `constraints.leeway_secs` is set; the
-    // middleware-level field is informational only here. If both are set
-    // and disagree, the verifier-level leeway wins for exp/nbf and the
-    // middleware-level leeway is ignored.
     Ok(())
   }
 }

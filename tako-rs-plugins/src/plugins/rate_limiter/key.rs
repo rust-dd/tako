@@ -41,3 +41,12 @@ pub(crate) fn default_key(request: &Request, config: &Config) -> Option<BucketKe
   };
   Some(BucketKey::Ip(ip))
 }
+
+impl BucketKey {
+  pub(crate) fn storage_key(&self) -> std::borrow::Cow<'_, str> {
+    match self {
+      Self::Ip(ip) => format!("ip:{ip}").into(),
+      Self::Custom(key) => key.as_str().into(),
+    }
+  }
+}

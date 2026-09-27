@@ -12,15 +12,23 @@ pub trait JwtVerifier: Send + Sync + Clone + 'static {
   /// Verifies a raw JWT token string.
   fn verify(&self, token: &str) -> Result<Self::Claims, Self::Error>;
 
-  /// Validate `iss` / `aud` / `leeway` constraints against the decoded claims.
-  ///
-  /// The default implementation **fails closed** when any non-default
-  /// constraint is configured — concrete verifiers MUST override this if they
-  /// want to silently accept (because they already enforce constraints
-  /// internally) or to apply their own logic. Failing closed prevents the
-  /// previous v1.x behavior where custom verifiers silently dropped the
-  /// `VerifyConstraints` configured on `JwtAuth`, leaving iss/aud/leeway
-  /// unenforced.
+  /// Verify against a provider-supplied key, including an explicit algorithm allow-list.
+  /// The default does not support external keys and returns `None`, which fails closed.
+  fn verify_with_key(
+    &self,
+    _token: &str,
+    _key: &crate::stores::VerificationKey,
+  ) -> Option<Result<Self::Claims, Self::Error>> {
+    None
+  }
+
+  /// Configure constraints before signature and time validation.
+  /// The default returns a clone; unsupported constraints fail in `validate_constraints`.
+  fn with_constraints(&self, _constraints: &VerifyConstraints) -> Self {
+    self.clone()
+  }
+
+  /// Enforce middleware constraints. Non-default constraints fail closed by default.
   fn validate_constraints(
     &self,
     _claims: &Self::Claims,
@@ -46,7 +54,7 @@ pub trait JwtVerifier: Send + Sync + Clone + 'static {
 /// surfaces this as 401 Unauthorized — fail-closed by design.
 #[derive(Debug, Clone)]
 pub struct ConstraintsNotSupported {
-  /// Human-readable diagnostic surfaced in the 401 response body.
+  /// Diagnostic logged when verification is rejected.
   pub reason: &'static str,
 }
 

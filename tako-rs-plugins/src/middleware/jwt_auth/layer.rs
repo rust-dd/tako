@@ -21,9 +21,10 @@ use super::verifier::VerifyConstraints;
 /// JWT authentication middleware.
 pub struct JwtAuth<V: JwtVerifier> {
   verifier: V,
-  constraints: VerifyConstraints,
+  constraints: Option<VerifyConstraints>,
   revocation: Option<RevocationCheck<V::Claims>>,
   introspect: Option<IntrospectionFn>,
+  provider: Option<Arc<dyn crate::stores::JwksProvider>>,
 }
 
 impl<V: JwtVerifier> JwtAuth<V> {
@@ -32,15 +33,22 @@ impl<V: JwtVerifier> JwtAuth<V> {
   pub fn new(verifier: V) -> Self {
     Self {
       verifier,
-      constraints: VerifyConstraints::default(),
+      constraints: None,
       revocation: None,
       introspect: None,
+      provider: None,
     }
+  }
+
+  /// Use an asynchronous key provider. The verifier must implement `verify_with_key`.
+  pub fn store(mut self, provider: impl crate::stores::JwksProvider) -> Self {
+    self.provider = Some(Arc::new(provider));
+    self
   }
 
   /// Sets per-claim constraints (issuer, audience, leeway).
   pub fn constraints(mut self, c: VerifyConstraints) -> Self {
-    self.constraints = c;
+    self.constraints = Some(c);
     self
   }
 
@@ -77,23 +85,23 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
   + Send
   + Sync
   + 'static {
-    let verifier = self.verifier;
-    let constraints = Arc::new(self.constraints);
+    let verifier = self.constraints.as_ref().map_or_else(
+      || self.verifier.clone(),
+      |constraints| self.verifier.with_constraints(constraints),
+    );
+    let provider = self.provider;
+    let constraints = Arc::new(self.constraints.unwrap_or_default());
     let revocation = self.revocation;
     let introspect = self.introspect;
 
     move |mut req: Request, next: Next| {
       let verifier = verifier.clone();
+      let provider = provider.clone();
       let constraints = constraints.clone();
       let revocation = revocation.clone();
       let introspect = introspect.clone();
 
       Box::pin(async move {
-        // PMW-04: RFC 7235 §2.1 requires the auth scheme name to be
-        // matched case-insensitively. Sibling `bearer_auth.rs:205` already
-        // uses `eq_ignore_ascii_case`; here we previously used the
-        // case-sensitive `strip_prefix("Bearer ")` which silently 401'd
-        // any legitimate `bearer <jwt>` / `BEARER <jwt>` client.
         let token = match req
           .headers()
           .get(AUTHORIZATION)
@@ -112,18 +120,15 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
           }
         };
 
-        let claims = match verifier.verify(&token) {
-          Ok(c) => c,
-          Err(e) => {
-            return (StatusCode::UNAUTHORIZED, format!("Invalid token: {e}")).into_response();
-          }
+        let claims = match super::rotation::verify(&verifier, &token, provider.as_deref()).await {
+          Ok(Some(claims)) => claims,
+          Ok(None) => return unauthorized(),
+          Err(error) => return crate::stores::runtime::unavailable(error),
         };
 
-        // Caller-controlled iss/aud/leeway. Propagate to the verifier so it
-        // can apply them. Default trait impl fails closed when constraints
-        // are configured but the verifier does not implement enforcement.
         if let Err(e) = verifier.validate_constraints(&claims, &constraints) {
-          return (StatusCode::UNAUTHORIZED, format!("Invalid token: {e}")).into_response();
+          tracing::debug!(error = %e, "JWT constraints rejected");
+          return unauthorized();
         }
 
         if let Some((list, extractor)) = revocation.as_ref()
@@ -144,4 +149,12 @@ impl<V: JwtVerifier> IntoMiddleware for JwtAuth<V> {
       })
     }
   }
+}
+
+fn unauthorized() -> Response {
+  http::Response::builder()
+    .status(StatusCode::UNAUTHORIZED)
+    .header(http::header::WWW_AUTHENTICATE, "Bearer")
+    .body(tako_rs_core::body::TakoBody::from("Invalid token"))
+    .expect("valid JWT rejection")
 }

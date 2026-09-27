@@ -44,7 +44,6 @@ impl Default for Config {
     Self {
       header: HeaderName::from_static("idempotency-key"),
       methods: vec![Method::POST],
-      // Matches the documented default on `Config::ttl_secs` (24h).
       ttl_secs: 86400,
       scope: Scope::MethodAndPath,
       coalesce_inflight: true,
@@ -58,7 +57,10 @@ impl Default for Config {
 }
 
 /// Builder for the idempotency plugin.
-pub struct IdempotencyBuilder(Config);
+pub struct IdempotencyBuilder(
+  Config,
+  Option<std::sync::Arc<dyn crate::stores::IdempotencyStore>>,
+);
 
 impl Default for IdempotencyBuilder {
   fn default() -> Self {
@@ -69,7 +71,12 @@ impl Default for IdempotencyBuilder {
 impl IdempotencyBuilder {
   /// Start with sensible defaults.
   pub fn new() -> Self {
-    Self(Config::default())
+    Self(Config::default(), None)
+  }
+  /// Use a shared backend with atomic leases and completion.
+  pub fn store(mut self, store: impl crate::stores::IdempotencyStore) -> Self {
+    self.1 = Some(std::sync::Arc::new(store));
+    self
   }
   pub fn header(mut self, h: HeaderName) -> Self {
     self.0.header = h;
@@ -112,6 +119,10 @@ impl IdempotencyBuilder {
     self
   }
   pub fn build(self) -> IdempotencyPlugin {
-    IdempotencyPlugin::new(self.0)
+    let mut plugin = IdempotencyPlugin::new(self.0);
+    if let Some(store) = self.1 {
+      plugin.store = store;
+    }
+    plugin
   }
 }

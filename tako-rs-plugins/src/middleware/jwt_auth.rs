@@ -5,11 +5,10 @@
 //! batteries-included verifier built on top of `jwt-simple` — it supports
 //! HMAC, RSA, RSA-PSS, ECDSA, `EdDSA` and `BLAKE2b`.
 //!
-//! v2 additions:
-//!
 //! - **JWKS rotation** via [`stores::JwksProvider`](crate::stores::JwksProvider).
-//!   The bundled `MultiKeyVerifier` (under the `jwt-simple` feature) selects keys by `kid`, falling back to
-//!   the configured static map when the provider returns no match.
+//!   Attach a provider with `JwtAuth::store`. The bundled `MultiKeyVerifier`
+//!   supports raw MAC keys and DER public keys; its algorithm allow-list also
+//!   applies to provider keys. An empty provider result uses static keys.
 //! - **Configurable issuer / audience / leeway** through
 //!   [`VerifyConstraints`]. Applied uniformly across every algorithm.
 //! - **Revocation list** via the [`RevocationList`] trait — simple in-memory
@@ -21,7 +20,10 @@
 #[cfg(feature = "jwt-simple")]
 mod jwt_simple;
 mod layer;
+#[cfg(feature = "jwt-simple")]
+mod provider_key;
 mod revocation;
+mod rotation;
 mod verifier;
 
 #[cfg(feature = "jwt-simple")]
@@ -37,3 +39,6 @@ pub use revocation::RevocationList;
 pub use verifier::ConstraintsNotSupported;
 pub use verifier::JwtVerifier;
 pub use verifier::VerifyConstraints;
+
+#[cfg(all(test, feature = "jwt-simple"))]
+mod tests;

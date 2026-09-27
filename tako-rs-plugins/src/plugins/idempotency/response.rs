@@ -1,103 +1,42 @@
-//! Conflict, bad-gateway, and cache-replay response construction, plus the
-//! header filter that decides which response headers survive into the cache.
-
-use http::HeaderName;
-use http::HeaderValue;
+use bytes::Bytes;
+use bytes::BytesMut;
+use futures_util::StreamExt;
 use http::StatusCode;
-use http::header::CONTENT_LENGTH;
-use http::header::RETRY_AFTER;
+use http::header;
+use http_body::Body;
+use http_body_util::BodyExt;
+use http_body_util::BodyStream;
 use tako_rs_core::body::TakoBody;
+use tako_rs_core::types::BoxError;
 use tako_rs_core::types::Response;
 
-use super::store::CachedResponse;
+use crate::stores::IdempotencyEntry;
+use crate::stores::StoreResult;
 
-/// 409 response for a permanent Idempotency-Key collision — the cached
-/// entry exists but the request payload differs. Clients **should not**
-/// retry the same request unchanged; they must either change the key or
-/// alter the payload, hence no `Retry-After`.
-pub(crate) fn conflict() -> Response {
-  conflict_response(None)
+pub(crate) fn conflict(inflight: bool) -> Response {
+  let mut response = http::Response::builder().status(StatusCode::CONFLICT);
+  if inflight {
+    response = response.header(header::RETRY_AFTER, 3);
+  }
+  response.body(TakoBody::empty()).unwrap()
 }
 
-/// 409 response for a transient collision: another worker is currently
-/// processing the same Idempotency-Key, or coalescing is disabled.
-/// Clients **may** retry after the suggested delay (3s).
-pub(crate) fn conflict_inflight() -> Response {
-  conflict_response(Some(3))
-}
-
-/// PPL-18: shared builder so both 409 paths use the same response
-/// shape — only the optional \`Retry-After\` differs, signalling
-/// transient (`Some`) vs permanent (`None`) collisions.
-fn conflict_response(retry_after_secs: Option<u32>) -> Response {
-  let mut resp = http::Response::builder()
-    .status(StatusCode::CONFLICT)
-    .body(TakoBody::empty())
-    .unwrap();
-  if let Some(secs) = retry_after_secs {
-    resp.headers_mut().insert(
-      RETRY_AFTER,
-      HeaderValue::from_str(&secs.to_string()).unwrap_or_else(|_| HeaderValue::from_static("3")),
+pub(crate) fn replay(entry: IdempotencyEntry) -> StoreResult<Response> {
+  let mut response = Response::new(TakoBody::from(entry.body.clone()));
+  *response.status_mut() = StatusCode::from_u16(entry.status)?;
+  for (name, value) in entry.headers {
+    response.headers_mut().append(
+      http::HeaderName::from_bytes(name.as_bytes())?,
+      http::HeaderValue::from_bytes(&value)?,
     );
   }
-  resp
+  response
+    .headers_mut()
+    .insert(header::CONTENT_LENGTH, entry.body.len().into());
+  Ok(response)
 }
 
-/// Emitted when the downstream handler's response body fails to collect
-/// (transient I/O error mid-stream). Returning 502 is preferable to silently
-/// caching an empty body and serving it on every replay — see PPL-09.
-pub(crate) fn bad_gateway() -> Response {
-  http::Response::builder()
-    .status(StatusCode::BAD_GATEWAY)
-    .body(TakoBody::empty())
-    .unwrap()
-}
-
-pub(crate) fn build_response_from_cache(c: &CachedResponse) -> Response {
-  // `Response::builder().status(...).headers_mut()` returns `None` and panics
-  // on `.unwrap()` whenever the builder is in an error state (the same way
-  // `Response::builder().status(0u16)` would be). We never reach that path
-  // because `c.status` is a real `StatusCode`, but go through a fallible
-  // emit and fall back to an internal-error response so future refactors
-  // that change `CachedResponse::status` to a free-form integer don't
-  // re-introduce a panic on the cache replay path.
-  let mut b = http::Response::builder().status(c.status);
-  let Some(headers) = b.headers_mut() else {
-    return http::Response::builder()
-      .status(StatusCode::INTERNAL_SERVER_ERROR)
-      .body(TakoBody::empty())
-      .expect("static 500 builder");
-  };
-  for (k, v) in &c.headers {
-    let _ = headers.insert(k, v.clone());
-  }
-  headers.remove(CONTENT_LENGTH);
-  b.body(TakoBody::from(c.body.clone())).unwrap_or_else(|_| {
-    http::Response::builder()
-      .status(StatusCode::INTERNAL_SERVER_ERROR)
-      .body(TakoBody::empty())
-      .expect("static 500 builder")
-  })
-}
-
-/// Pick which response headers survive into the idempotency cache.
-///
-/// PPL-11: previously this was an *allow-list* (only `Content-Type`,
-/// `Location`, and `x-*` headers passed through). That silently dropped
-/// many headers that are perfectly safe to replay — `Cache-Control`,
-/// `ETag`, `Last-Modified`, `Vary`, `Link`, `Content-Language`,
-/// `Content-Disposition`, `Allow`, etc. — so intermediaries lost
-/// validation tokens and clients lost download filenames / language hints
-/// on every replay.
-///
-/// Switch to a *denylist*: keep everything except headers that are unsafe
-/// or wrong to replay verbatim — hop-by-hop headers (RFC 9110 §7.6.1),
-/// `Content-Length` (the cached body's length may differ if size-capping
-/// rewrote it), and `Set-Cookie` (replaying old cookies is a security
-/// hazard — different requests should get fresh session state).
-pub(crate) fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
-  // Hop-by-hop headers (RFC 9110 §7.6.1) + others that must not be
-  // replayed from cache.
+pub(crate) fn filter_headers(headers: &http::HeaderMap) -> Vec<(String, Vec<u8>)> {
   const DENY: &[&str] = &[
     "connection",
     "keep-alive",
@@ -107,21 +46,64 @@ pub(crate) fn filter_headers(src: &http::HeaderMap) -> Vec<(HeaderName, HeaderVa
     "trailer",
     "transfer-encoding",
     "upgrade",
-    // Content-Length: rewritten downstream after cache replay; if the
-    // cached body was truncated by max_cached_body_bytes the original
-    // length would lie.
     "content-length",
-    // Set-Cookie: replaying old session tokens to a new caller is a
-    // security risk. Sessions must be re-established each request.
     "set-cookie",
   ];
-  let mut out = Vec::with_capacity(src.keys_len());
-  for (name, v) in src {
-    let name_lc = name.as_str().to_ascii_lowercase();
-    if DENY.contains(&name_lc.as_str()) {
-      continue;
-    }
-    out.push((name.clone(), v.clone()));
+  let connection = headers
+    .get_all(header::CONNECTION)
+    .iter()
+    .filter_map(|value| value.to_str().ok())
+    .flat_map(|value| value.split(','))
+    .map(str::trim)
+    .collect::<Vec<_>>();
+  headers
+    .iter()
+    .filter(|(name, _)| {
+      !DENY.contains(&name.as_str())
+        && !connection
+          .iter()
+          .any(|field| name.as_str().eq_ignore_ascii_case(field))
+    })
+    .map(|(name, value)| (name.to_string(), value.as_bytes().to_vec()))
+    .collect()
+}
+
+pub(crate) async fn cacheable_body(
+  response: &mut Response,
+  limit: usize,
+) -> StoreResult<Option<Bytes>> {
+  if response.status().is_informational()
+    || response
+      .body()
+      .size_hint()
+      .upper()
+      .is_none_or(|size| size > limit as u64)
+  {
+    return Ok(None);
   }
-  out
+  let mut body = std::mem::take(response.body_mut());
+  let mut frames = Vec::new();
+  let mut length = 0usize;
+  while let Some(frame) = body.frame().await {
+    let frame = frame?;
+    length = length.saturating_add(frame.data_ref().map_or(0, Bytes::len));
+    let cacheable = frame.is_data() && length <= limit;
+    frames.push(frame);
+    if !cacheable {
+      *response.body_mut() = TakoBody::from_try_stream(
+        futures_util::stream::iter(frames.into_iter().map(Ok::<_, BoxError>))
+          .chain(BodyStream::new(body)),
+      );
+      return Ok(None);
+    }
+  }
+  let mut bytes = BytesMut::with_capacity(length);
+  for frame in frames {
+    if let Ok(data) = frame.into_data() {
+      bytes.extend_from_slice(&data);
+    }
+  }
+  let bytes = bytes.freeze();
+  *response.body_mut() = TakoBody::from(bytes.clone());
+  Ok(Some(bytes))
 }

@@ -21,6 +21,7 @@
 mod config;
 mod cookie;
 mod layer;
+mod stored;
 mod token;
 
 pub use config::Csrf;

@@ -1,131 +1,139 @@
-//! Pluggable backend traits for stateful middleware.
+//! Async backends for stateful middleware.
 //!
-//! Built-in middleware (sessions, rate limiting, idempotency, JWKS, CSRF) all
-//! ship with an in-memory `scc::HashMap` store. Production deployments often
-//! want to swap that out for Redis, Postgres, or another shared backend so a
-//! cluster of replicas can share state. The traits here define the minimum
-//! surface needed by each middleware.
-//!
-//! Concrete `Memory*` implementations live in submodules under this module.
-//! Crates that want to provide a Redis or Postgres backend can implement the
-//! traits in their own crate and pass the resulting type into the matching
-//! middleware builder.
-//!
-//! # TODO — Redis / Postgres backend crates (tracked for v2.0)
-//!
-//! Companion crates `tako-stores-redis` and `tako-stores-postgres` are
-//! planned but **not yet shipped**. Until they land, multi-replica
-//! deployments must implement these traits themselves (or accept the
-//! per-process state silos of the in-memory defaults). See `V2_ROADMAP.md`
-//! § 4.1 for the linked follow-up checklist — do not let this slip.
+//! Builders accept these traits through `.store(...)`; memory implementations
+//! are available under [`memory`]. Remote stores must implement atomic quota
+//! consumption and idempotency leases in the shared backend itself.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 
 pub mod memory;
+pub(crate) mod runtime;
 
-/// Persistent session storage.
-///
-/// Implementations must be safe to clone cheaply — sessions are accessed on
-/// every request, so the trait is invoked from inside hot middleware paths.
+/// A backend failure. Middleware logs the cause and fails closed.
+pub type StoreResult<T> = Result<T, tako_rs_core::types::BoxError>;
+
+/// Opaque session blobs with expiration enforced on reads.
 #[async_trait]
 pub trait SessionStore: Send + Sync + 'static {
-  /// Reads a session blob keyed by `id`. Returns `None` if the session does
-  /// not exist or has expired.
-  async fn load(&self, id: &str) -> Option<Vec<u8>>;
-
-  /// Inserts or replaces the session blob for `id` with the configured TTL.
-  async fn store(&self, id: &str, data: Vec<u8>, ttl: Duration);
-
-  /// Removes the session, returning whether the key existed.
-  async fn remove(&self, id: &str) -> bool;
-
-  /// Optional sweep hook. The default in-memory store schedules its own
-  /// janitor; remote backends typically rely on TTL expiry inside the
-  /// underlying database (e.g. Redis `EXPIRE`).
-  async fn sweep(&self) {}
+  async fn load(&self, id: &str) -> StoreResult<Option<Vec<u8>>>;
+  async fn store(&self, id: &str, data: Vec<u8>, ttl: Duration) -> StoreResult<()>;
+  async fn remove(&self, id: &str) -> StoreResult<bool>;
+  /// Optional cleanup for expired entries; remote stores can use database TTLs.
+  async fn sweep(&self) -> StoreResult<()> {
+    Ok(())
+  }
 }
 
-/// Token-bucket / GCRA rate-limit storage.
-///
-/// `consume` atomically reduces the bucket for `key` by one request and
-/// returns the post-consumption snapshot. Implementations are responsible for
-/// refilling the bucket — token-bucket tickers run on a per-store schedule,
-/// GCRA computes the new state on read.
+/// A quota decision: allowed or rejected, each with its response metadata.
+pub type RateLimitDecision = Result<RateLimitSnapshot, RateLimitSnapshot>;
+
+/// Atomically consume quota. The backend owns capacity, refill, and expiry policy.
 #[async_trait]
 pub trait RateLimitStore: Send + Sync + 'static {
-  /// Atomically attempts to take one permit from `key`'s bucket. Returns
-  /// `Ok(snapshot)` when the request is allowed, `Err(snapshot)` when the
-  /// caller exceeded the limit. The returned snapshot is what the caller
-  /// emits in the `RateLimit-*` response headers.
-  async fn consume(&self, key: &str, cost: u32) -> Result<RateLimitSnapshot, RateLimitSnapshot>;
+  async fn consume(&self, key: &str, cost: u32) -> StoreResult<RateLimitDecision>;
+  async fn sweep(&self) -> StoreResult<()> {
+    Ok(())
+  }
 }
 
-/// Public snapshot of a rate-limit decision suitable for response headers.
+/// Response metadata returned by a rate-limit backend.
 #[derive(Debug, Clone)]
 pub struct RateLimitSnapshot {
-  /// Configured maximum (`RateLimit-Limit` value).
   pub limit: u32,
-  /// Remaining quota after the current request, never below zero.
   pub remaining: u32,
-  /// Seconds until the next refill arrives (`RateLimit-Reset`).
   pub reset_secs: u64,
-  /// Suggested `Retry-After` (only meaningful when the request was rejected).
   pub retry_after_secs: u64,
 }
 
-/// Idempotency-key cache.
-#[async_trait]
-pub trait IdempotencyStore: Send + Sync + 'static {
-  /// Reads an existing entry for `key`.
-  async fn get(&self, key: &str) -> Option<IdempotencyEntry>;
-
-  /// Marks `key` as in-flight; returns the freshly inserted record, or the
-  /// existing one if another request arrived first.
-  async fn begin(&self, key: &str, payload_sig: [u8; 20]) -> IdempotencyEntry;
-
-  /// Persists a completed entry with the configured TTL.
-  async fn complete(&self, key: &str, entry: IdempotencyEntry, ttl: Duration);
-
-  /// Removes the entry — typically invoked when the handler decided not to
-  /// cache the result (e.g. opt-out via response header).
-  async fn remove(&self, key: &str);
+/// The result of atomically acquiring an idempotency key.
+#[derive(Debug, Clone)]
+pub enum IdempotencyBegin {
+  /// An opaque lease token owned by this request.
+  Acquired(String),
+  /// A live pending or completed entry owned by another request.
+  Existing(IdempotencyEntry),
 }
 
-/// Idempotency cache record. The body / headers are stored as opaque bytes so
-/// remote backends don't need to understand HTTP serialization.
+/// Distributed idempotency leases and cached responses.
+///
+/// Lease expiry must exceed the application's maximum handler duration.
+/// Completion/removal must compare the lease token atomically, so an expired
+/// owner cannot overwrite or delete a newer request's result.
+#[async_trait]
+pub trait IdempotencyStore: Send + Sync + 'static {
+  async fn get(&self, key: &str) -> StoreResult<Option<IdempotencyEntry>>;
+  async fn begin(&self, key: &str, payload_sig: [u8; 32]) -> StoreResult<IdempotencyBegin>;
+  async fn complete(
+    &self,
+    key: &str,
+    lease: &str,
+    entry: IdempotencyEntry,
+    ttl: Duration,
+  ) -> StoreResult<bool>;
+  async fn remove(&self, key: &str, lease: &str) -> StoreResult<bool>;
+  /// Wait for another owner. Remote stores can override polling with pub/sub.
+  async fn wait(
+    &self,
+    key: &str,
+    timeout: Option<Duration>,
+  ) -> StoreResult<Option<IdempotencyEntry>> {
+    let started = std::time::Instant::now();
+    loop {
+      let entry = self.get(key).await?;
+      if entry.as_ref().is_none_or(|entry| entry.completed) {
+        return Ok(entry);
+      }
+      let delay = timeout.map_or(Duration::from_millis(20), |limit| {
+        limit
+          .saturating_sub(started.elapsed())
+          .min(Duration::from_millis(20))
+      });
+      if delay.is_zero() {
+        return Ok(entry);
+      }
+      runtime::sleep(delay).await;
+    }
+  }
+  async fn sweep(&self) -> StoreResult<()> {
+    Ok(())
+  }
+}
+
+/// An idempotency record with serializable response bytes.
 #[derive(Debug, Clone)]
 pub struct IdempotencyEntry {
   pub status: u16,
   pub headers: Vec<(String, Vec<u8>)>,
-  pub body: Vec<u8>,
-  pub payload_sig: [u8; 20],
+  pub body: bytes::Bytes,
+  pub payload_sig: [u8; 32],
   pub completed: bool,
 }
 
-/// JSON Web Key Set provider.
-///
-/// `keys_for(kid)` returns the candidate verification keys for a given key
-/// id. JWKS rotation is implementation-specific: the in-memory provider
-/// caches a fixed snapshot, while remote providers typically fetch from a
-/// well-known URL with their own background refresh cadence.
-#[async_trait]
-pub trait JwksProvider: Send + Sync + 'static {
-  /// Returns matching key bytes for `kid`. Multiple matches are allowed
-  /// (handlers verify against each in order); `None` means "no rotation
-  /// match — fall back to the configured default key, if any".
-  async fn keys_for(&self, kid: &str) -> Vec<Vec<u8>>;
+/// A verification key bound to one JWT algorithm, preventing cross-algorithm reuse.
+#[derive(Debug, Clone)]
+pub struct VerificationKey {
+  pub algorithm: String,
+  /// Raw MAC bytes or DER public-key bytes for the bundled verifier.
+  pub bytes: Vec<u8>,
 }
 
-/// CSRF token storage. Used by token-store CSRF middleware (as opposed to the
-/// stateless double-submit-cookie variant).
+/// Candidate verification keys for a JWT `kid`.
+///
+/// Key encoding is defined by the verifier. An empty list uses its configured
+/// static keys; provider errors and failed candidate signatures fail closed.
+#[async_trait]
+pub trait JwksProvider: Send + Sync + 'static {
+  async fn keys_for(&self, kid: &str) -> StoreResult<Vec<VerificationKey>>;
+}
+
+/// Tokens bound to a session identity; single-use validation must be atomic.
 #[async_trait]
 pub trait CsrfTokenStore: Send + Sync + 'static {
-  /// Issues a token bound to the given session id with the configured TTL.
-  async fn issue(&self, session_id: &str, ttl: Duration) -> String;
-
-  /// Validates a candidate token against the session id, consuming it on
-  /// success when `single_use` is true.
-  async fn validate(&self, session_id: &str, token: &str, single_use: bool) -> bool;
+  async fn issue(&self, session_id: &str, ttl: Duration) -> StoreResult<String>;
+  async fn validate(&self, session_id: &str, token: &str, single_use: bool) -> StoreResult<bool>;
+  async fn sweep(&self) -> StoreResult<()> {
+    Ok(())
+  }
 }

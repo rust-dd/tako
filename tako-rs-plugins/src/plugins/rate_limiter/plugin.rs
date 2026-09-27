@@ -23,6 +23,8 @@ use super::config::Config;
 use super::config::KeyFn;
 use super::config::UnkeyedBehavior;
 use super::key::BucketKey;
+use crate::stores::RateLimitStore;
+use crate::stores::runtime;
 
 #[cfg(test)]
 mod tests;
@@ -31,6 +33,7 @@ mod tests;
 pub struct RateLimiterBuilder {
   cfg: Config,
   key_fn: Option<KeyFn>,
+  backend: Option<Arc<dyn RateLimitStore>>,
 }
 
 impl Default for RateLimiterBuilder {
@@ -44,7 +47,15 @@ impl RateLimiterBuilder {
     Self {
       cfg: Config::default(),
       key_fn: None,
+      backend: None,
     }
+  }
+
+  /// Use a shared backend, which owns its quota and expiration policy.
+  /// Local capacity/refill/algorithm settings apply only to the default memory limiter.
+  pub fn store(mut self, store: impl RateLimitStore) -> Self {
+    self.backend = Some(Arc::new(store));
+    self
   }
 
   pub fn max_requests(mut self, n: u32) -> Self {
@@ -151,6 +162,7 @@ impl RateLimiterBuilder {
     );
     RateLimiterPlugin {
       cfg: self.cfg,
+      backend: self.backend,
       key_fn: self.key_fn,
       store: Arc::new(SccHashMap::new()),
       task_started: Arc::new(AtomicBool::new(false)),
@@ -165,6 +177,7 @@ pub struct RateLimiterPlugin {
   cfg: Config,
   key_fn: Option<KeyFn>,
   store: Arc<SccHashMap<BucketKey, Mutex<Bucket>>>,
+  backend: Option<Arc<dyn RateLimitStore>>,
   task_started: Arc<AtomicBool>,
 }
 
@@ -177,16 +190,24 @@ impl TakoPlugin for RateLimiterPlugin {
     let cfg = self.cfg.clone();
     let store = self.store.clone();
     let key_fn = self.key_fn.clone();
+    let backend = self.backend.clone();
 
     router.middleware(move |req, next| {
       let cfg = cfg.clone();
       let store = store.clone();
       let key_fn = key_fn.clone();
-      async move { handle(req, next, cfg, store, key_fn).await }
+      let backend = backend.clone();
+      async move { handle(req, next, cfg, store, key_fn, backend).await }
     });
 
     if !self.task_started.swap(true, Ordering::SeqCst) {
-      let store = self.store.clone();
+      if let Some(backend) = &self.backend {
+        runtime::sweep(backend, Duration::from_secs(150), |backend| {
+          Box::pin(async move { backend.sweep().await })
+        });
+        return Ok(());
+      }
+      let store = Arc::downgrade(&self.store);
 
       let purge_after = idle_retention(&self.cfg);
       let interval = (purge_after / 2).min(Duration::from_secs(300));
@@ -196,6 +217,9 @@ impl TakoPlugin for RateLimiterPlugin {
         let mut tick = tokio::time::interval(interval);
         loop {
           tick.tick().await;
+          let Some(store) = store.upgrade() else {
+            break;
+          };
           evict_stale(&store, purge_after).await;
         }
       });
@@ -204,6 +228,9 @@ impl TakoPlugin for RateLimiterPlugin {
       compio::runtime::spawn(async move {
         loop {
           compio::time::sleep(interval).await;
+          let Some(store) = store.upgrade() else {
+            break;
+          };
           evict_stale(&store, purge_after).await;
         }
       })

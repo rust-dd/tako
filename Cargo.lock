@@ -4679,6 +4679,7 @@ name = "tako-rs"
 version = "2.0.2"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "bytes",
  "compio",
@@ -4854,6 +4855,7 @@ dependencies = [
  "pin-project-lite",
  "prometheus",
  "scc",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha1 0.10.7",

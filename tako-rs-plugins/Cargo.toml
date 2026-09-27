@@ -44,6 +44,7 @@ parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 prometheus = { workspace = true, optional = true }
 scc = { workspace = true }
+send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha1 = { workspace = true }
@@ -83,7 +84,7 @@ hmac-signature = ["dep:hmac"]
 # JSON-schema body validator middleware.
 json-schema = ["dep:jsonschema"]
 # compio is forwarded for cfg gating inside concrete plugin/middleware impls.
-compio = ["dep:compio", "tako-rs-core/compio"]
+compio = ["dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
 
 [lints]
 workspace = true

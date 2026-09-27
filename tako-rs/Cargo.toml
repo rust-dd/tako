@@ -105,6 +105,7 @@ per-thread-compio = ["per-thread", "tako-rs-server-pt/compio"]
 
 [dev-dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
 compio = { workspace = true, features = ["macros"] }

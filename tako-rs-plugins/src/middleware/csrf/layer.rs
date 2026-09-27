@@ -28,6 +28,7 @@ impl IntoMiddleware for Csrf {
   + Send
   + Sync
   + 'static {
+    let stored = super::stored::StoredCsrf::from_config(&self).map(Arc::new);
     let cookie_name = Arc::new(self.cookie_name);
     let header_name = Arc::new(self.header_name);
     let exempt_paths = Arc::new(self.exempt_paths);
@@ -38,6 +39,7 @@ impl IntoMiddleware for Csrf {
     let session_key = Arc::new(self.session_key);
 
     move |req: Request, next: Next| {
+      let stored = stored.clone();
       let cookie_name = cookie_name.clone();
       let header_name = header_name.clone();
       let exempt_paths = exempt_paths.clone();
@@ -45,6 +47,12 @@ impl IntoMiddleware for Csrf {
       let session_key = session_key.clone();
 
       Box::pin(async move {
+        if let Some(stored) = stored {
+          return stored
+            .handle(req, next)
+            .await
+            .unwrap_or_else(crate::stores::runtime::unavailable);
+        }
         let path = req.uri().path().to_string();
         // Snapshot the Session handle BEFORE we hand the request to the
         // downstream handler. Session lives in *request* extensions and gets

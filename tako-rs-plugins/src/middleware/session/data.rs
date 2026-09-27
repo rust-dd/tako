@@ -13,7 +13,6 @@ use serde::de::DeserializeOwned;
 #[derive(Clone)]
 pub struct Session {
   data: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
-  dirty: Arc<AtomicBool>,
   rotation_counter: Arc<AtomicU64>,
   destroyed: Arc<AtomicBool>,
 }
@@ -22,7 +21,6 @@ impl Session {
   pub(crate) fn new(data: serde_json::Map<String, serde_json::Value>) -> Self {
     Self {
       data: Arc::new(Mutex::new(data)),
-      dirty: Arc::new(AtomicBool::new(false)),
       rotation_counter: Arc::new(AtomicU64::new(0)),
       destroyed: Arc::new(AtomicBool::new(false)),
     }
@@ -37,19 +35,16 @@ impl Session {
       .and_then(|v| serde_json::from_value(v.clone()).ok())
   }
 
-  /// Stores a value in the session, marking it dirty.
+  /// Stores a value in the session.
   pub fn set<T: Serialize>(&self, key: &str, value: T) {
     if let Ok(v) = serde_json::to_value(value) {
       self.data.lock().insert(key.to_string(), v);
-      self.dirty.store(true, Ordering::Relaxed);
     }
   }
 
   /// Removes a key from the session.
   pub fn remove(&self, key: &str) {
-    if self.data.lock().remove(key).is_some() {
-      self.dirty.store(true, Ordering::Relaxed);
-    }
+    self.data.lock().remove(key);
   }
 
   /// Empties the session keeping its id stable. Use this when you want the
@@ -60,7 +55,6 @@ impl Session {
     let mut guard = self.data.lock();
     if !guard.is_empty() {
       guard.clear();
-      self.dirty.store(true, Ordering::Relaxed);
     }
   }
 
@@ -71,7 +65,6 @@ impl Session {
   pub fn destroy(&self) {
     self.data.lock().clear();
     self.destroyed.store(true, Ordering::Release);
-    self.dirty.store(true, Ordering::Relaxed);
   }
 
   pub(crate) fn is_destroyed(&self) -> bool {
@@ -83,11 +76,6 @@ impl Session {
   /// fixation attacks.
   pub fn rotate(&self) {
     self.rotation_counter.fetch_add(1, Ordering::AcqRel);
-    self.dirty.store(true, Ordering::Relaxed);
-  }
-
-  pub(crate) fn is_dirty(&self) -> bool {
-    self.dirty.load(Ordering::Relaxed)
   }
 
   /// True if [`Session::rotate`] has been called on this handle since the
