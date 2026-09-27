@@ -80,9 +80,7 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
       }
     }
     Algorithm::Gcra => {
-      // GCRA: maintain a virtual "next free time"; if it is in the future
-      // beyond the burst tolerance, reject. We map `available` ↔ remaining
-      // headroom for backwards-compatible book-keeping.
+      // GCRA stores time debt in seconds, rather than the token bucket's token count.
       let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
       let increment = if rate_per_sec > 0.0 {
         1.0 / rate_per_sec
@@ -90,8 +88,6 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
         f64::INFINITY
       };
       let burst_tolerance = cap * increment;
-      // bucket.available represents seconds of "credit" remaining (negative
-      // means the request would have to wait).
       let elapsed = now
         .duration_since(bucket.last_refill)
         .as_secs_f64()
@@ -170,7 +166,10 @@ pub(crate) async fn handle(
   let outcome = {
     let entry = store.entry_async(key).await.or_insert_with(|| {
       Mutex::new(Bucket {
-        available: f64::from(cfg.max_requests),
+        available: match cfg.algorithm {
+          Algorithm::TokenBucket => f64::from(cfg.max_requests),
+          Algorithm::Gcra => 0.0,
+        },
         last_refill: Instant::now(),
       })
     });

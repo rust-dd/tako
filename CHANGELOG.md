@@ -6,6 +6,31 @@ All notable changes to **tako-rs** are documented here. Format inspired by
 
 ## [Unreleased]
 
+### Fixed
+
+- Trailing-slash redirects preserve the complete query string and retain
+  their existing 307 status.
+- HEAD requests fall back to matching GET routes unless an explicit HEAD
+  route exists. Responses retain representation headers and omit the body,
+  including responses produced by middleware and error handlers. `Allow`
+  includes HEAD for GET routes.
+- Repeated typed-state insertion and queue-handler registration replace the
+  previous value as documented.
+- Ready queue jobs drain without a polling delay between jobs. Handler panics
+  move the job to dead letters without retrying it, and workers remain available.
+- Concurrent plugin initialization waits until middleware installation completes.
+- HTTP/2 cleartext and Tokio TLS servers provide a timer for configured keep-alive.
+- GCRA rate limits accept the initial burst. Idle-key cleanup runs for both
+  algorithms, less frequently, and retains slow quotas until their full burst
+  could have refilled.
+- Buffered compression skips SSE and bodies without an exact size. Both
+  compression modes preserve partial responses and remove `Accept-Ranges`
+  when transforming a complete representation.
+- Buffered and streaming HTTP `deflate` responses include the required zlib
+  wrapper so standard HTTP decoders can read them.
+- Clippy 1.98 compatibility without changing public async or interceptor types;
+  compression streams transfer their output buffers without copying them.
+
 ## [2.0.2] — 2026-07-20
 
 ### Added
@@ -15,6 +40,14 @@ All notable changes to **tako-rs** are documented here. Format inspired by
   any `scope`/`nest` prefix already applied. Applications can derive
   reserved-path or namespace policies from the live route table instead of
   tracking registrations on the side.
+
+## [2.0.1] — 2026-06-07
+
+### Fixed
+
+- Corrected feature propagation and publishing checks.
+- Split large source modules and resolved Clippy warnings.
+- Added the dedicated documentation site and corrected its content and styling.
 
 ## [2.0.0] — 2026-05-29
 
@@ -31,19 +64,19 @@ typed-state APIs.
 
 ### Added
 
-- **Per-router typed state** — `Router::with_state(T)` replaces the old
-  per-type `GLOBAL_STATE` slot; multiple routers in the same process can now
+- **Per-router typed state** — `Router::with_state(T)` adds instance-local
+  values alongside the process-global store; multiple routers can
   hold independent state of the same type.
 - **Sub-routing primitives** — `Router::nest("/path", child)` and
-  `Router::scope("/api", |s| { … })` replace `Router::merge` and add a real
-  prefix-stripping pass.
+  `Router::scope("/api", |s| { … })` register routes under a shared prefix;
+  `Router::merge` remains available.
 - **`Result`-aware handlers** — handlers may return `Result<R, E>` where
-  `E: Responder`; `error_handler` is paired with a new `client_error_handler`,
+  `E: ResponderError`; `error_handler` is paired with a new `client_error_handler`,
   and `use_problem_json()` emits RFC 7807 `application/problem+json` bodies.
 - **Method-aware routing** — non-matched verbs now return `405 Method Not
   Allowed` with the proper `Allow` header instead of `404`.
 - **`Server::builder()`** — unified bootstrap across HTTP/1.1, HTTP/2,
-  HTTP/3, TLS, mTLS, and Unix sockets; replaces the matrix of
+  HTTP/3, TLS, mTLS, and Unix sockets, alongside the existing
   `serve_*` / `serve_tls_*` entry points.
 - **TLS knobs** — `TlsCert::{Pem, Der, Resolver}`, `ReloadableResolver`,
   `ClientAuth` for full mTLS, SNI-based cert selection, and hot reload.
@@ -76,10 +109,11 @@ typed-state APIs.
 
 ### Removed
 
-- **`serve_*` family of free functions** — use `Server::builder()`.
-- **`Router::merge`** — use `nest` / `scope` instead.
-- **`Router::state(T)` global slot** — use `Router::with_state(T)`.
 - **1.x `Params` global struct** — typed extractors replace it.
+
+The `serve_*` free functions, `Router::merge`, and the process-global
+`Router::state(T)` remain available. Prefer `Server::builder()` for server
+configuration and `Router::with_state(T)` for instance-local state.
 
 ### Security
 
@@ -111,5 +145,7 @@ Older 1.x release notes live on the
 line is in maintenance mode; bug-fix releases will continue if there is
 user demand.
 
-[Unreleased]: https://github.com/rust-dd/tako/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/rust-dd/tako/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/rust-dd/tako/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/rust-dd/tako/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/rust-dd/tako/releases/tag/v2.0.0

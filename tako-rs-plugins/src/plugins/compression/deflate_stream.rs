@@ -30,7 +30,7 @@ use std::task::Poll;
 use anyhow::Result;
 use bytes::Bytes;
 use flate2::Compression;
-use flate2::write::DeflateEncoder;
+use flate2::write::ZlibEncoder;
 use futures_util::Stream;
 use futures_util::TryStreamExt;
 use http_body::Body;
@@ -54,7 +54,7 @@ pin_project! {
     /// Streaming DEFLATE compressor that wraps an inner data stream.
     pub struct DeflateStream<S> {
         #[pin] inner: S,
-        encoder: DeflateEncoder<Vec<u8>>,
+        encoder: ZlibEncoder<Vec<u8>>,
         done: bool,
     }
 }
@@ -64,7 +64,7 @@ impl<S> DeflateStream<S> {
   pub fn new(inner: S, level: u32) -> Self {
     Self {
       inner,
-      encoder: DeflateEncoder::new(Vec::new(), Compression::new(level)),
+      encoder: ZlibEncoder::new(Vec::new(), Compression::new(level)),
       done: false,
     }
   }
@@ -81,11 +81,8 @@ where
     let mut this = self.project();
 
     loop {
-      // Drain anything the encoder has produced so far so its internal Vec
-      // doesn't accumulate the entire compressed body for the lifetime of
-      // the stream.
       if !this.encoder.get_ref().is_empty() {
-        let chunk: Vec<u8> = this.encoder.get_mut().drain(..).collect();
+        let chunk = std::mem::take(this.encoder.get_mut());
         return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
 

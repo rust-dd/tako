@@ -92,15 +92,13 @@ where
     let mut this = self.project();
 
     loop {
-      // 1) Drain the encoder's internal buffer (live) or the tail (post-finish)
-      //    rather than copying out and then growing the original Vec forever.
       if let Some(enc) = this.encoder.as_mut() {
         if !enc.get_ref().is_empty() {
-          let chunk: Vec<u8> = enc.get_mut().drain(..).collect();
+          let chunk = std::mem::take(enc.get_mut());
           return Poll::Ready(Some(Ok(Bytes::from(chunk))));
         }
       } else if !this.tail.is_empty() {
-        let chunk: Vec<u8> = this.tail.drain(..).collect();
+        let chunk = std::mem::take(this.tail);
         return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
 

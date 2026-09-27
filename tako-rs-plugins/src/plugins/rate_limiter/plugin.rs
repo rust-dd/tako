@@ -23,6 +23,9 @@ use super::config::Config;
 use super::config::KeyFn;
 use super::config::UnkeyedBehavior;
 
+#[cfg(test)]
+mod tests;
+
 /// Builder.
 pub struct RateLimiterBuilder {
   cfg: Config,
@@ -124,9 +127,6 @@ impl RateLimiterBuilder {
       self.cfg.refill_interval_ms > 0,
       "RateLimiter::refill_interval_ms must be > 0 (zero interval is divide-by-zero)"
     );
-    // PPL-07: catch the "all-denied" misconfiguration at build time instead
-    // of silently 429-ing every request at runtime. Symmetry with the two
-    // asserts above.
     assert!(
       self.cfg.max_requests > 0,
       "RateLimiter::max_requests must be > 0 (zero cap silently denies every request)"
@@ -167,35 +167,18 @@ impl TakoPlugin for RateLimiterPlugin {
       async move { handle(req, next, cfg, store, key_fn).await }
     });
 
-    if matches!(self.cfg.algorithm, Algorithm::TokenBucket)
-      && !self.task_started.swap(true, Ordering::SeqCst)
-    {
-      let cfg = self.cfg.clone();
+    if !self.task_started.swap(true, Ordering::SeqCst) {
       let store = self.store.clone();
 
-      // Janitor is **staleness-eviction only**. Refilling here too would
-      // double-count: `evaluate()` already does lazy refill per request
-      // (`dt * rate_per_sec` from the last observed timestamp), so an
-      // eager refill in the janitor on top would push the effective rate
-      // toward 2× the configured value — a silent weakening of the
-      // DoS-quota control. We also can't mutate `last_refill` here
-      // because doing so before the staleness predicate makes
-      // `duration_since` always 0 and turns `purge_after` into dead code.
-      let purge_after = Duration::from_secs(300);
-      let interval = Duration::from_millis(cfg.refill_interval_ms);
+      let purge_after = idle_retention(&self.cfg);
+      let interval = (purge_after / 2).min(Duration::from_secs(300));
 
       #[cfg(not(feature = "compio"))]
       tokio::spawn(async move {
         let mut tick = tokio::time::interval(interval);
         loop {
           tick.tick().await;
-          let now = Instant::now();
-          store
-            .retain_async(|_, mutex| {
-              let bucket = mutex.lock();
-              now.duration_since(bucket.last_refill) < purge_after
-            })
-            .await;
+          evict_stale(&store, purge_after).await;
         }
       });
 
@@ -203,13 +186,7 @@ impl TakoPlugin for RateLimiterPlugin {
       compio::runtime::spawn(async move {
         loop {
           compio::time::sleep(interval).await;
-          let now = Instant::now();
-          store
-            .retain_async(|_, mutex| {
-              let bucket = mutex.lock();
-              now.duration_since(bucket.last_refill) < purge_after
-            })
-            .await;
+          evict_stale(&store, purge_after).await;
         }
       })
       .detach();
@@ -217,4 +194,18 @@ impl TakoPlugin for RateLimiterPlugin {
 
     Ok(())
   }
+}
+
+fn idle_retention(cfg: &Config) -> Duration {
+  // Evicting before the full burst can refill would reset an exhausted quota too early.
+  Duration::from_millis(cfg.refill_interval_ms)
+    .saturating_mul(cfg.max_requests.div_ceil(cfg.refill_rate))
+    .max(Duration::from_secs(300))
+}
+
+async fn evict_stale(store: &SccHashMap<String, Mutex<Bucket>>, purge_after: Duration) {
+  let now = Instant::now();
+  store
+    .retain_async(|_, mutex| now.saturating_duration_since(mutex.lock().last_refill) < purge_after)
+    .await;
 }

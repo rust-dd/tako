@@ -6,10 +6,13 @@ use bytes::Bytes;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header::ACCEPT_ENCODING;
+use http::header::ACCEPT_RANGES;
 use http::header::CONTENT_ENCODING;
 use http::header::CONTENT_LENGTH;
+use http::header::CONTENT_RANGE;
 use http::header::CONTENT_TYPE;
 use http::header::VARY;
+use http_body::Body;
 use http_body_util::BodyExt;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::Next;
@@ -143,13 +146,17 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     .to_ascii_lowercase();
   let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
-  // Process the request and get the response.
   let mut resp = next.run(req).await;
   let chosen = choose_encoding(&accepted, &cfg.enabled);
 
-  // Skip compression for non-successful responses or if already encoded.
   let status = resp.status();
-  if !(status.is_success() || status == StatusCode::NOT_MODIFIED) {
+  if !status.is_success()
+    || matches!(
+      status,
+      StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::PARTIAL_CONTENT
+    )
+    || resp.headers().contains_key(CONTENT_RANGE)
+  {
     return resp.into_response();
   }
 
@@ -167,12 +174,21 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     return resp.into_response();
   }
 
-  // Skip compression for unsupported content types.
   if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
     let ct = ct.to_str().unwrap_or("");
-    if !cfg.content_types.matches(ct) {
+    if !cfg.content_types.matches(ct)
+      || ct
+        .split(';')
+        .next()
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/event-stream"))
+    {
       return resp.into_response();
     }
+  }
+
+  // Open-ended bodies must keep yielding frames without waiting for stream completion.
+  if resp.body().size_hint().exact().is_none() {
+    return resp.into_response();
   }
 
   // The response is now compression-eligible. Always advertise that the
@@ -180,20 +196,10 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   // wrongly-encoded variant to a peer with different `Accept-Encoding`.
   ensure_vary_accept_encoding(resp.headers_mut());
 
-  // Collect the response body and check its size.
-  //
-  // PPL-10: on body-collect failure the previous code overwrote the
-  // handler's status with 502 and dropped the body. That obliterated any
-  // intentional non-2xx the handler had produced — a 401, 404, or 503 from
-  // the handler showed up to clients as 502, distorting downstream
-  // metrics and observability. The collect-failure was specifically a
-  // *compression-side* problem (the middleware could not buffer the body
-  // for compression), not a downstream-gateway error.
-  //
-  // Better: keep the handler's original status, strip `Content-Encoding`
-  // (we won't be compressing after all), warn so operators see the
-  // failure, and return an empty body. The status truth survives; the
-  // compression attempt is silently elided.
+  let Some(enc) = chosen else {
+    return resp.into_response();
+  };
+
   let body_bytes = if let Ok(c) = resp.body_mut().collect().await {
     c.to_bytes()
   } else {
@@ -202,6 +208,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
        returning original status with empty body (no compression)"
     );
     resp.headers_mut().remove(http::header::CONTENT_ENCODING);
+    resp.headers_mut().remove(CONTENT_LENGTH);
     *resp.body_mut() = TakoBody::empty();
     return resp.into_response();
   };
@@ -216,30 +223,27 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
   // the client would attempt to decode plain bytes as gzip/brotli and
   // fail. Track success explicitly and only advertise the encoding when
   // the compressed buffer was produced.
-  if let Some(enc) = chosen {
-    let compressed = match enc {
-      Encoding::Gzip => compress_gzip(&body_bytes, cfg.gzip_level).ok(),
-      Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level).ok(),
-      Encoding::Deflate => compress_deflate(&body_bytes, cfg.deflate_level).ok(),
-      #[cfg(feature = "zstd")]
-      Encoding::Zstd => compress_zstd(&body_bytes, cfg.zstd_level).ok(),
-    };
-    if let Some(buf) = compressed {
-      *resp.body_mut() = TakoBody::from(Bytes::from(buf));
-      resp
-        .headers_mut()
-        .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
-      resp.headers_mut().remove(CONTENT_LENGTH);
-    } else {
-      tracing::warn!(
-        encoding = enc.as_str(),
-        "compression failed; serving identity"
-      );
-      *resp.body_mut() = TakoBody::from(body_bytes);
-      resp.headers_mut().remove(CONTENT_ENCODING);
-    }
+  let compressed = match enc {
+    Encoding::Gzip => compress_gzip(&body_bytes, cfg.gzip_level).ok(),
+    Encoding::Brotli => compress_brotli(&body_bytes, cfg.brotli_level).ok(),
+    Encoding::Deflate => compress_deflate(&body_bytes, cfg.deflate_level).ok(),
+    #[cfg(feature = "zstd")]
+    Encoding::Zstd => compress_zstd(&body_bytes, cfg.zstd_level).ok(),
+  };
+  if let Some(buf) = compressed {
+    *resp.body_mut() = TakoBody::from(Bytes::from(buf));
+    resp
+      .headers_mut()
+      .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
+    resp.headers_mut().remove(CONTENT_LENGTH);
+    resp.headers_mut().remove(ACCEPT_RANGES);
   } else {
+    tracing::warn!(
+      encoding = enc.as_str(),
+      "compression failed; serving identity"
+    );
     *resp.body_mut() = TakoBody::from(body_bytes);
+    resp.headers_mut().remove(CONTENT_ENCODING);
   }
 
   resp.into_response()
@@ -251,18 +255,12 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
 /// It's more memory-efficient than buffered compression but requires compatible
 /// response body types that support streaming.
 ///
-/// **Internal:** drop-shipped through `CompressionPlugin::setup` only. The
-/// previous `pub` visibility was accidental — not re-exported from the
-/// umbrella crate and not part of the documented API. Demoted to
-/// `pub(crate)` so the public surface stays committed to the plugin entry
-/// point. If you need this on its own use `CompressionPlugin` and let the
-/// builder install it.
+/// Installed through [`CompressionPlugin::setup`].
 pub(crate) async fn compress_stream_middleware(
   req: Request,
   next: Next,
   cfg: Config,
 ) -> impl Responder {
-  // Parse the `Accept-Encoding` header to determine supported encodings.
   let accepted = req
     .headers()
     .get(ACCEPT_ENCODING)
@@ -271,13 +269,17 @@ pub(crate) async fn compress_stream_middleware(
     .to_ascii_lowercase();
   let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
-  // Process the request and get the response.
   let mut resp = next.run(req).await;
   let chosen = choose_encoding(&accepted, &cfg.enabled);
 
-  // Skip compression for non-successful responses or if already encoded.
   let status = resp.status();
-  if !(status.is_success() || status == StatusCode::NOT_MODIFIED) {
+  if !status.is_success()
+    || matches!(
+      status,
+      StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::PARTIAL_CONTENT
+    )
+    || resp.headers().contains_key(CONTENT_RANGE)
+  {
     return resp.into_response();
   }
 
@@ -292,7 +294,6 @@ pub(crate) async fn compress_stream_middleware(
     return resp.into_response();
   }
 
-  // Skip compression for unsupported content types.
   if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
     let ct = ct.to_str().unwrap_or("");
     if !cfg.content_types.matches(ct) {
@@ -304,7 +305,6 @@ pub(crate) async fn compress_stream_middleware(
   // actually apply an encoding, so caches key on `Accept-Encoding`.
   ensure_vary_accept_encoding(resp.headers_mut());
 
-  // Estimate size from `Content-Length`.
   if let Some(len) = resp
     .headers()
     .get(CONTENT_LENGTH)
@@ -329,6 +329,7 @@ pub(crate) async fn compress_stream_middleware(
       .headers_mut()
       .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
     resp.headers_mut().remove(CONTENT_LENGTH);
+    resp.headers_mut().remove(ACCEPT_RANGES);
   }
 
   resp.into_response()

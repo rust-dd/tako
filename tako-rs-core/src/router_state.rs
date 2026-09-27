@@ -38,7 +38,7 @@ impl RouterState {
 
   /// Insert (or replace) the value associated with `T`.
   pub fn insert<T: Send + Sync + 'static>(&self, value: T) {
-    let _ = self.inner.insert_sync(TypeId::of::<T>(), Arc::new(value));
+    self.inner.upsert_sync(TypeId::of::<T>(), Arc::new(value));
   }
 
   /// Retrieve the value associated with `T`, if any.
@@ -50,7 +50,7 @@ impl RouterState {
       .and_then(|v| v.downcast::<T>().ok())
   }
 
-  /// `true` when at least one value has been inserted.
+  /// `true` when no values are stored.
   pub fn is_empty(&self) -> bool {
     self.inner.is_empty()
   }

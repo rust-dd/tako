@@ -4,8 +4,8 @@ use std::io::Read;
 use std::io::Write;
 
 use flate2::Compression as GzLevel;
-use flate2::write::DeflateEncoder;
 use flate2::write::GzEncoder;
+use flate2::write::ZlibEncoder;
 #[cfg(feature = "zstd")]
 use zstd::stream::encode_all as zstd_encode;
 
@@ -27,7 +27,7 @@ pub(crate) fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>>
 
 /// Compresses data using DEFLATE algorithm.
 pub(crate) fn compress_deflate(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
-  let mut enc = DeflateEncoder::new(Vec::new(), flate2::Compression::new(lvl));
+  let mut enc = ZlibEncoder::new(Vec::new(), flate2::Compression::new(lvl));
   enc.write_all(data)?;
   enc.finish()
 }

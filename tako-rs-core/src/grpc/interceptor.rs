@@ -73,6 +73,10 @@ impl InterceptorChain {
 ///
 /// Plugin code building a gRPC service can call this from the entry point of
 /// each method handler to apply the chain uniformly.
+#[allow(
+  clippy::result_large_err,
+  reason = "Boxing the response would break the public interceptor API"
+)]
 pub async fn run_chain(
   chain: &InterceptorChain,
   req: &mut Request,

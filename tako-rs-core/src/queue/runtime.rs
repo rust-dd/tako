@@ -98,6 +98,7 @@ impl Queue {
   /// Register a named job handler.
   ///
   /// The handler receives a [`Job`] and returns `Result<(), QueueError>`.
+  /// Registering the same name again replaces its previous handler.
   ///
   /// # Examples
   ///
@@ -115,12 +116,16 @@ impl Queue {
   {
     let name = name.into();
     let handler: BoxHandler = Arc::new(move |job| Box::pin(handler(job)));
-    let _ = self.inner.handlers.insert_sync(name, handler);
+    self.inner.handlers.upsert_sync(name, handler);
   }
 
   /// Push a job for immediate execution.
   ///
   /// The payload is serialized to JSON. Returns the job ID.
+  #[allow(
+    clippy::unused_async_trait_impl,
+    reason = "Keep the public async API and defer enqueueing until the future is polled"
+  )]
   pub async fn push(
     &self,
     name: impl Into<String>,
@@ -132,6 +137,10 @@ impl Queue {
   /// Push a job for delayed execution.
   ///
   /// The job will not be picked up by a worker until `delay` has elapsed.
+  #[allow(
+    clippy::unused_async_trait_impl,
+    reason = "Keep the public async API and calculate the delay when the future is polled"
+  )]
   pub async fn push_delayed(
     &self,
     name: impl Into<String>,
@@ -147,6 +156,10 @@ impl Queue {
   /// no-op and the existing id is returned. Useful for idempotent triggers
   /// (e.g. flush a cache only once per minute regardless of how many requests
   /// arrived). The dedup window ends when the job is picked up.
+  #[allow(
+    clippy::unused_async_trait_impl,
+    reason = "Keep the public async API and defer deduplication until the future is polled"
+  )]
   pub async fn push_dedup(
     &self,
     name: impl Into<String>,
@@ -235,10 +248,7 @@ impl Queue {
           .meta("name", job_name)
           .meta("id", id.to_string()),
       );
-      // Best-effort fire-and-forget; the push API is sync for ergonomics.
-      // Both runtimes need a spawn — previously the compio branch silently
-      // dropped the arbiter future, so queue signals never fired under
-      // io_uring.
+      // Signal delivery must not block enqueueing on either runtime.
       #[cfg(not(feature = "compio"))]
       {
         tokio::spawn(arbiter);

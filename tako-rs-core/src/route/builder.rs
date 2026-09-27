@@ -32,7 +32,7 @@ impl Route {
     R: Responder + Send + 'static,
   {
     let mw: BoxMiddleware = Arc::new(move |req, next| {
-      let fut = f(req, next); // Fut<'a>
+      let fut = f(req, next);
 
       Box::pin(async move { fut.await.into_response() })
     });
@@ -99,25 +99,11 @@ impl Route {
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn setup_plugins_once(&self) {
-    // Hot path: dispatch calls this on every matched route. After the
-    // first request the plugins are installed, so do a cheap Acquire
-    // load and bail before paying for a SeqCst RMW + fence each time.
-    // `Acquire` pairs with the `Release` half of the `swap` below so we
-    // observe the middleware writes published by the initializing thread.
-    if self.plugins_initialized.load(Ordering::Acquire) {
-      return;
-    }
-
-    if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
-      // Create a temporary mini-router to capture plugin middleware
+    self.plugins_initialized.call_once(|| {
       let mini_router = crate::router::Router::new();
 
       let plugins = self.plugins.read();
       for plugin in plugins.iter() {
-        // See `Router::setup_plugins_once`: log failures so an erroring
-        // route-level plugin (auth, rate-limit, ...) is visible instead
-        // of silently dropped — fail-open without diagnostics is
-        // exactly what the audit calls out.
         if let Err(e) = plugin.setup(&mini_router) {
           tracing::error!(
             plugin = plugin.name(),
@@ -127,17 +113,17 @@ impl Route {
         }
       }
 
-      // Transfer middleware from mini-router to this route
-      let plugin_middlewares = mini_router.middlewares.load();
-      let existing = self.middlewares.load_full();
-      let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
-      merged.extend(plugin_middlewares.iter().cloned());
-      merged.extend(existing.iter().cloned());
-      if !merged.is_empty() {
+      let plugin_middlewares = mini_router.middlewares.load_full();
+      if !plugin_middlewares.is_empty() {
+        self.middlewares.rcu(|existing| {
+          let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
+          merged.extend(plugin_middlewares.iter().cloned());
+          merged.extend(existing.iter().cloned());
+          Arc::new(merged)
+        });
         self.has_middleware.store(true, Ordering::Release);
       }
-      self.middlewares.store(Arc::new(merged));
-    }
+    });
   }
 
   /// Restricts this route to a specific HTTP protocol version.

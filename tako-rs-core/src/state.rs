@@ -68,7 +68,7 @@ pub(crate) static GLOBAL_STATE: Lazy<SccHashMap<TypeId, Arc<dyn Any + Send + Syn
 /// set_state(config);
 /// ```
 pub fn set_state<T: Send + Sync + 'static>(value: T) {
-  std::mem::drop(GLOBAL_STATE.insert_sync(TypeId::of::<T>(), Arc::new(value)));
+  GLOBAL_STATE.upsert_sync(TypeId::of::<T>(), Arc::new(value));
 }
 
 /// Retrieves a value from the global state by its concrete type `T`.

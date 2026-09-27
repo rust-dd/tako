@@ -58,6 +58,8 @@ mod encoding;
 pub mod gzip_stream;
 mod negotiate;
 mod plugin;
+#[cfg(test)]
+mod tests;
 pub mod zstd_stream;
 
 pub use builder::CompressionBuilder;

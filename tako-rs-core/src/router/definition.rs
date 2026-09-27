@@ -1,6 +1,8 @@
 //! The [`Router`] type definition, its fields, and constructors.
 
 use std::sync::Arc;
+#[cfg(feature = "plugins")]
+use std::sync::Once;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -41,7 +43,7 @@ use crate::types::BoxMiddleware;
 /// let mut router = Router::new();
 /// router.route(Method::GET, "/", index);
 /// router.route(Method::GET, "/users/{id}", user_profile);
-/// router.state("app_name", "MyApp".to_string());
+/// router.with_state("MyApp".to_string());
 /// ```
 #[doc(alias = "router")]
 pub struct Router {
@@ -70,9 +72,9 @@ pub struct Router {
   /// Registered plugins for extending functionality.
   #[cfg(feature = "plugins")]
   pub(crate) plugins: Vec<Box<dyn TakoPlugin>>,
-  /// Flag to ensure plugins are initialized only once.
+  /// Publishes plugin initialization before concurrent callers can proceed.
   #[cfg(feature = "plugins")]
-  pub(crate) plugins_initialized: AtomicBool,
+  pub(crate) plugins_initialized: Once,
   /// Signal arbiter for in-process event emission and handling.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
@@ -114,7 +116,7 @@ impl Router {
       #[cfg(feature = "plugins")]
       plugins: Vec::new(),
       #[cfg(feature = "plugins")]
-      plugins_initialized: AtomicBool::new(false),
+      plugins_initialized: Once::new(),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
       timeout: None,

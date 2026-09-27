@@ -185,6 +185,7 @@ pub async fn run_with_config(
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
             let mut h2 = http2::Builder::new(TokioExecutor::new());
+            h2.timer(hyper_util::rt::TokioTimer::new());
             h2.max_concurrent_streams(h2_max_concurrent_streams)
               .max_header_list_size(h2_max_header_list_size)
               .max_send_buf_size(h2_max_send_buf_size)

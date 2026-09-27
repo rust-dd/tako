@@ -6,6 +6,8 @@
 //! the router to re-home routes under a prefix.
 
 use std::sync::Arc;
+#[cfg(feature = "plugins")]
+use std::sync::Once;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -54,9 +56,9 @@ pub struct Route {
   /// Route-specific plugins.
   #[cfg(feature = "plugins")]
   pub(crate) plugins: RwLock<Vec<Box<dyn TakoPlugin>>>,
-  /// Flag to ensure route plugins are initialized only once.
+  /// Publishes plugin middleware before concurrent requests can proceed.
   #[cfg(feature = "plugins")]
-  pub(crate) plugins_initialized: AtomicBool,
+  pub(crate) plugins_initialized: Once,
   /// HTTP protocol version guard (set once via [`Route::version`] / `h09`/`h10`/`h11`/`h2`).
   pub(crate) http_protocol: OnceLock<http::Version>,
   /// Route-level signal arbiter.
@@ -84,7 +86,7 @@ impl Route {
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
       #[cfg(feature = "plugins")]
-      plugins_initialized: AtomicBool::new(false),
+      plugins_initialized: Once::new(),
       http_protocol: OnceLock::new(),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
@@ -114,7 +116,11 @@ impl Route {
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
       #[cfg(feature = "plugins")]
-      plugins_initialized: AtomicBool::new(true),
+      plugins_initialized: {
+        let initialized = Once::new();
+        initialized.call_once(|| {});
+        initialized
+      },
       http_protocol: {
         let lock = OnceLock::new();
         if let Some(v) = self.http_protocol.get() {

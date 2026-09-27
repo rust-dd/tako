@@ -1,12 +1,16 @@
 //! Background worker loop that drains pending jobs and applies retry/DLQ policy.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
+use futures_util::FutureExt;
+
 use super::DeadJob;
 use super::Job;
+use super::QueueError;
 #[cfg(feature = "signals")]
 use super::emit_queue_signal;
 use super::runtime::PendingJob;
@@ -15,17 +19,21 @@ use super::runtime::QueueInner;
 use super::signal_ids;
 
 pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
+  let mut processed = 0;
   loop {
-    // Wait for notification or check periodically for delayed jobs
-    #[cfg(not(feature = "compio"))]
-    {
-      let _ = tokio::time::timeout(Duration::from_millis(100), inner.notify.notified()).await;
-    }
-    #[cfg(feature = "compio")]
-    {
-      let notified = std::pin::pin!(inner.notify.notified());
-      let sleep = std::pin::pin!(compio::time::sleep(Duration::from_millis(100)));
-      let _ = futures_util::future::select(notified, sleep).await;
+    if processed == 64 {
+      // Ready futures need an explicit yield so a busy queue cannot starve I/O or shutdown.
+      let mut yielded = false;
+      std::future::poll_fn(|cx| {
+        if std::mem::replace(&mut yielded, true) {
+          std::task::Poll::Ready(())
+        } else {
+          cx.waker().wake_by_ref();
+          std::task::Poll::Pending
+        }
+      })
+      .await;
+      processed = 0;
     }
 
     if inner.shutdown.load(Ordering::SeqCst) {
@@ -38,12 +46,12 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       // for `dead_letters()` inspection and any out-of-band re-enqueue
       // after the next startup. The drain happens under the pending lock
       // so concurrent workers see an empty queue and exit cleanly.
-      let drained: Vec<PendingJob> = {
+      let drained = {
         let mut pending = inner.pending.lock();
         if pending.is_empty() {
           break;
         }
-        pending.drain(..).collect()
+        pending.drain(..).collect::<Vec<_>>()
       };
       let mut dlq = inner.dead_letters.lock();
       for pj in drained {
@@ -59,25 +67,43 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       break;
     }
 
-    // Try to pick up a job
     let job = {
       let mut pending = inner.pending.lock();
+      if inner.shutdown.load(Ordering::SeqCst) {
+        continue;
+      }
       let now = Instant::now();
 
-      // Find the first job that's ready to run
       let pos = pending.iter().position(|j| match j.run_after {
         Some(t) => now >= t,
         None => true,
       });
 
-      pos.and_then(|i| pending.remove(i))
+      let job = pos.and_then(|i| pending.remove(i));
+      if job.is_some() {
+        // Shutdown observes claimed jobs before it can acquire the same pending lock.
+        inner.inflight.fetch_add(1, Ordering::SeqCst);
+      }
+      job
     };
 
     let Some(pending_job) = job else {
+      #[cfg(not(feature = "compio"))]
+      {
+        let _ = tokio::time::timeout(Duration::from_millis(100), inner.notify.notified()).await;
+      }
+      #[cfg(feature = "compio")]
+      {
+        let notified = std::pin::pin!(inner.notify.notified());
+        let sleep = std::pin::pin!(compio::time::sleep(Duration::from_millis(100)));
+        let _ = futures_util::future::select(notified, sleep).await;
+      }
+      processed = 0;
       continue;
     };
+    let _inflight = InflightJob(&inner);
+    processed += 1;
 
-    // Look up handler
     let handler = inner
       .handlers
       .get_async(&pending_job.name)
@@ -105,8 +131,6 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       continue;
     };
 
-    inner.inflight.fetch_add(1, Ordering::SeqCst);
-
     #[cfg(feature = "signals")]
     emit_queue_signal(
       signal_ids::QUEUE_JOB_STARTED,
@@ -123,7 +147,16 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       id: pending_job.id,
     };
 
-    let result = handler(job).await;
+    let (result, panicked) = match AssertUnwindSafe(async { handler(job).await })
+      .catch_unwind()
+      .await
+    {
+      Ok(result) => (result, false),
+      Err(_) => (
+        Err(QueueError::HandlerError("job handler panicked".into())),
+        true,
+      ),
+    };
 
     #[cfg(feature = "signals")]
     if result.is_ok() {
@@ -145,7 +178,11 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
     }
 
     if let Err(e) = result {
-      let max_retries = inner.retry_policy.max_retries();
+      let max_retries = if panicked {
+        0
+      } else {
+        inner.retry_policy.max_retries()
+      };
 
       if pending_job.attempt < max_retries {
         let next_attempt = pending_job.attempt + 1;
@@ -210,10 +247,16 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         }));
       }
     }
+  }
+}
 
-    let prev = inner.inflight.fetch_sub(1, Ordering::SeqCst);
-    if prev == 1 && inner.shutdown.load(Ordering::SeqCst) {
-      inner.drain_notify.notify_one();
+struct InflightJob<'a>(&'a QueueInner);
+
+impl Drop for InflightJob<'_> {
+  fn drop(&mut self) {
+    let prev = self.0.inflight.fetch_sub(1, Ordering::SeqCst);
+    if prev == 1 && self.0.shutdown.load(Ordering::SeqCst) {
+      self.0.drain_notify.notify_one();
     }
   }
 }

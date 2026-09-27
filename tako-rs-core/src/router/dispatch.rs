@@ -6,6 +6,7 @@ use std::sync::atomic::Ordering;
 
 use http::Method;
 use http::StatusCode;
+use http_body::Body;
 use smallvec::SmallVec;
 
 use super::Router;
@@ -63,6 +64,7 @@ impl Router {
   /// Dispatches an incoming request to the appropriate route handler.
   #[inline]
   pub async fn dispatch(&self, mut req: Request) -> Response {
+    let is_head = req.method() == Method::HEAD;
     // Per-router state: only inject when at least one `with_state` was called.
     // The atomic load is monomorphic and cheap; the Arc clone (atomic incref)
     // only happens for routers that actually use instance-local state.
@@ -85,13 +87,24 @@ impl Router {
       .await;
     }
 
-    // Phase 1: Route lookup using a borrowed path — no String allocation on the
-    // hot path. The block scope ensures all borrows on `req` are released before
-    // we need to mutate it.
+    // Borrow the path for lookup; release it before inserting request extensions.
     let route_match = {
-      if let Some(method_router) = self.inner.get(req.method())
-        && let Ok(matched) = method_router.at(req.uri().path())
-      {
+      let path = req.uri().path();
+      let matched = self
+        .inner
+        .get(req.method())
+        .and_then(|router| router.at(path).ok())
+        .or_else(|| {
+          if is_head {
+            self
+              .inner
+              .get(&Method::GET)
+              .and_then(|router| router.at(path).ok())
+          } else {
+            None
+          }
+        });
+      if let Some(matched) = matched {
         let route = Arc::clone(matched.value);
         let mut it = matched.params.iter();
         let first = it.next();
@@ -109,7 +122,6 @@ impl Router {
       }
     };
 
-    // Phase 2: Dispatch — `req` is no longer borrowed, safe to mutate.
     let response = if let Some((route, params)) = route_match {
       // Protocol guard: short-circuit dispatch *but fall through* to the shared
       // completion tail (error-handler + REQUEST_COMPLETED signal). Returning
@@ -121,11 +133,9 @@ impl Router {
         #[cfg(feature = "signals")]
         let route_signals = route.signal_arbiter();
 
-        // Initialize route-level plugins on first request
         #[cfg(feature = "plugins")]
         route.setup_plugins_once();
 
-        // Inject route-level SIMD JSON config into request extensions
         if let Some(mode) = route.get_simd_json_mode() {
           req.extensions_mut().insert(mode);
         }
@@ -141,7 +151,6 @@ impl Router {
           .extensions_mut()
           .insert(crate::router_state::MatchedPath(route.path.clone()));
 
-        // Determine effective timeout: route-level overrides router-level
         let effective_timeout = route.get_timeout().or(self.timeout);
 
         // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
@@ -219,25 +228,37 @@ impl Router {
         }
       };
 
-      if let Some(method_router) = self.inner.get(req.method())
-        && let Ok(matched) = method_router.at(&tsr_path)
+      let tsr_match = self
+        .inner
+        .get(req.method())
+        .and_then(|router| router.at(&tsr_path).ok())
+        .or_else(|| {
+          if is_head {
+            self
+              .inner
+              .get(&Method::GET)
+              .and_then(|router| router.at(&tsr_path).ok())
+          } else {
+            None
+          }
+        });
+      if let Some(matched) = tsr_match
         && matched.value.tsr
       {
+        let location = match req.uri().query() {
+          Some(query) => format!("{tsr_path}?{query}"),
+          None => tsr_path,
+        };
         let handler = move |_req: Request| {
-          let tsr_path = tsr_path.clone();
+          let location = location.clone();
           async move {
-            // `tsr_path` is reconstructed from registered route segments and
-            // the incoming URI path. It can technically contain bytes that
-            // are invalid in an HTTP header value (CR/LF/NUL) if the request
-            // path is crafted maliciously — in that case fall back to a
-            // bare 308 without a `Location` header rather than panicking.
-            match http::HeaderValue::from_str(&tsr_path) {
+            match http::HeaderValue::from_str(&location) {
               Ok(loc) => {
                 let mut resp = empty_status_response(StatusCode::TEMPORARY_REDIRECT);
                 resp.headers_mut().insert(http::header::LOCATION, loc);
                 resp
               }
-              Err(_) => empty_status_response(StatusCode::TEMPORARY_REDIRECT),
+              Err(_) => empty_status_response(StatusCode::BAD_REQUEST),
             }
           }
         };
@@ -291,7 +312,24 @@ impl Router {
       }
     };
 
-    let response = self.maybe_apply_error_handler(response);
+    let mut response = self.maybe_apply_error_handler(response);
+    if is_head {
+      let status = response.status();
+      if !status.is_informational()
+        && status != StatusCode::NO_CONTENT
+        && status != StatusCode::NOT_MODIFIED
+        && !response
+          .headers()
+          .contains_key(http::header::TRANSFER_ENCODING)
+        && let Some(length) = response.body().size_hint().exact()
+      {
+        response
+          .headers_mut()
+          .entry(http::header::CONTENT_LENGTH)
+          .or_insert(http::HeaderValue::from(length));
+      }
+      *response.body_mut() = TakoBody::empty();
+    }
 
     #[cfg(feature = "signals")]
     {
@@ -334,6 +372,9 @@ impl Router {
       if m.at(path).is_ok() {
         allowed.push(method);
       }
+    }
+    if allowed.contains(&Method::GET) && !allowed.contains(&Method::HEAD) {
+      allowed.push(Method::HEAD);
     }
     allowed
   }

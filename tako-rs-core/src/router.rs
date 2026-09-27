@@ -35,6 +35,8 @@ mod introspection;
 mod layers;
 mod method_map;
 mod mounting;
+#[cfg(all(test, feature = "plugins"))]
+mod plugin_tests;
 mod plugins;
 mod registration;
 mod state;

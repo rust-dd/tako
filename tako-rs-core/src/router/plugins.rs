@@ -65,16 +65,7 @@ impl Router {
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   #[doc(hidden)]
   pub fn setup_plugins_once(&self) {
-    use std::sync::atomic::Ordering;
-
-    // Hot-path fast exit: see `Route::setup_plugins_once`. Acquire-load
-    // pairs with the Release half of the swap so plugin-published state
-    // is visible by the time we skip the RMW.
-    if self.plugins_initialized.load(Ordering::Acquire) {
-      return;
-    }
-
-    if !self.plugins_initialized.swap(true, Ordering::SeqCst) {
+    self.plugins_initialized.call_once(|| {
       for plugin in self.plugins() {
         // Surface plugin setup errors loudly — a silently-skipped CORS,
         // auth, rate-limit, or CSRF plugin would leave the server
@@ -88,7 +79,7 @@ impl Router {
           );
         }
       }
-    }
+    });
   }
 
   /// Collects `OpenAPI` metadata from all registered routes.

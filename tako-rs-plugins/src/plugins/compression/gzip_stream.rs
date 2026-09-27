@@ -81,19 +81,13 @@ where
     let mut this = self.project();
 
     loop {
-      // 1) Drain anything the encoder buffered so far so its internal Vec
-      //    doesn't accumulate the entire compressed body for the lifetime
-      //    of the stream (the earlier `pos`-cursor pattern only skipped
-      //    already-read bytes — it never freed them).
       if !this.encoder.get_ref().is_empty() {
-        let chunk: Vec<u8> = this.encoder.get_mut().drain(..).collect();
+        let chunk = std::mem::take(this.encoder.get_mut());
         return Poll::Ready(Some(Ok(Bytes::from(chunk))));
       }
-      // 2) If we already finished and nothing is left, end the stream.
       if *this.done {
         return Poll::Ready(None);
       }
-      // 3) Poll the inner stream for more input data.
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(Ok(chunk))) => {
           if let Err(e) = this
