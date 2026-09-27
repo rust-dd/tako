@@ -7,7 +7,7 @@
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible Rust framework for services that go beyond plain HTTP.
 > Build one cohesive application across HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP, Unix sockets, and WebTransport with a single routing, middleware, and observability model.
 
-📖 **Full documentation → [tako.rust-dd.com](https://tako.rust-dd.com)** &nbsp;·&nbsp; [API docs (docs.rs)](https://docs.rs/tako-rs/latest/tako/)
+📖 **Full documentation → [tako.rust-dd.com](https://tako.rust-dd.com)** &nbsp;·&nbsp; [API docs (docs.rs)](https://docs.rs/tako-rs/latest/tako/) &nbsp;·&nbsp; [Release notes](https://github.com/rust-dd/tako/releases)
 
 ## Why Tako
 
