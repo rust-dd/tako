@@ -1,6 +1,7 @@
 //! Signal event type, typed-payload trait, and well-known identifiers.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -11,27 +12,10 @@ use crate::types::BuildHasher;
 
 /// Well-known signal identifiers for common lifecycle and request events.
 ///
-/// **Naming conventions (v2):**
-///
-/// | prefix         | scope                                                                     |
-/// |----------------|---------------------------------------------------------------------------|
-/// | `server.*`     | process-level events (server start / stop)                                |
-/// | `connection.*` | per-connection events (open / close, transport snapshot)                  |
-/// | `request.*`    | per-request events on the **global** application arbiter                  |
-/// | `route.*`      | per-route events on the **route-local** arbiter (one arbiter per route)   |
-/// | `queue.*`      | background-job lifecycle (queue.job.queued / started / completed / …)     |
-/// | `rpc.*`        | typed-RPC errors raised through the arbiter                               |
-/// | `router.*`     | router-level events (hot reloads, future config swaps)                    |
-///
-/// `route.request.*` is intentionally a separate id (not an alias of
-/// `request.*`) because the two are emitted on different arbiters: the route
-/// arbiter sees only its own route's traffic, while the global arbiter sees
-/// every request. Subscribers that want both should listen on the global
-/// arbiter and join through the matched-path label.
-///
-/// Cluster-scope signals (cross-pod fan-out via Redis pub/sub or NATS) are
-/// out of scope for this module — see the [`bus`] sub-module for the
-/// `SignalBus` trait that companion crates implement.
+/// Request and route events are delivered to the owning router and the app arbiter.
+/// Route events additionally reach the matching route's arbiter. Router-local
+/// listeners are suitable for per-service metrics; app listeners observe all routers.
+/// Connection and server lifecycle events are emitted on the app arbiter.
 pub mod ids {
   pub const SERVER_STARTED: &str = "server.started";
   pub const SERVER_STOPPED: &str = "server.stopped";
@@ -50,6 +34,7 @@ pub mod ids {
 /// A `SignalBus` lifts the in-process `SignalArbiter` to a multi-node fan-out
 /// (Redis pub/sub, NATS, Kafka, …). Companion crates provide concrete impls;
 /// this trait is the contract.
+#[doc(hidden)]
 pub mod bus {
   use async_trait::async_trait;
 
@@ -82,16 +67,16 @@ pub mod bus {
 #[derive(Clone, Debug, Default)]
 pub struct Signal {
   /// Identifier of the signal, for example "request.started" or "metrics.tick".
-  pub id: String,
+  pub id: Cow<'static, str>,
   /// Optional metadata payload carried with the signal.
-  pub metadata: HashMap<String, String, BuildHasher>,
+  pub metadata: HashMap<Cow<'static, str>, String, BuildHasher>,
 }
 
 impl Signal {
   /// Creates a new signal with the given id and empty metadata.
   #[inline]
   #[must_use]
-  pub fn new(id: impl Into<String>) -> Self {
+  pub fn new(id: impl Into<Cow<'static, str>>) -> Self {
     Self {
       id: id.into(),
       metadata: HashMap::with_hasher(BuildHasher::default()),
@@ -101,7 +86,7 @@ impl Signal {
   /// Creates a signal with pre-allocated capacity for the given number of metadata entries.
   #[inline]
   #[must_use]
-  pub fn with_capacity(id: impl Into<String>, capacity: usize) -> Self {
+  pub fn with_capacity(id: impl Into<Cow<'static, str>>, capacity: usize) -> Self {
     Self {
       id: id.into(),
       metadata: HashMap::with_capacity_and_hasher(capacity, BuildHasher::default()),
@@ -110,7 +95,7 @@ impl Signal {
 
   /// Adds a metadata entry, returning self for chaining.
   #[inline]
-  pub fn meta(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+  pub fn meta(mut self, key: impl Into<Cow<'static, str>>, value: impl Into<String>) -> Self {
     self.metadata.insert(key.into(), value.into());
     self
   }
@@ -119,12 +104,15 @@ impl Signal {
   #[inline]
   #[must_use]
   pub fn with_metadata(
-    id: impl Into<String>,
+    id: impl Into<Cow<'static, str>>,
     metadata: HashMap<String, String, BuildHasher>,
   ) -> Self {
     Self {
       id: id.into(),
-      metadata,
+      metadata: metadata
+        .into_iter()
+        .map(|(key, value)| (Cow::Owned(key), value))
+        .collect(),
     }
   }
 
@@ -133,8 +121,12 @@ impl Signal {
   #[must_use]
   pub fn from_payload<P: SignalPayload>(payload: &P) -> Self {
     Self {
-      id: payload.id().to_string(),
-      metadata: payload.to_metadata(),
+      id: Cow::Borrowed(payload.id()),
+      metadata: payload
+        .to_metadata()
+        .into_iter()
+        .map(|(key, value)| (Cow::Owned(key), value))
+        .collect(),
     }
   }
 }

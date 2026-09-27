@@ -21,6 +21,7 @@ use scc::HashMap as SccHashMap;
 #[derive(Default)]
 pub struct RouterState {
   inner: SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>,
+  parents: Vec<Arc<RouterState>>,
 }
 
 impl std::fmt::Debug for RouterState {
@@ -36,6 +37,13 @@ impl RouterState {
     Self::default()
   }
 
+  pub(crate) fn layered(child: Arc<Self>, parent: Arc<Self>) -> Self {
+    Self {
+      inner: SccHashMap::new(),
+      parents: vec![child, parent],
+    }
+  }
+
   /// Insert (or replace) the value associated with `T`.
   pub fn insert<T: Send + Sync + 'static>(&self, value: T) {
     self.inner.upsert_sync(TypeId::of::<T>(), Arc::new(value));
@@ -48,16 +56,28 @@ impl RouterState {
       .get_sync(&TypeId::of::<T>())
       .map(|v| v.clone())
       .and_then(|v| v.downcast::<T>().ok())
+      .or_else(|| self.parents.iter().find_map(|parent| parent.get::<T>()))
   }
 
   /// `true` when no values are stored.
   pub fn is_empty(&self) -> bool {
-    self.inner.is_empty()
+    self.inner.is_empty() && self.parents.iter().all(|parent| parent.is_empty())
   }
 
   /// Number of distinct types currently stored.
   pub fn len(&self) -> usize {
-    self.inner.len()
+    let mut types = std::collections::HashSet::new();
+    self.collect_types(&mut types);
+    types.len()
+  }
+  fn collect_types(&self, types: &mut std::collections::HashSet<TypeId>) {
+    self.inner.iter_sync(|key, _| {
+      types.insert(*key);
+      true
+    });
+    for parent in &self.parents {
+      parent.collect_types(types);
+    }
   }
 }
 
@@ -74,7 +94,7 @@ impl RouterState {
 /// the same name, which made it easy to insert the wrong type into request
 /// extensions and have lookups silently miss.
 #[derive(Debug, Clone)]
-pub struct MatchedPath(pub String);
+pub struct MatchedPath(pub Arc<str>);
 
 impl MatchedPath {
   /// Borrow the matched path template.

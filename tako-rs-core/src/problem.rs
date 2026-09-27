@@ -137,8 +137,50 @@ pub fn default_problem_responder(response: Response) -> Response {
     }
   }
 
-  let problem = Problem::from_status(status);
-  problem.into_response()
+  let (mut parts, body) = response.into_parts();
+  let mut problem = Problem::from_status(status);
+  let plain_text = parts
+    .headers
+    .get(http::header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|v| {
+      v.split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("text/plain")
+    });
+  if status.is_client_error()
+    && plain_text
+    && !parts.headers.contains_key(http::header::CONTENT_ENCODING)
+    && let Some(bytes) = body.into_full_bytes()
+    && let Ok(detail) = std::str::from_utf8(&bytes)
+    && !detail.is_empty()
+  {
+    problem.detail = Some(detail.to_owned());
+  }
+  for name in [
+    "content-length",
+    "content-encoding",
+    "content-range",
+    "etag",
+    "last-modified",
+    "accept-ranges",
+    "content-md5",
+    "digest",
+    "content-digest",
+    "repr-digest",
+    "transfer-encoding",
+    "trailer",
+  ] {
+    parts.headers.remove(name);
+  }
+  let replacement = problem.into_response();
+  parts.headers.insert(
+    http::header::CONTENT_TYPE,
+    HeaderValue::from_static(PROBLEM_JSON),
+  );
+  Response::from_parts(parts, replacement.into_body())
 }
 
 #[cfg(test)]

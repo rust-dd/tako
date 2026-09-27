@@ -94,7 +94,7 @@ pub(crate) async fn run_with_rustls_config(
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   let addr_str = endpoint.local_addr()?.to_string();
 

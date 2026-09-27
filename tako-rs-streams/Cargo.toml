@@ -16,32 +16,29 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-rs-core.workspace = true
-
-anyhow.workspace = true
-base64.workspace = true
-bytes.workspace = true
-futures-util.workspace = true
-http.workspace = true
-http-body.workspace = true
-http-body-util.workspace = true
-httpdate.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
-mime.workspace = true
-mime_guess.workspace = true
-pin-project-lite.workspace = true
-sha1.workspace = true
-tokio.workspace = true
-tokio-tungstenite.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
-url.workspace = true
-
-# Optional / feature-gated
+anyhow = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
 compio = { workspace = true, optional = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+httpdate = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+mime = { workspace = true }
+mime_guess = { workspace = true }
+pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
+sha1 = { workspace = true }
+tako-rs-core = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
 
 [features]
 default = []

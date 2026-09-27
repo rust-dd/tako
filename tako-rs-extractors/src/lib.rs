@@ -100,8 +100,11 @@ pub mod multipart;
 pub mod protobuf;
 
 /// High-performance JSON parsing using SIMD acceleration.
-#[cfg(feature = "simd")]
-#[cfg_attr(docsrs, doc(cfg(feature = "simd")))]
+#[cfg(any(feature = "simd-sonic", feature = "simd-json-impl"))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(any(feature = "simd-sonic", feature = "simd-json-impl")))
+)]
 pub mod simdjson;
 
 /// Zero-copy extraction helpers.

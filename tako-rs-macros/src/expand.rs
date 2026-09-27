@@ -140,7 +140,7 @@ pub(crate) fn expand_route(
               let __raw = __pp
                 .0
                 .iter()
-                .find(|(__k, _)| __k.as_str() == #field_names_str)
+                .find(|(__k, _)| __k.as_ref() == #field_names_str)
                 .map(|(_, __v)| __v.as_str())
                 .ok_or(::tako::extractors::typed_params::TypedParamsError::MissingField(
                   #field_names_str,

@@ -46,6 +46,8 @@ pub fn is_json_content_type(headers: &http::HeaderMap) -> bool {
     })
 }
 
+pub mod body;
+
 /// JSON request body parsing and deserialization.
 pub mod json;
 

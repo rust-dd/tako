@@ -74,13 +74,13 @@ pub trait IntoMiddleware {
 #[doc(alias = "next")]
 pub struct Next {
   /// Global middlewares to be executed before route-specific ones.
-  pub global_middlewares: Arc<Vec<BoxMiddleware>>,
+  pub(crate) global_middlewares: Arc<Vec<BoxMiddleware>>,
   /// Route-specific middlewares executed after global ones.
-  pub route_middlewares: Arc<Vec<BoxMiddleware>>,
+  pub(crate) route_middlewares: Arc<Vec<BoxMiddleware>>,
   /// Current position within the middleware chain.
-  pub index: usize,
+  pub(crate) index: usize,
   /// Final endpoint handler to be called after all middlewares.
-  pub endpoint: BoxHandler,
+  pub(crate) endpoint: BoxHandler,
 }
 
 impl std::fmt::Debug for Next {

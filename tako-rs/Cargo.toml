@@ -18,22 +18,25 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-rs-core.workspace = true
-tako-rs-extractors.workspace = true
-tako-rs-macros.workspace = true
-tako-rs-server.workspace = true
-tako-rs-streams.workspace = true
-tako-rs-plugins.workspace = true
-linkme.workspace = true
+linkme = { workspace = true }
+tako-rs-core = { workspace = true }
+tako-rs-extractors = { workspace = true }
+tako-rs-macros = { workspace = true }
+tako-rs-plugins = { workspace = true }
+tako-rs-server = { workspace = true }
 tako-rs-server-pt = { workspace = true, optional = true }
+tako-rs-streams = { workspace = true }
 tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
 default = []
+queue-cron = ["tako-rs-core/queue-cron"]
+socket-activation = ["tako-rs-server/socket-activation"]
+vsock = ["tako-rs-server/vsock"]
 
 # Plugin / middleware ecosystem
-plugins = ["tako-rs-core/plugins", "tako-rs-plugins/plugins", "tako-rs-server/plugins"]
-signals = ["tako-rs-core/signals", "tako-rs-server/signals", "tako-rs-plugins/signals"]
+plugins = ["tako-rs-core/plugins", "tako-rs-plugins/plugins", "tako-rs-server/plugins", "tako-rs-server-pt?/plugins"]
+signals = ["tako-rs-core/signals", "tako-rs-server/signals", "tako-rs-plugins/signals", "tako-rs-server-pt?/signals"]
 
 # Server transports
 tls = ["tako-rs-server/tls", "tako-rs-core/tls"]
@@ -62,7 +65,7 @@ native-certs = ["tako-rs-core/native-certs"]
 # Extractors
 multipart = ["tako-rs-extractors/multipart", "tako-rs-core/multipart"]
 protobuf = ["tako-rs-extractors/protobuf", "tako-rs-core/protobuf"]
-simd = ["tako-rs-extractors/simd", "tako-rs-core/simd"]
+simd = ["simd-sonic", "simd-json-impl"]
 simd-sonic = ["tako-rs-extractors/simd-sonic", "tako-rs-core/simd-sonic"]
 simd-json-impl = ["tako-rs-extractors/simd-json-impl", "tako-rs-core/simd-json-impl"]
 typed-header = ["tako-rs-extractors/typed-header"]
@@ -86,7 +89,7 @@ utoipa-yaml = ["utoipa", "tako-rs-core/utoipa-yaml"]
 vespera = ["tako-rs-core/vespera"]
 tako-tracing = ["tako-rs-core/tako-tracing", "tako-rs-server/tako-tracing"]
 zstd = ["tako-rs-plugins/zstd", "tako-rs-core/zstd", "plugins"]
-jemalloc = ["dep:tikv-jemallocator", "tako-rs-core/jemalloc"]
+jemalloc = ["dep:tikv-jemallocator"]
 ip-filter = ["tako-rs-plugins/ip-filter"]
 hmac-signature = ["tako-rs-plugins/hmac-signature"]
 json-schema = ["tako-rs-plugins/json-schema"]
@@ -101,20 +104,18 @@ per-thread = ["dep:tako-rs-server-pt"]
 per-thread-compio = ["per-thread", "tako-rs-server-pt/compio"]
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
-http.workspace = true
-http-body-util.workspace = true
-bytes.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-base64.workspace = true
-futures-util.workspace = true
-anyhow.workspace = true
-smallvec.workspace = true
-tako-rs-core.workspace = true
-# Needed so `#[compio::test]` resolves on integration tests built with the
-# workspace `--all-features` flag (compio runtime on).
+anyhow = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
 compio = { workspace = true, features = ["macros"] }
+futures-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+tako-rs-core = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [package.metadata.docs.rs]
 all-features = true

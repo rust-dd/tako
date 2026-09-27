@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 #[cfg(feature = "plugins")]
-use std::sync::Once;
+use std::sync::OnceLock;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -63,6 +63,7 @@ pub struct Router {
   /// Used by [`Router::mount_all_into`] and [`Router::scope`] (see v2 roadmap).
   /// Only consulted at registration time — zero cost on the dispatch hot path.
   pub(crate) pending_prefix: Option<String>,
+  pub(crate) nested_routers: Vec<Arc<Router>>,
   /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
   /// Fast check: true when global middleware is registered (avoids `ArcSwap` load on hot path).
@@ -74,16 +75,19 @@ pub struct Router {
   pub(crate) plugins: Vec<Box<dyn TakoPlugin>>,
   /// Publishes plugin initialization before concurrent callers can proceed.
   #[cfg(feature = "plugins")]
-  pub(crate) plugins_initialized: Once,
+  pub(crate) plugins_initialized: OnceLock<Result<(), String>>,
   /// Signal arbiter for in-process event emission and handling.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
   /// Default timeout for all routes.
   pub(crate) timeout: Option<Duration>,
+  pub(crate) timeout_status: http::StatusCode,
+  pub(crate) body_limit: Option<crate::extractors::body::BodyLimit>,
   /// Fallback handler executed when a request times out.
   pub(crate) timeout_fallback: Option<BoxHandler>,
   /// Global error handler for 5xx responses.
   pub(crate) error_handler: Option<ErrorHandler>,
+  pub(crate) error_handler_with_parts: Option<super::ErrorHandlerWithParts>,
   /// Global error handler for 4xx responses (opt-in; runs after dispatch).
   pub(crate) client_error_handler: Option<ErrorHandler>,
   /// Per-router typed state populated via [`Router::with_state`].
@@ -110,18 +114,22 @@ impl Router {
       inner: MethodMap::new(),
       routes: MethodMap::new(),
       pending_prefix: None,
+      nested_routers: Vec::new(),
       middlewares: ArcSwap::new(Arc::default()),
       has_global_middleware: AtomicBool::new(false),
       fallback: None,
       #[cfg(feature = "plugins")]
       plugins: Vec::new(),
       #[cfg(feature = "plugins")]
-      plugins_initialized: Once::new(),
+      plugins_initialized: OnceLock::new(),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
       timeout: None,
+      timeout_status: http::StatusCode::GATEWAY_TIMEOUT,
+      body_limit: None,
       timeout_fallback: None,
       error_handler: None,
+      error_handler_with_parts: None,
       client_error_handler: None,
       router_state: Arc::new(RouterState::new()),
       has_router_state: AtomicBool::new(false),

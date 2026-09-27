@@ -1,13 +1,14 @@
 //! Shared signal arbiter: registry, subscription, dispatch, and RPC wiring.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use arc_swap::ArcSwap;
 use futures_util::future::join_all;
-use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;
 use tokio::sync::broadcast;
 
@@ -25,6 +26,8 @@ type HandlerList = Arc<ArcSwap<Vec<SignalHandler>>>;
 #[derive(Default)]
 pub(crate) struct Inner {
   handlers: SccHashMap<String, HandlerList>,
+  has_listeners: AtomicBool,
+  prefix_topics: ArcSwap<Vec<(String, broadcast::Sender<Signal>)>>,
   topics: SccHashMap<String, broadcast::Sender<Signal>>,
   pub(crate) rpc: SccHashMap<String, RpcHandler>,
   exporters: SccHashMap<u64, SignalExporter>,
@@ -41,7 +44,7 @@ pub struct SignalArbiter {
 }
 
 /// Global application-level signal arbiter.
-static APP_SIGNAL_ARBITER: Lazy<SignalArbiter> = Lazy::new(SignalArbiter::new);
+static APP_SIGNAL_ARBITER: LazyLock<SignalArbiter> = LazyLock::new(SignalArbiter::new);
 
 /// Returns a reference to the global application-level signal arbiter.
 pub fn app_signals() -> &'static SignalArbiter {
@@ -57,6 +60,12 @@ impl SignalArbiter {
   /// Creates a new, empty signal arbiter.
   pub fn new() -> Self {
     Self::default()
+  }
+
+  /// Checks whether any subscription, handler or exporter has been registered.
+  /// This permits callers to skip building unused signal payloads.
+  pub fn has_listeners(&self) -> bool {
+    self.inner.has_listeners.load(Ordering::Acquire)
   }
 
   /// Sets the global broadcast capacity used for topic channels.
@@ -108,6 +117,7 @@ impl SignalArbiter {
       next.push(handler.clone());
       Arc::new(next)
     });
+    self.inner.has_listeners.store(true, Ordering::Release);
   }
 
   /// Returns (creating if necessary) the per-id `ArcSwap` holding the handler list.
@@ -140,7 +150,9 @@ impl SignalArbiter {
   pub fn subscribe(&self, id: impl AsRef<str>) -> broadcast::Receiver<Signal> {
     let id_str = id.as_ref();
     let sender = self.topic_sender(id_str);
-    sender.subscribe()
+    let receiver = sender.subscribe();
+    self.inner.has_listeners.store(true, Ordering::Release);
+    receiver
   }
 
   /// Subscribes to all signals whose id starts with the given prefix.
@@ -148,12 +160,15 @@ impl SignalArbiter {
   /// For example, `subscribe_prefix("request.")` will receive
   /// `request.started`, `request.completed`, etc.
   pub fn subscribe_prefix(&self, prefix: impl AsRef<str>) -> broadcast::Receiver<Signal> {
-    let mut key = prefix.as_ref().to_string();
-    if !key.ends_with('*') {
-      key.push('*');
-    }
-    let sender = self.topic_sender(&key);
-    sender.subscribe()
+    let key = prefix.as_ref().trim_end_matches('*').to_string();
+    let (sender, receiver) = broadcast::channel(Self::global_broadcast_capacity());
+    self.inner.prefix_topics.rcu(|current| {
+      let mut next = (**current).clone();
+      next.push((key.clone(), sender.clone()));
+      Arc::new(next)
+    });
+    self.inner.has_listeners.store(true, Ordering::Release);
+    receiver
   }
 
   /// Subscribes to all signals regardless of their id.
@@ -167,26 +182,14 @@ impl SignalArbiter {
   /// Broadcasts a signal to all subscribers without awaiting handler completion.
   pub(crate) fn broadcast(&self, signal: Signal) {
     // Exact id subscribers
-    if let Some(sender) = self.inner.topics.get_sync(&signal.id) {
+    if let Some(sender) = self.inner.topics.get_sync(signal.id.as_ref()) {
       let _ = sender.send(signal.clone());
     }
 
-    // Prefix subscribers: keys ending with '*'.
-    // Snapshot matching senders before sending so the SCC entry locks are
-    // released by the time we deliver — even though `broadcast::Sender::send`
-    // is non-blocking, this also bounds inconsistency to the moment of the
-    // snapshot rather than spreading it across every per-entry send.
-    let mut targets: Vec<broadcast::Sender<Signal>> = Vec::new();
-    self.inner.topics.iter_sync(|key, v| {
-      if let Some(prefix) = key.strip_suffix('*')
-        && signal.id.starts_with(prefix)
-      {
-        targets.push(v.clone());
+    for (prefix, sender) in self.inner.prefix_topics.load().iter() {
+      if signal.id.starts_with(prefix.as_str()) {
+        let _ = sender.send(signal.clone());
       }
-      true
-    });
-    for sender in targets {
-      let _ = sender.send(signal.clone());
     }
   }
 
@@ -209,6 +212,9 @@ impl SignalArbiter {
   ///
   /// Handlers run concurrently and this method resolves once all handlers have completed.
   pub async fn emit(&self, signal: Signal) {
+    if !self.has_listeners() {
+      return;
+    }
     // First, broadcast to any subscribers.
     self.broadcast(signal.clone());
 
@@ -222,7 +228,7 @@ impl SignalArbiter {
       })
       .await;
 
-    if let Some(entry) = self.inner.handlers.get_async(&signal.id).await {
+    if let Some(entry) = self.inner.handlers.get_async(signal.id.as_ref()).await {
       let list = entry.clone();
       drop(entry);
       let handlers = list.load_full();
@@ -253,6 +259,7 @@ impl SignalArbiter {
     // `upsert_sync` mirrors `register_rpc`: makes re-registration on the
     // same (very-rare) duplicate key a replace instead of a silent drop.
     self.inner.exporters.upsert_sync(key, exporter);
+    self.inner.has_listeners.store(true, Ordering::Release);
   }
 
   /// Merges all handlers from `other` into `self`.
@@ -260,6 +267,12 @@ impl SignalArbiter {
   /// This is used by router merging so that signal handlers attached to
   /// a merged router continue to be active.
   pub(crate) fn merge_from(&self, other: &SignalArbiter) {
+    let prefixes = other.inner.prefix_topics.load_full();
+    self.inner.prefix_topics.rcu(|current| {
+      let mut next = (**current).clone();
+      next.extend(prefixes.iter().cloned());
+      Arc::new(next)
+    });
     other.inner.handlers.iter_sync(|k, other_list| {
       let other_handlers = other_list.load_full();
       if other_handlers.is_empty() {
@@ -293,6 +306,9 @@ impl SignalArbiter {
       self.inner.exporters.upsert_sync(*k, v.clone());
       true
     });
+    if other.has_listeners() {
+      self.inner.has_listeners.store(true, Ordering::Release);
+    }
   }
 
   /// Returns a list of known signal ids (exact topics) currently registered.
@@ -309,13 +325,15 @@ impl SignalArbiter {
 
   /// Returns a list of known signal prefixes (topics ending with '*').
   pub fn signal_prefixes(&self) -> Vec<String> {
-    let mut prefixes = Vec::new();
-    self.inner.topics.iter_sync(|k, _| {
-      if k.ends_with('*') {
-        prefixes.push(k.clone());
-      }
-      true
-    });
+    let mut prefixes = self
+      .inner
+      .prefix_topics
+      .load()
+      .iter()
+      .map(|(prefix, _)| format!("{prefix}*"))
+      .collect::<Vec<_>>();
+    prefixes.sort();
+    prefixes.dedup();
     prefixes
   }
 }

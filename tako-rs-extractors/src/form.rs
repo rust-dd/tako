@@ -23,9 +23,9 @@
 //! ```
 
 use http::StatusCode;
-use http_body_util::BodyExt;
 use serde::de::DeserializeOwned;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
@@ -66,7 +66,7 @@ pub enum FormError {
   /// Request content type is not `application/x-www-form-urlencoded`.
   InvalidContentType,
   /// Failed to read the request body.
-  BodyReadError(String),
+  BodyReadError(tako_rs_core::extractors::body::BodyReadError),
   /// Request body contains invalid UTF-8 sequences.
   InvalidUtf8,
   /// Failed to parse the form data format.
@@ -123,11 +123,9 @@ impl Responder for FormError {
         "Invalid content type; expected application/x-www-form-urlencoded",
       )
         .into_response(),
-      FormError::BodyReadError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {err}"),
-      )
-        .into_response(),
+      FormError::BodyReadError(err) => {
+        (err.status(), format!("Failed to read request body: {err}")).into_response()
+      }
       FormError::InvalidUtf8 => (
         StatusCode::BAD_REQUEST,
         "Request body contains invalid UTF-8",
@@ -173,12 +171,7 @@ where
       }
 
       // Read the request body
-      let body_bytes = req
-        .body_mut()
-        .collect()
-        .await
-        .map_err(|e| FormError::BodyReadError(e.to_string()))?
-        .to_bytes();
+      let body_bytes = collect_body(req).await.map_err(FormError::BodyReadError)?;
 
       // Convert to string
       let body_str = std::str::from_utf8(&body_bytes).map_err(|_| FormError::InvalidUtf8)?;

@@ -96,15 +96,16 @@ impl Responder for TakoBody {
 
 impl Responder for &'static str {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::full(Full::from(Bytes::from_static(
-      self.as_bytes(),
-    ))))
+    content_response(
+      TakoBody::from(Bytes::from_static(self.as_bytes())),
+      "text/plain; charset=utf-8",
+    )
   }
 }
 
 impl Responder for String {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::full(Full::from(Bytes::from(self))))
+    content_response(TakoBody::from(self), "text/plain; charset=utf-8")
   }
 }
 
@@ -120,54 +121,31 @@ impl Responder for Infallible {
   }
 }
 
-impl Responder for (StatusCode, &'static str) {
+impl<R: Responder> Responder for (StatusCode, R) {
   fn into_response(self) -> Response {
-    let (status, body) = self;
-    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from_static(
-      body.as_bytes(),
-    ))));
-    *res.status_mut() = status;
-    res
-  }
-}
-
-impl Responder for (StatusCode, String) {
-  fn into_response(self) -> Response {
-    let (status, body) = self;
-    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from(body))));
-    *res.status_mut() = status;
-    res
-  }
-}
-
-impl Responder for (StatusCode, Vec<u8>) {
-  fn into_response(self) -> Response {
-    let (status, body) = self;
-    let mut res = Response::new(TakoBody::full(Full::from(Bytes::from(body))));
-    *res.status_mut() = status;
-    res
+    let mut response = self.1.into_response();
+    *response.status_mut() = self.0;
+    response
   }
 }
 
 impl Responder for Bytes {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::full(Full::from(self)))
+    content_response(TakoBody::from(self), "application/octet-stream")
   }
 }
 
 impl Responder for Vec<u8> {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::full(Full::from(Bytes::from(self))))
+    Bytes::from(self).into_response()
   }
 }
 
 impl Responder for Cow<'static, str> {
   fn into_response(self) -> Response {
     match self {
-      Cow::Borrowed(s) => {
-        Response::new(TakoBody::full(Full::from(Bytes::from_static(s.as_bytes()))))
-      }
-      Cow::Owned(s) => Response::new(TakoBody::full(Full::from(Bytes::from(s)))),
+      Cow::Borrowed(s) => s.into_response(),
+      Cow::Owned(s) => s.into_response(),
     }
   }
 }
@@ -206,16 +184,6 @@ impl Responder for (StatusCode, HeaderMap, TakoBody) {
   }
 }
 
-impl Responder for (StatusCode, HeaderMap) {
-  fn into_response(self) -> Response {
-    let (status, headers) = self;
-    let mut res = Response::new(TakoBody::empty());
-    *res.status_mut() = status;
-    *res.headers_mut() = headers;
-    res
-  }
-}
-
 impl Responder for HeaderMap {
   fn into_response(self) -> Response {
     let mut res = Response::new(TakoBody::empty());
@@ -234,61 +202,44 @@ impl Responder for StatusCode {
 
 pub struct StaticHeaders<const N: usize>(pub [(HeaderName, &'static str); N]);
 
-impl<const N: usize> Responder for (StatusCode, StaticHeaders<N>) {
+impl<const N: usize> Responder for StaticHeaders<N> {
   fn into_response(self) -> Response {
-    let (status, StaticHeaders(headers)) = self;
-    let mut res = Response::new(TakoBody::empty());
-    *res.status_mut() = status;
-
-    for (name, value) in headers {
-      res
+    let mut response = ().into_response();
+    for (name, value) in self.0 {
+      response
         .headers_mut()
         .append(name, HeaderValue::from_static(value));
     }
-    res
+    response
   }
 }
 
 impl Responder for anyhow::Error {
   fn into_response(self) -> Response {
-    let mut res = Response::new(TakoBody::from(self.to_string()));
-    *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-    res.headers_mut().insert(
-      http::header::CONTENT_TYPE,
-      HeaderValue::from_static(mime::TEXT_PLAIN_UTF_8.as_ref()),
-    );
-    res
+    tracing::error!(error = ?self, "request handler failed");
+    (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error").into_response()
   }
 }
 
-impl ResponderError for anyhow::Error {}
-
-/// Native `Result<R, E>` support for handler returns where both arms implement
-/// [`Responder`]. The `Ok` value renders normally; the `Err` value is rendered
-/// via its own [`Responder`] impl so error types stay typed instead of being
-/// forced through a single panic-or-string path.
-///
-/// `anyhow::Result<T>` is `Result<T, anyhow::Error>` and falls into this blanket
-/// via the [`Responder`]/[`ResponderError`] impls on [`anyhow::Error`] just above.
-/// There is intentionally only one `Result<_, _>` blanket so future changes cannot
-/// introduce overlap between two specialised impls.
-impl<T, E> Responder for Result<T, E>
-where
-  T: Responder,
-  E: ResponderError,
-{
+/// Converts either branch through its own [`Responder`] implementation.
+impl<T: Responder, E: Responder> Responder for Result<T, E> {
   fn into_response(self) -> Response {
     match self {
-      Ok(ok) => ok.into_response(),
-      Err(err) => err.into_response(),
+      Ok(value) => value.into_response(),
+      Err(error) => error.into_response(),
     }
   }
 }
 
-/// Marker trait that opts a type into being used as the `Err` arm of a
-/// handler-returned `Result<_, E>`.
-///
-/// Implement [`Responder`] on your error type, then add `impl ResponderError for MyErr {}`
-/// to make it usable as `Result<_, MyErr>`. `anyhow::Error` already implements both,
-/// so `anyhow::Result<T>` works out of the box.
+/// Compatibility marker; all [`Responder`] types can be returned as errors.
+#[deprecated(note = "Result errors only need to implement Responder")]
 pub trait ResponderError: Responder {}
+
+fn content_response(body: TakoBody, content_type: &'static str) -> Response {
+  let mut response = Response::new(body);
+  response.headers_mut().insert(
+    http::header::CONTENT_TYPE,
+    HeaderValue::from_static(content_type),
+  );
+  response
+}

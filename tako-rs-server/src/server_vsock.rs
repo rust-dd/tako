@@ -114,7 +114,7 @@ async fn run(
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   tracing::info!("Tako vsock HTTP listening on cid={cid} port={port}");
 

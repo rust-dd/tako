@@ -86,7 +86,7 @@ async fn run_proxy_http(
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   tracing::debug!(
     "Tako PROXY protocol HTTP listening on {}",

@@ -64,22 +64,25 @@ impl Router {
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   #[doc(hidden)]
-  pub fn setup_plugins_once(&self) {
-    self.plugins_initialized.call_once(|| {
-      for plugin in self.plugins() {
-        // Surface plugin setup errors loudly — a silently-skipped CORS,
-        // auth, rate-limit, or CSRF plugin would leave the server
-        // running without the protection the operator expected
-        // (security-relevant fail-open). Cold path — first dispatch only.
-        if let Err(e) = plugin.setup(self) {
-          tracing::error!(
-            plugin = plugin.name(),
-            error = %e,
-            "router-level TakoPlugin::setup failed; plugin not active"
-          );
+  pub fn setup_plugins_once(&self) -> Result<(), String> {
+    self
+      .plugins_initialized
+      .get_or_init(|| {
+        for child in &self.nested_routers {
+          child.setup_plugins_once()?;
+          #[cfg(feature = "signals")]
+          self.signals.merge_from(&child.signals);
         }
-      }
-    });
+        for plugin in self.plugins() {
+          plugin.setup(self).map_err(|error| {
+            let message = format!("plugin {}: {error:#}", plugin.name());
+            tracing::error!(error = %message, "router plugin initialization failed");
+            message
+          })?;
+        }
+        Ok(())
+      })
+      .clone()
   }
 
   /// Collects `OpenAPI` metadata from all registered routes.
@@ -111,7 +114,7 @@ impl Router {
         if let Some(route) = weak.upgrade()
           && let Some(openapi) = route.openapi_metadata()
         {
-          result.push((method.clone(), route.path.clone(), openapi));
+          result.push((method.clone(), route.path.to_string(), openapi));
         }
       }
     }

@@ -19,8 +19,54 @@ use crate::types::Response;
 /// response and can transform it (e.g., to return JSON errors instead of plain text).
 pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
 
+/// Error formatter with access to request metadata, invoked for 4xx and 5xx.
+pub type ErrorHandlerWithParts =
+  Arc<dyn Fn(&http::request::Parts, Response) -> Response + Send + Sync>;
+
 impl Router {
+  /// Installs a request-aware formatter for client and server error responses.
+  /// Request metadata is cloned only when this handler is configured.
+  pub fn error_handler_with_parts(
+    &mut self,
+    handler: impl Fn(&http::request::Parts, Response) -> Response + Send + Sync + 'static,
+  ) -> &mut Self {
+    self.error_handler_with_parts = Some(Arc::new(handler));
+    self
+  }
+
+  /// Sets the maximum bytes buffered by body extractors (default: 2 MiB).
+  pub fn body_limit(&mut self, bytes: usize) -> &mut Self {
+    self.body_limit = Some(crate::extractors::body::BodyLimit(Some(bytes)));
+    self
+  }
+
+  /// Explicitly allows body extractors to buffer without a size limit.
+  pub fn disable_body_limit(&mut self) -> &mut Self {
+    self.body_limit = Some(crate::extractors::body::BodyLimit(None));
+    self
+  }
+
+  /// Sets the response status used when a handler exceeds its timeout.
+  pub fn timeout_status(&mut self, status: http::StatusCode) -> &mut Self {
+    self.timeout_status = status;
+    self
+  }
+
+  /// Adds middleware with a mutable receiver for chaining builder methods.
+  pub fn layer<F, Fut, R>(&mut self, f: F) -> &mut Self
+  where
+    F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
+    Fut: std::future::Future<Output = R> + Send + 'static,
+    R: Responder + Send + 'static,
+  {
+    self.middleware(f);
+    self
+  }
+
   /// Adds global middleware to the router.
+  ///
+  /// The shared receiver allows plugins to register middleware during setup.
+  /// Use [`Router::layer`] to chain this with mutable builder methods.
   ///
   /// Global middleware is executed for all routes in the order it was added,
   /// before any route-specific middleware. Middleware can modify requests,
@@ -133,7 +179,7 @@ impl Router {
   ///
   /// This timeout can be overridden on individual routes using `Route::timeout`.
   /// When a request exceeds the timeout duration, the timeout fallback handler
-  /// is invoked (if configured) or a 408 Request Timeout response is returned.
+  /// is invoked (if configured) or a 504 Gateway Timeout response is returned.
   ///
   /// # Examples
   ///
@@ -151,7 +197,7 @@ impl Router {
 
   /// Sets a fallback handler that will be executed when a request times out.
   ///
-  /// If no timeout fallback is set, a default 408 Request Timeout response is returned.
+  /// If no timeout fallback is set, a default 504 Gateway Timeout response is returned.
   ///
   /// # Examples
   ///

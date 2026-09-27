@@ -68,8 +68,8 @@ fn router_setup_waits_for_middleware_publication() {
     release: release.clone(),
     calls: calls.clone(),
   });
-  assert_concurrent_setup_waits(|| router.setup_plugins_once(), entry, &release);
-  router.setup_plugins_once();
+  assert_concurrent_setup_waits(|| router.setup_plugins_once().unwrap(), entry, &release);
+  router.setup_plugins_once().unwrap();
   assert_eq!(calls.load(Ordering::SeqCst), 1);
   assert_eq!(router.middlewares.load().len(), 1);
 }
@@ -87,8 +87,8 @@ fn route_setup_waits_for_middleware_publication() {
     release: release.clone(),
     calls: calls.clone(),
   });
-  assert_concurrent_setup_waits(|| route.setup_plugins_once(), entry, &release);
-  route.setup_plugins_once();
+  assert_concurrent_setup_waits(|| route.setup_plugins_once().unwrap(), entry, &release);
+  route.setup_plugins_once().unwrap();
   assert_eq!(calls.load(Ordering::SeqCst), 1);
   assert_eq!(route.middlewares.load().len(), 2);
 }

@@ -53,11 +53,11 @@
 use http::StatusCode;
 use http::header::HeaderValue;
 use http::header::{self};
-use http_body_util::BodyExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
@@ -95,6 +95,7 @@ use tako_rs_core::types::Response;
 /// }
 /// ```
 #[doc(alias = "simdjson")]
+#[cfg(feature = "simd-json-impl")]
 pub struct SimdJson<T>(pub T);
 
 /// Error type for the SIMD JSON extractors.
@@ -105,7 +106,7 @@ pub enum SimdJsonError {
   /// Content-Type header is missing from the request.
   MissingContentType,
   /// Failed to read the request body.
-  BodyReadError(String),
+  BodyReadError(tako_rs_core::extractors::body::BodyReadError),
   /// Failed to deserialize JSON using SIMD parser.
   DeserializationError(String),
 }
@@ -122,11 +123,9 @@ impl Responder for SimdJsonError {
       SimdJsonError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
       }
-      SimdJsonError::BodyReadError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {err}"),
-      )
-        .into_response(),
+      SimdJsonError::BodyReadError(err) => {
+        (err.status(), format!("Failed to read request body: {err}")).into_response()
+      }
       SimdJsonError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Failed to deserialize JSON: {err}"),
@@ -138,6 +137,7 @@ impl Responder for SimdJsonError {
 
 use tako_rs_core::extractors::is_json_content_type;
 
+#[cfg(feature = "simd-json-impl")]
 impl<'a, T> FromRequest<'a> for SimdJson<T>
 where
   T: DeserializeOwned + Send + 'static,
@@ -154,12 +154,9 @@ where
       }
 
       // Collect the entire request body.
-      let bytes = req
-        .body_mut()
-        .collect()
+      let bytes = collect_body(req)
         .await
-        .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
-        .to_bytes();
+        .map_err(SimdJsonError::BodyReadError)?;
 
       // simd_json needs `&mut [u8]` for in-place parsing. When the
       // collected body has no other owners (typical for hyper-driven
@@ -180,6 +177,7 @@ where
   }
 }
 
+#[cfg(feature = "simd-json-impl")]
 impl<T> Responder for SimdJson<T>
 where
   T: Serialize,
@@ -235,8 +233,10 @@ where
 /// }
 /// ```
 #[doc(alias = "sonicjson")]
+#[cfg(feature = "simd-sonic")]
 pub struct SonicJson<T>(pub T);
 
+#[cfg(feature = "simd-sonic")]
 impl<'a, T> FromRequest<'a> for SonicJson<T>
 where
   T: DeserializeOwned + Send + 'static,
@@ -253,12 +253,9 @@ where
       }
 
       // Collect the entire request body.
-      let bytes = req
-        .body_mut()
-        .collect()
+      let bytes = collect_body(req)
         .await
-        .map_err(|e| SimdJsonError::BodyReadError(e.to_string()))?
-        .to_bytes();
+        .map_err(SimdJsonError::BodyReadError)?;
 
       // SIMD-accelerated deserialization.
       let data = sonic_rs::from_slice::<T>(&bytes)
@@ -269,6 +266,7 @@ where
   }
 }
 
+#[cfg(feature = "simd-sonic")]
 impl<T> Responder for SonicJson<T>
 where
   T: Serialize,

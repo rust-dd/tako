@@ -12,7 +12,7 @@ use crate::types::Request;
 /// Internal helper struct for storing path parameters extracted from routes.
 #[derive(Clone, Default)]
 #[doc(hidden)]
-pub struct PathParams(pub SmallVec<[(String, String); 4]>);
+pub struct PathParams(pub SmallVec<[(std::sync::Arc<str>, String); 4]>);
 
 /// Path parameter extractor with automatic deserialization to typed structures.
 #[doc(alias = "params")]
@@ -85,9 +85,9 @@ mod tests {
   #[test]
   fn extract_params_returns_value_when_extension_present() {
     let mut extensions = http::Extensions::new();
-    let mut params = SmallVec::<[(String, String); 4]>::new();
-    params.push(("id".to_string(), "5".to_string()));
-    params.push(("name".to_string(), "bob".to_string()));
+    let mut params = SmallVec::<[(std::sync::Arc<str>, String); 4]>::new();
+    params.push(("id".into(), "5".to_string()));
+    params.push(("name".into(), "bob".to_string()));
     extensions.insert(PathParams(params));
 
     let extracted = Params::<UserParams>::extract_params(&extensions).expect("extract ok");

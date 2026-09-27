@@ -30,6 +30,8 @@ pub use tako_rs_core::StatusCode;
 pub use tako_rs_core::header;
 pub use tako_rs_macros::delete;
 pub use tako_rs_macros::get;
+pub use tako_rs_macros::head;
+pub use tako_rs_macros::options;
 pub use tako_rs_macros::patch;
 pub use tako_rs_macros::post;
 pub use tako_rs_macros::put;
@@ -198,6 +200,7 @@ pub use tako_rs_streams::ws_compio;
 pub mod extractors {
   pub use tako_rs_core::extractors::FromRequest;
   pub use tako_rs_core::extractors::FromRequestParts;
+  pub use tako_rs_core::extractors::body;
   #[doc(hidden)]
   pub use tako_rs_core::extractors::is_json_content_type;
   pub use tako_rs_core::extractors::json;
@@ -230,8 +233,7 @@ pub mod extractors {
   pub use tako_rs_extractors::protobuf;
   pub use tako_rs_extractors::query;
   pub use tako_rs_extractors::query_multi;
-  #[cfg(feature = "simd")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "simd")))]
+  #[cfg(any(feature = "simd-sonic", feature = "simd-json-impl"))]
   pub use tako_rs_extractors::simdjson;
   pub use tako_rs_extractors::state;
   #[cfg(feature = "typed-header")]
@@ -309,11 +311,9 @@ pub use tako_rs_server_pt::serve_per_thread;
 #[cfg(feature = "per-thread-compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread-compio")))]
 pub use tako_rs_server_pt::serve_per_thread_compio;
-
 #[cfg(feature = "jemalloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+pub use tikv_jemallocator::Jemalloc;
 
 /// Re-exports of the types most handlers reach for in everyday code.
 ///
@@ -342,3 +342,12 @@ pub mod prelude {
   pub use tako_rs_extractors::query::Query;
   pub use tako_rs_extractors::state::State;
 }
+
+#[cfg(all(target_os = "linux", feature = "vsock", not(feature = "compio")))]
+pub use tako_rs_server::server_vsock;
+#[cfg(feature = "socket-activation")]
+pub use tako_rs_server::socket_activation;
+#[cfg(feature = "per-thread")]
+pub use tako_rs_server_pt::PerThreadShutdown;
+#[cfg(feature = "per-thread")]
+pub use tako_rs_server_pt::spawn_per_thread;

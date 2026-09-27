@@ -30,6 +30,16 @@ async fn m_delete_user(TypedParams(p): TypedParams<MDeleteUserParams>) -> impl R
   format!("deleted={}", p.id)
 }
 
+#[tako::head("/m/head")]
+async fn m_head() -> impl Responder {
+  StatusCode::ACCEPTED
+}
+
+#[tako::options("/m/options")]
+async fn m_options() -> impl Responder {
+  StatusCode::NO_CONTENT
+}
+
 fn make_req(method: Method, uri: &str) -> Request {
   http::Request::builder()
     .method(method)
@@ -47,6 +57,20 @@ async fn body_str(resp: tako::types::Response) -> String {
 async fn mount_all_registers_every_attribute_route() {
   let mut router = Router::new();
   router.mount_all();
+  assert_eq!(
+    router
+      .dispatch(make_req(Method::HEAD, "/m/head"))
+      .await
+      .status(),
+    StatusCode::ACCEPTED
+  );
+  assert_eq!(
+    router
+      .dispatch(make_req(Method::OPTIONS, "/m/options"))
+      .await
+      .status(),
+    StatusCode::NO_CONTENT
+  );
 
   let resp = router.dispatch(make_req(Method::GET, "/m/users/42")).await;
   assert_eq!(resp.status(), StatusCode::OK);

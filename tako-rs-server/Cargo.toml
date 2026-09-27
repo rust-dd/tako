@@ -16,36 +16,33 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-rs-core.workspace = true
-
-anyhow.workspace = true
-arc-swap.workspace = true
-bytes.workspace = true
-crc32c.workspace = true
-futures-util.workspace = true
-http.workspace = true
-http-body.workspace = true
-http-body-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
-pin-project-lite.workspace = true
-tokio.workspace = true
-tokio-stream.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
-
-# Optional, feature-gated network/runtime backends
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+bytes = { workspace = true }
 compio = { workspace = true, optional = true }
+crc32c = { workspace = true }
 cyper-core = { workspace = true, optional = true }
-send_wrapper = { workspace = true, optional = true }
-rustls = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
-tokio-rustls = { workspace = true, optional = true }
+futures-util = { workspace = true }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
-quinn = { workspace = true, optional = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 listenfd = { workspace = true, optional = true }
+pin-project-lite = { workspace = true }
+quinn = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
+tako-rs-core = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true, optional = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
+tracing = { workspace = true }
 
 [features]
 default = []

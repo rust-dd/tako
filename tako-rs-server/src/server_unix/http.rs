@@ -87,7 +87,7 @@ async fn run_http(
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   tracing::debug!("Tako Unix HTTP listening on {}", path.display());
 

@@ -76,17 +76,19 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
   }
 
   #[cfg(feature = "signals")]
-  fn setup(&self, _router: &Router) -> Result<()> {
+  fn setup(&self, router: &Router) -> Result<()> {
     let backend = self.backend.clone();
     let app_arbiter = app_events();
 
     // App-level request.completed metrics
-    app_arbiter.on(ids::REQUEST_COMPLETED, move |signal: Signal| {
-      let backend = backend.clone();
-      async move {
-        backend.on_request_completed(&signal);
-      }
-    });
+    router
+      .signals()
+      .on(ids::REQUEST_COMPLETED, move |signal: Signal| {
+        let backend = backend.clone();
+        async move {
+          backend.on_request_completed(&signal);
+        }
+      });
 
     // Connection lifetime metrics
     let backend_conn = self.backend.clone();
@@ -105,23 +107,15 @@ impl<B: MetricsBackend> TakoPlugin for MetricsPlugin<B> {
       }
     });
 
-    // Route-level request.completed metrics via prefix subscription
     let backend_route = self.backend.clone();
-    let mut rx = app_arbiter.subscribe_prefix("route.request.");
-    #[cfg(not(feature = "compio"))]
-    tokio::spawn(async move {
-      while let Ok(signal) = rx.recv().await {
-        backend_route.on_route_request_completed(&signal);
-      }
-    });
-
-    #[cfg(feature = "compio")]
-    compio::runtime::spawn(async move {
-      while let Ok(signal) = rx.recv().await {
-        backend_route.on_route_request_completed(&signal);
-      }
-    })
-    .detach();
+    router
+      .signals()
+      .on(ids::ROUTE_REQUEST_COMPLETED, move |signal| {
+        let backend = backend_route.clone();
+        async move {
+          backend.on_route_request_completed(&signal);
+        }
+      });
 
     Ok(())
   }

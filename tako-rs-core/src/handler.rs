@@ -30,12 +30,12 @@
 //! ```
 
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
 use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
@@ -69,6 +69,13 @@ use crate::types::Response;
 /// async fn custom_handler(_req: Request) -> Response {
 ///     Response::new(tako::body::TakoBody::from("Custom response"))
 /// }
+/// ```
+/// Body extractors must be last; all preceding arguments implement `FromRequestParts`.
+///
+/// ```compile_fail
+/// use tako_rs_core::{router::Router, extractors::json::Json};
+/// async fn two_bodies(_: Json<String>, _: Json<String>) {}
+/// Router::new().post("/", two_bodies);
 /// ```
 pub trait Handler<T>: Send + Sync + 'static {
   /// Calls the handler with the given request.
@@ -135,13 +142,9 @@ where
   }
 }
 
-// Abstraction over extraction that avoids HRTB bounds in impls.
 trait Extract: Sized + Send {
   type Error: Responder;
-
-  fn extract<'a>(
-    req: &'a mut Request,
-  ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>>;
+  fn extract(req: &mut Request) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 }
 
 impl<T, E> Extract for T
@@ -151,49 +154,69 @@ where
   for<'a> T: FromRequest<'a, Error = E>,
 {
   type Error = E;
+  fn extract(req: &mut Request) -> impl Future<Output = Result<Self, E>> + Send {
+    T::from_request(req)
+  }
+}
 
-  fn extract<'a>(
-    req: &'a mut Request,
-  ) -> Pin<Box<dyn Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a>> {
-    Box::pin(<T as FromRequest<'a>>::from_request(req))
+trait ExtractParts: Sized + Send {
+  type Error: Responder;
+  fn extract(
+    parts: &mut http::request::Parts,
+  ) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+}
+
+impl<T, E> ExtractParts for T
+where
+  T: Send,
+  E: Responder,
+  for<'a> T: FromRequestParts<'a, Error = E>,
+{
+  type Error = E;
+  fn extract(parts: &mut http::request::Parts) -> impl Future<Output = Result<Self, E>> + Send {
+    T::from_request_parts(parts)
   }
 }
 
 macro_rules! impl_handler {
-    ($($T:ident),+ $(,)?) => {
-        impl<Func, Fut, R, $($T,)*> Handler<($($T,)*)> for Func
-        where
-            Func: FnOnce($($T),*) -> Fut + Clone + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
-            R: Responder,
-            $( $T: Extract + Send, )*
-        {
-            fn call(self, mut req: Request) -> impl Future<Output = Response> + Send + 'static {
-                async move {
-                    $(
-                        let $T = match <$T as Extract>::extract(&mut req).await {
-                            Ok(value) => value,
-                            Err(err) => {
-                                return err.into_response();
-                            }
-                        };
-                    )*
-                    (self)($($T),*).await.into_response()
-                }
-            }
+  ($($Part:ident,)* ; $Last:ident) => {
+    impl<Func, Fut, R, $($Part,)* $Last> Handler<($($Part,)* $Last,)> for Func
+    where
+      Func: FnOnce($($Part,)* $Last) -> Fut + Clone + Send + Sync + 'static,
+      Fut: Future<Output = R> + Send + 'static,
+      R: Responder,
+      $($Part: ExtractParts + 'static,)*
+      $Last: Extract + 'static,
+    {
+      fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static {
+        async move {
+          #[allow(unused_mut)]
+          let (mut parts, body) = req.into_parts();
+          $(let $Part = match <$Part as ExtractParts>::extract(&mut parts).await {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+          };)*
+          let mut req = Request::from_parts(parts, body);
+          let last = match <$Last as Extract>::extract(&mut req).await {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+          };
+          (self)($($Part,)* last).await.into_response()
         }
-    };
+      }
+    }
+  };
 }
 
-impl_handler!(T1);
-impl_handler!(T1, T2);
-impl_handler!(T1, T2, T3);
-impl_handler!(T1, T2, T3, T4);
-impl_handler!(T1, T2, T3, T4, T5);
-impl_handler!(T1, T2, T3, T4, T5, T6);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
-impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+impl_handler!(; T1);
+impl_handler!(T1, ; T2);
+impl_handler!(T1, T2, ; T3);
+impl_handler!(T1, T2, T3, ; T4);
+impl_handler!(T1, T2, T3, T4, ; T5);
+impl_handler!(T1, T2, T3, T4, T5, ; T6);
+impl_handler!(T1, T2, T3, T4, T5, T6, ; T7);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, ; T8);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, ; T9);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, ; T10);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, ; T11);
+impl_handler!(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, ; T12);

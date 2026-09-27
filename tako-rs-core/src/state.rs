@@ -31,8 +31,8 @@
 use std::any::Any;
 use std::any::TypeId;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use scc::HashMap as SccHashMap;
 
 /// Global state storage using thread-safe concurrent hash map.
@@ -41,8 +41,8 @@ use scc::HashMap as SccHashMap;
 /// shared across different parts of the application. Values are stored as type-erased
 /// `Arc<dyn Any + Send + Sync>` to enable storage of arbitrary types while maintaining
 /// thread safety.
-pub(crate) static GLOBAL_STATE: Lazy<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
-  Lazy::new(SccHashMap::new);
+pub(crate) static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
+  LazyLock::new(SccHashMap::new);
 
 /// Stores a value in the global state, keyed by its concrete type `T`.
 ///
@@ -67,6 +67,7 @@ pub(crate) static GLOBAL_STATE: Lazy<SccHashMap<TypeId, Arc<dyn Any + Send + Syn
 /// let config = Config { debug: true, timeout: 30 };
 /// set_state(config);
 /// ```
+#[deprecated(note = "use Router::with_state for instance-local state")]
 pub fn set_state<T: Send + Sync + 'static>(value: T) {
   GLOBAL_STATE.upsert_sync(TypeId::of::<T>(), Arc::new(value));
 }

@@ -54,7 +54,7 @@ async fn anyhow_err_response() {
     resp.headers().get("content-type").unwrap(),
     "text/plain; charset=utf-8"
   );
-  assert_eq!(body_str(resp).await, "bad");
+  assert_eq!(body_str(resp).await, "Internal Server Error");
 }
 
 #[tokio::test]

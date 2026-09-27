@@ -278,7 +278,7 @@ impl PrometheusMetricsConfig {
     let plugin = MetricsPlugin::new(Arc::new(backend));
 
     router.plugin(plugin);
-    router.state(registry.clone());
+    router.with_state(registry.clone());
 
     let path = self.endpoint_path;
     router.route(Method::GET, &path, prometheus_metrics_handler);

@@ -210,6 +210,8 @@ pub fn attach_graphql_options(req: &mut Request, opts: GraphQLOptions) {
 }
 
 /// Set global `GraphQL` options via Tako's global state.
+#[deprecated(note = "use attach_graphql_options on each request")]
+#[allow(deprecated)]
 pub fn set_global_graphql_options(opts: GraphQLOptions) {
   crate::state::set_state::<GraphQLOptions>(opts);
 }

@@ -78,6 +78,7 @@ pub use request::MAX_GRAPHQL_BODY_SIZE;
 pub use request::attach_graphql_options;
 pub use request::receive_graphql;
 pub use request::receive_graphql_batch;
+#[allow(deprecated)]
 pub use request::set_global_graphql_options;
 pub use response::GraphQLBatchResponse;
 pub use response::GraphQLResponse;

@@ -85,7 +85,7 @@ async fn run(
   let router: &'static Router = Box::leak(Box::new(router));
 
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   let addr_str = listener.local_addr()?.to_string();
   tracing::info!("Tako h2c (HTTP/2 cleartext) listening on {addr_str}");

@@ -36,7 +36,7 @@ async fn both_rate_limit_algorithms_start_with_a_full_burst() {
         .key_fn(|_| Some("client".into()))
         .build(),
     );
-    router.setup_plugins_once();
+    router.setup_plugins_once().unwrap();
     for _ in 0..10 {
       assert_eq!(router.dispatch(request("")).await.status(), StatusCode::OK);
     }
@@ -71,7 +71,7 @@ async fn buffered_compression_leaves_open_ended_streams_readable() {
           .unwrap()
       });
       router.plugin(CompressionBuilder::new().build());
-      router.setup_plugins_once();
+      router.setup_plugins_once().unwrap();
       let dispatch = std::pin::pin!(router.dispatch(request(encoding)));
       #[cfg(not(feature = "compio"))]
       let timeout = std::pin::pin!(tokio::time::sleep(Duration::from_secs(1)));
@@ -124,7 +124,7 @@ async fn compression_preserves_range_responses() {
           .min_size(0)
           .build(),
       );
-      router.setup_plugins_once();
+      router.setup_plugins_once().unwrap();
       let response = router.dispatch(request("gzip")).await;
       assert_eq!(response.status(), status);
       assert!(!response.headers().contains_key("content-encoding"));
@@ -156,7 +156,7 @@ async fn compressed_representations_no_longer_advertise_byte_ranges() {
         .min_size(0)
         .build(),
     );
-    router.setup_plugins_once();
+    router.setup_plugins_once().unwrap();
     let response = router.dispatch(request("gzip")).await;
     assert_eq!(response.headers()["content-encoding"], "gzip");
     assert!(!response.headers().contains_key("accept-ranges"));

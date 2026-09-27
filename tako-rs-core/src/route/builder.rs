@@ -86,7 +86,7 @@ impl Route {
   where
     P: TakoPlugin + Clone + Send + Sync + 'static,
   {
-    self.plugins.write().push(Box::new(plugin));
+    self.plugins.write().push(Arc::new(plugin));
     self
   }
 
@@ -98,32 +98,34 @@ impl Route {
   /// middleware chain. This ensures plugins are only initialized once.
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-  pub(crate) fn setup_plugins_once(&self) {
-    self.plugins_initialized.call_once(|| {
-      let mini_router = crate::router::Router::new();
+  pub(crate) fn setup_plugins_once(&self) -> Result<(), String> {
+    self
+      .plugins_initialized
+      .get_or_init(|| {
+        let mini_router = crate::router::Router::new();
 
-      let plugins = self.plugins.read();
-      for plugin in plugins.iter() {
-        if let Err(e) = plugin.setup(&mini_router) {
-          tracing::error!(
-            plugin = plugin.name(),
-            error = %e,
-            "route-level TakoPlugin::setup failed; plugin not active"
-          );
+        let plugins = self.plugins.read();
+        for plugin in plugins.iter() {
+          plugin.setup(&mini_router).map_err(|error| {
+            let message = format!("plugin {}: {error:#}", plugin.name());
+            tracing::error!(error = %message, "route plugin initialization failed");
+            message
+          })?;
         }
-      }
 
-      let plugin_middlewares = mini_router.middlewares.load_full();
-      if !plugin_middlewares.is_empty() {
-        self.middlewares.rcu(|existing| {
-          let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
-          merged.extend(plugin_middlewares.iter().cloned());
-          merged.extend(existing.iter().cloned());
-          Arc::new(merged)
-        });
-        self.has_middleware.store(true, Ordering::Release);
-      }
-    });
+        let plugin_middlewares = mini_router.middlewares.load_full();
+        if !plugin_middlewares.is_empty() {
+          self.middlewares.rcu(|existing| {
+            let mut merged = Vec::with_capacity(plugin_middlewares.len() + existing.len());
+            merged.extend(plugin_middlewares.iter().cloned());
+            merged.extend(existing.iter().cloned());
+            Arc::new(merged)
+          });
+          self.has_middleware.store(true, Ordering::Release);
+        }
+        Ok(())
+      })
+      .clone()
   }
 
   /// Restricts this route to a specific HTTP protocol version.

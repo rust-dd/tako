@@ -15,21 +15,10 @@ use crate::extractors::params::PathParams;
 use crate::handler::BoxHandler;
 use crate::middleware::Next;
 use crate::route::Route;
-#[cfg(feature = "signals")]
-use crate::signals::Signal;
-#[cfg(feature = "signals")]
-use crate::signals::SignalArbiter;
-#[cfg(feature = "signals")]
-use crate::signals::ids;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Builds an empty-body response with the given status code without going
-/// through `http::response::Builder`. The builder API returns `Result` to
-/// surface invalid header values, but for the router's hot-path 404 / 405 /
-/// 408 / 505 responses we have no headers to fail on, so the result is
-/// statically infallible. This helper avoids `.expect("valid …")` calls in
-/// the dispatch path.
+/// Builds a status response with an empty body.
 #[inline]
 pub(crate) fn empty_status_response(status: StatusCode) -> Response {
   let mut resp = http::Response::new(TakoBody::empty());
@@ -42,7 +31,7 @@ impl Router {
   ///
   /// This helper is used for cases like TSR redirects and default 404 responses,
   /// ensuring that router-level middleware (e.g., CORS) always runs.
-  async fn run_with_global_middlewares_for_endpoint(
+  pub(super) async fn run_with_global_middlewares_for_endpoint(
     &self,
     req: Request,
     endpoint: BoxHandler,
@@ -64,27 +53,28 @@ impl Router {
   /// Dispatches an incoming request to the appropriate route handler.
   #[inline]
   pub async fn dispatch(&self, mut req: Request) -> Response {
+    #[cfg(feature = "plugins")]
+    if self.setup_plugins_once().is_err() {
+      return empty_status_response(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    if let Some(limit) = self.body_limit {
+      req.extensions_mut().insert(limit);
+    }
+    let request_parts = self.error_handler_with_parts.as_ref().map(|_| {
+      let mut saved = Request::default();
+      *saved.method_mut() = req.method().clone();
+      *saved.uri_mut() = req.uri().clone();
+      *saved.version_mut() = req.version();
+      *saved.headers_mut() = req.headers().clone();
+      *saved.extensions_mut() = req.extensions().clone();
+      saved.into_parts().0
+    });
     let is_head = req.method() == Method::HEAD;
     // Per-router state: only inject when at least one `with_state` was called.
     // The atomic load is monomorphic and cheap; the Arc clone (atomic incref)
     // only happens for routers that actually use instance-local state.
     if self.has_router_state.load(Ordering::Acquire) {
       req.extensions_mut().insert(Arc::clone(&self.router_state));
-    }
-
-    // App-level request signal — emitted here so every transport gets it for
-    // free without duplicating the boilerplate. The cost is a single string
-    // formatting pair per request and is gated to the `signals` feature.
-    #[cfg(feature = "signals")]
-    let (req_method_str, req_path_str) = (req.method().to_string(), req.uri().path().to_string());
-    #[cfg(feature = "signals")]
-    {
-      SignalArbiter::emit_app(
-        Signal::with_capacity(ids::REQUEST_STARTED, 2)
-          .meta("method", req_method_str.clone())
-          .meta("path", req_path_str.clone()),
-      )
-      .await;
     }
 
     // Borrow the path for lookup; release it before inserting request extensions.
@@ -109,10 +99,26 @@ impl Router {
         let mut it = matched.params.iter();
         let first = it.next();
         let params = first.map(|(fk, fv)| {
-          let mut p = SmallVec::<[(String, String); 4]>::new();
-          p.push((fk.to_string(), fv.to_string()));
+          let mut p = SmallVec::<[(Arc<str>, String); 4]>::new();
+          p.push((
+            route
+              .parameter_keys
+              .iter()
+              .find(|key| key.as_ref() == fk)
+              .cloned()
+              .unwrap_or_else(|| Arc::from(fk)),
+            fv.to_string(),
+          ));
           for (k, v) in it {
-            p.push((k.to_string(), v.to_string()));
+            p.push((
+              route
+                .parameter_keys
+                .iter()
+                .find(|key| key.as_ref() == k)
+                .cloned()
+                .unwrap_or_else(|| Arc::from(k)),
+              v.to_string(),
+            ));
           }
           PathParams(p)
         });
@@ -122,19 +128,34 @@ impl Router {
       }
     };
 
+    #[cfg(feature = "signals")]
+    let signals = super::request_signals::RequestSignals::new(
+      &self.signals,
+      route_match.as_ref().map(|(route, _)| route),
+      &req,
+    );
+    #[cfg(feature = "signals")]
+    if let Some(signals) = &signals {
+      signals.started().await;
+    }
+
     let response = if let Some((route, params)) = route_match {
-      // Protocol guard: short-circuit dispatch *but fall through* to the shared
-      // completion tail (error-handler + REQUEST_COMPLETED signal). Returning
-      // here would leak the in-flight signal pair (REQUEST_STARTED already
-      // emitted above without a matching REQUEST_COMPLETED).
-      if let Some(res) = Self::enforce_protocol_guard(&route, &req) {
+      // Failures still pass through error formatting and completion signals.
+      #[cfg(feature = "plugins")]
+      let setup_error = route.setup_plugins_once().err();
+      #[cfg(not(feature = "plugins"))]
+      let setup_error = None::<String>;
+      if let Some(res) = Self::enforce_protocol_guard(&route, &req)
+        .or_else(|| setup_error.map(|_| empty_status_response(StatusCode::INTERNAL_SERVER_ERROR)))
+      {
         res
       } else {
-        #[cfg(feature = "signals")]
-        let route_signals = route.signal_arbiter();
-
-        #[cfg(feature = "plugins")]
-        route.setup_plugins_once();
+        if let Some(state) = &route.scoped_state {
+          req.extensions_mut().insert(state.clone());
+        }
+        if let Some(limit) = route.body_limit {
+          req.extensions_mut().insert(limit);
+        }
 
         if let Some(mode) = route.get_simd_json_mode() {
           req.extensions_mut().insert(mode);
@@ -151,57 +172,16 @@ impl Router {
           .extensions_mut()
           .insert(crate::router_state::MatchedPath(route.path.clone()));
 
-        let effective_timeout = route.get_timeout().or(self.timeout);
+        let timeout_router = route.scoped_timeout.as_deref().unwrap_or(self);
+        let effective_timeout = route
+          .get_timeout()
+          .or(timeout_router.timeout)
+          .or(self.timeout);
 
         // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
         let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
           || route.has_middleware.load(Ordering::Acquire);
 
-        #[cfg(feature = "signals")]
-        {
-          // Reuse the strings already formatted for REQUEST_STARTED instead of
-          // re-allocating per request on the hot path. Cheap `String::clone` is
-          // a single Vec dup; route-level signals consume the clones for the
-          // STARTED emission and the final move into ROUTE_REQUEST_COMPLETED.
-          let method_str = req_method_str.clone();
-          let path_str = req_path_str.clone();
-          let route_template = route.path.clone();
-
-          route_signals
-            .emit(
-              Signal::with_capacity(ids::ROUTE_REQUEST_STARTED, 3)
-                .meta("method", method_str.clone())
-                .meta("path", path_str.clone())
-                .meta("route", route_template.clone()),
-            )
-            .await;
-
-          let response = if !needs_chain && effective_timeout.is_none() {
-            route.handler.call(req).await
-          } else {
-            let next = Next {
-              global_middlewares: self.middlewares.load_full(),
-              route_middlewares: route.middlewares.load_full(),
-              index: 0,
-              endpoint: route.handler.clone(),
-            };
-            self.run_with_timeout(req, next, effective_timeout).await
-          };
-
-          route_signals
-            .emit(
-              Signal::with_capacity(ids::ROUTE_REQUEST_COMPLETED, 4)
-                .meta("method", method_str)
-                .meta("path", path_str)
-                .meta("route", route_template)
-                .meta("status", response.status().as_u16().to_string()),
-            )
-            .await;
-
-          response
-        }
-
-        #[cfg(not(feature = "signals"))]
         {
           if !needs_chain && effective_timeout.is_none() {
             route.handler.call(req).await
@@ -212,7 +192,9 @@ impl Router {
               index: 0,
               endpoint: route.handler.clone(),
             };
-            self.run_with_timeout(req, next, effective_timeout).await
+            timeout_router
+              .run_with_timeout(req, next, effective_timeout)
+              .await
           }
         }
       }
@@ -313,6 +295,11 @@ impl Router {
     };
 
     let mut response = self.maybe_apply_error_handler(response);
+    if (response.status().is_client_error() || response.status().is_server_error())
+      && let (Some(handler), Some(parts)) = (&self.error_handler_with_parts, &request_parts)
+    {
+      response = handler(parts, response);
+    }
     if is_head {
       let status = response.status();
       if !status.is_informational()
@@ -332,14 +319,8 @@ impl Router {
     }
 
     #[cfg(feature = "signals")]
-    {
-      SignalArbiter::emit_app(
-        Signal::with_capacity(ids::REQUEST_COMPLETED, 3)
-          .meta("method", req_method_str)
-          .meta("path", req_path_str)
-          .meta("status", response.status().as_u16().to_string()),
-      )
-      .await;
+    if let Some(signals) = signals {
+      signals.complete(response.status()).await;
     }
 
     response

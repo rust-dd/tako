@@ -1,10 +1,10 @@
 use bytes::Bytes;
 use http::HeaderValue;
 use http::StatusCode;
-use http_body_util::BodyExt;
 use serde::Serialize;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::extractors::is_json_content_type;
 use tako_rs_core::extractors::json::JsonError;
 use tako_rs_core::responder::Responder;
@@ -36,12 +36,7 @@ where
       // `CachedRequestBody` newtype to avoid colliding with other middleware
       // that might stash a raw `Bytes` value in extensions.
       if req.extensions().get::<CachedRequestBody>().is_none() {
-        let buf = req
-          .body_mut()
-          .collect()
-          .await
-          .map_err(|e| JsonError::BodyReadError(e.to_string()))?
-          .to_bytes();
+        let buf = collect_body(req).await.map_err(JsonError::BodyReadError)?;
         req.extensions_mut().insert(CachedRequestBody(buf));
       }
 

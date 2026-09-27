@@ -39,9 +39,12 @@ mod mounting;
 mod plugin_tests;
 mod plugins;
 mod registration;
+#[cfg(feature = "signals")]
+mod request_signals;
 mod state;
 mod timeout;
 
 pub use definition::Router;
 pub use layers::ErrorHandler;
+pub use layers::ErrorHandlerWithParts;
 pub use mounting::TAKO_ROUTES;

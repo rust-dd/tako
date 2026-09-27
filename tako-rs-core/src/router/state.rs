@@ -9,7 +9,6 @@ use crate::router_state::RouterState;
 use crate::signals::Signal;
 #[cfg(feature = "signals")]
 use crate::signals::SignalArbiter;
-use crate::state::set_state;
 
 impl Router {
   /// Adds a value to the global type-based state accessible by all handlers.
@@ -28,15 +27,17 @@ impl Router {
   /// struct AppConfig { database_url: String, api_key: String }
   ///
   /// let mut router = Router::new();
-  /// router.state(AppConfig {
+  /// router.with_state(AppConfig {
   ///     database_url: "postgresql://localhost/mydb".to_string(),
   ///     api_key: "secret-key".to_string(),
   /// });
   /// // You can also store simple types by type:
-  /// router.state::<String>("1.0.0".to_string());
+  /// router.with_state::<String>("1.0.0".to_string());
   /// ```
+  #[deprecated(note = "use Router::with_state for instance-local state")]
+  #[allow(deprecated)]
   pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
-    set_state(value);
+    crate::state::set_state(value);
   }
 
   /// Inserts a value into this router's instance-local typed state.

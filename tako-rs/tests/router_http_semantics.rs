@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use http::Method;
 use http::StatusCode;
 use http::Version;

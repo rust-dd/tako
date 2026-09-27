@@ -36,9 +36,9 @@
 //! ```
 
 use http::StatusCode;
-use http_body_util::BodyExt;
 use prost::Message;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
@@ -54,7 +54,7 @@ pub enum ProtobufError {
   /// Content-Type header is missing from the request.
   MissingContentType,
   /// Failed to read the request body (network error, timeout, etc.).
-  BodyReadError(String),
+  BodyReadError(tako_rs_core::extractors::body::BodyReadError),
   /// Protobuf deserialization failed (invalid format, unknown fields, etc.).
   ProtobufDecodeError(String),
 }
@@ -71,11 +71,9 @@ impl Responder for ProtobufError {
       ProtobufError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
       }
-      ProtobufError::BodyReadError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {err}"),
-      )
-        .into_response(),
+      ProtobufError::BodyReadError(err) => {
+        (err.status(), format!("Failed to read request body: {err}")).into_response()
+      }
       ProtobufError::ProtobufDecodeError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Failed to decode protobuf: {err}"),
@@ -128,12 +126,9 @@ where
         return Err(ProtobufError::InvalidContentType);
       }
 
-      let body_bytes = req
-        .body_mut()
-        .collect()
+      let body_bytes = collect_body(req)
         .await
-        .map_err(|e| ProtobufError::BodyReadError(e.to_string()))?
-        .to_bytes();
+        .map_err(ProtobufError::BodyReadError)?;
 
       let data = T::decode(&body_bytes[..])
         .map_err(|e| ProtobufError::ProtobufDecodeError(e.to_string()))?;

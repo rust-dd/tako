@@ -1,6 +1,6 @@
 //! Hot-path bench: router dispatch for static and dynamic paths.
 //!
-//! Run with: `cargo bench -p tako-core --bench router_dispatch`.
+//! Run with: `cargo bench -p tako-rs-core --bench router_dispatch`.
 
 use std::hint::black_box;
 
@@ -20,6 +20,12 @@ async fn ok() -> impl Responder {
 fn build_router() -> Router {
   let mut r = Router::new();
   r.get("/health", ok);
+  r.get(
+    "/extract/{id}",
+    |_: tako_rs_core::extractors::params::Params<u64>,
+     _: tako_rs_core::router_state::MatchedPath,
+     _: tako_rs_core::extractors::params::Params<u64>| async { http::StatusCode::OK },
+  );
   r.get("/users", ok);
   r.get("/users/{id}", ok);
   r.get("/orgs/{org}/projects/{project}", ok);
@@ -74,6 +80,16 @@ fn bench_dispatch(c: &mut Criterion) {
       let req = Request::builder()
         .method(Method::PUT)
         .uri("/users")
+        .body(TakoBody::empty())
+        .unwrap();
+      runtime.block_on(async { black_box(router.dispatch(req).await) })
+    });
+  });
+
+  group.bench_function("three_extractors", |b| {
+    b.iter(|| {
+      let req = Request::builder()
+        .uri("/extract/42")
         .body(TakoBody::empty())
         .unwrap();
       runtime.block_on(async { black_box(router.dispatch(req).await) })

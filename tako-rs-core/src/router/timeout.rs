@@ -2,8 +2,6 @@
 
 use std::time::Duration;
 
-use http::StatusCode;
-
 use super::Router;
 use super::dispatch::empty_status_response;
 use crate::middleware::Next;
@@ -14,7 +12,7 @@ impl Router {
   /// Executes the middleware chain with an optional timeout.
   ///
   /// If a timeout is specified and exceeded, the timeout fallback handler
-  /// is invoked or a default 408 Request Timeout response is returned.
+  /// is invoked or a default 504 Gateway Timeout response is returned.
   pub(super) async fn run_with_timeout(
     &self,
     req: Request,
@@ -23,11 +21,20 @@ impl Router {
   ) -> Response {
     match timeout_duration {
       Some(duration) => {
+        let fallback_request = self.timeout_fallback.as_ref().map(|_| {
+          let mut saved = Request::default();
+          *saved.method_mut() = req.method().clone();
+          *saved.uri_mut() = req.uri().clone();
+          *saved.version_mut() = req.version();
+          *saved.headers_mut() = req.headers().clone();
+          *saved.extensions_mut() = req.extensions().clone();
+          saved
+        });
         #[cfg(not(feature = "compio"))]
         {
           match tokio::time::timeout(duration, next.run(req)).await {
             Ok(response) => response,
-            Err(_elapsed) => self.handle_timeout().await,
+            Err(_elapsed) => self.handle_timeout(fallback_request).await,
           }
         }
         #[cfg(feature = "compio")]
@@ -36,7 +43,9 @@ impl Router {
           let work = std::pin::pin!(next.run(req));
           match futures_util::future::select(work, sleep).await {
             futures_util::future::Either::Left((response, _)) => response,
-            futures_util::future::Either::Right(((), _)) => self.handle_timeout().await,
+            futures_util::future::Either::Right(((), _)) => {
+              self.handle_timeout(fallback_request).await
+            }
           }
         }
       }
@@ -44,12 +53,12 @@ impl Router {
     }
   }
 
-  /// Returns the timeout response using the fallback handler or a default 408.
-  async fn handle_timeout(&self) -> Response {
+  /// Returns the timeout response using the fallback handler or a configured timeout status.
+  async fn handle_timeout(&self, request: Option<Request>) -> Response {
     if let Some(handler) = &self.timeout_fallback {
-      handler.call(Request::default()).await
+      handler.call(request.unwrap_or_default()).await
     } else {
-      empty_status_response(StatusCode::REQUEST_TIMEOUT)
+      empty_status_response(self.timeout_status)
     }
   }
 }

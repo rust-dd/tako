@@ -102,6 +102,22 @@ impl std::fmt::Debug for TakoBody {
 }
 
 impl TakoBody {
+  /// Returns bytes only for an already buffered body, without polling a stream.
+  pub(crate) fn into_full_bytes(self) -> Option<Bytes> {
+    match self.0 {
+      BodyInner::Full(mut body) => {
+        let waker = std::task::Waker::noop();
+        let mut context = Context::from_waker(waker);
+        match Pin::new(&mut body).poll_frame(&mut context) {
+          Poll::Ready(Some(Ok(frame))) => frame.into_data().ok(),
+          _ => Some(Bytes::new()),
+        }
+      }
+      BodyInner::Empty(_) => Some(Bytes::new()),
+      _ => None,
+    }
+  }
+
   /// Creates a new body from any type implementing the `Body` trait.
   ///
   /// This is the generic (boxing) path — prefer [`full`](Self::full) or

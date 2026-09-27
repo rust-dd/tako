@@ -6,8 +6,8 @@
 
 use bytes::Bytes;
 use http::StatusCode;
-use http_body_util::BodyExt;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 
 /// Zero-copy `application/x-www-form-urlencoded` extractor.
@@ -22,7 +22,7 @@ pub enum FormBorrowedError {
   /// Content-Type is not `application/x-www-form-urlencoded`.
   InvalidContentType,
   /// Body collection failed.
-  BodyReadError(String),
+  BodyReadError(tako_rs_core::extractors::body::BodyReadError),
   /// `serde_urlencoded` failed to deserialize.
   DeserializationError(String),
 }
@@ -35,11 +35,9 @@ impl Responder for FormBorrowedError {
         "invalid content type; expected application/x-www-form-urlencoded",
       )
         .into_response(),
-      Self::BodyReadError(e) => (
-        StatusCode::BAD_REQUEST,
-        format!("failed to read request body: {e}"),
-      )
-        .into_response(),
+      Self::BodyReadError(e) => {
+        (e.status(), format!("failed to read request body: {e}")).into_response()
+      }
       Self::DeserializationError(e) => (
         StatusCode::BAD_REQUEST,
         format!("failed to deserialize form: {e}"),
@@ -71,12 +69,9 @@ where
       }
 
       if req.extensions().get::<CachedRequestBody>().is_none() {
-        let buf = req
-          .body_mut()
-          .collect()
+        let buf = collect_body(req)
           .await
-          .map_err(|e| FormBorrowedError::BodyReadError(e.to_string()))?
-          .to_bytes();
+          .map_err(FormBorrowedError::BodyReadError)?;
         req.extensions_mut().insert(CachedRequestBody(buf));
       }
 

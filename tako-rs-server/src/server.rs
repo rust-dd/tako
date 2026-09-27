@@ -108,7 +108,7 @@ async fn run(
 
   // Setup plugins
   #[cfg(feature = "plugins")]
-  router.setup_plugins_once();
+  router.setup_plugins_once()?;
 
   let addr_str = listener.local_addr()?.to_string();
 

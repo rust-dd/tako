@@ -92,3 +92,15 @@ pub fn delete(attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
   shortcut("PATCH", attr, item)
 }
+
+/// `#[head("/path")]` is shorthand for `#[route(HEAD, ...)]`.
+#[proc_macro_attribute]
+pub fn head(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("HEAD", attr, item)
+}
+
+/// `#[options("/path")]` is shorthand for `#[route(OPTIONS, ...)]`.
+#[proc_macro_attribute]
+pub fn options(attr: TokenStream, item: TokenStream) -> TokenStream {
+  shortcut("OPTIONS", attr, item)
+}

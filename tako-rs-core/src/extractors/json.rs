@@ -41,12 +41,12 @@
 
 use http::StatusCode;
 use http::header::HeaderValue;
-use http_body_util::BodyExt;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::body::TakoBody;
 use crate::extractors::FromRequest;
+use crate::extractors::body::collect_body;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
@@ -66,7 +66,7 @@ use crate::types::Response;
 /// that under certain inputs could be amplified into CPU spikes or panic.
 /// For routes that take untrusted JSON from the open internet, prefer
 /// `SimdJsonMode::Never` (or pair the route with
-/// `tako::middleware::ContentLengthLimit` to bound the input first). The
+/// `tako::extractors::content_length_limit::ContentLengthLimit` to bound the input first). The
 /// default `Threshold(2 MB)` keeps small inputs on the `serde_json` path
 /// where the attack surface is smaller.
 ///
@@ -121,7 +121,7 @@ pub enum JsonError {
   /// Content-Type header is missing from the request.
   MissingContentType,
   /// Failed to read the request body (network error, timeout, etc.).
-  BodyReadError(String),
+  BodyReadError(crate::extractors::body::BodyReadError),
   /// JSON deserialization failed (syntax error, type mismatch, etc.).
   DeserializationError(String),
 }
@@ -153,11 +153,9 @@ impl Responder for JsonError {
       JsonError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
       }
-      JsonError::BodyReadError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to read request body: {err}"),
-      )
-        .into_response(),
+      JsonError::BodyReadError(err) => {
+        (err.status(), format!("Failed to read request body: {err}")).into_response()
+      }
       JsonError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Failed to deserialize JSON: {err}"),
@@ -193,12 +191,7 @@ where
       }
 
       // Read the complete request body into memory
-      let body_bytes = req
-        .body_mut()
-        .collect()
-        .await
-        .map_err(|e| JsonError::BodyReadError(e.to_string()))?
-        .to_bytes();
+      let body_bytes = collect_body(req).await.map_err(JsonError::BodyReadError)?;
 
       if body_bytes.is_empty() {
         return Err(JsonError::DeserializationError(

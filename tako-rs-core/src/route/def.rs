@@ -6,8 +6,6 @@
 //! the router to re-home routes under a prefix.
 
 use std::sync::Arc;
-#[cfg(feature = "plugins")]
-use std::sync::Once;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -32,15 +30,12 @@ use crate::types::BoxMiddleware;
 #[doc(alias = "route")]
 pub struct Route {
   /// Original path string used to create this route.
-  pub path: String,
+  pub path: Arc<str>,
+  pub(crate) parameter_keys: Vec<Arc<str>>,
   /// HTTP method this route responds to.
   pub method: Method,
   /// Handler function to execute when route is matched.
   ///
-  /// Crate-private — `BoxHandler` is itself crate-private and external users
-  /// only see `Route` behind `Arc<Route>` via [`Router::routes`], which makes
-  /// the field unusable from downstream code regardless of visibility. Kept
-  /// crate-visible so the dispatch path in `router.rs` can clone/call it.
   pub(crate) handler: BoxHandler,
   /// Route-specific middleware chain.
   ///
@@ -55,10 +50,10 @@ pub struct Route {
   pub tsr: bool,
   /// Route-specific plugins.
   #[cfg(feature = "plugins")]
-  pub(crate) plugins: RwLock<Vec<Box<dyn TakoPlugin>>>,
+  pub(crate) plugins: RwLock<Vec<Arc<dyn TakoPlugin>>>,
   /// Publishes plugin middleware before concurrent requests can proceed.
   #[cfg(feature = "plugins")]
-  pub(crate) plugins_initialized: Once,
+  pub(crate) plugins_initialized: OnceLock<Result<(), String>>,
   /// HTTP protocol version guard (set once via [`Route::version`] / `h09`/`h10`/`h11`/`h2`).
   pub(crate) http_protocol: OnceLock<http::Version>,
   /// Route-level signal arbiter.
@@ -71,13 +66,17 @@ pub struct Route {
   pub(crate) timeout: OnceLock<Duration>,
   /// Route-level SIMD JSON dispatch mode (set once at registration, lock-free reads).
   pub(crate) simd_json_mode: OnceLock<SimdJsonMode>,
+  pub(crate) scoped_state: Option<Arc<crate::router_state::RouterState>>,
+  pub(crate) scoped_timeout: Option<Arc<crate::router::Router>>,
+  pub(crate) body_limit: Option<crate::extractors::body::BodyLimit>,
 }
 
 impl Route {
   /// Creates a new route with the specified path, method, and handler.
   pub fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
     Self {
-      path,
+      parameter_keys: parameter_keys(&path),
+      path: path.into(),
       method,
       handler,
       middlewares: ArcSwap::new(Arc::default()),
@@ -86,7 +85,7 @@ impl Route {
       #[cfg(feature = "plugins")]
       plugins: RwLock::new(Vec::new()),
       #[cfg(feature = "plugins")]
-      plugins_initialized: Once::new(),
+      plugins_initialized: OnceLock::new(),
       http_protocol: OnceLock::new(),
       #[cfg(feature = "signals")]
       signals: SignalArbiter::new(),
@@ -94,6 +93,9 @@ impl Route {
       openapi: RwLock::new(None),
       timeout: OnceLock::new(),
       simd_json_mode: OnceLock::new(),
+      scoped_state: None,
+      scoped_timeout: None,
+      body_limit: None,
     }
   }
 
@@ -101,26 +103,23 @@ impl Route {
   /// but a different path. Used by [`crate::router::Router::nest`] to register
   /// a child router's routes under a prefix without mutating the originals.
   ///
-  /// Route-level plugins are *not* carried over — `TakoPlugin` is not `Clone`,
-  /// and the cloned route is treated as already-initialized so the empty
-  /// plugin list is never set up. Plugin-bearing routes should be registered
-  /// directly on the parent router after `nest`.
+  /// Plugin instances are shared; an initialized middleware chain is not installed twice.
   pub(crate) fn cloned_with_path(&self, new_path: String) -> Arc<Route> {
     let cloned = Self {
-      path: new_path,
+      parameter_keys: parameter_keys(&new_path),
+      path: new_path.into(),
+      scoped_state: self.scoped_state.clone(),
+      scoped_timeout: self.scoped_timeout.clone(),
+      body_limit: self.body_limit,
       method: self.method.clone(),
       handler: self.handler.clone(),
       middlewares: ArcSwap::new(self.middlewares.load_full()),
       has_middleware: AtomicBool::new(self.has_middleware.load(Ordering::Acquire)),
       tsr: self.tsr,
       #[cfg(feature = "plugins")]
-      plugins: RwLock::new(Vec::new()),
+      plugins: RwLock::new(self.plugins.read().clone()),
       #[cfg(feature = "plugins")]
-      plugins_initialized: {
-        let initialized = Once::new();
-        initialized.call_once(|| {});
-        initialized
-      },
+      plugins_initialized: self.plugins_initialized.clone(),
       http_protocol: {
         let lock = OnceLock::new();
         if let Some(v) = self.http_protocol.get() {
@@ -152,4 +151,16 @@ impl Route {
     };
     Arc::new(cloned)
   }
+}
+
+fn parameter_keys(path: &str) -> Vec<Arc<str>> {
+  path
+    .split('{')
+    .skip(1)
+    .filter_map(|segment| {
+      segment
+        .split_once('}')
+        .map(|(key, _)| Arc::from(key.trim_start_matches('*')))
+    })
+    .collect()
 }

@@ -16,80 +16,76 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-anyhow.workspace = true
-arc-swap.workspace = true
-async-trait.workspace = true
-base64.workspace = true
-bytes.workspace = true
-cookie.workspace = true
-envy.workspace = true
-futures-util.workspace = true
-http.workspace = true
-http-body.workspace = true
-http-body-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
-linkme.workspace = true
-matchit.workspace = true
-mime.workspace = true
-mime_guess.workspace = true
-once_cell.workspace = true
-parking_lot.workspace = true
-pin-project-lite.workspace = true
-scc.workspace = true
-serde.workspace = true
-serde_bytes.workspace = true
-serde_json.workspace = true
-serde_urlencoded.workspace = true
-sha1.workspace = true
-sha2.workspace = true
-smallvec.workspace = true
-tokio.workspace = true
-tokio-stream.workspace = true
-tokio-tungstenite.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
-url.workspace = true
-urlencoding.workspace = true
-
-# Optional / feature-gated
 ahash = { workspace = true, optional = true }
-async-graphql = { version = "7.0.17", optional = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+async-graphql = { workspace = true, optional = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
 brotli = { workspace = true, optional = true }
-chrono = { version = "0.4", optional = true }
-cron = { workspace = true, optional = true }
+bytes = { workspace = true }
+chrono = { workspace = true, optional = true }
 compio = { workspace = true, optional = true }
+cookie = { workspace = true }
+cron = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
+envy = { workspace = true }
 flate2 = { workspace = true, optional = true }
+futures-util = { workspace = true }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
+http = { workspace = true }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+linkme = { workspace = true }
+matchit = { workspace = true }
+mime = { workspace = true }
+mime_guess = { workspace = true }
 multer = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
+parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
 prometheus = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
-rustls-pemfile = { workspace = true, optional = true }
-send_wrapper = { workspace = true, optional = true }
-simd-json = { workspace = true, optional = true }
-sonic-rs = { workspace = true, optional = true }
-tikv-jemallocator = { workspace = true, optional = true }
-tokio-rustls = { workspace = true, optional = true }
-tracing-subscriber = { version = "0.3.19", optional = true }
-utoipa = { version = "5.4", optional = true }
-uuid = { workspace = true, optional = true }
-vespera_core = { version = "0.1.43", optional = true }
-webpki-roots = { workspace = true, optional = true }
 rustls-native-certs = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
+scc = { workspace = true }
+send_wrapper = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+simd-json = { workspace = true, optional = true }
+smallvec = { workspace = true }
+sonic-rs = { workspace = true, optional = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true, optional = true }
+tokio-stream = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+utoipa = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+vespera_core = { workspace = true, optional = true }
+webpki-roots = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
-jwt-simple = { version = "0.12.12", default-features = false, features = ["pure-rust"], optional = true }
+jwt-simple = { workspace = true, features = ["pure-rust"], optional = true, default-features = false }
 
 [target.'cfg(not(target_os = "freebsd"))'.dependencies]
-jwt-simple = { version = "0.12.12", optional = true }
+jwt-simple = { workspace = true, optional = true, features = ["default"] }
 
 [features]
 async-graphql = ["dep:async-graphql"]
@@ -107,7 +103,7 @@ native-certs = ["client", "dep:rustls-native-certs"]
 default = []
 file-stream = []
 http2 = []
-jemalloc = ["dep:tikv-jemallocator"]
+jemalloc = []
 multipart = ["dep:multer", "dep:uuid"]
 plugins = ["dep:brotli", "dep:flate2"]
 protobuf = ["dep:prost"]
@@ -118,10 +114,10 @@ signals = []
 simd = ["simd-sonic", "simd-json-impl"]
 # Enables the `sonic-rs` backend used by the built-in `Json<T>` extractor's
 # SIMD fast path. (Without this, `Json<T>` falls back to `serde_json`.)
-simd-sonic = ["dep:sonic-rs", "jemalloc"]
+simd-sonic = ["dep:sonic-rs"]
 # Enables the `simd-json` backend used by the optional `SimdJson<T>` extractor
 # re-exported from `tako-extractors`.
-simd-json-impl = ["dep:simd-json", "jemalloc"]
+simd-json-impl = ["dep:simd-json"]
 tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
 grpc = ["protobuf"]
 queue-cron = ["dep:cron", "dep:chrono"]

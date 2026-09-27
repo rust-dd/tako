@@ -1,12 +1,64 @@
 # Changelog
 
 All notable changes to **tako-rs** are documented here. Format inspired by
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); we follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+The planned 2.1 release includes intentional breaking API and default changes.
+
+### Security
+
+- Buffered JSON, form, protobuf, SIMD, borrowed, bytes and text extractors default
+  to a 2 MiB limit. Configure `Router::body_limit` or explicitly opt out with
+  `disable_body_limit`. Exceeding either this limit or a `BodyLimit` middleware
+  wrapper returns 413, including for chunked bodies.
+- `anyhow::Error` responses return a generic 500 and log diagnostic details.
+  Text and binary responders set explicit content types.
+- Plugin setup errors are retained and reject requests; server initialization
+  propagates router plugin failures.
+
+### Changed
+
+- Only the last handler argument may consume the body. Earlier arguments must
+  implement `FromRequestParts`. Extractor futures no longer allocate a box.
+- `Route::path`, `MatchedPath` and captured parameter keys use `Arc<str>`.
+  Use `.as_ref()` to borrow strings and `.to_string()` when ownership is needed.
+- `Next` internals are private; middleware continues through `Next::run`.
+- Handler timeouts default to 504. `timeout_status` customizes the status, and
+  timeout fallbacks receive the original method, URI, headers and extensions.
+- The `jemalloc` feature re-exports `Jemalloc`; applications choose whether to
+  declare it as their global allocator. SIMD parsers do not enable jemalloc.
+- Signal identifiers and metadata keys use `Cow<'static, str>`; pass owned
+  strings for dynamic identifiers. Request and route signals reach the router
+  and app arbiters, with the matched route template and elapsed microseconds.
+- `Router::state`, `set_state` and global GraphQL configuration are deprecated.
+  Prefer router state or request-local GraphQL options.
+
+### Added
+
+- Owned `bytes::Bytes` and `String` body extractors; any `Responder` can be the
+  error branch of a handler's `Result`.
+- `error_handler_with_parts` exposes request metadata to error formatters;
+  `Router::layer` supports chaining middleware with mutable builder methods.
+- `#[head]` and `#[options]` shortcuts; umbrella forwarding for `queue-cron`,
+  `socket-activation`, `vsock` and per-thread startup handles.
+
+
 ### Fixed
+
+- Nested routes preserve scoped state, plugins, middleware, timeouts and body
+  limits. Child state wins over parent state without leaking between siblings.
+  Fallback and error formatting remain owned by the parent router.
+- Problem JSON preserves semantic headers and invalidates representation metadata
+  when replacing a body. Buffered 4xx text can supply the problem detail.
+- Metrics count every completed route request without a lossy broadcast task,
+  record latency and use router-local registries.
+- Split SIMD features expose their corresponding extractor independently.
+- Listener-free request signals skip payload construction; prefix subscriptions
+  have a separate lookup and static metadata keys avoid string allocations.
+- Workspace dependencies are inherited and ordered consistently; direct
+  `once_cell` dependencies use standard-library lazy initialization instead.
 
 - Trailing-slash redirects preserve the complete query string and retain
   their existing 307 status.

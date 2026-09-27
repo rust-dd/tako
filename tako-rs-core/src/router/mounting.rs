@@ -149,7 +149,8 @@ impl Router {
   /// before child-route middleware at dispatch time).
   ///
   /// Caveats:
-  /// - Route-level plugins on the child are **not** carried over.
+  /// - Child state overrides parent state for matching routes; siblings remain isolated.
+  /// - Child plugins, middleware, body limits and timeouts are preserved.
   /// - The child's fallback / error handlers are **not** inherited.
   ///
   /// # Panics
@@ -175,7 +176,7 @@ impl Router {
   /// root.nest("/api/v1", api); // /users → /api/v1/users
   /// ```
   pub fn nest(&mut self, prefix: &str, child: Router) -> &mut Self {
-    let upstream_globals = child.middlewares.load_full();
+    let child = Arc::new(child);
 
     for (method, weak_vec) in child.routes.iter() {
       for weak in weak_vec {
@@ -186,16 +187,42 @@ impl Router {
         let combined = combine_prefix_path(prefix, &child_route.path);
         let new_path = self.apply_pending_prefix(&combined);
 
-        let new_route = child_route.cloned_with_path(new_path.clone());
-
-        if !upstream_globals.is_empty() {
-          let existing = new_route.middlewares.load_full();
-          let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
-          merged.extend(upstream_globals.iter().cloned());
-          merged.extend(existing.iter().cloned());
-          new_route.has_middleware.store(true, Ordering::Release);
-          new_route.middlewares.store(Arc::new(merged));
+        let mut new_route = child_route.cloned_with_path(new_path.clone());
+        let configured = Arc::get_mut(&mut new_route).expect("new route is uniquely owned");
+        configured.scoped_state = Some(Arc::new(crate::router_state::RouterState::layered(
+          child_route
+            .scoped_state
+            .clone()
+            .unwrap_or_else(|| child.router_state.clone()),
+          self.router_state.clone(),
+        )));
+        if configured.scoped_timeout.is_none() && child.timeout.is_some() {
+          configured.scoped_timeout = Some(child.clone());
         }
+        configured.body_limit = configured.body_limit.or(child.body_limit);
+
+        let scope = child.clone();
+        let middleware = Arc::new(move |req, next: crate::middleware::Next| {
+          let scope = scope.clone();
+          Box::pin(async move {
+            scope
+              .run_with_global_middlewares_for_endpoint(
+                req,
+                crate::handler::BoxHandler::new::<_, (crate::types::Request,)>(move |req| {
+                  let next = next.clone();
+                  async move { next.run(req).await }
+                }),
+              )
+              .await
+          })
+            as std::pin::Pin<Box<dyn std::future::Future<Output = crate::types::Response> + Send>>
+        });
+        let existing = new_route.middlewares.load_full();
+        let mut merged = Vec::<crate::types::BoxMiddleware>::with_capacity(existing.len() + 1);
+        merged.push(middleware);
+        merged.extend(existing.iter().cloned());
+        new_route.middlewares.store(Arc::new(merged));
+        new_route.has_middleware.store(true, Ordering::Release);
 
         if let Err(err) = self
           .inner
@@ -211,9 +238,10 @@ impl Router {
       }
     }
 
-    #[cfg(feature = "signals")]
+    #[cfg(all(feature = "signals", not(feature = "plugins")))]
     self.signals.merge_from(&child.signals);
 
+    self.nested_routers.push(child);
     self
   }
 
@@ -257,50 +285,7 @@ impl Router {
   /// main_router.merge(api_router);
   /// ```
   pub fn merge(&mut self, other: Router) {
-    let upstream_globals = other.middlewares.load_full();
-
-    for (method, weak_vec) in other.routes.iter() {
-      for weak in weak_vec {
-        if let Some(child_route) = weak.upgrade() {
-          // Re-issue the route as a fresh `Arc<Route>` (same path) so we do
-          // not mutate the child's middleware chain in-place — other router
-          // instances may still hold the original `Arc` and would observe
-          // unrelated middleware insertions otherwise.
-          let new_route = child_route.cloned_with_path(child_route.path.clone());
-
-          if !upstream_globals.is_empty() {
-            let existing = new_route.middlewares.load_full();
-            let mut merged = Vec::with_capacity(upstream_globals.len() + existing.len());
-            merged.extend(upstream_globals.iter().cloned());
-            merged.extend(existing.iter().cloned());
-            new_route.has_middleware.store(true, Ordering::Release);
-            new_route.middlewares.store(Arc::new(merged));
-          }
-
-          // Match `nest` semantics: a path conflict is a builder bug, not a
-          // silent overwrite. Returning early via `let _ = … insert` would
-          // throw away the existing route under a stable URL.
-          if let Err(err) = self
-            .inner
-            .get_or_default_mut(&method)
-            .insert(new_route.path.clone(), new_route.clone())
-          {
-            panic!(
-              "Failed to merge route '{}' (method {:?}): {err}",
-              new_route.path, method
-            );
-          }
-
-          self
-            .routes
-            .get_or_default_mut(&method)
-            .push(Arc::downgrade(&new_route));
-        }
-      }
-    }
-
-    #[cfg(feature = "signals")]
-    self.signals.merge_from(&other.signals);
+    self.nest("", other);
   }
 }
 

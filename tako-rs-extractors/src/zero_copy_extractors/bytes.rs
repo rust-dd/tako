@@ -6,8 +6,8 @@
 //! re-collecting or cloning.
 
 use bytes::Bytes;
-use http_body_util::BodyExt;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::collect_body;
 
 /// Wrapper around the cached request body inserted into request extensions.
 ///
@@ -23,19 +23,8 @@ pub struct CachedRequestBody(pub Bytes);
 /// calls return the cached reference.
 pub struct BytesBorrowed<'a>(pub &'a Bytes);
 
-/// Error returned while collecting the request body.
-#[derive(Debug)]
-pub struct BytesReadError(pub String);
-
-impl tako_rs_core::responder::Responder for BytesReadError {
-  fn into_response(self) -> tako_rs_core::types::Response {
-    (
-      http::StatusCode::BAD_REQUEST,
-      format!("failed to read request body: {}", self.0),
-    )
-      .into_response()
-  }
-}
+/// Error returned while buffering the request body.
+pub use tako_rs_core::extractors::body::BodyReadError as BytesReadError;
 
 impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
   type Error = BytesReadError;
@@ -45,12 +34,7 @@ impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       if req.extensions().get::<CachedRequestBody>().is_none() {
-        let buf = req
-          .body_mut()
-          .collect()
-          .await
-          .map_err(|e| BytesReadError(e.to_string()))?
-          .to_bytes();
+        let buf = collect_body(req).await?;
         req.extensions_mut().insert(CachedRequestBody(buf));
       }
 
@@ -81,14 +65,8 @@ impl<'a> FromRequest<'a> for BodySliceBorrowed<'a> {
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
       if req.extensions().get::<CachedRequestBody>().is_none() {
-        let collected = req
-          .body_mut()
-          .collect()
-          .await
-          .map_err(|e| BytesReadError(e.to_string()))?;
-        req
-          .extensions_mut()
-          .insert(CachedRequestBody(collected.to_bytes()));
+        let collected = collect_body(req).await?;
+        req.extensions_mut().insert(CachedRequestBody(collected));
       }
 
       let bytes: &'a Bytes = &req

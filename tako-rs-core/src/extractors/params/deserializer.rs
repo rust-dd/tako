@@ -9,7 +9,7 @@ use serde::de::{self};
 use super::decode::ValueDeserializer;
 use super::error::PathParamsDeError;
 
-pub(crate) struct PathParamsDeserializer<'de>(pub(crate) &'de [(String, String)]);
+pub(crate) struct PathParamsDeserializer<'de>(pub(crate) &'de [(std::sync::Arc<str>, String)]);
 
 impl<'de> PathParamsDeserializer<'de> {
   fn single<V: Visitor<'de>>(
@@ -85,7 +85,7 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
       // the user at the actual mismatch between the route pattern (e.g.
       // `/users/{id}/posts/{post_id}` — 2 slots) and the tuple type they
       // tried to extract.
-      let captured: Vec<&str> = self.0.iter().map(|(k, _)| k.as_str()).collect();
+      let captured: Vec<&str> = self.0.iter().map(|(k, _)| k.as_ref()).collect();
       return Err(de::Error::custom(format!(
         "expected tuple of {} path parameters, got {} (captured: [{}])",
         len,
@@ -188,7 +188,7 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
 }
 
 struct PathParamsSeqAccess<'de> {
-  params: &'de [(String, String)],
+  params: &'de [(std::sync::Arc<str>, String)],
   index: usize,
 }
 
@@ -213,7 +213,7 @@ impl<'de> de::SeqAccess<'de> for PathParamsSeqAccess<'de> {
 }
 
 struct PathParamsMapAccess<'de> {
-  params: &'de [(String, String)],
+  params: &'de [(std::sync::Arc<str>, String)],
   index: usize,
   value: Option<&'de str>,
 }
@@ -231,7 +231,7 @@ impl<'de> MapAccess<'de> for PathParamsMapAccess<'de> {
     let (ref key, ref value) = self.params[self.index];
     self.value = Some(value.as_str());
     self.index += 1;
-    seed.deserialize(ValueDeserializer(key.as_str())).map(Some)
+    seed.deserialize(ValueDeserializer(key.as_ref())).map(Some)
   }
 
   fn next_value_seed<V: de::DeserializeSeed<'de>>(
@@ -255,9 +255,9 @@ mod tests {
   use super::*;
 
   fn deserialize<T: DeserializeOwned>(slots: &[(&str, &str)]) -> Result<T, PathParamsDeError> {
-    let owned: SmallVec<[(String, String); 4]> = slots
+    let owned: SmallVec<[(std::sync::Arc<str>, String); 4]> = slots
       .iter()
-      .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+      .map(|(k, v)| (std::sync::Arc::from(*k), (*v).to_string()))
       .collect();
     T::deserialize(PathParamsDeserializer(&owned))
   }

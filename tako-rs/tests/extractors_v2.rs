@@ -137,9 +137,9 @@ async fn host_falls_back_to_host_header() {
 
 fn make_path_params(pairs: &[(&str, &str)]) -> tako_rs_core::extractors::params::PathParams {
   use smallvec::SmallVec;
-  let mut sv: SmallVec<[(String, String); 4]> = SmallVec::new();
+  let mut sv: SmallVec<[(std::sync::Arc<str>, String); 4]> = SmallVec::new();
   for (k, v) in pairs {
-    sv.push(((*k).to_string(), (*v).to_string()));
+    sv.push((std::sync::Arc::from(*k), (*v).to_string()));
   }
   tako_rs_core::extractors::params::PathParams(sv)
 }

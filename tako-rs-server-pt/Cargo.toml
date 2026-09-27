@@ -16,28 +16,23 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
-tako-rs-core.workspace = true
-
-futures-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
-tokio.workspace = true
-tokio-util = { workspace = true, features = ["rt"] }
-tracing.workspace = true
-
-socket2 = { version = "0.5", features = ["all"] }
-
-# Optional CPU pinning
-core_affinity = { version = "0.8", optional = true }
-
-# Optional compio runtime (io_uring on Linux, IOCP on Windows, kqueue on macOS).
 compio = { workspace = true, optional = true }
+core_affinity = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
+futures-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
+socket2 = { workspace = true, features = ["all"] }
+tako-rs-core = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+tracing = { workspace = true }
 
 [features]
 default = ["affinity"]
 affinity = ["dep:core_affinity"]
+plugins = ["tako-rs-core/plugins"]
 signals = ["tako-rs-core/signals"]
 # The compio crate is enabled directly here without flipping `tako-core/compio`,
 # because that core feature globally switches signals/queue to compio spawn,

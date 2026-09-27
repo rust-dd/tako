@@ -21,7 +21,7 @@ async fn janitor_handles_both_algorithms_and_preserves_active_keys() {
     let mut router = Router::new();
     router.get("/{key}", || async { "ok" });
     router.plugin(plugin.clone());
-    router.setup_plugins_once();
+    router.setup_plugins_once().unwrap();
     assert!(plugin.task_started.load(Ordering::SeqCst));
     for key in ["stale", "active"] {
       let request = http::Request::builder()
