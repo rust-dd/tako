@@ -22,6 +22,7 @@ use super::config::Algorithm;
 use super::config::Config;
 use super::config::KeyFn;
 use super::config::UnkeyedBehavior;
+use super::key::BucketKey;
 
 #[cfg(test)]
 mod tests;
@@ -73,6 +74,23 @@ impl RateLimiterBuilder {
 
   pub fn on_unkeyed(mut self, b: UnkeyedBehavior) -> Self {
     self.cfg.on_unkeyed = b;
+    self
+  }
+
+  /// Resolve the client IP using the router's trusted-proxy `IpAddrConfig`.
+  /// Without trusted proxies this still uses the transport peer. Defaults to false.
+  pub fn client_ip(mut self, enabled: bool) -> Self {
+    self.cfg.client_ip = enabled;
+    self
+  }
+
+  /// Group IPv6 clients by a prefix; 64 groups a subnet and 128 keeps individual addresses.
+  ///
+  /// # Panics
+  /// Panics when `prefix` exceeds 128.
+  pub fn ipv6_prefix(mut self, prefix: u8) -> Self {
+    assert!(prefix <= 128, "IPv6 prefix must be at most 128");
+    self.cfg.ipv6_prefix = prefix;
     self
   }
 
@@ -146,7 +164,7 @@ impl RateLimiterBuilder {
 pub struct RateLimiterPlugin {
   cfg: Config,
   key_fn: Option<KeyFn>,
-  store: Arc<SccHashMap<String, Mutex<Bucket>>>,
+  store: Arc<SccHashMap<BucketKey, Mutex<Bucket>>>,
   task_started: Arc<AtomicBool>,
 }
 
@@ -203,7 +221,7 @@ fn idle_retention(cfg: &Config) -> Duration {
     .max(Duration::from_secs(300))
 }
 
-async fn evict_stale(store: &SccHashMap<String, Mutex<Bucket>>, purge_after: Duration) {
+async fn evict_stale(store: &SccHashMap<BucketKey, Mutex<Bucket>>, purge_after: Duration) {
   let now = Instant::now();
   store
     .retain_async(|_, mutex| now.saturating_duration_since(mutex.lock().last_refill) < purge_after)

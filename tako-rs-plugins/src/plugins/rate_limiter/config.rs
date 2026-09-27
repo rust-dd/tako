@@ -43,6 +43,10 @@ pub struct Config {
   pub algorithm: Algorithm,
   /// Behavior for requests that cannot be keyed.
   pub on_unkeyed: UnkeyedBehavior,
+  /// Resolve trusted forwarding headers through the router's `IpAddrConfig`.
+  pub client_ip: bool,
+  /// IPv6 bucket prefix length. Defaults to 128; use 64 to group a subnet.
+  pub ipv6_prefix: u8,
 }
 
 impl Default for Config {
@@ -54,6 +58,8 @@ impl Default for Config {
       status_on_limit: StatusCode::TOO_MANY_REQUESTS,
       algorithm: Algorithm::TokenBucket,
       on_unkeyed: UnkeyedBehavior::Allow,
+      client_ip: false,
+      ipv6_prefix: 128,
     }
   }
 }

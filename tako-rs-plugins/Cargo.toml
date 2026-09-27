@@ -95,3 +95,8 @@ criterion = { workspace = true }
 name = "compression"
 harness = false
 required-features = ["plugins"]
+
+[[bench]]
+name = "rate_limiter"
+harness = false
+required-features = ["plugins"]

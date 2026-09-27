@@ -6,6 +6,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::router::Router;
 
 use super::Algorithm;
+use super::BucketKey;
 use super::RateLimiterBuilder;
 use super::evict_stale;
 use super::idle_retention;
@@ -32,7 +33,7 @@ async fn janitor_handles_both_algorithms_and_preserves_active_keys() {
     }
     plugin
       .store
-      .get_sync("/stale")
+      .get_sync(&BucketKey::Custom("/stale".into()))
       .unwrap()
       .get()
       .lock()
@@ -40,8 +41,16 @@ async fn janitor_handles_both_algorithms_and_preserves_active_keys() {
       .checked_sub(Duration::from_secs(301))
       .unwrap();
     evict_stale(&plugin.store, idle_retention(&plugin.cfg)).await;
-    assert!(!plugin.store.contains_sync("/stale"));
-    assert!(plugin.store.contains_sync("/active"));
+    assert!(
+      !plugin
+        .store
+        .contains_sync(&BucketKey::Custom("/stale".into()))
+    );
+    assert!(
+      plugin
+        .store
+        .contains_sync(&BucketKey::Custom("/active".into()))
+    );
   }
 }
 

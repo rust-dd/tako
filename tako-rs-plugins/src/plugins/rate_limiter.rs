@@ -17,6 +17,7 @@
 
 mod algorithm;
 mod config;
+mod key;
 mod plugin;
 
 pub use config::Algorithm;

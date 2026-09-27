@@ -48,7 +48,7 @@ fn mixed_requests(c: &mut Criterion) {
         };
         let (response, ()) = futures_util::join!(compress, health);
         black_box(response);
-      })
+      });
     });
   });
   health_latency.sort_unstable();

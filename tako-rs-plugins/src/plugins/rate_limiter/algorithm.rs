@@ -2,7 +2,6 @@
 //! and GCRA evaluation, IETF `RateLimit-*` headers, key extraction, and the
 //! per-request middleware handler.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -11,8 +10,6 @@ use http::header::RETRY_AFTER;
 use parking_lot::Mutex;
 use scc::HashMap as SccHashMap;
 use tako_rs_core::body::TakoBody;
-use tako_rs_core::conn_info::ConnInfo;
-use tako_rs_core::conn_info::PeerAddr;
 use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
@@ -21,23 +18,13 @@ use super::config::Algorithm;
 use super::config::Config;
 use super::config::KeyFn;
 use super::config::UnkeyedBehavior;
+use super::key::BucketKey;
+use super::key::default_key;
 
 #[derive(Clone)]
 pub(crate) struct Bucket {
   available: f64,
   pub(crate) last_refill: Instant,
-}
-
-fn default_key(req: &Request) -> Option<String> {
-  if let Some(info) = req.extensions().get::<ConnInfo>()
-    && let PeerAddr::Ip(sa) = &info.peer
-  {
-    return Some(format!("ip:{}", sa.ip()));
-  }
-  if let Some(sa) = req.extensions().get::<SocketAddr>() {
-    return Some(format!("ip:{}", sa.ip()));
-  }
-  None
 }
 
 struct Outcome {
@@ -51,8 +38,6 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
   let cap = f64::from(cfg.max_requests);
   match cfg.algorithm {
     Algorithm::TokenBucket => {
-      // Lazy refill so each request observes the latest count even between
-      // ticker ticks.
       let dt = now
         .duration_since(bucket.last_refill)
         .as_secs_f64()
@@ -116,42 +101,29 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
   }
 }
 
-/// Write the IETF draft-`RateLimit-Headers` set into the response.
-///
-/// PPL-16: previously this used `headers.insert(...)` which replaces any
-/// existing value. In composed middleware setups where multiple
-/// rate-limiters share the response, the outer (last-to-run) limiter
-/// silently clobbered the inner limiter's `ratelimit-*` headers. The most
-/// informative signal — typically the innermost limiter's
-/// `ratelimit-remaining: 0` rejection — could be lost on its way back to
-/// the client.
-///
-/// Switch to `entry(...).or_insert(...)` so the FIRST limiter to write the
-/// header wins. In middleware chains the inner (closest-to-handler) limiter
-/// runs its post-processing FIRST on the response path, so first-wins is
-/// inner-wins — which is the more restrictive observable signal.
 fn write_rate_limit_headers(headers: &mut http::HeaderMap, cfg: &Config, outcome: &Outcome) {
-  if let Ok(v) = HeaderValue::from_str(&cfg.max_requests.to_string()) {
-    headers.entry("ratelimit-limit").or_insert(v);
-  }
-  if let Ok(v) = HeaderValue::from_str(&outcome.remaining.to_string()) {
-    headers.entry("ratelimit-remaining").or_insert(v);
-  }
-  if let Ok(v) = HeaderValue::from_str(&outcome.reset_secs.to_string()) {
-    headers.entry("ratelimit-reset").or_insert(v);
-  }
+  // Inner middleware decisions survive outer limiters on the response path.
+  headers
+    .entry("ratelimit-limit")
+    .or_insert(HeaderValue::from(cfg.max_requests));
+  headers
+    .entry("ratelimit-remaining")
+    .or_insert(HeaderValue::from(outcome.remaining));
+  headers
+    .entry("ratelimit-reset")
+    .or_insert(HeaderValue::from(outcome.reset_secs));
 }
 
 pub(crate) async fn handle(
   req: Request,
   next: Next,
   cfg: Config,
-  store: Arc<SccHashMap<String, Mutex<Bucket>>>,
+  store: Arc<SccHashMap<BucketKey, Mutex<Bucket>>>,
   key_fn: Option<KeyFn>,
 ) -> Response {
   let key = match key_fn.as_ref() {
-    Some(f) => f(&req),
-    None => default_key(&req),
+    Some(f) => f(&req).map(BucketKey::Custom),
+    None => default_key(&req, &cfg),
   };
   let Some(key) = key else {
     return match cfg.on_unkeyed {
@@ -173,11 +145,7 @@ pub(crate) async fn handle(
         last_refill: Instant::now(),
       })
     });
-    // `parking_lot::Mutex` (sync lock) is deliberate here: we hold it across
-    // a strictly synchronous `evaluate` call and never `.await` under the
-    // guard. A `tokio::sync::Mutex` would force this hot path through a
-    // Notify-backed wait list with no contention benefit, and would prevent
-    // running the limiter outside an async runtime context.
+    // The synchronous quota update never holds this guard across an await.
     let mut bucket = entry.get().lock();
     evaluate(&cfg, &mut bucket, Instant::now())
   };
@@ -188,9 +156,9 @@ pub(crate) async fn handle(
       .body(TakoBody::empty())
       .expect("valid rate-limit response");
     write_rate_limit_headers(resp.headers_mut(), &cfg, &outcome);
-    if let Ok(v) = HeaderValue::from_str(&outcome.retry_after_secs.to_string()) {
-      resp.headers_mut().insert(RETRY_AFTER, v);
-    }
+    resp
+      .headers_mut()
+      .insert(RETRY_AFTER, HeaderValue::from(outcome.retry_after_secs));
     return resp;
   }
 
