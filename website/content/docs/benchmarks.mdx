@@ -68,7 +68,8 @@ work-stealing runtime, the same model as Axum, and the two land within a few
 percent of each other. Connection tasks move between worker threads there, so
 many allocations are freed on another thread; jemalloc handles that pattern
 better than the system allocator, which is why **Tako + jemalloc** pulls ahead
-at 1,000 connections.
+at 1,000 connections. [Deployment](/docs/deployment#single-binary-the-default)
+recommends it for multi-threaded services.
 
 The `per-thread` feature runs one current-thread Tokio runtime per worker, each
 with its own `SO_REUSEPORT` listener. By default it pins workers to cores and

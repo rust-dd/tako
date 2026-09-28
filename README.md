@@ -96,7 +96,9 @@ covers the API changes and opt-in transport features from 2.0.
 Tako's default server keeps pace with Axum on the same Tokio runtime and pulls
 ahead at 1,000 connections, and the thread-per-core
 [`per-thread`](https://tako.rust-dd.com/docs/deployment#thread-per-core) server
-lands within a few percent of Actix Web and ntex. `GET /` returns `Hello, World!`; each
+lands within a few percent of Actix Web and ntex. On the multi-threaded server,
+installing jemalloc through the `jemalloc` feature adds about 16% at 1,000
+connections. `GET /` returns `Hello, World!`; each
 number is the median of three 20-second `wrk` runs over loopback in a 24 vCPU
 Linux container (AMD EPYC 9655P), measured with tako-rs 2.2.0 in September 2026.
 Results move with hardware and configuration, so read the

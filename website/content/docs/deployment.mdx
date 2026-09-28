@@ -48,6 +48,17 @@ async fn main() -> anyhow::Result<()> {
 bounds accept-spawn pressure; `drain_timeout` controls the grace
 period for graceful shutdown. This is the shape most services need.
 
+Install jemalloc as the global allocator for this shape. Connection tasks move
+between worker threads, so many allocations are freed on a different thread
+than the one that made them; jemalloc handles that better than the system
+allocator and served about 16% more requests at 1,000 connections in the
+[benchmarks](/docs/benchmarks). Enable the `jemalloc` feature and declare:
+
+```rust
+#[global_allocator]
+static GLOBAL: tako::Jemalloc = tako::Jemalloc;
+```
+
 ## Thread-per-core
 
 Two flavours, both behind cargo features:
