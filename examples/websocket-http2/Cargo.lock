@@ -1395,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "linkme",
  "tako-rs-core",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1438,6 +1438,7 @@ dependencies = [
  "sha1 0.10.6",
  "sha2 0.11.0",
  "smallvec",
+ "thread_local",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -1450,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-extractors"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1483,7 +1484,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-macros"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1492,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-plugins"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1526,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-server"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1549,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-streams"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1592,6 +1593,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "thread_local"
+version = "1.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
