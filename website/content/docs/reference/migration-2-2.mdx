@@ -1,0 +1,55 @@
+---
+title: Migrating to 2.2
+description: Update PerThreadConfig literals for connection balancing and review the Tako 2.2 server performance changes.
+category: reference
+since: 2.2.0
+status: stable
+crate: tako-rs
+runtime: both
+---
+
+# Migrating to 2.2
+
+Tako 2.2.0 adds one field to `PerThreadConfig` and changes how the per-thread
+server spreads connections across workers. Handler, router, and transport code
+is unchanged. See the [release notes](https://github.com/rust-dd/tako/releases/tag/v2.2.0)
+for the complete release summary.
+
+## `PerThreadConfig::balance_connections`
+
+`PerThreadConfig` gains `balance_connections: bool`, which defaults to `true`.
+A struct literal that lists every field without `..PerThreadConfig::default()`
+no longer compiles; add the field or fill the rest from the default:
+
+```rust
+use tako::PerThreadConfig;
+
+let config = PerThreadConfig {
+  workers: 4,
+  ..PerThreadConfig::default()
+};
+```
+
+With the flag set, a Tokio per-thread worker that accepts a connection while it
+serves more live connections than the least busy worker hands the socket to
+that worker. This evens out the hash-based `SO_REUSEPORT` spread on Linux, and
+on macOS, where the kernel sends every connection to one listener, all workers
+now serve traffic. Set `balance_connections: false` to keep kernel-only
+distribution. The Compio flavour (`per-thread-compio`) does not balance
+connections.
+
+## Performance changes
+
+These need no code changes:
+
+- The Tokio HTTP/1 servers (plain, TLS, Unix, vsock, and PROXY protocol, plus
+  per-thread workers) reuse one header-read timer per connection instead of
+  registering a new Tokio timer for every request. On the multi-threaded
+  runtime this removes contention on Tokio's time driver under high
+  concurrency. `header_read_timeout` keeps its meaning.
+- Requests no longer update reference counts that every worker thread shares:
+  each connection holds its own router handle, `MatchedPath` values come from a
+  per-thread copy of the route template (the extension still holds an
+  `Arc<str>`), and per-thread workers watch a per-worker shutdown token.
+
+See [Benchmarks](/docs/benchmarks) for the measured effect.

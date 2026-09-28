@@ -54,7 +54,9 @@ Two flavours, both behind cargo features:
 
 - **`per-thread`** — N current-thread tokio runtimes, one per core,
   sharing an `Arc<Router>` that is released when workers exit. Backed by
-  `SO_REUSEPORT` for kernel-level fan-out across the listeners.
+  `SO_REUSEPORT` for kernel-level fan-out across the listeners, with
+  `balance_connections` (on by default) handing each new connection to the
+  worker with the fewest live connections.
 - **`per-thread-compio`** — io_uring (Linux), IOCP (Windows), or
   kqueue (macOS) via the
   [`compio`](https://github.com/compio-rs/compio) runtime, same
@@ -83,7 +85,9 @@ HTTP/1.1. TLS, h2c, and PROXY listeners use the regular server builder.
 
 `per-thread-compio` selects Compio consistently for workers, middleware,
 signals, and queues. Kernel load balancing with `SO_REUSEPORT` is intended for
-Linux; use one worker on platforms without equivalent balancing semantics.
+Linux. On macOS, where the kernel sends every connection to one listener, Tokio
+workers still share the load through `balance_connections`; the Compio flavour
+does not balance connections, so run it with one worker there.
 
 ## Behind a load balancer
 

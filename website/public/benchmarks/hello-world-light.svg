@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 896 306" width="896" height="306" role="img" aria-labelledby="t d">
+<title id="t">Tako hello-world throughput</title>
+<desc id="d">Actix Web 100 connections: 1,530,425 req/s; ntex 100 connections: 1,562,670 req/s; Tako per-thread 100 connections: 1,436,252 req/s; Tako + jemalloc 100 connections: 497,515 req/s; Tako 100 connections: 478,502 req/s; Axum 100 connections: 496,454 req/s; Actix Web 1000 connections: 1,580,809 req/s; ntex 1000 connections: 1,557,559 req/s; Tako per-thread 1000 connections: 1,521,982 req/s; Tako + jemalloc 1000 connections: 1,286,328 req/s; Tako 1000 connections: 1,112,141 req/s; Axum 1000 connections: 1,048,804 req/s</desc>
+<style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Helvetica, Arial, sans-serif}.h{font-size:16px;font-weight:600;fill:#0b0b0b}.s{font-size:12px;fill:#52514e}.p{font-size:12px;font-weight:600;fill:#52514e}.l{font-size:13px;fill:#0b0b0b}.e{font-weight:600}.v{font-size:12px;fill:#52514e;font-variant-numeric:tabular-nums}</style>
+<g transform="translate(12,12)">
+<text class="h" x="0" y="20">Hello-world throughput · requests/sec, higher is better</text>
+<text class="s" x="0" y="42">tako-rs 2.2.0 · Linux, 24 vCPU (AMD EPYC 9655P) · wrk over loopback, 12 threads, 20 s · median of 3 runs · Sep 2026</text>
+<text class="p" x="190" y="80">100 connections</text>
+<line x1="189.5" y1="88" x2="189.5" y2="268" stroke="#c3c2b7" stroke-width="1"/>
+<path d="M190.0,95.0h257.4a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-257.4z" fill="#c3c2b7"/>
+<text class="v" x="457.4" y="107.5">1.53M</text>
+<path d="M190.0,125.0h262.9a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-262.9z" fill="#c3c2b7"/>
+<text class="v" x="462.9" y="137.5">1.56M</text>
+<path d="M190.0,155.0h241.3a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-241.3z" fill="#2a78d6"/>
+<text class="v" x="441.3" y="167.5">1.44M</text>
+<path d="M190.0,185.0h81.0a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-81.0z" fill="#2a78d6"/>
+<text class="v" x="281.0" y="197.5">498k</text>
+<path d="M190.0,215.0h77.7a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-77.7z" fill="#2a78d6"/>
+<text class="v" x="277.7" y="227.5">479k</text>
+<path d="M190.0,245.0h80.8a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-80.8z" fill="#c3c2b7"/>
+<text class="v" x="280.8" y="257.5">496k</text>
+<text class="p" x="544" y="80">1,000 connections</text>
+<line x1="543.5" y1="88" x2="543.5" y2="268" stroke="#c3c2b7" stroke-width="1"/>
+<path d="M544.0,95.0h266.0a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-266.0z" fill="#c3c2b7"/>
+<text class="v" x="820.0" y="107.5">1.58M</text>
+<path d="M544.0,125.0h262.0a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-262.0z" fill="#c3c2b7"/>
+<text class="v" x="816.0" y="137.5">1.56M</text>
+<path d="M544.0,155.0h256.0a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-256.0z" fill="#2a78d6"/>
+<text class="v" x="810.0" y="167.5">1.52M</text>
+<path d="M544.0,185.0h215.7a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-215.7z" fill="#2a78d6"/>
+<text class="v" x="769.7" y="197.5">1.29M</text>
+<path d="M544.0,215.0h186.0a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-186.0z" fill="#2a78d6"/>
+<text class="v" x="740.0" y="227.5">1.11M</text>
+<path d="M544.0,245.0h175.1a4,4 0 0 1 4,4v8.0a4,4 0 0 1 -4,4h-175.1z" fill="#c3c2b7"/>
+<text class="v" x="729.1" y="257.5">1.05M</text>
+<text class="l" x="176" y="107.5" text-anchor="end">Actix Web</text>
+<text class="l" x="176" y="137.5" text-anchor="end">ntex</text>
+<text class="l e" x="176" y="167.5" text-anchor="end">Tako per-thread</text>
+<text class="l e" x="176" y="197.5" text-anchor="end">Tako + jemalloc</text>
+<text class="l e" x="176" y="227.5" text-anchor="end">Tako</text>
+<text class="l" x="176" y="257.5" text-anchor="end">Axum</text>
+</g>
+</svg>

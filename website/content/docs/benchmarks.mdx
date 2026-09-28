@@ -1,6 +1,6 @@
 ---
 title: Benchmarks
-description: A baseline hello-world throughput comparison between tako, axum, and actix, with the wrk command and the methodology caveat.
+description: Hello-world throughput of tako's two serving models against Axum, Actix Web, and ntex, with methodology and reproduction steps.
 category: reference
 since: 2.0.0
 status: stable
@@ -9,65 +9,130 @@ crate: tako-rs
 
 # Benchmarks
 
-Hello-world throughput is not the whole story, but it is a useful sanity check
-that the framework's hot path is not leaving obvious performance on the table.
-The numbers below are from a clean local run of the current branch.
+Hello-world throughput is not the whole story, but it shows whether the request
+hot path leaves performance on the table. This page compares tako's two serving
+models with Axum, Actix Web, and ntex on the same Linux container.
 
-## Baseline hello-world
+<img
+  src="/benchmarks/hello-world-light.svg"
+  alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako"
+  width={896}
+  height={306}
+  className="dark:hidden"
+/>
+<img
+  src="/benchmarks/hello-world-dark.svg"
+  alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako"
+  width={896}
+  height={306}
+  className="hidden dark:block"
+/>
 
-The current branch lands in this range on a clean local run:
-
-| Framework | Requests/sec | Avg Latency | Note |
-| --- | ---: | ---: | --- |
-| Tako | ~187,288 | ~505 us | latest local `30s` rerun |
-| Tako + `jemalloc` | ~187,638 | ~502 us | latest local `30s` rerun |
-| Axum | ~186,194 | ~498 us | latest local `30s` rerun |
-| Actix | ~155,307 | ~635 us | latest local `30s` rerun |
-
-Command used:
-
-```bash
-wrk -t4 -c100 -d30s http://127.0.0.1:8080/
-```
-
-## Methodology and caveats
-
-<Callout type="warn">
-Benchmarks are machine- and thermal-state-dependent, so treat these as **local
-baselines, not universal claims**. Axum and Actix were rerun with minimal
-temporary hello-world servers using the same `wrk` command.
+<Callout type="info">
+Measured on 2026-09-28 with tako-rs 2.2.0 in a Railway container: 24 vCPU on an
+AMD EPYC 9655P host, Linux 6.18, Rust 1.98.1, and `wrk` 4.1.0.
 </Callout>
 
-The run uses [`wrk`](https://github.com/wg/wrk) with 4 threads, 100 connections,
-over 30 seconds, against a `GET /` route returning a static string. Each
-framework was served as a minimal hello-world binary so the comparison isolates
-the request hot path rather than any application logic.
+## Results
 
-Because the absolute numbers move with CPU, kernel, allocator, and thermal
-state, reproduce them on your own hardware before drawing conclusions — the only
-claim made here is that Tako is in the same range as the other mainstream Rust
-HTTP frameworks for this microbenchmark, not that it is universally faster or
-slower.
+Requests per second are the median of three 20-second runs. Spread is half the
+range of the three runs, relative to the median. No run recorded a socket error
+or a non-2xx response.
 
-The `jemalloc` row enables the [`jemalloc` feature](/docs/reference/features),
-which sets `tikv-jemallocator` as the global allocator. On this workload the
-difference is within run-to-run noise; it matters more under allocation-heavy
-real workloads than for a static hello-world.
+### 100 connections
+
+| Framework | Requests/sec | p50 | p99 | Spread |
+| --- | ---: | ---: | ---: | ---: |
+| ntex | 1,562,670 | 0.05 ms | 3.23 ms | ±7.0% |
+| Actix Web | 1,530,425 | 0.05 ms | 3.48 ms | ±2.2% |
+| **Tako per-thread** | 1,436,252 | 0.05 ms | 6.11 ms | ±3.6% |
+| **Tako + jemalloc** | 497,515 | 0.16 ms | 1.56 ms | ±9.1% |
+| Axum | 496,454 | 0.16 ms | 1.48 ms | ±6.2% |
+| **Tako** | 478,502 | 0.16 ms | 1.73 ms | ±2.8% |
+
+### 1,000 connections
+
+| Framework | Requests/sec | p50 | p99 | Spread |
+| --- | ---: | ---: | ---: | ---: |
+| Actix Web | 1,580,809 | 0.30 ms | 6.79 ms | ±3.4% |
+| ntex | 1,557,559 | 0.47 ms | 6.25 ms | ±2.5% |
+| **Tako per-thread** | 1,521,982 | 0.30 ms | 7.89 ms | ±1.7% |
+| **Tako + jemalloc** | 1,286,328 | 0.66 ms | 3.05 ms | ±4.7% |
+| **Tako** | 1,112,141 | 0.78 ms | 3.64 ms | ±0.9% |
+| Axum | 1,048,804 | 0.82 ms | 3.81 ms | ±0.8% |
+
+## Two serving models
+
+The default server, `Server::builder()`, runs on Tokio's multi-threaded,
+work-stealing runtime, the same model as Axum, and the two land within a few
+percent of each other. Connection tasks move between worker threads there, so
+many allocations are freed on another thread; jemalloc handles that pattern
+better than the system allocator, which is why **Tako + jemalloc** pulls ahead
+at 1,000 connections.
+
+The `per-thread` feature runs one current-thread Tokio runtime per worker, each
+with its own `SO_REUSEPORT` listener. By default it pins workers to cores and
+hands each new connection to the worker with the fewest live connections; a
+connection then stays on that worker, so requests never cross threads.
+Actix Web and ntex use the same shape, which is why these three lead the table.
+
+Per-thread workers serve HTTP/1.1; TLS, h2c, and PROXY listeners use the
+regular server builder. The kernel balances connections across `SO_REUSEPORT`
+listeners only on Linux, so measure per-thread throughput there. See
+[Thread-per-core](/docs/deployment#thread-per-core) for the entry points.
+
+The Compio flavour (`per-thread-compio`) is not in the table: the container
+blocks io_uring, so its runtime cannot start there.
+
+## Methodology
+
+- **Servers.** Each framework serves `GET /` → `Hello, World!` from a minimal
+  release binary (`lto = "fat"`, `codegen-units = 1`) with its default
+  settings; every response is the same 130 bytes. Versions: tako-rs 2.2.0,
+  axum 0.8.9, actix-web 4.15.0, ntex 3.12.3, tokio 1.53.1.
+- **Load.** `wrk` runs in the same container and connects over loopback. The
+  24 vCPU quota is split evenly: 12 server workers and 12 `wrk` threads.
+- **Runs.** Each measurement is a 5-second warm-up followed by a 20-second
+  `wrk --latency` run. Three rounds rotate the server order, and the tables
+  report medians.
+- **jemalloc.** The `jemalloc` feature only re-exports the allocator; the
+  benchmark binary installs it:
+
+  ```rust
+  #[global_allocator]
+  static GLOBAL: tako::Jemalloc = tako::Jemalloc;
+  ```
+
+## Caveats
+
+<Callout type="warn">
+These are **baselines, not universal claims**. The container shares its host
+with other tenants, the load generator shares the CPU quota with the server,
+and loopback removes the real network. Pinned per-thread workers also compete
+with the co-located `wrk` threads for their cores, which lengthens their
+latency tail here. A hello-world route isolates the request hot path;
+application logic, TLS, and payload size change the picture. Reproduce on your
+own hardware before drawing conclusions.
+</Callout>
 
 ## Reproducing locally
 
-The hello-world server used as the Tako baseline is
-[`examples/hello-world`](https://github.com/rust-dd/tako/tree/main/examples/hello-world).
-Build it in release mode, run it, and point `wrk` at it:
+The default server is
+[`examples/hello-world`](https://github.com/rust-dd/tako/tree/main/examples/hello-world):
 
 ```bash
-cargo run --release -p hello-world
+cargo run --release --manifest-path examples/hello-world/Cargo.toml
 # in another terminal:
-wrk -t4 -c100 -d30s http://127.0.0.1:8080/
+wrk -t4 -c100 -d20s --latency http://127.0.0.1:8080/
 ```
 
-For the `jemalloc` row, build with the feature enabled:
+For the per-thread server, use
+[`examples/bench-pt`](https://github.com/rust-dd/tako/tree/main/examples/bench-pt)
+on Linux. It takes the mode, the address, and the worker count:
 
 ```bash
-cargo run --release --features jemalloc -p hello-world
+cargo run --release --manifest-path examples/bench-pt/Cargo.toml -- pt-tokio 127.0.0.1:8080 4
 ```
+
+`bench-pt` disables core pinning and counts requests for its load-distribution
+report, so expect it to land somewhat below the numbers above.

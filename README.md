@@ -73,22 +73,35 @@ and integrations through [Cargo features](https://tako.rust-dd.com/docs/referenc
 See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
 for transport support on Tokio and Compio.
 
-For upgrades from 2.0, the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
-covers API changes and the new opt-in transport features.
+Upgrading? The [2.2 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-2)
+covers the per-thread changes, and the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
+covers the API changes and opt-in transport features from 2.0.
 
 ## Benchmarks
 
-Hello-world throughput on a clean local run (`wrk -t4 -c100 -d30s`):
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-dd/tako/main/website/public/benchmarks/hello-world-dark.svg">
+  <img alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako" src="https://raw.githubusercontent.com/rust-dd/tako/main/website/public/benchmarks/hello-world-light.svg">
+</picture>
 
-| Framework | Requests/sec | Avg Latency |
-| --- | ---: | ---: |
-| Tako | ~187,288 | ~505 µs |
-| Tako + `jemalloc` | ~187,638 | ~502 µs |
-| Axum | ~186,194 | ~498 µs |
-| Actix | ~155,307 | ~635 µs |
+| Framework | 100 conns · req/s | p99 | 1,000 conns · req/s | p99 |
+| --- | ---: | ---: | ---: | ---: |
+| Actix Web | 1,530,425 | 3.48 ms | 1,580,809 | 6.79 ms |
+| ntex | 1,562,670 | 3.23 ms | 1,557,559 | 6.25 ms |
+| **Tako per-thread** | 1,436,252 | 6.11 ms | 1,521,982 | 7.89 ms |
+| **Tako + `jemalloc`** | 497,515 | 1.56 ms | 1,286,328 | 3.05 ms |
+| **Tako** | 478,502 | 1.73 ms | 1,112,141 | 3.64 ms |
+| Axum | 496,454 | 1.48 ms | 1,048,804 | 3.81 ms |
 
-Results depend on hardware, configuration, and thermal state. See the
-[benchmark setup and results](https://tako.rust-dd.com/docs/benchmarks) for context.
+Tako's default server keeps pace with Axum on the same Tokio runtime and pulls
+ahead at 1,000 connections, and the thread-per-core
+[`per-thread`](https://tako.rust-dd.com/docs/deployment#thread-per-core) server
+lands within a few percent of Actix Web and ntex. `GET /` returns `Hello, World!`; each
+number is the median of three 20-second `wrk` runs over loopback in a 24 vCPU
+Linux container (AMD EPYC 9655P), measured with tako-rs 2.2.0 in September 2026.
+Results move with hardware and configuration, so read the
+[methodology and reproduction steps](https://tako.rust-dd.com/docs/benchmarks)
+before drawing conclusions.
 
 ## License
 

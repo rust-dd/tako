@@ -101,7 +101,8 @@ to a multi-threaded Tokio executor.
 ## Thread-per-core
 
 The `per-thread` and `per-thread-compio` features host the same thread-safe
-`Router` on N current-thread workers, fanned out with `SO_REUSEPORT`.
+`Router` on N current-thread workers, fanned out with `SO_REUSEPORT`; Tokio
+workers also hand new connections to the least busy worker.
 `serve_per_thread(addr, router, config)` blocks until Ctrl+C or SIGTERM and then
 drains the workers. `spawn_per_thread(addr, router, config)` returns the worker
 thread handles and a `PerThreadShutdown` for explicit control. Enabling
