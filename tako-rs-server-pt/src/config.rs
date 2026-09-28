@@ -16,6 +16,11 @@ pub struct PerThreadConfig {
   pub header_read_timeout: Option<Duration>,
   /// Maximum concurrent connections per worker. `None` leaves it unlimited.
   pub max_connections: Option<usize>,
+  /// Hands each accepted connection to the worker with the fewest live
+  /// connections when the accepting worker is ahead. Evens out the hash-based
+  /// `SO_REUSEPORT` spread and keeps every worker busy where the kernel sends
+  /// all connections to one listener. Applies to Tokio workers.
+  pub balance_connections: bool,
 }
 
 impl Default for PerThreadConfig {
@@ -27,6 +32,7 @@ impl Default for PerThreadConfig {
       drain_timeout: Duration::from_secs(30),
       header_read_timeout: Some(Duration::from_secs(30)),
       max_connections: None,
+      balance_connections: true,
     }
   }
 }

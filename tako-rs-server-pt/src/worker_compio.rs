@@ -31,6 +31,7 @@ pub(crate) fn worker_main_compio(
   use cyper_core::HyperStream;
   use futures_util::FutureExt;
   use futures_util::StreamExt;
+  use tako_rs_core::server_support::connection_router;
   use tako_rs_core::server_support::drive_connection;
 
   #[cfg(feature = "affinity")]
@@ -100,7 +101,9 @@ pub(crate) fn worker_main_compio(
     )
     .await;
 
-    let cancel = shutdown.inner.clone();
+    // Connections poll this token on every wake-up; a per-worker child keeps that
+    // lock on this thread instead of on the token every worker shares.
+    let cancel = shutdown.inner.child_token();
     let mut backoff = compio_accept_backoff();
     let mut connections = futures_util::stream::FuturesUnordered::new();
 
@@ -147,7 +150,7 @@ pub(crate) fn worker_main_compio(
         None
       };
       let io = HyperStream::new_plain(stream);
-      let router = router.clone();
+      let router = connection_router(&router);
       let conn_cancel = cancel.clone();
 
       connections.push(compio::runtime::spawn(async move {

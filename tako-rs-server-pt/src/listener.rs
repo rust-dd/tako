@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 /// One-shot platform-capability warning. `SO_REUSEPORT` behaves like
 /// kernel-level load balancing only on Linux; macOS / *BSD ignore the load-
 /// balance semantic (last-binder-wins), and Windows lacks the option entirely.
-fn warn_reuseport_platform_once() {
+pub(crate) fn warn_reuseport_platform_once() {
   static WARNED: std::sync::Once = std::sync::Once::new();
   WARNED.call_once(|| {
     #[cfg(target_os = "linux")]
@@ -22,24 +22,25 @@ fn warn_reuseport_platform_once() {
     {
       tracing::warn!(
         "tako-server-pt: SO_REUSEPORT is being used on a non-Linux Unix \
-         platform. The kernel typically sends incoming connections only to \
-         the most recent binder, so multi-worker thread-per-core mode will \
-         not load-balance correctly. Use a single worker or run on Linux."
+         platform with `balance_connections` disabled. The kernel typically \
+         sends incoming connections only to the most recent binder, so \
+         multi-worker thread-per-core mode will not load-balance. Enable \
+         `balance_connections`, use a single worker, or run on Linux."
       );
     }
     #[cfg(windows)]
     {
       tracing::warn!(
-        "tako-server-pt: SO_REUSEPORT does not exist on Windows. Only the \
-         first worker will accept connections; subsequent worker binds will \
-         fail with EADDRINUSE. Use a single worker on Windows."
+        "tako-server-pt: SO_REUSEPORT does not exist on Windows. With \
+         `balance_connections` disabled, only the first worker accepts \
+         connections; subsequent worker binds fail with EADDRINUSE. Enable \
+         `balance_connections` or use a single worker on Windows."
       );
     }
   });
 }
 
 fn bind_reuseport_std(addr: SocketAddr, backlog: i32) -> io::Result<std::net::TcpListener> {
-  warn_reuseport_platform_once();
   let domain = if addr.is_ipv4() {
     Domain::IPV4
   } else {

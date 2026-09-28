@@ -5,6 +5,8 @@
 //! Spawns OS threads with `SO_REUSEPORT` listeners. Each worker runs a Tokio
 //! current-thread runtime by default, or Compio when `compio` is enabled.
 //! The thread-safe router is shared; connections remain on their worker thread.
+//! Tokio workers hand new connections to the least busy worker when
+//! [`PerThreadConfig::balance_connections`] is set, which it is by default.
 //!
 //! [`serve_per_thread`] waits for process shutdown. [`spawn_per_thread`] returns
 //! worker handles and a shutdown trigger for explicit control.
@@ -25,6 +27,8 @@
 //! }
 //! ```
 
+#[cfg(not(feature = "compio"))]
+mod balance;
 mod config;
 mod listener;
 mod shutdown;
@@ -87,11 +91,23 @@ pub fn spawn_per_thread_compio(
   spawn_workers(addr, router, cfg, worker_main_compio)
 }
 
+#[cfg(not(feature = "compio"))]
+type WorkerFn = fn(
+  usize,
+  SocketAddr,
+  std::sync::Arc<Router>,
+  PerThreadConfig,
+  PerThreadShutdown,
+  Option<balance::WorkerBalance>,
+);
+#[cfg(feature = "compio")]
+type WorkerFn = fn(usize, SocketAddr, std::sync::Arc<Router>, PerThreadConfig, PerThreadShutdown);
+
 fn spawn_workers(
   addr: &str,
   router: Router,
   cfg: PerThreadConfig,
-  worker: fn(usize, SocketAddr, std::sync::Arc<Router>, PerThreadConfig, PerThreadShutdown),
+  worker: WorkerFn,
 ) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
   if cfg.workers == 0 || cfg.max_connections == Some(0) {
     return Err(io::Error::new(
@@ -102,15 +118,30 @@ fn spawn_workers(
   let addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
   let router = std::sync::Arc::new(router);
+  if !cfg.balance_connections || cfg!(feature = "compio") {
+    listener::warn_reuseport_platform_once();
+  }
   let shutdown = PerThreadShutdown::new();
+  #[cfg(not(feature = "compio"))]
+  let mut balances = cfg
+    .balance_connections
+    .then(|| balance::Balancer::for_workers(cfg.workers).into_iter());
   let mut handles = Vec::with_capacity(cfg.workers);
   for id in 0..cfg.workers {
     let cfg = cfg.clone();
     let router = router.clone();
     let worker_shutdown = shutdown.clone();
+    #[cfg(not(feature = "compio"))]
+    let balance = balances.as_mut().and_then(Iterator::next);
+    let run = move || {
+      #[cfg(not(feature = "compio"))]
+      worker(id, addr, router, cfg, worker_shutdown, balance);
+      #[cfg(feature = "compio")]
+      worker(id, addr, router, cfg, worker_shutdown);
+    };
     match std::thread::Builder::new()
       .name(format!("tako-pt-{id}"))
-      .spawn(move || worker(id, addr, router, cfg, worker_shutdown))
+      .spawn(run)
     {
       Ok(handle) => handles.push(handle),
       Err(error) => {
