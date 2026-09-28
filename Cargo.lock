@@ -4862,6 +4862,7 @@ dependencies = [
  "smallvec",
  "sonic-rs",
  "tako-rs",
+ "thread_local",
  "tokio",
  "tokio-rustls",
  "tokio-stream",

@@ -13,6 +13,8 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
@@ -106,7 +108,7 @@ pub async fn run_with_config(
         };
         let _ = stream.set_nodelay(true);
         let acceptor = acceptor.clone();
-        let router = router.clone();
+        let router = connection_router(&router);
 
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
@@ -202,7 +204,7 @@ pub async fn run_with_config(
 
           let mut h1 = http1::Builder::new();
           h1.keep_alive(keep_alive);
-          h1.timer(hyper_util::rt::TokioTimer::new());
+          h1.timer(ConnectionTimer::new());
           h1.header_read_timeout(header_read_timeout);
 
           if let Err(e) = drive_connection(h1.serve_connection(io, svc).with_upgrades(), conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {

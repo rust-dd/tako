@@ -19,7 +19,7 @@ pub(super) struct RequestSignals {
 }
 
 impl RequestSignals {
-  pub fn new(router: &SignalArbiter, route: Option<&Arc<Route>>, req: &Request) -> Option<Self> {
+  pub fn new(router: &SignalArbiter, route: Option<&Route>, req: &Request) -> Option<Self> {
     if !app_signals().has_listeners()
       && !router.has_listeners()
       && !route.is_some_and(|route| route.signals.has_listeners())

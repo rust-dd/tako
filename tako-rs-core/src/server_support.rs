@@ -1,9 +1,24 @@
 //! Shared lifecycle primitives for the server crates.
 
+mod timer;
+
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures_util::future::Either;
+pub use timer::ConnectionTimer;
+
+use crate::router::Router;
+
+/// Wraps the shared router in a handle owned by one connection.
+///
+/// Per-request clones then touch this connection's reference count instead of
+/// the router's, whose cache line every worker thread would otherwise contend on.
+#[must_use]
+pub fn connection_router(router: &Arc<Router>) -> Arc<Arc<Router>> {
+  Arc::new(Arc::clone(router))
+}
 
 /// Drives a connection, notifying it once when shutdown starts.
 pub async fn drive_connection<C, S, G>(connection: C, shutdown: S, graceful: G) -> C::Output

@@ -15,6 +15,7 @@ use arc_swap::ArcSwap;
 use http::Method;
 #[cfg(any(feature = "plugins", feature = "utoipa", feature = "vespera"))]
 use parking_lot::RwLock;
+use thread_local::ThreadLocal;
 
 use crate::extractors::json::SimdJsonMode;
 use crate::handler::BoxHandler;
@@ -31,6 +32,9 @@ use crate::types::BoxMiddleware;
 pub struct Route {
   /// Original path string used to create this route.
   pub path: Arc<str>,
+  /// Per-thread copies of `path` handed out as `MatchedPath`, so concurrent
+  /// requests do not all bump the reference count of one shared allocation.
+  matched_paths: ThreadLocal<Arc<str>>,
   pub(crate) parameter_keys: Vec<Arc<str>>,
   /// HTTP method this route responds to.
   pub method: Method,
@@ -77,6 +81,7 @@ impl Route {
     Self {
       parameter_keys: parameter_keys(&path),
       path: path.into(),
+      matched_paths: ThreadLocal::new(),
       method,
       handler,
       middlewares: ArcSwap::new(Arc::default()),
@@ -99,6 +104,11 @@ impl Route {
     }
   }
 
+  /// Returns this thread's copy of the route path for `MatchedPath`.
+  pub(crate) fn matched_path(&self) -> Arc<str> {
+    Arc::clone(self.matched_paths.get_or(|| Arc::from(&*self.path)))
+  }
+
   /// Builds a new `Arc<Route>` with the same handler / middlewares / config
   /// but a different path. Used by [`crate::router::Router::nest`] to register
   /// a child router's routes under a prefix without mutating the originals.
@@ -108,6 +118,7 @@ impl Route {
     let cloned = Self {
       parameter_keys: parameter_keys(&new_path),
       path: new_path.into(),
+      matched_paths: ThreadLocal::new(),
       scoped_state: self.scoped_state.clone(),
       scoped_timeout: self.scoped_timeout.clone(),
       body_limit: self.body_limit,
@@ -163,4 +174,39 @@ fn parameter_keys(path: &str) -> Vec<Arc<str>> {
         .map(|(key, _)| Arc::from(key.trim_start_matches('*')))
     })
     .collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use std::sync::Arc;
+
+  use http::Method;
+
+  use super::Route;
+  use crate::handler::BoxHandler;
+  use crate::types::Request;
+
+  fn route(path: &str) -> Route {
+    let handler = BoxHandler::new::<_, (Request,)>(|_req: Request| async { "ok" });
+    Route::new(path.to_string(), Method::GET, handler, None)
+  }
+
+  #[test]
+  fn matched_path_reuses_one_copy_per_thread() {
+    let route = route("/users/{id}");
+    let first = route.matched_path();
+    let second = route.matched_path();
+    assert_eq!(&*first, "/users/{id}");
+    assert!(Arc::ptr_eq(&first, &second));
+    assert!(!Arc::ptr_eq(&first, &route.path));
+  }
+
+  #[test]
+  fn matched_path_gives_each_thread_its_own_copy() {
+    let route = route("/users/{id}");
+    let here = route.matched_path();
+    let there = std::thread::scope(|scope| scope.spawn(|| route.matched_path()).join().unwrap());
+    assert_eq!(&*there, "/users/{id}");
+    assert!(!Arc::ptr_eq(&here, &there));
+  }
 }

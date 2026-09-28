@@ -10,6 +10,8 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
@@ -164,7 +166,7 @@ pub(crate) async fn run_proxy_http(
           None
         };
         let _ = stream.set_nodelay(true);
-        let router = router.clone();
+        let router = connection_router(&router);
 
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
@@ -219,7 +221,7 @@ pub(crate) async fn run_proxy_http(
 
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
-          http.timer(hyper_util::rt::TokioTimer::new());
+          http.timer(ConnectionTimer::new());
           http.header_read_timeout(header_read_timeout);
           let conn = http.serve_connection(io, svc).with_upgrades();
 

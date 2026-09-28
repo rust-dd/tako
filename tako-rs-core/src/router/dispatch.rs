@@ -95,7 +95,7 @@ impl Router {
           }
         });
       if let Some(matched) = matched {
-        let route = Arc::clone(matched.value);
+        let route: &Route = matched.value;
         let mut it = matched.params.iter();
         let first = it.next();
         let params = first.map(|(fk, fv)| {
@@ -131,7 +131,7 @@ impl Router {
     #[cfg(feature = "signals")]
     let signals = super::request_signals::RequestSignals::new(
       &self.signals,
-      route_match.as_ref().map(|(route, _)| route),
+      route_match.as_ref().map(|(route, _)| *route),
       &req,
     );
     #[cfg(feature = "signals")]
@@ -145,7 +145,7 @@ impl Router {
       let setup_error = route.setup_plugins_once().err();
       #[cfg(not(feature = "plugins"))]
       let setup_error = None::<String>;
-      if let Some(res) = Self::enforce_protocol_guard(&route, &req)
+      if let Some(res) = Self::enforce_protocol_guard(route, &req)
         .or_else(|| setup_error.map(|_| empty_status_response(StatusCode::INTERNAL_SERVER_ERROR)))
       {
         res
@@ -170,7 +170,7 @@ impl Router {
         // concrete URI.
         req
           .extensions_mut()
-          .insert(crate::router_state::MatchedPath(route.path.clone()));
+          .insert(crate::router_state::MatchedPath(route.matched_path()));
 
         let timeout_router = route.scoped_timeout.as_deref().unwrap_or(self);
         let effective_timeout = route

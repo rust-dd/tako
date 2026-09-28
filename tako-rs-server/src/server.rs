@@ -33,6 +33,8 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
@@ -179,7 +181,7 @@ pub(crate) async fn run(
         let _ = stream.set_nodelay(true);
         let io = hyper_util::rt::TokioIo::new(stream);
 
-        let router = router.clone();
+        let router = connection_router(&router);
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
           #[cfg(feature = "signals")]
@@ -198,7 +200,7 @@ pub(crate) async fn run(
           http.keep_alive(keep_alive);
           http.pipeline_flush(true);
 
-          http.timer(hyper_util::rt::TokioTimer::new());
+          http.timer(ConnectionTimer::new());
           http.header_read_timeout(header_read_timeout);
 
           let conn = http.serve_connection(io, svc).with_upgrades();
