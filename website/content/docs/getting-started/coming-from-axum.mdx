@@ -20,20 +20,21 @@ places where the two differ.
 
 | Axum 0.8 | Tako 2.x |
 | --- | --- |
-| `Router::new().route("/", get(handler))` | `router.get("/", handler)` on a `mut` router |
-| `get(show).post(update)` on one path | `router.get(path, show)` and `router.post(path, update)` |
-| `Path`, `Query`, `Json`, `State` | Same names under `tako::extractors::*` |
-| `http::HeaderMap` argument | `tako::extractors::header_map::HeaderMap` wrapper |
+| `Router::new().route("/", get(h))` | `router.get("/", h)` |
+| `get(show).post(update)` | `router.get(p, show)`, `router.post(p, update)` |
+| `Path`, `Query`, `Json`, `State` | Same names in `tako::extractors` |
+| `http::HeaderMap` | `header_map::HeaderMap` wrapper |
 | `IntoResponse` | `Responder` |
-| `Router::with_state` and `Router<S>` | `router.with_state(value)`, once per type |
-| `middleware::from_fn`, `route_layer` | `router.middleware(f)`, `route.middleware(f)` |
+| `Router::with_state` | `router.with_state(value)` per type |
+| `middleware::from_fn` | `router.middleware(f)` |
+| `route_layer` | `route.middleware(f)` |
 | `tower-http` layers | Bundled middleware and plugins |
-| `Router::nest`, `Router::fallback` | `router.nest`, `router.fallback` |
-| `axum::serve(listener, app)` | `Server::builder().build().try_spawn_http(listener, router)?` |
-| `with_graceful_shutdown(signal)` | `handle.shutdown_on_signal().await?` |
-| `WebSocketUpgrade` and `on_upgrade` | `TakoWs::new(req, handler)` (`ws` feature) |
-| `response::sse::Sse` and `Event` | `Sse::events` and `SseEvent` (`sse` feature) |
-| `tower::ServiceExt::oneshot` in tests | `router.dispatch(request).await` |
+| `nest`, `fallback` | `router.nest`, `router.fallback` |
+| `axum::serve` | `Server::builder()` |
+| `with_graceful_shutdown` | `handle.shutdown_on_signal()` |
+| `WebSocketUpgrade` | `TakoWs::new(req, handler)` |
+| `sse::Sse`, `Event` | `Sse::events`, `SseEvent` |
+| `ServiceExt::oneshot` | `router.dispatch(request)` |
 
 ## Dependencies
 
