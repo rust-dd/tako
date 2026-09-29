@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ServerCodeBlock } from 'fumadocs-ui/components/codeblock.rsc';
 
 export interface RustExampleProps {
   /**
@@ -8,11 +9,9 @@ export interface RustExampleProps {
    * Example: `examples/auth/src/main.rs` or `tako-rs-core/tests/routing.rs`.
    */
   path: string;
-  /** Optional: highlight a specific range (1-based inclusive) */
-  highlight?: string;
 }
 
-export function RustExample({ path, highlight }: RustExampleProps) {
+export function RustExample({ path }: RustExampleProps) {
   const workspaceRoot = join(process.cwd(), '..');
   const filePath = join(workspaceRoot, path);
 
@@ -27,10 +26,12 @@ export function RustExample({ path, highlight }: RustExampleProps) {
     );
   }
 
-  const meta = highlight ? `rust {${highlight}}` : 'rust';
   return (
-    <pre>
-      <code className={`language-${meta.split(' ')[0]}`}>{source}</code>
-    </pre>
+    <ServerCodeBlock
+      code={source.trimEnd()}
+      lang="rust"
+      themes={{ light: 'github-light', dark: 'github-dark' }}
+      codeblock={{ title: path }}
+    />
   );
 }
