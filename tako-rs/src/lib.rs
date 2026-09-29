@@ -1,26 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-//! A multi-transport Rust framework for modern network services.
-//!
-//! Tako is built for services that go beyond plain HTTP. It gives you one
-//! cohesive model for routing, extraction, middleware, streaming, observability,
-//! and graceful shutdown across several protocols and transport layers.
-//!
-//! This umbrella crate stitches together the workspace sub-crates:
-//!
-//! - `tako-rs-core` — routing, handlers, middleware and plugin traits, body and
-//!   request types, state, signals, queue, plus `GraphQL`, gRPC and `OpenAPI`
-//!   helpers
-//! - `tako-rs-extractors` — concrete request extractors (cookies, form, query,
-//!   path, JWT, multipart, simdjson, …)
-//! - `tako-rs-server` — HTTP/1, TLS, HTTP/3, raw TCP / UDP / Unix, PROXY protocol,
-//!   plus the compio variants
-//! - `tako-rs-streams` — WebSocket, SSE, file streaming, static file serving,
-//!   WebTransport
-//! - `tako-rs-plugins` — built-in middleware (auth, CSRF, sessions, …) and
-//!   plugins (CORS, compression, rate limiting, idempotency, metrics)
-//!
-//! Public APIs are re-exported under `tako::*` according to the selected features.
+#![doc = include_str!("lib.md")]
 
 pub use tako_rs_core::Bytes;
 pub use tako_rs_core::Full;
