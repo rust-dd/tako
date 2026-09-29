@@ -131,6 +131,9 @@ pub(crate) fn expand_route(
     }
 
     impl ::tako::extractors::typed_params::TypedParamsStruct for #struct_name {
+      // `FromStr::Err` is uninhabited for types like `String`, which makes the
+      // `map_err` closure below dead code.
+      #[allow(unreachable_code)]
       fn from_path_params(
         __pp: &::tako::extractors::params::PathParams,
       ) -> ::core::result::Result<Self, ::tako::extractors::typed_params::TypedParamsError> {
