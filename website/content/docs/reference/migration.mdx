@@ -16,27 +16,18 @@ This guide explains *what to change in your code* to move from 1.x to 2.0.
 
 ## At a glance
 
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Area              │ 1.x                          │ 2.0                     │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Per-router state  │ GLOBAL_STATE, one per type   │ Router::with_state      │
-│ Handler returns   │ Responder only               │ Result<R, E: Responder> │
-│ Sub-routing       │ Router::merge                │ nest(), scope()         │
-│ Wrong-method      │ 404 Not Found                │ 405 + Allow header      │
-│ Errors            │ error_handler (5xx only)     │ + client_error_handler  │
-│                   │                              │ + use_problem_json()    │
-│ Macros            │ {id: u64} only, always Param │ {id} + {id: u64}, no    │
-│                   │                              │ Params struct unless    │
-│                   │                              │ typed slot exists       │
-│ Server bootstrap  │ serve_*, serve_tls, …        │ Server::builder()       │
-│ TLS knobs         │ Pem only                     │ Pem + Der + Resolver +  │
-│                   │                              │ ReloadableResolver +    │
-│                   │                              │ ClientAuth (mTLS)       │
-│ Connection info   │ SocketAddr / UnixPeerAddr    │ ConnInfo (unified)      │
-│ tako-rs-core-local   │ separate !Send router        │ removed                 │
-└────────────────────────────────────────────────────────────────────────────┘
-```
+| Area | 1.x | 2.0 |
+| --- | --- | --- |
+| Per-router state | `GLOBAL_STATE`, one per type | `Router::with_state` |
+| Handler returns | `Responder` only | `Result<R, E>` where `E: Responder` |
+| Sub-routing | `Router::merge` | `nest()`, `scope()` |
+| Wrong method | 404 Not Found | 405 with an `Allow` header |
+| Errors | `error_handler` (5xx only) | plus `client_error_handler` and `use_problem_json()` |
+| Macros | `{id: u64}` only, always a `Params` struct | `{id}` and `{id: u64}`; no `Params` struct unless a typed slot exists |
+| Server bootstrap | `serve_*`, `serve_tls`, … | `Server::builder()` |
+| TLS | PEM only | PEM, DER, `Resolver`, `ReloadableResolver`, and `ClientAuth` (mTLS) |
+| Connection info | `SocketAddr` / `UnixPeerAddr` | `ConnInfo` (unified) |
+| `tako-core-local` | separate `!Send` router | removed |
 
 ## 1. Per-router typed state
 
@@ -294,7 +285,7 @@ implemented in [2.1](/docs/reference/migration-2-1#shared-middleware-stores).
   `BufferedUploadedFile`, `KeyRing`-rotated cookie extractors,
   `Validated<T>` (features `validator` / `garde`).
 
-## 14. `tako-rs-core-local` removed
+## 14. `tako-core-local` removed
 
 The `!Send` `LocalRouter` was removed. Per-worker isolation is fully
 covered by `serve_per_thread` / `serve_per_thread_compio` with the
