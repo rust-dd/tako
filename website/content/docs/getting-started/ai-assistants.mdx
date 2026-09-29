@@ -1,0 +1,72 @@
+---
+title: Using Tako with AI assistants
+description: Point coding agents at Tako's llms.txt, Markdown docs, and Context7 index, and give them project rules so they write current Tako 2.x code.
+category: guide
+since: 2.2.0
+status: stable
+---
+
+# Using Tako with AI assistants
+
+Tako is younger than the Rust frameworks most language models learned from, so
+coding assistants tend to write Axum code, call APIs that do not exist, or add
+the wrong crate. Give them the current docs and a few project rules and they
+write working Tako 2.x code.
+
+## Machine-readable docs
+
+| URL | Contents |
+| --- | --- |
+| [`/llms.txt`](/llms.txt) | Index of every docs page with a one-line summary, in the [llms.txt](https://llmstxt.org) format |
+| [`/llms-full.txt`](/llms-full.txt) | The whole guide as one Markdown file, with the runnable examples inlined |
+| `/docs/<page>.mdx` | Any page as Markdown, for example [`/docs/routing.mdx`](https://tako.rust-dd.com/docs/routing.mdx) |
+| [docs.rs/tako-rs](https://docs.rs/tako-rs/latest/tako/) | The rustdoc API reference |
+
+Docs pages also return Markdown when a request prefers it with
+`Accept: text/markdown`, and every page has a **Copy Markdown** button plus
+links that open the page in ChatGPT, Claude, or Cursor.
+
+## Context7
+
+[Context7](https://context7.com/rust-dd/tako) indexes the Tako docs and examples
+under the library ID `/rust-dd/tako`. With the Context7 MCP server installed,
+add "use library /rust-dd/tako" to a prompt to pull those docs in. The
+crate named `tako` on crates.io belongs to a different project, so pick the
+`rust-dd` entry.
+
+## Project rules
+
+Paste these rules into `AGENTS.md`, `CLAUDE.md`, or a Cursor rule file in any
+project that uses Tako:
+
+```md
+## Tako (Rust web framework)
+
+- Depend on `tako-rs` (`cargo add tako-rs`) and import it as `tako`. Never add
+  the crate named `tako`; it is an unrelated project.
+- Target Tako 2.x. Register routes on a mutable router
+  (`let mut router = Router::new(); router.get("/", handler);`) and start
+  servers with `Server::builder().build().try_spawn_http(listener, router)?`.
+  Do not use the deprecated `serve_*` functions.
+- Handlers are async functions. Extractors live in `tako::extractors::*`
+  (`Path`, `Query`, `Json`, `State`, `HeaderMap`), and responses implement
+  `tako::responder::Responder`, not `IntoResponse`. Only the last handler
+  argument may consume the body.
+- Transports and integrations are Cargo features: `http2`, `http3`, `tls`,
+  `ws`, `sse`, `grpc`, `plugins`, `per-thread`, `compio`. Enable the feature
+  before using its module.
+- Tako is not Tower-compatible. Use `router.middleware(...)` and the bundled
+  plugins instead of `tower-http` layers.
+- Docs: https://tako.rust-dd.com/llms.txt and
+  https://tako.rust-dd.com/llms-full.txt
+```
+
+## Checking generated code
+
+- Run `cargo check` with the features the code uses; a missing feature shows up
+  as an unresolved import.
+- Compare against the runnable crates in
+  [`examples/`](https://github.com/rust-dd/tako/tree/main/examples), one per
+  transport and integration.
+- Porting from Axum? [Coming from Axum](/docs/getting-started/coming-from-axum)
+  maps each building block.

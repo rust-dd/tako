@@ -1,0 +1,290 @@
+---
+title: Coming from Axum
+description: Map Axum routers, extractors, state, middleware, serving, and tests to their Tako equivalents, with the differences that matter when porting.
+category: guide
+crate: tako-rs
+since: 2.2.0
+status: stable
+features: [plugins, ws, sse]
+---
+
+# Coming from Axum
+
+Tako's handler model is close to Axum's: handlers are async functions, their
+arguments are typed extractors, and their return values implement a response
+trait. Path syntax is the same `{id}` form Axum 0.8 uses. Most ports are
+mechanical; this page maps each Axum building block to Tako and calls out the
+places where the two differ.
+
+## At a glance
+
+| Axum 0.8 | Tako 2.x |
+| --- | --- |
+| `Router::new().route("/", get(handler))` | `router.get("/", handler)` on a `mut` router |
+| `get(show).post(update)` on one path | `router.get(path, show)` and `router.post(path, update)` |
+| `Path`, `Query`, `Json`, `State` | Same names under `tako::extractors::*` |
+| `http::HeaderMap` argument | `tako::extractors::header_map::HeaderMap` wrapper |
+| `IntoResponse` | `Responder` |
+| `Router::with_state` and `Router<S>` | `router.with_state(value)`, once per type |
+| `middleware::from_fn`, `route_layer` | `router.middleware(f)`, `route.middleware(f)` |
+| `tower-http` layers | Bundled middleware and plugins |
+| `Router::nest`, `Router::fallback` | `router.nest`, `router.fallback` |
+| `axum::serve(listener, app)` | `Server::builder().build().try_spawn_http(listener, router)?` |
+| `with_graceful_shutdown(signal)` | `handle.shutdown_on_signal().await?` |
+| `WebSocketUpgrade` and `on_upgrade` | `TakoWs::new(req, handler)` (`ws` feature) |
+| `response::sse::Sse` and `Event` | `Sse::events` and `SseEvent` (`sse` feature) |
+| `tower::ServiceExt::oneshot` in tests | `router.dispatch(request).await` |
+
+## Dependencies
+
+```toml
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tako-rs = { version = "2.2", features = ["plugins", "ws", "sse"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+```
+
+The package is `tako-rs` and the Rust import is `tako`. The crate named `tako` on
+crates.io is an unrelated project. Transports and integrations are Cargo
+features; the [feature reference](/docs/reference/features) lists them all.
+
+## Routes and handlers
+
+Axum chains routes onto a router value:
+
+```rust
+let app = Router::new()
+    .route("/users", get(list_users).post(create_user))
+    .route("/users/{id}", get(show_user));
+```
+
+Tako registers each method on a mutable router:
+
+```rust
+use tako::router::Router;
+
+let mut router = Router::new();
+router.get("/users", list_users);
+router.post("/users", create_user);
+router.get("/users/{id}", show_user);
+```
+
+Handlers keep their shape. As in Axum, only the last argument may consume the
+request body.
+
+## Extractors
+
+```rust
+use serde::Deserialize;
+use tako::extractors::{header_map::HeaderMap, json::Json, path::Path, query::Query, state::State};
+use tako::{responder::Responder, StatusCode};
+
+#[derive(Deserialize)]
+struct Pagination {
+    page: u32,
+}
+
+async fn list_users(Query(p): Query<Pagination>, State(state): State<AppState>) -> String {
+    format!("page {} from {}", p.page, state.db_url)
+}
+
+async fn show_user(Path(id): Path<u64>) -> String {
+    format!("user {id}")
+}
+
+async fn user_agent(HeaderMap(headers): HeaderMap) -> String {
+    format!("{:?}", headers.get("user-agent"))
+}
+
+async fn create_user(Json(body): Json<serde_json::Value>) -> impl Responder {
+    (StatusCode::CREATED, Json(body))
+}
+```
+
+Three differences matter when porting:
+
+- `State<T>` holds an `Arc<T>`, and state is keyed by type. Call `with_state`
+  once per type and extract any subset in each handler; there is no `FromRef`.
+- `HeaderMap` is a tuple wrapper around `http::HeaderMap`, so destructure it.
+- Buffered body extractors reject bodies over 2 MiB by default, much like Axum's
+  `DefaultBodyLimit`. Change it with `router.body_limit(bytes)`.
+
+The [extractor catalog](/docs/extractors) covers the rest, including cookies,
+forms, multipart, JWT claims, and protobuf.
+
+## Responses and errors
+
+Return `impl Responder` where Axum returns `impl IntoResponse`. Strings, JSON,
+status codes, and `(StatusCode, R)` tuples all implement it. A handler can return
+`Result<T, E>` when both `T` and `E` implement `Responder`, so a custom error type
+implements `Responder` the way it would implement `IntoResponse` in Axum. See
+[Building a REST API](/docs/tutorials/rest-api) for a full error type.
+
+## State
+
+```rust
+#[derive(Clone)]
+struct AppState {
+    db_url: String,
+}
+
+let mut router = Router::new();
+router.with_state(AppState { db_url: "postgres://localhost/app".into() });
+```
+
+Routers nested under this one see the same state. Because state is looked up at
+runtime instead of being part of the router's type, a handler that extracts a
+type nobody registered compiles, and responds with `500 Internal Server Error`.
+
+## Middleware
+
+An Axum `middleware::from_fn` function ports with the same signature:
+
+```rust
+use tako::middleware::Next;
+use tako::types::{Request, Response};
+
+async fn require_api_key(req: Request, next: Next) -> Response {
+    if req.headers().contains_key("x-api-key") {
+        next.run(req).await
+    } else {
+        StatusCode::UNAUTHORIZED.into_response()
+    }
+}
+
+router.middleware(require_api_key);
+router.get("/admin", admin).middleware(require_api_key);
+```
+
+`router.middleware` wraps every route; `.middleware` on a route wraps only that
+route, like Axum's `route_layer`.
+
+Tako does not implement Tower's `Service` and `Layer` traits, so `tower-http`
+layers do not plug in. The common ones have bundled equivalents:
+
+| Axum ecosystem | Tako |
+| --- | --- |
+| `CorsLayer` | `tako::plugins::cors::CorsBuilder` (`plugins`) |
+| `CompressionLayer` | `tako::plugins::compression::CompressionBuilder` (`plugins`) |
+| `DefaultBodyLimit`, `RequestBodyLimitLayer` | `router.body_limit(bytes)` |
+| `TimeoutLayer` | `router.timeout(duration)` or `route.timeout(duration)` |
+| `SetRequestIdLayer` | `tako::middleware::request_id::RequestId` |
+| `tower-sessions` | `tako::middleware::session::SessionMiddleware` |
+| `tower_governor` | `tako::plugins::rate_limiter::RateLimiterBuilder` (`plugins`) |
+
+Plugins register with `router.plugin(...)`, and middleware structs convert with
+`.into_middleware()`:
+
+```rust
+use tako::middleware::{request_id::RequestId, IntoMiddleware};
+use tako::plugins::{compression::CompressionBuilder, cors::CorsBuilder};
+
+router.plugin(CorsBuilder::new().build());
+router.plugin(CompressionBuilder::new().build());
+router.middleware(RequestId::new().into_middleware());
+```
+
+Authentication (`BasicAuth`, `BearerAuth`, `ApiKeyAuth`, `JwtAuth`), CSRF, and
+security headers are covered in [Middleware](/docs/middleware).
+
+## Nesting and fallbacks
+
+```rust
+let mut api = Router::new();
+api.get("/users/{id}", show_user);
+
+let mut app = Router::new();
+app.nest("/api", api);
+app.fallback(|_req: Request| async { (StatusCode::NOT_FOUND, "nothing here") });
+```
+
+## Serving and shutdown
+
+Axum hands the router to `axum::serve`:
+
+```rust
+let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+axum::serve(listener, app)
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
+```
+
+Tako spawns the server and returns a handle:
+
+```rust
+use tako::Server;
+use tokio::net::TcpListener;
+
+let listener = TcpListener::bind("0.0.0.0:8080").await?;
+let handle = Server::builder().build().try_spawn_http(listener, app)?;
+handle.shutdown_on_signal().await?;
+```
+
+`shutdown_on_signal` waits for Ctrl+C or SIGTERM, then drains in-flight requests
+within the drain timeout. Use `handle.result().await?` to wait without handling
+signals. The same builder serves TLS, h2c, HTTP/3, and Unix sockets; see
+[Transports](/docs/transports). Axum needs `axum-server` or a rustls acceptor for
+TLS and has no HTTP/3 server.
+
+## WebSocket and SSE
+
+A Tako WebSocket handler receives the whole request instead of a
+`WebSocketUpgrade` extractor, and the socket is a `tokio-tungstenite`
+`WebSocketStream`:
+
+```rust
+use futures_util::{SinkExt, StreamExt};
+use tako::ws::TakoWs;
+
+async fn echo(req: Request) -> impl Responder {
+    TakoWs::new(req, |mut ws| async move {
+        while let Some(Ok(msg)) = ws.next().await {
+            if (msg.is_text() || msg.is_binary()) && ws.send(msg).await.is_err() {
+                break;
+            }
+        }
+    })
+}
+```
+
+Axum's `Sse` takes a stream of `Result<Event, E>`; Tako's `Sse::events` takes a
+stream of `SseEvent`:
+
+```rust
+use futures_util::{stream, StreamExt};
+use tako::sse::{Sse, SseEvent};
+
+async fn ticks(_: Request) -> impl Responder {
+    Sse::events(stream::iter(0..3).map(|i| SseEvent::data(format!("tick {i}"))))
+}
+```
+
+See [WebSocket](/docs/transports/websocket) and
+[Server-Sent Events](/docs/transports/sse) for keep-alive, limits, and Compio.
+
+## Testing
+
+Axum tests drive the router through `tower::ServiceExt::oneshot`. A Tako router
+dispatches a request directly, with no server or socket:
+
+```rust
+use tako::body::TakoBody;
+
+let mut request = Request::new(TakoBody::empty());
+*request.uri_mut() = "/api/users/7".parse()?;
+
+let response = app.dispatch(request).await;
+assert_eq!(response.status(), StatusCode::OK);
+```
+
+## No direct equivalent
+
+- **Tower compatibility.** Tako has its own middleware and plugin traits.
+- **`#[debug_handler]`.** Handler errors surface as ordinary trait-bound errors.
+- **Typed router state.** State lives in a per-router, type-keyed store instead
+  of `Router<S>`.
+
+Tako also has pieces Axum does not ship: typed route macros such as
+`#[tako::get("/users/{id: u64}")]` (see [Routing](/docs/routing)), background
+[queues](/docs/queue), in-process [signals](/docs/signals), and the
+[thread-per-core server](/docs/deployment#thread-per-core).

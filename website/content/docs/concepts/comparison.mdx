@@ -1,0 +1,112 @@
+---
+title: Tako vs Axum vs Actix Web
+description: How Tako compares with Axum and Actix Web on transports, runtimes, bundled middleware, ecosystem, and throughput, and when to pick each one.
+category: concept
+since: 2.2.0
+status: stable
+---
+
+# Tako vs Axum vs Actix Web
+
+Axum and Actix Web are the two most widely used Rust web frameworks. Tako shares
+their handler model: async functions, typed extractors, and responses built from
+a trait. The three differ mainly in how much ships in the box and how many
+transports one application can serve. The Tako maintainers wrote this page; it
+aims to be fair to all three, and the throughput numbers link to a reproducible
+methodology.
+
+## Summary
+
+- **Axum** keeps a small core and builds on the Tower ecosystem. Pick it when you
+  want Tower middleware, the largest community, and mostly HTTP/1.1 and HTTP/2
+  APIs.
+- **Actix Web** has been around since 2017 and leads hello-world throughput
+  among the three. Pick it when a long track record and raw HTTP speed matter most.
+- **Tako** puts several transports behind one router and middleware stack, and
+  bundles auth, sessions, rate limiting, and metrics. Pick it when one service
+  speaks HTTP/3, WebSocket, SSE, gRPC, or raw TCP/UDP alongside plain HTTP, or
+  when you want Compio or a thread-per-core server inside the same framework.
+
+## Feature comparison
+
+Versions compared: Tako 2.2, Axum 0.8, and Actix Web 4.
+
+| | Tako | Axum | Actix Web |
+| --- | --- | --- | --- |
+| HTTP/1.1 | Yes | Yes | Yes |
+| HTTP/2 | Yes (`http2`, including h2c) | Yes (`http2` feature) | Yes |
+| HTTP/3 (QUIC) | Yes (`http3`, Tokio only) | No built-in support | No built-in support |
+| TLS | Built in: rustls, mTLS, SNI, hot reload | Via `axum-server` or a rustls acceptor | Built in: rustls or OpenSSL |
+| WebSocket | Built in (`ws`) | Built in (`ws` feature) | `actix-ws` crate |
+| Server-Sent Events | Built in (`sse`) | Built in | `actix-web-lab` crate |
+| gRPC | Unary (`grpc`); streaming types are building blocks | Through `tonic`, which shares hyper and Tower | No first-party support |
+| Unix sockets | Yes (Tokio) | Yes, `axum::serve` accepts a `UnixListener` | Yes (`bind_uds`) |
+| Raw TCP and UDP servers | Built in | Not in scope; use Tokio directly | Not part of the web framework |
+| Runtime | Tokio, or Compio (io_uring on Linux, IOCP on Windows) | Tokio | actix-rt, a Tokio runtime per worker thread |
+| Thread-per-core server | `per-thread` feature | Not built in | Worker-per-core by design |
+| Middleware model | Tako middleware and plugins; no Tower compatibility | Tower layers and `middleware::from_fn` | Actix `Transform` and `middleware::from_fn` |
+| Auth, sessions, CSRF, rate limiting, idempotency | Bundled, feature-gated | Separate crates such as `tower-http`, `tower-sessions`, `tower_governor` | Separate crates such as `actix-session`, `actix-identity`, `actix-governor` |
+| OpenAPI | `utoipa` and `vespera` integrations | Community crates (`utoipa-axum`, `aide`) | Community crates (`utoipa-actix-web`, `apistos`) |
+| GraphQL | `async-graphql` integration | `async-graphql-axum` | `async-graphql-actix-web` |
+| Metrics | Prometheus and OpenTelemetry plugins | Community crates | Community crates |
+| First release | 2025 | 2021 | 2017 |
+
+Tako's `webtransport` module is a raw QUIC session helper, not the W3C
+WebTransport handshake, so browsers cannot connect to it yet. See
+[WebTransport](/docs/transports/webtransport).
+
+## Throughput
+
+Hello-world requests per second, the median of three 20-second `wrk` runs in a
+24 vCPU Linux container, measured with tako-rs 2.2.0 in September 2026:
+
+| Framework | 100 connections | 1,000 connections |
+| --- | ---: | ---: |
+| Actix Web | 1,530,425 | 1,580,809 |
+| Tako per-thread | 1,436,252 | 1,521,982 |
+| Tako + jemalloc | 497,515 | 1,286,328 |
+| Tako | 478,502 | 1,112,141 |
+| Axum | 496,454 | 1,048,804 |
+
+Tako's default server runs on Tokio's work-stealing runtime, like Axum, and the
+two land within a few percent of each other. The thread-per-core `per-thread`
+server runs one runtime per worker, like Actix Web, and lands within a few
+percent of it. A hello-world route measures framework overhead, not application
+performance; read the [benchmark methodology](/docs/benchmarks) before drawing
+conclusions.
+
+## When to choose which
+
+Choose **Axum** when:
+
+- you want Tower middleware and the widest set of third-party integrations;
+- the service is mostly REST or JSON over HTTP/1.1 and HTTP/2;
+- a small core that you compose yourself is the goal.
+
+Choose **Actix Web** when:
+
+- you want the longest production track record among Rust web frameworks;
+- top hello-world throughput on the default setup matters most.
+
+Choose **Tako** when:
+
+- one process serves HTTP next to HTTP/3, WebSocket, SSE, gRPC, or raw TCP/UDP,
+  and those transports should share routing, middleware, and signals;
+- you want auth, sessions, CSRF, rate limiting, idempotency, and metrics
+  without assembling them from separate crates;
+- you want Compio or a thread-per-core server without leaving the framework.
+
+Know the trade-offs before choosing Tako:
+
+- The community is smaller and there are fewer third-party integrations. Tower
+  layers do not plug in.
+- The API still moves. Versions 2.1 and 2.2 had breaking changes, each with a
+  [migration guide](/docs/reference/migration-2-2).
+- The minimum supported Rust version is 1.95.
+- W3C WebTransport and streaming gRPC are not finished.
+
+## Porting an Axum service
+
+Handlers, extractors, and path syntax carry over almost unchanged.
+[Coming from Axum](/docs/getting-started/coming-from-axum) maps each Axum
+building block to its Tako equivalent.

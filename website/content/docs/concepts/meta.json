@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["architecture", "request-lifecycle", "runtimes", "design-philosophy"]
+  "pages": ["architecture", "request-lifecycle", "runtimes", "design-philosophy", "comparison"]
 }

@@ -1,4 +1,4 @@
 {
   "title": "Getting started",
-  "pages": ["installation", "quickstart", "project-layout"]
+  "pages": ["installation", "quickstart", "coming-from-axum", "ai-assistants", "project-layout"]
 }
