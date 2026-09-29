@@ -7,7 +7,7 @@
 > **Tako** (*"octopus"* in Japanese) is a pragmatic, ergonomic and extensible Rust framework for services that go beyond plain HTTP.
 > Build one cohesive application across HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP, Unix sockets, and WebTransport with a single routing, middleware, and observability model.
 
-📖 **Full documentation → [tako.rust-dd.com](https://tako.rust-dd.com)** &nbsp;·&nbsp; [API docs (docs.rs)](https://docs.rs/tako-rs/latest/tako/) &nbsp;·&nbsp; [Release notes](https://github.com/rust-dd/tako/releases)
+📖 **Full documentation → [tako.rust-dd.com](https://tako.rust-dd.com)** &nbsp;·&nbsp; [API docs (docs.rs)](https://docs.rs/tako-rs/latest/tako/) &nbsp;·&nbsp; [Release notes](https://github.com/rust-dd/tako/releases) &nbsp;·&nbsp; [llms.txt](https://tako.rust-dd.com/llms.txt) for AI assistants
 
 ## Why Tako
 
@@ -57,7 +57,10 @@ curl http://127.0.0.1:8080/
 ```
 
 Continue with the [Quickstart guide](https://tako.rust-dd.com/docs/getting-started/quickstart)
-or explore the [runnable examples](./examples).
+or explore the [runnable examples](./examples). Coming from Axum? The
+[Axum guide](https://tako.rust-dd.com/docs/getting-started/coming-from-axum) maps
+each building block, and the [comparison](https://tako.rust-dd.com/docs/concepts/comparison)
+covers when to pick Tako, Axum, or Actix Web.
 
 ## At a glance
 
