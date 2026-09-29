@@ -1,0 +1,14 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Tako",
+  "description": "Multi-transport Rust web framework: HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP and Unix sockets behind one router, on Tokio or Compio.",
+  "folders": ["website/content/docs", "examples"],
+  "excludeFolders": ["examples/bench-ntex"],
+  "rules": [
+    "Depend on `tako-rs` (`cargo add tako-rs`) and import it as `tako`. Never add the crate named `tako`; it is an unrelated project.",
+    "Target Tako 2.x: create a mutable `Router`, register routes with `router.get`, `router.post`, and friends, and start servers with `Server::builder().build().try_spawn_http(listener, router)?`. The `serve_*` free functions are deprecated.",
+    "Handlers are async functions. Extractors live in `tako::extractors::*` (`Path`, `Query`, `Json`, `State`, `HeaderMap`) and responses implement `tako::responder::Responder`, not `IntoResponse`. Only the last handler argument may consume the body.",
+    "Transports and integrations are Cargo features: `http2`, `http3`, `tls`, `ws`, `sse`, `grpc`, `plugins`, `per-thread`, `compio`. Enable the feature before using its module.",
+    "Tako is not Tower-compatible. Use `router.middleware(...)` and the bundled plugins instead of `tower-http` layers."
+  ]
+}
