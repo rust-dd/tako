@@ -1,17 +1,17 @@
 [package]
 name = "tako-rs"
-description = "Multi-transport Rust framework for modern network services."
+description = "Multi-transport Rust web framework: HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP and Unix sockets behind one router."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-keywords = ["web", "framework", "realtime", "network", "http3"]
+keywords = ["http", "web", "framework", "websocket", "http3"]
 categories = ["web-programming::http-server", "web-programming::websocket", "asynchronous", "network-programming"]
 readme = "../README.md"
 documentation = "https://docs.rs/tako-rs"
-homepage = "https://github.com/rust-dd/tako"
+homepage.workspace = true
 
 [lib]
 name = "tako"

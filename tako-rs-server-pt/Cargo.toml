@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 documentation = "https://docs.rs/tako-rs-server-pt"
-homepage = "https://github.com/rust-dd/tako"
+homepage.workspace = true
 readme = "../README.md"
 
 [lib]

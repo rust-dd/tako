@@ -60,6 +60,7 @@ edition = "2024"
 rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/rust-dd/tako"
+homepage = "https://tako.rust-dd.com"
 authors = ["Daniel Boros <dancixx@gmail.com>"]
 
 [workspace.dependencies]
