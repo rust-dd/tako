@@ -97,13 +97,13 @@ the closures:
 ```toml
 [dependencies]
 futures-util = "0.3"
-tako-rs = "2"
+tako-rs = { version = "2", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 ```
 
-`tako-rs` re-exports the WebSocket support as `tako::ws::TakoWs`. `futures-util`
+The `ws` feature enables `tako::ws::TakoWs`. `futures-util`
 provides the `Stream`/`Sink` extension traits, and `tokio-tungstenite` provides
 the `Message` enum used on the wire.
 
@@ -152,8 +152,8 @@ HTTP/2 WebSocket (RFC 8441) and the deflate extension are covered in the
 If the data only flows **server → client** — a live ticker, a log tail, a
 progress feed — a WebSocket is more machinery than you need. [Server-Sent
 Events](/docs/transports/sse) give you a one-way `text/event-stream` from an
-ordinary HTTP handler, with browser auto-reconnect built in, and also ship in the
-default feature set:
+ordinary HTTP handler, with browser auto-reconnect built in, behind the `sse`
+feature:
 
 ```rust
 use futures_util::stream;

@@ -25,8 +25,9 @@ anyhow = "1"
 ```
 
 The package is published as `tako-rs`; everything is re-exported under the
-`tako::*` path. The default feature set covers HTTP/1.1, WebSocket, SSE, raw
-TCP/UDP, Unix sockets, and PROXY protocol on Tokio. See
+`tako::*` path. The default feature set covers HTTP/1.1, raw TCP, and Unix
+sockets on Tokio; WebSocket (`ws`), SSE (`sse`), UDP (`udp`), PROXY protocol
+(`proxy-protocol`), HTTP/2, HTTP/3, and TLS are opt-in features. See
 [Installation](/docs/getting-started/installation) for the runtime choice and
 opt-in feature flags.
 

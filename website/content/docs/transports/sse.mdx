@@ -15,9 +15,8 @@ Server-Sent Events (SSE) push a one-way, long-lived stream of `text/event-stream
 frames from the server to the browser's `EventSource`. In Tako an SSE response is
 just a [`Responder`](/docs/routing) returned from an ordinary HTTP handler, so it
 flows through the same [`Router`](/docs/routing), middleware, and runtime as the
-rest of your app. `tako::sse::Sse` lives in `tako-rs-streams` and works on both
-the **tokio** and **compio** runtimes — no feature flag required (it ships in the
-default set).
+rest of your app. `tako::sse::Sse` lives in `tako-rs-streams`, sits behind the
+`sse` feature, and works on both the **tokio** and **compio** runtimes.
 
 There are two construction paths:
 
