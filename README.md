@@ -13,7 +13,7 @@
 
 - **Typed handlers** — ordinary async functions, typed request extractors, and flexible response types.
 - **Beyond HTTP** — add WebSockets, event streams, gRPC, or raw socket services as your application grows.
-- **Your choice of runtime** — Tokio or Compio; every transport except WebTransport runs on both.
+- **Your choice of runtime** — Tokio or Compio; every transport runs on both.
 - **Room to tune** — opt into SIMD JSON, zero-copy extractors, compression, or jemalloc when your workload calls for them.
 
 ## Quick start

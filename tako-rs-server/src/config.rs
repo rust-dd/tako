@@ -55,8 +55,8 @@ pub struct ServerConfig {
   pub h3_max_idle_timeout: Option<Duration>,
   /// HTTP/3 congestion controller selection.
   pub h3_congestion: H3Congestion,
-  /// Enable QUIC datagrams (RFC 9221) on HTTP/3 connections. Required for
-  /// downstream WebTransport-style traffic.
+  /// Enable QUIC datagrams (RFC 9221) on HTTP/3 connections. Always on with
+  /// the `webtransport` feature, whose sessions require them.
   pub h3_enable_datagrams: bool,
   /// Issue a QUIC Retry packet for each new connection whose source address
   /// has not been validated. Mitigates UDP source-address-spoofing

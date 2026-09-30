@@ -85,6 +85,7 @@ flate2 = "1.1.2"
 futures-util = "0.3.31"
 garde = { version = "0.23.0", features = ["derive"] }
 h3 = "0.0.8"
+h3-datagram = "0.0.2"
 h3-quinn = "0.0.10"
 headers = "0.4.1"
 hkdf = "0.13.0"
@@ -159,6 +160,7 @@ utoipa = { version = "6.0.0" }
 uuid = { version = "1.17.0", features = ["v4"] }
 validator = { version = "0.21.0", features = ["derive"] }
 vespera_core = { version = "0.4.0" }
+wtransport = { version = "0.7.2", default-features = false, features = ["aws-lc-rs"] }
 zstd = "0.14.0"
 
 [profile.release]

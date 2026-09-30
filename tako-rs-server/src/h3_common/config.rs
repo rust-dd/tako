@@ -18,9 +18,10 @@ pub(crate) fn transport_config_from(config: &ServerConfig) -> quinn::TransportCo
   {
     tc.max_idle_timeout(Some(idle));
   }
-  // QUIC datagrams (RFC 9221). Required for downstream WebTransport-style
-  // traffic. Send buffer is left at the quinn default.
-  if config.h3_enable_datagrams {
+  // QUIC datagrams (RFC 9221). WebTransport advertises HTTP/3 datagrams,
+  // which RFC 9297 only allows on top of QUIC datagram support. Send buffer is
+  // left at the quinn default.
+  if config.h3_enable_datagrams || cfg!(feature = "webtransport") {
     tc.datagram_receive_buffer_size(Some(64 * 1024));
   } else {
     tc.datagram_receive_buffer_size(None);

@@ -107,6 +107,11 @@ pub use server_tls_compio::serve_tls_with_shutdown_and_config;
 #[cfg(feature = "http3")]
 mod h3_common;
 
+/// W3C WebTransport sessions on the HTTP/3 server.
+#[cfg(feature = "webtransport")]
+#[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
+pub mod webtransport;
+
 /// HTTP/3 server implementation using QUIC transport.
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]

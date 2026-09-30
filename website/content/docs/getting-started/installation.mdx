@@ -46,8 +46,7 @@ Tracking the latest stable Rust is recommended.
 Tako runs on two async runtimes, selected at build time:
 
 - **Tokio** (default) — multi-threaded, work-stealing scheduler with `Send`
-  futures end-to-end. This is what the standalone `Server` builder targets and
-  what every Tokio-only transport requires.
+  futures end-to-end. This is what the standalone `Server` builder targets.
 - **Compio** (opt-in via the `compio` feature) — single-threaded
   thread-per-core over io_uring / IOCP / kqueue, with `!Send` futures pinned to
   their runtime thread.

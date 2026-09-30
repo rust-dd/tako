@@ -25,9 +25,9 @@ adapter only.
 
 Without `compio`, Tako selects Tokio. Enabling `compio` switches the HTTP server,
 router timers, middleware, queues, and per-thread workers to Compio.
-`cargo build --all-features` compiles and selects Compio; the Tokio-only
-WebTransport exports are excluded from that build. To use WebTransport, choose
-a Tokio feature set without `compio`.
+`cargo build --all-features` compiles and selects Compio; the Tokio-only raw
+QUIC helper (`RawQuicSession`) is excluded from that build. To use it, choose a
+Tokio feature set without `compio`.
 
 ## Switching runtimes
 
@@ -65,7 +65,7 @@ use the selected builder and its `try_spawn_*` methods.
 
 ## Transport coverage
 
-Every transport except WebTransport runs on both runtimes:
+Every transport runs on both runtimes:
 
 | Protocol | Tokio | Compio | Feature flag |
 |---|---|---|---|
@@ -74,7 +74,7 @@ Every transport except WebTransport runs on both runtimes:
 | HTTP/3 (QUIC) | yes | yes | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
 | WebSocket | yes | yes | `ws` / `compio-ws` |
-| WebTransport | yes | — | `webtransport` |
+| WebTransport | yes | yes | `webtransport` |
 | SSE | yes | yes | `sse` |
 | gRPC (unary and streaming) | yes | yes | `grpc` |
 | Raw TCP | yes | yes | *default* |
@@ -82,9 +82,10 @@ Every transport except WebTransport runs on both runtimes:
 | Unix sockets | yes | yes | *default* (unix only) |
 | PROXY protocol v1/v2 | yes | yes | `proxy-protocol` |
 
-HTTP/2 over TLS, cleartext h2c, HTTP/3, Unix sockets, and PROXY protocol are
-supported on both runtimes. WebTransport is Tokio-only. Raw TCP and UDP use each
-runtime’s native I/O API.
+HTTP/2 over TLS, cleartext h2c, HTTP/3, WebTransport, Unix sockets, and PROXY
+protocol are supported on both runtimes. Only the raw QUIC helper
+(`RawQuicSession`) is Tokio-only. Raw TCP and UDP use each runtime’s native I/O
+API.
 
 ## Crossing the runtime boundary internally
 

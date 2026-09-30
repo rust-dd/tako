@@ -19,8 +19,8 @@ handlers see a `ConnInfo` whose transport is `Http3`.
 <Callout type="warn">
 TLS is **mandatory** for QUIC, so a `TlsCert` is always required. On Compio a
 request body is bound to the runtime thread that received it, like every compio
-task; moving it to another thread panics. Enable `webtransport` separately for the
-[raw QUIC session helper](/docs/transports/webtransport), which is Tokio-only.
+task; moving it to another thread panics. Enable `webtransport` to also accept
+[WebTransport sessions](/docs/transports/webtransport) on the same server.
 </Callout>
 
 ## Quickstart
@@ -182,7 +182,7 @@ constructing any server; once a provider is installed, Tako uses it as-is.
 ## Related
 
 - [HTTP](/docs/transports/http) — HTTP/1.1 and HTTP/2.
-- [WebTransport](/docs/transports/webtransport) — raw QUIC sessions, enabled
-  alongside `http3`.
+- [WebTransport](/docs/transports/webtransport) — browser WebTransport sessions on
+  the HTTP/3 server, behind `webtransport`.
 - [Feature flags](/docs/reference/features) — the `http3` feature and what it
   pulls in.

@@ -29,7 +29,7 @@ cargo test --workspace --all-features
 ```
 
 `--all-features` selects Compio and excludes Tokio-only exports. Also run a Tokio
-feature subset to cover the Tokio transports and WebTransport. See the
+feature subset to cover the Tokio side of each transport. See the
 [feature reference](/docs/reference/features).
 
 
@@ -95,8 +95,8 @@ implementation detail.
 | `tako-rs` | Umbrella re-export, cargo feature surface, prelude, allocator hook |
 | `tako-rs-core` | Router, handlers, middleware/plugin traits, body/request/response types, state, signals, queue, GraphQL / gRPC / OpenAPI helpers |
 | `tako-rs-extractors` | Concrete request extractors |
-| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP / UDP / Unix, PROXY protocol, compio variants |
-| `tako-rs-streams` | WebSocket, SSE, file streaming, static files, WebTransport |
+| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, WebTransport, TLS, raw TCP / UDP / Unix, PROXY protocol, compio variants |
+| `tako-rs-streams` | WebSocket, SSE, file streaming, static files, raw QUIC sessions |
 | `tako-rs-plugins` | Bundled middleware and plugins |
 | `tako-rs-macros` | The `#[tako::route]` / `#[tako::get]` attribute family |
 | `tako-rs-server-pt` | Thread-per-core entry point |

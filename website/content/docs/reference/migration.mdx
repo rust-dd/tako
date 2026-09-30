@@ -315,8 +315,8 @@ matching thread-safe equivalent. The `per-thread-local` /
 - `ServeDirBuilder::precompressed(...)`, `index_files([...])`, traversal
   rejection at parse time. SPA fallback uses the same resolver.
 - WebTransport is currently raw QUIC and is also exported as
-  `RawQuicSession` so call sites can pick the honest name. The W3C
-  WebTransport CONNECT handshake is deferred.
+  `RawQuicSession` so call sites can pick the honest name. W3C WebTransport
+  sessions landed after 2.2.0: see [WebTransport](/docs/transports/webtransport).
 
 ## 16. gRPC
 
@@ -370,9 +370,9 @@ The whole `tako::client` module was removed after 2.2.0. Use
 
 ## Runtime selection
 
-`--all-features` now compiles and selects Compio. HTTP/3, h2c, PROXY protocol,
-and Unix sockets run on both runtimes. Only the WebTransport exports are
-Tokio-only, so use a Tokio feature subset for WebTransport. See the
+`--all-features` now compiles and selects Compio. HTTP/3, h2c, WebTransport,
+PROXY protocol, and Unix sockets run on both runtimes. Only the raw QUIC helper
+(`RawQuicSession`) is Tokio-only, so use a Tokio feature subset for it. See the
 [2.1 migration guide](/docs/reference/migration-2-1).
 
 ## Deferred to a future 2.x release
@@ -383,7 +383,6 @@ The following are tracked separately and have **not yet** landed:
 - `TlsCert::Acme { ... }`
 - HTTP/3 qlog
 - Multipart/byteranges responder, Linux `sendfile(2)` path
-- Real WebTransport CONNECT handshake
 - Generated gRPC stubs (reflection / health protobuf)
 - Cluster `SignalBus` impls (Redis, NATS, Kafka)
 - Hot-reload `Arc<Router>` swap (current path keeps `Box::leak` for

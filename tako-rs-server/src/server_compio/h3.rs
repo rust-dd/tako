@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
 use compio::quic::Connection;
 use compio::quic::Endpoint;
 use compio::quic::EndpointConfig;
@@ -22,7 +21,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 use crate::h3_common::config::transport_config_from;
-use crate::h3_common::request::handle_request;
+use crate::h3_common::sessions::Accepted;
+use crate::h3_common::sessions::Sessions;
 
 /// Binds a QUIC endpoint for HTTP/3 on `addr`.
 ///
@@ -175,7 +175,8 @@ pub(crate) async fn run_endpoint(
 }
 
 /// Serves one HTTP/3 connection until the peer closes it or shutdown sends a
-/// GOAWAY, then gives in-flight requests up to `goaway_grace` to finish.
+/// GOAWAY, then gives in-flight requests up to `goaway_grace` to finish. An
+/// accepted WebTransport session takes the connection over until it ends.
 async fn handle_connection(
   conn: Connection,
   router: Arc<Router>,
@@ -183,25 +184,31 @@ async fn handle_connection(
   shutdown: CancellationToken,
   goaway_grace: Duration,
 ) -> Result<(), BoxError> {
-  let mut h3_conn = h3::server::Connection::<_, Bytes>::new(conn).await?;
+  let mut h3_conn = crate::h3_common::connection::accept(conn).await?;
   let mut requests = FuturesUnordered::new();
+  let mut sessions = Sessions::new();
 
-  loop {
-    let accepted = {
+  let session = loop {
+    let event = {
       let accept = std::pin::pin!(h3_conn.accept());
+      let session = std::pin::pin!(sessions.recv());
       let cancelled = std::pin::pin!(shutdown.cancelled());
-      match futures_util::future::select(accept, cancelled).await {
-        Either::Left((result, _)) => Some(result),
-        Either::Right(_) => None,
+      match futures_util::future::select(futures_util::future::select(accept, session), cancelled)
+        .await
+      {
+        Either::Left((Either::Left((result, _)), _)) => Event::Request(result),
+        Either::Left((Either::Right((session, _)), _)) => Event::Session(Box::new(session)),
+        Either::Right(_) => Event::Shutdown,
       }
     };
-    match accepted {
-      Some(Ok(Some(resolver))) => {
+    match event {
+      Event::Request(Ok(Some(resolver))) => {
         let router = router.clone();
+        let sessions = sessions.sender();
         requests.push(compio::runtime::spawn(async move {
           match resolver.resolve_request().await {
             Ok((req, stream)) => {
-              if let Err(e) = handle_request(req, stream, router, remote_addr).await {
+              if let Err(e) = sessions.serve(req, stream, router, remote_addr).await {
                 tracing::error!("HTTP/3 request error: {e}");
               }
             }
@@ -212,20 +219,27 @@ async fn handle_connection(
         }));
         while requests.next().now_or_never().flatten().is_some() {}
       }
-      Some(Ok(None)) => break,
-      Some(Err(e)) => {
+      Event::Request(Ok(None)) => break None,
+      Event::Request(Err(e)) => {
         tracing::error!("HTTP/3 accept error: {e}");
-        break;
+        break None;
       }
-      None => {
+      Event::Session(session) => break Some(*session),
+      Event::Shutdown => {
         // GOAWAY(0): the peer must not start new requests, while streams
         // already in flight keep draining below.
         if let Err(e) = h3_conn.shutdown(0).await {
           tracing::debug!("HTTP/3 GOAWAY error: {e}");
         }
-        break;
+        break None;
       }
     }
+  };
+
+  if let Some(session) = session {
+    session
+      .run(h3_conn, router, remote_addr, &shutdown, goaway_grace)
+      .await;
   }
 
   if compio::time::timeout(goaway_grace, async {
@@ -245,4 +259,10 @@ async fn handle_connection(
   }
 
   Ok(())
+}
+
+enum Event<R> {
+  Request(Result<Option<R>, h3::error::ConnectionError>),
+  Session(Box<Accepted>),
+  Shutdown,
 }

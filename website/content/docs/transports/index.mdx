@@ -23,7 +23,7 @@ time — the routing, middleware, and observability model does not change.
 | HTTP/3 (QUIC) | yes | yes | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
 | WebSocket | yes | yes | `ws` / `compio-ws` |
-| WebTransport (raw QUIC) | yes | — | `webtransport` |
+| WebTransport | yes | yes | `webtransport` |
 | SSE | yes | yes | `sse` |
 | gRPC (unary and streaming) | yes | yes | `grpc` |
 | Raw TCP | yes | yes | *default* |
@@ -31,9 +31,9 @@ time — the routing, middleware, and observability model does not change.
 | Unix sockets | yes | yes | *default* (unix only) |
 | PROXY protocol v1/v2 | yes | yes | `proxy-protocol` |
 
-WebTransport is Tokio-only. HTTP/2 over TLS, cleartext h2c, HTTP/3, raw TCP/UDP,
-Unix sockets, PROXY protocol, gRPC handlers, WebSocket, and SSE run on both
-runtimes. See [Runtimes](/docs/concepts/runtimes) and the
+Every transport runs on both runtimes: HTTP/2 over TLS, cleartext h2c, HTTP/3,
+WebTransport, raw TCP/UDP, Unix sockets, PROXY protocol, gRPC handlers, WebSocket,
+and SSE. Only the raw QUIC session helper behind `webtransport` is Tokio-only. See [Runtimes](/docs/concepts/runtimes) and the
 [feature reference](/docs/reference/features).
 
 ## How transports attach to a server
@@ -81,8 +81,8 @@ The handle is runtime-agnostic — both `Server` (tokio) and `CompioServer`
 - [HTTP/3](/docs/transports/http3) — HTTP/3 over QUIC on either runtime; TLS required.
 - [WebSocket](/docs/transports/websocket) — RFC-6455 upgrade inside an HTTP
   handler, on both runtimes.
-- [WebTransport](/docs/transports/webtransport) — raw QUIC session helper;
-  tokio-only, requires the `webtransport` feature.
+- [WebTransport](/docs/transports/webtransport) — W3C WebTransport sessions on the
+  HTTP/3 server, reachable from browsers; requires the `webtransport` feature.
 - [SSE](/docs/streams) — Server-Sent Events; see the Streams primitives.
 - [gRPC](/docs/transports/grpc) — unary and streaming RPCs with protobuf.
 - [TCP / UDP / Unix](/docs/transports/tcp-udp-unix) — raw byte transports and

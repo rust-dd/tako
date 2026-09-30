@@ -1,97 +1,183 @@
 ---
 title: WebTransport
-description: A raw QUIC session helper over quinn for server-to-server tunnels — tokio-only, behind the webtransport feature, TLS required.
+description: Browser-compatible W3C WebTransport over HTTP/3 on Tokio or Compio, routed through the Router, plus a raw QUIC session helper on Tokio.
 category: transport
+crate: tako-rs-server
+runtime: both
+features: [webtransport]
 since: 2.0.0
 status: stable
-crate: tako-rs-streams
-runtime: tokio
-features: [webtransport]
 ---
 
 # WebTransport
 
-The `webtransport` module exposes a thin wrapper over a `quinn` QUIC server
-endpoint. It accepts QUIC connections, enables datagrams, and surfaces
-bidirectional and unidirectional streams plus unreliable datagrams.
+Tako serves W3C WebTransport over HTTP/3, the protocol behind the browser's
+`new WebTransport(url)`. A session carries bidirectional and unidirectional
+streams plus unreliable datagrams over one QUIC connection. It runs on the
+HTTP/3 server on either runtime, behind the `webtransport` feature, which also
+enables `http3`.
 
-<Callout type="error">
-This is **not** W3C WebTransport. The module does not implement the W3C draft
-handshake (`CONNECT :protocol = webtransport` over HTTP/3,
-`SETTINGS_ENABLE_WEBTRANSPORT`, per-session demultiplexing). **Browsers cannot
-reach this server through the WebTransport API** — only QUIC peers that speak the
-same private framing can. The W3C-compliant CONNECT handshake is a roadmap item.
-</Callout>
+```toml
+[dependencies]
+tako-rs = { version = "2", features = ["webtransport"] }
+```
 
-Use this module when you want a private QUIC tunnel between Tako-aware peers
-(server-to-server, or a custom client you control). Do **not** advertise the
-endpoint as `WebTransport` to browsers; they will reject it.
+## Accepting sessions
 
-<Callout type="warn">
-WebTransport is **tokio-only** and lives behind the `webtransport` feature.
-Enabling `http3` enables `webtransport` automatically. Like all QUIC transports,
-TLS is required — you pass PEM cert and key paths at spawn time.
-</Callout>
-
-## Serving sessions
-
-`serve_webtransport(addr, cert_path, key_path, handler)` binds a QUIC endpoint
-and dispatches each accepted connection to your handler, wrapped in a
-`RawQuicSession`. The handler returns a boxed, pinned future.
+A session starts as an HTTP/3 extended CONNECT request. It goes through the
+router like any other request, so path matching, extractors, and middleware such
+as authentication run first. Register a `CONNECT` route whose handler takes the
+`WebTransport` extractor and returns `on_session`:
 
 ```rust
-use tako::webtransport::{RawQuicSession, serve_webtransport};
+use tako::Method;
+use tako::TlsCert;
+use tako::router::Router;
+use tako::types::{BoxError, Response};
+use tako::webtransport::{WebTransport, WebTransportSession};
+use tokio::io::AsyncWriteExt;
 
-async fn handle_session(session: RawQuicSession) {
-  let remote = session.remote_address();
-  println!("New session from {remote}");
-
-  loop {
-    tokio::select! {
-      result = session.accept_bi() => {
-        match result {
-          Ok((mut send, mut recv)) => {
-            tokio::spawn(async move {
-              let mut buf = vec![0u8; 4096];
-              while let Ok(Some(n)) = recv.read(&mut buf).await {
-                if send.write_all(&buf[..n]).await.is_err() {
-                  break;
-                }
-              }
-            });
-          }
-          Err(_) => break,
-        }
-      }
-      result = session.read_datagram() => {
-        match result {
-          Ok(data) => {
-            let _ = session.send_datagram(data);
-          }
-          Err(_) => break,
-        }
-      }
+async fn echo(wt: WebTransport) -> Response {
+  wt.on_session(|session: WebTransportSession| async move {
+    while let Ok(Some(stream)) = session.accept_bi().await {
+      tokio::spawn(async move {
+        let (mut send, mut recv) = stream.split();
+        let _ = tokio::io::copy(&mut recv, &mut send).await;
+        let _ = send.shutdown().await;
+      });
     }
-  }
+  })
 }
 
 #[tokio::main]
-async fn main() {
-  serve_webtransport("[::]:4433", "cert.pem", "key.pem", |session| {
-    Box::pin(handle_session(session))
-  })
-  .await;
+async fn main() -> Result<(), BoxError> {
+  let mut router = Router::new();
+  router.route(Method::CONNECT, "/echo", echo);
+
+  tako::Server::builder()
+    .tls(TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .try_spawn_h3("0.0.0.0:4433", router)?
+    .result()
+    .await?;
+  Ok(())
 }
 ```
 
-`serve_webtransport_with_shutdown(addr, cert, key, handler, signal)` is the same
-entry point with a graceful-shutdown future. On shutdown the endpoint stops
-accepting, drains in-flight sessions up to a 30 s timeout, then aborts the
-remainder.
+`on_session` answers `200 OK`, and the callback runs once the server has sent the
+response. To refuse a session, return any non-2xx response instead. The
+`WebTransport` extractor rejects requests that are not a WebTransport CONNECT with
+`400 Bad Request`, and a path without a CONNECT route answers `404`.
+
+In the browser:
+
+```js
+const transport = new WebTransport("https://example.com:4433/echo");
+await transport.ready;
+const stream = await transport.createBidirectionalStream();
+```
+
+## Streams and datagrams
+
+| Method | Result |
+|---|---|
+| `accept_bi()` | The next bidirectional stream the client opens |
+| `accept_uni()` | The next unidirectional stream the client opens |
+| `open_bi()` / `open_uni()` | A stream opened by the server |
+| `read_datagram()` | The next datagram of the session |
+| `send_datagram(bytes)` | Sends an unreliable datagram |
+| `remote_address()` / `session_id()` | The client and the session |
+
+`BidiStream`, `SendStream`, and `RecvStream` implement `AsyncRead` and
+`AsyncWrite` from both `tokio::io` and `futures::io`. `BidiStream::split` returns
+separate sending and receiving sides; shutting down the sending side finishes the
+stream.
+
+`WebTransportSession` is `Clone`, so one task can read datagrams while another
+accepts streams. Each QUIC connection carries one session. Other HTTP/3 requests
+that arrive on the same connection are still served by the router.
+
+QUIC datagrams are always on with the `webtransport` feature, whatever
+`ServerConfig::h3_enable_datagrams` says, because WebTransport requires them.
+
+## Closing a session
+
+A session ends when:
+
+- the browser calls `transport.close({ closeCode, reason })` or goes away;
+- the server calls `session.close(code, reason).await`;
+- the handler returns, which closes the session with code 0;
+- the server shuts down.
+
+After that, `accept_bi`, `accept_uni`, and `read_datagram` return `Ok(None)`, so
+accept loops end on their own. `session.closed().await` resolves with a
+`WebTransportClose { code, reason }` from whichever side closed first, and the
+browser reads the server's code and reason from `transport.closed`.
+
+## Runtimes
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
+
+The session and its streams are `Send`, so the example above hands each stream to
+`tokio::spawn`.
+
+</Tab>
+<Tab value="Compio">
+
+Serve the same router with `CompioServer::builder()` and `try_spawn_h3`. The
+session and its streams are `!Send` and stay on the connection's thread, so spawn
+per-stream work with `compio::runtime::spawn` and use the `futures::io` traits:
+
+```rust
+use futures_util::io::AsyncWriteExt;
+use tako::types::Response;
+use tako::webtransport::{WebTransport, WebTransportSession};
+
+async fn echo(wt: WebTransport) -> Response {
+  wt.on_session(|session: WebTransportSession| async move {
+    while let Ok(Some(stream)) = session.accept_bi().await {
+      compio::runtime::spawn(async move {
+        let (mut send, recv) = stream.split();
+        let _ = futures_util::io::copy(recv, &mut send).await;
+        let _ = send.close().await;
+      })
+      .detach();
+    }
+  })
+}
+```
+
+</Tab>
+</Tabs>
+
+## Certificates for local development
+
+Browsers only connect to a certificate they trust. During development, skip the
+certificate store by passing the certificate's SHA-256 hash to
+`serverCertificateHashes`:
+
+```js
+const transport = new WebTransport("https://127.0.0.1:4433/echo", {
+  serverCertificateHashes: [{ algorithm: "sha-256", value: certificateHash }],
+});
+```
+
+The certificate must be an ECDSA P-256 certificate valid for at most 14 days.
+`examples/webtransport` generates one at startup, serves a test page at
+`http://127.0.0.1:3000`, and echoes a stream and a datagram:
 
 <RustExample path="examples/webtransport/src/main.rs" />
 
-## RawQuicSession
+## Raw QUIC sessions
+
+`serve_webtransport(addr, cert_path, key_path, handler)` is a separate, lower-level
+API. It binds a plain QUIC endpoint and hands each connection to your handler as a
+`RawQuicSession`, with no HTTP/3 or WebTransport handshake. Browsers cannot connect
+to it; use it for private QUIC tunnels between peers you control. It is
+Tokio-only and needs the `webtransport` feature.
+
+<RustExample path="examples/raw-quic/src/main.rs" />
 
 `RawQuicSession` wraps a `quinn::Connection` and exposes its stream and datagram
 surface directly:
@@ -108,19 +194,12 @@ surface directly:
 | `close(code, reason)` | Close the session with a QUIC error code. |
 | `connection()` | Borrow the underlying `quinn::Connection` for advanced use. |
 
-The stream and datagram types (`quinn::SendStream`, `quinn::RecvStream`,
-`bytes::Bytes`) are quinn's own, so anything quinn supports on a connection is
-reachable through `connection()`.
-
-## Certificate provider note
-
-The endpoint installs the `ring` rustls `CryptoProvider` on startup and
-advertises the `h3` ALPN protocol. If your process also serves plain TLS and you
-need a specific provider, pin it before constructing any server — see the same
-note on the [HTTP/3](/docs/transports/http3) page.
+`serve_webtransport_with_shutdown(addr, cert, key, handler, signal)` adds a
+graceful-shutdown future: the endpoint stops accepting, drains in-flight sessions
+for up to 30 s, then aborts the rest. The endpoint installs the `ring` rustls
+`CryptoProvider` if none is installed yet and advertises the `h3` ALPN protocol.
 
 ## Related
 
-- [HTTP/3](/docs/transports/http3) — the QUIC transport WebTransport builds on;
-  enabling `http3` enables `webtransport`.
-- [Feature flags](/docs/reference/features) — the `webtransport` feature.
+- [HTTP/3](/docs/transports/http3): the QUIC transport WebTransport runs on.
+- [Feature flags](/docs/reference/features): the `webtransport` feature.

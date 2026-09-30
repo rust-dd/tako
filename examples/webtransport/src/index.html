@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Tako WebTransport</title>
+<pre id="log"></pre>
+<script type="module">
+  const log = (line) => {
+    document.getElementById("log").textContent += line + "\n";
+  };
+
+  try {
+    const transport = new WebTransport("https://127.0.0.1:4433/echo", {
+      serverCertificateHashes: [
+        { algorithm: "sha-256", value: new Uint8Array([CERT_HASH]) },
+      ],
+    });
+    await transport.ready;
+    log("session ready");
+
+    const stream = await transport.createBidirectionalStream();
+    const writer = stream.writable.getWriter();
+    await writer.write(new TextEncoder().encode("hello over a stream"));
+    await writer.close();
+    log("stream echo: " + (await new Response(stream.readable).text()));
+
+    const datagrams = transport.datagrams.readable.getReader();
+    await transport.datagrams.writable
+      .getWriter()
+      .write(new TextEncoder().encode("hello over a datagram"));
+    const { value } = await datagrams.read();
+    log("datagram echo: " + new TextDecoder().decode(value));
+
+    transport.close({ closeCode: 42, reason: "bye" });
+    await transport.closed;
+    log("session closed");
+  } catch (error) {
+    log("error: " + error);
+  }
+</script>
+</html>

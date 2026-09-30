@@ -18,7 +18,7 @@ export function llmsHeader() {
     '- The crates.io package is `tako-rs`; the library is imported as `tako` (`use tako::...`). The crate named `tako` on crates.io is an unrelated project, so never depend on it.',
     `- Install with \`cargo add tako-rs\` (\`tako-rs = "${crateMinorVersion}"\`). Tako requires Rust 1.95 or newer and edition 2024.`,
     '- Default features give Tokio with HTTP/1.1, raw TCP, Unix sockets, static files, and the core extractors and middleware. HTTP/2, HTTP/3, TLS, WebSocket (`ws`), SSE (`sse`), UDP, gRPC, and the bundled plugins are opt-in Cargo features.',
-    '- Start servers with `Server::builder().build().try_spawn_http(listener, router)?`; the `serve_*` free functions are deprecated. The `compio` feature switches to `CompioServer`; every transport except WebTransport runs on both runtimes.',
+    '- Start servers with `Server::builder().build().try_spawn_http(listener, router)?`; the `serve_*` free functions are deprecated. The `compio` feature switches to `CompioServer`; every transport runs on both runtimes.',
     '- Tako has no outbound HTTP client (`tako::client` was removed after 2.2.0); use `reqwest` or `ureq`.',
     '- Every docs page is available as Markdown by appending `.mdx` to its URL.',
   ].join('\n');

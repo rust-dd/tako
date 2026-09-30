@@ -36,6 +36,7 @@ Versions compared: Tako 2.2, Axum 0.8, and Actix Web 4.
 | HTTP/1.1 | Yes | Yes | Yes |
 | HTTP/2 | Yes (`http2`, including h2c) | Yes (`http2` feature) | Yes |
 | HTTP/3 (QUIC) | Yes (`http3`) | No built-in support | No built-in support |
+| WebTransport | W3C sessions over HTTP/3 (`webtransport`) | No built-in support | No built-in support |
 | TLS | Built in: rustls, mTLS, SNI, hot reload | Via `axum-server` or a rustls acceptor | Built in: rustls or OpenSSL |
 | WebSocket | Built in (`ws`) | Built in (`ws` feature) | `actix-ws` crate |
 | Server-Sent Events | Built in (`sse`) | Built in | `actix-web-lab` crate |
@@ -50,10 +51,6 @@ Versions compared: Tako 2.2, Axum 0.8, and Actix Web 4.
 | GraphQL | `async-graphql` integration | `async-graphql-axum` | `async-graphql-actix-web` |
 | Metrics | Prometheus and OpenTelemetry plugins | Community crates | Community crates |
 | First release | 2025 | 2021 | 2017 |
-
-Tako's `webtransport` module is a raw QUIC session helper, not the W3C
-WebTransport handshake, so browsers cannot connect to it yet. See
-[WebTransport](/docs/transports/webtransport).
 
 ## Throughput
 
@@ -103,7 +100,6 @@ Know the trade-offs before choosing Tako:
 - The API still moves. Versions 2.1 and 2.2 had breaking changes, each with a
   [migration guide](/docs/reference/migration-2-2).
 - The minimum supported Rust version is 1.95.
-- W3C WebTransport is not finished.
 
 ## Porting an Axum service
 

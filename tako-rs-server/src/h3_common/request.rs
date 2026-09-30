@@ -5,9 +5,11 @@ use bytes::Buf;
 use bytes::Bytes;
 use h3::quic::BidiStream;
 use h3::quic::RecvStream;
+use h3::quic::SendStream;
 use h3::server::RequestStream;
 use http::HeaderMap;
 use http::Request;
+use http::Response;
 use http_body::Body;
 use http_body::Frame;
 use tako_rs_core::body::TakoBody;
@@ -78,8 +80,16 @@ where
   let (parts, ()) = req.into_parts();
   let body = build_h3_body(recv_stream);
   let mut tako_req = Request::from_parts(parts, body);
-  tako_req.extensions_mut().insert(remote_addr);
-  tako_req.extensions_mut().insert(ConnInfo::h3(
+  annotate(&mut tako_req, remote_addr);
+
+  let response = router.dispatch(tako_req).await;
+  respond(&mut send_stream, response).await
+}
+
+/// Inserts the connection details every HTTP/3 request carries.
+pub(crate) fn annotate(req: &mut Request<TakoBody>, remote_addr: SocketAddr) {
+  req.extensions_mut().insert(remote_addr);
+  req.extensions_mut().insert(ConnInfo::h3(
     remote_addr,
     TlsInfo {
       alpn: Some(bytes::Bytes::from_static(b"h3")),
@@ -87,9 +97,16 @@ where
       version: Some("TLSv1.3"),
     },
   ));
+}
 
-  let response = router.dispatch(tako_req).await;
-
+/// Sends a router response, streaming its body and trailers.
+pub(crate) async fn respond<S>(
+  send_stream: &mut RequestStream<S, Bytes>,
+  response: Response<TakoBody>,
+) -> Result<(), BoxError>
+where
+  S: SendStream<Bytes>,
+{
   let (parts, body) = response.into_parts();
   let resp = http::Response::from_parts(parts, ());
   send_stream.send_response(resp).await?;

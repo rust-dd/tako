@@ -39,8 +39,8 @@ query / form / path extractors, and the middleware traits — so a single
 | `tako-rs` | Umbrella re-export (`tako::*`), cargo feature surface, prelude, allocator hook | Always — this is your only direct dependency |
 | `tako-rs-core` | Router, handlers, middleware and plugin traits, body / request / response types, state, signals, queue, plus GraphQL / gRPC / OpenAPI helpers | Foundational — pulled in by everything |
 | `tako-rs-extractors` | Concrete request extractors: cookies, form, query, path, headers, JWT, multipart, simd-json, and more | Reading typed data out of requests |
-| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP / UDP / Unix, PROXY protocol, plus compio variants | Binding listeners and serving transports |
-| `tako-rs-streams` | WebSocket, SSE, file streaming, static file serving, WebTransport | Realtime and streaming responses |
+| `tako-rs-server` | HTTP/1.1, HTTP/2, HTTP/3, WebTransport, TLS, raw TCP / UDP / Unix, PROXY protocol, plus compio variants | Binding listeners and serving transports |
+| `tako-rs-streams` | WebSocket, SSE, file streaming, static file serving, raw QUIC sessions | Realtime and streaming responses |
 | `tako-rs-plugins` | Bundled middleware (auth, CSRF, sessions, …) and plugins (CORS, compression, rate limiting, idempotency, metrics) | Production middleware off the shelf |
 | `tako-rs-macros` | The `#[tako::route]` / `#[tako::get]` / `.post` / … attribute family | Declarative route registration with typed path slots |
 | `tako-rs-server-pt` | Optional thread-per-core entry point (`serve_per_thread`) | Thread-per-core deployments via `SO_REUSEPORT` |

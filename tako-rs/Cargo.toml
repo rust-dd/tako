@@ -46,7 +46,7 @@ signals = ["tako-rs-core/signals", "tako-rs-server/signals", "tako-rs-plugins/si
 tls = ["tako-rs-server/tls", "tako-rs-core/tls"]
 http2 = ["tako-rs-server/http2", "tako-rs-core/http2"]
 http3 = ["tako-rs-server/http3", "tako-rs-streams/http3", "tako-rs-core/http3"]
-webtransport = ["tako-rs-streams/webtransport", "tako-rs-core/webtransport"]
+webtransport = ["http3", "tako-rs-server/webtransport", "tako-rs-streams/webtransport", "tako-rs-core/webtransport"]
 
 # Compio runtime
 compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio", "tako-rs-server-pt?/compio"]

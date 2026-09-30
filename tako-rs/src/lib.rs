@@ -172,9 +172,17 @@ pub use tako_rs_streams::file_stream;
 #[cfg(feature = "sse")]
 pub use tako_rs_streams::sse;
 pub use tako_rs_streams::r#static;
-#[cfg(all(feature = "webtransport", not(feature = "compio")))]
+/// W3C WebTransport sessions on the HTTP/3 server, on either runtime.
+///
+/// On Tokio the module also holds `RawQuicSession`, a plain QUIC endpoint for
+/// peers that do not speak WebTransport.
+#[cfg(feature = "webtransport")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
-pub use tako_rs_streams::webtransport;
+pub mod webtransport {
+  pub use tako_rs_server::webtransport::*;
+  #[cfg(not(feature = "compio"))]
+  pub use tako_rs_streams::webtransport::*;
+}
 #[cfg(not(any(feature = "compio", feature = "compio-ws")))]
 #[cfg(feature = "ws")]
 pub use tako_rs_streams::ws;

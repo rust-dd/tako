@@ -48,8 +48,8 @@ Crate ownership (drives the `crate:` key and "which page" calls):
 | `tako-rs`            | umbrella re-export (`tako::*`)                              |
 | `tako-rs-core`       | routing, handlers, middleware traits, body/request/response, state, signals, queue, GraphQL/gRPC/OpenAPI helpers |
 | `tako-rs-extractors` | concrete request extractors                                |
-| `tako-rs-server`     | HTTP/1.1, HTTP/2, HTTP/3, TLS, raw TCP/UDP/Unix, PROXY, compio variants |
-| `tako-rs-streams`    | WebSocket, SSE, file streaming, static files, WebTransport |
+| `tako-rs-server`     | HTTP/1.1, HTTP/2, HTTP/3, WebTransport, TLS, raw TCP/UDP/Unix, PROXY, compio variants |
+| `tako-rs-streams`    | WebSocket, SSE, file streaming, static files, raw QUIC     |
 | `tako-rs-plugins`    | bundled middleware + plugins                               |
 | `tako-rs-macros`     | `#[tako::route]` / `#[tako::get]` family                   |
 | `tako-rs-server-pt`  | thread-per-core entry point                                |
@@ -205,7 +205,7 @@ Accuracy is the whole job. Read the crate source before writing — do not
 invent signatures or type names. Prefer `<RustExample>` pointing at a real
 file in `examples/` over a hand-written snippet. Keep tokio-only vs compio
 support correct (the README transport matrix is the reference: HTTP/2 +
-TLS, h2c, HTTP/3, raw TCP/UDP, Unix sockets, and PROXY protocol on both runtimes; WebTransport is tokio-only). When a
+TLS, h2c, HTTP/3, WebTransport, raw TCP/UDP, Unix sockets, and PROXY protocol on both runtimes; only the raw QUIC helper `RawQuicSession` is tokio-only). When a
 type's friendly name in the README differs from its exported name, document
 the exported name and mention the catalog name once.
 

@@ -114,10 +114,10 @@ This umbrella crate stitches together the workspace sub-crates:
   request types, state, signals, queue, plus GraphQL, gRPC, and `OpenAPI` helpers
 - `tako-rs-extractors`: concrete request extractors (cookies, form, query,
   path, JWT, multipart, SIMD JSON, …)
-- `tako-rs-server`: HTTP/1, TLS, HTTP/3, raw TCP, UDP, and Unix sockets, PROXY
-  protocol, plus the Compio variants
+- `tako-rs-server`: HTTP/1, TLS, HTTP/3, WebTransport, raw TCP, UDP, and Unix
+  sockets, PROXY protocol, plus the Compio variants
 - `tako-rs-streams`: WebSocket, SSE, file streaming, static file serving, and
-  WebTransport
+  raw QUIC sessions
 - `tako-rs-plugins`: built-in middleware (auth, CSRF, sessions, …) and plugins
   (CORS, compression, rate limiting, idempotency, metrics)
 

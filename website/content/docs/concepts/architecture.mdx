@@ -74,9 +74,9 @@ default `Server` and accepts connections on a `TcpListener`, dispatching each
 request through the same `Router`. Other transports follow the identical shape
 through dedicated builder methods — `spawn_tls`, `spawn_h2c`, `spawn_h3`,
 `server_tcp`, `server_udp`, `server_unix`, and the compio variants — all of
-which drive the unchanged core router. Streaming and upgrade transports
-(WebSocket, SSE, WebTransport, file streaming) live in `tako-rs-streams` and
-hook into the same request flow.
+which drive the unchanged core router. WebTransport sessions start as CONNECT
+requests on the HTTP/3 server. Streaming and upgrade transports (WebSocket, SSE,
+file streaming) live in `tako-rs-streams` and hook into the same request flow.
 
 This is the payoff of the layering: routing, middleware, extraction, and
 responses are written once and reused across every transport. To follow a

@@ -104,10 +104,10 @@ and keep served roots read-only to untrusted processes.
 
 ## WebTransport
 
-Behind the `webtransport` feature; requires `http3`. The type is
-also exported as `RawQuicSession` because the W3C WebTransport CONNECT
-handshake is deferred — the current implementation gives you raw QUIC
-bidi/uni streams over the same h3 listener.
+W3C WebTransport sessions run on the HTTP/3 server behind the `webtransport`
+feature, on either runtime: a `CONNECT` route takes the `WebTransport` extractor
+and gets streams and datagrams that browsers can reach. See
+[WebTransport](/docs/transports/webtransport).
 
 See also:
 
@@ -121,6 +121,8 @@ See also:
 - [`examples/file-stream`](https://github.com/rust-dd/tako/tree/main/examples/file-stream)
   for ranged file serving,
 - [`examples/webtransport`](https://github.com/rust-dd/tako/tree/main/examples/webtransport)
+  for browser WebTransport, and
+  [`examples/raw-quic`](https://github.com/rust-dd/tako/tree/main/examples/raw-quic)
   for raw QUIC sessions.
 
 <Callout type="info">

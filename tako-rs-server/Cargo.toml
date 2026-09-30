@@ -24,6 +24,7 @@ crc32c = { workspace = true, optional = true }
 cyper-core = { workspace = true, optional = true }
 futures-util = { workspace = true }
 h3 = { workspace = true, optional = true }
+h3-datagram = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
 http = { workspace = true }
 http-body = { workspace = true }
@@ -54,6 +55,8 @@ http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2", "tako-rs-core/http2
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
 # On compio it also turns on `compio-quic` with its ring-backed rustls glue.
 http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3", "compio?/h3", "compio?/ring"]
+# W3C WebTransport sessions on the HTTP/3 server, on either runtime.
+webtransport = ["tako-rs/webtransport", "http3", "dep:h3-datagram", "h3/i-implement-a-third-party-backend-and-opt-into-breaking-changes", "h3-quinn/datagram"]
 compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
 compio-tls = ["tako-rs/compio-tls", "compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.
@@ -77,3 +80,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
 tako-rs = { workspace = true }
+wtransport = { workspace = true }

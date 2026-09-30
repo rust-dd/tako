@@ -42,7 +42,7 @@ jobs:
           - label: default
             features: ""
           - label: tokio-rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
           - label: all-features
             features: --all-features
     steps:
@@ -79,7 +79,7 @@ jobs:
           - os: ubuntu-latest
             toolchain: stable
             label: http3
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,plugins,signals"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,webtransport,plugins,signals"
           - os: ubuntu-latest
             toolchain: stable
             label: all-features
