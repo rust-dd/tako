@@ -75,7 +75,7 @@ jobs:
           - os: ubuntu-latest
             toolchain: stable
             label: rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,typed-header,zero-copy-extractors,jwt-simple,file-stream"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,grpc,ip-filter,hmac-signature,json-schema,zstd,typed-header,zero-copy-extractors,jwt-simple,file-stream"
           - os: ubuntu-latest
             toolchain: stable
             label: http3

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package numbers;
+
+message Number {
+  int64 value = 1;
+}
+
+service Numbers {
+  // Streams 1..=value, one number every 200 ms.
+  rpc Count(Number) returns (stream Number);
+  // Adds up every number the client sends.
+  rpc Sum(stream Number) returns (Number);
+  // Replies to each number with the running total so far.
+  rpc RunningTotal(stream Number) returns (stream Number);
+}

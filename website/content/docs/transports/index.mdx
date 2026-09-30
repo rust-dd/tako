@@ -25,7 +25,7 @@ time — the routing, middleware, and observability model does not change.
 | WebSocket | yes | yes | `ws` / `compio-ws` |
 | WebTransport (raw QUIC) | yes | — | `webtransport` |
 | SSE | yes | yes | `sse` |
-| gRPC (unary) | yes | yes | `grpc` |
+| gRPC (unary and streaming) | yes | yes | `grpc` |
 | Raw TCP | yes | yes | *default* |
 | Raw UDP | yes | yes | `udp` |
 | Unix sockets | yes | yes | *default* (unix only) |
@@ -84,7 +84,7 @@ The handle is runtime-agnostic — both `Server` (tokio) and `CompioServer`
 - [WebTransport](/docs/transports/webtransport) — raw QUIC session helper;
   tokio-only, requires the `webtransport` feature.
 - [SSE](/docs/streams) — Server-Sent Events; see the Streams primitives.
-- [gRPC](/docs/transports/grpc) — unary RPCs with protobuf.
+- [gRPC](/docs/transports/grpc) — unary and streaming RPCs with protobuf.
 - [TCP / UDP / Unix](/docs/transports/tcp-udp-unix) — raw byte transports and
   Unix domain sockets.
 - [PROXY protocol](/docs/transports/proxy-protocol) — v1/v2 header parsing

@@ -149,6 +149,8 @@ tokio-stream = "0.1.17"
 tokio-tungstenite = "0.30.0"
 tokio-util = { version = "0.7.15", features = ["compat"] }
 tokio-vsock = "0.7.2"
+tonic = { version = "0.14.6", default-features = false, features = ["channel"] }
+tonic-prost = "0.14.6"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19" }
 url = "2.5.4"

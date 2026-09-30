@@ -5,6 +5,7 @@ use http::HeaderMap;
 use http::StatusCode;
 
 use crate::body::TakoBody;
+use crate::responder::Responder;
 use crate::types::Response;
 
 /// gRPC status codes.
@@ -113,6 +114,10 @@ impl GrpcStatus {
     }
   }
 
+  pub(crate) fn deadline_exceeded() -> Self {
+    Self::error(GrpcStatusCode::DeadlineExceeded, "deadline exceeded")
+  }
+
   pub(crate) fn write_trailers(&self) -> HeaderMap {
     let mut t = HeaderMap::new();
     t.insert("grpc-status", self.code.header_value());
@@ -122,5 +127,13 @@ impl GrpcStatus {
       t.insert("grpc-message", v);
     }
     t
+  }
+}
+
+/// Ends the call before any message with a trailers-only response, e.g. when
+/// a handler returns `Result<GrpcServerStream<..>, GrpcStatus>`.
+impl Responder for GrpcStatus {
+  fn into_response(self) -> Response {
+    build_grpc_error_response(self.code, self.message.as_deref().unwrap_or(""))
   }
 }

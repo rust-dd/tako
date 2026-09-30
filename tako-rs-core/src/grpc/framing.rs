@@ -13,6 +13,7 @@ use futures_util::Stream;
 use http_body::Body;
 use prost::Message;
 
+use super::status::GrpcStatus;
 use super::status::GrpcStatusCode;
 use super::status::build_grpc_error_response;
 use crate::body::TakoBody;
@@ -85,6 +86,15 @@ impl GrpcError {
   }
 }
 
+/// Maps a request-side failure to the status a streaming handler sends, so
+/// `?` works inside a reply stream that reads a [`GrpcClientStream`](super::GrpcClientStream).
+impl From<GrpcError> for GrpcStatus {
+  fn from(error: GrpcError) -> Self {
+    let (code, message) = error.status_parts();
+    GrpcStatus::error(code, message)
+  }
+}
+
 impl Responder for GrpcError {
   fn into_response(self) -> Response {
     let (code, message) = self.status_parts();
@@ -112,6 +122,17 @@ pub fn grpc_encode<T: Message>(msg: &T) -> Vec<u8> {
     .encode(&mut frame)
     .expect("a Vec grows to fit any message");
   frame
+}
+
+/// Appends one framed message to `buf`, which batches consecutive messages
+/// into a single DATA frame.
+pub(crate) fn encode_into<T: Message>(msg: &T, buf: &mut BytesMut) {
+  let len = msg.encoded_len();
+  buf.reserve(PREFIX_LEN + len);
+  buf.extend_from_slice(&frame_prefix(len));
+  msg
+    .encode(buf)
+    .expect("a BytesMut grows to fit any message");
 }
 
 fn frame_prefix(len: usize) -> [u8; PREFIX_LEN] {

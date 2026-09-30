@@ -1,0 +1,19 @@
+[package]
+name = "grpc-streaming"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures-util = { workspace = true }
+prost = { workspace = true }
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
+futures-util = "0.3"
+prost = "0.14"
+tako-rs = { path = "../../tako-rs", features = ["grpc", "http2"] }
+tokio = { version = "1.45.1", features = ["full"] }

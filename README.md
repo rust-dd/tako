@@ -69,7 +69,7 @@ covers when to pick Tako, Axum, or Actix Web.
 | Transports | HTTP/1.1, HTTP/2, HTTP/3, WebSocket, WebTransport, SSE, TCP, UDP, Unix sockets, PROXY protocol |
 | Extractors | JSON, form, query, path, headers, cookies, JWT claims, API keys, multipart, protobuf |
 | Middleware | Authentication, CSRF, sessions, security headers, request IDs, body limits, rate limiting, CORS, idempotency, compression |
-| Integrations | GraphQL, unary gRPC, OpenAPI, Prometheus, OpenTelemetry, queues, signals |
+| Integrations | GraphQL, gRPC (unary and streaming), OpenAPI, Prometheus, OpenTelemetry, queues, signals |
 
 The default setup uses Tokio and includes HTTP/1.1. Enable additional protocols
 and integrations through [Cargo features](https://tako.rust-dd.com/docs/reference/features).

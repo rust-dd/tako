@@ -108,11 +108,14 @@ compio = { workspace = true, features = ["macros"] }
 futures-util = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
+prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+tonic = { workspace = true }
+tonic-prost = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

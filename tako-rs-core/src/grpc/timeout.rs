@@ -1,14 +1,37 @@
 //! `grpc-timeout` deadline propagation: parsing the header's unit-suffixed
-//! duration and stashing the resulting [`GrpcDeadline`] in request extensions.
+//! duration, stashing the resulting [`GrpcDeadline`] in request extensions,
+//! extracting it in handlers, and the timer that ends a streaming reply.
 
+use std::convert::Infallible;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
 use std::time::Duration;
 use std::time::Instant;
 
+use http::Extensions;
+use http::HeaderMap;
+use http::request::Parts;
+
+use crate::extractors::FromRequest;
+use crate::extractors::FromRequestParts;
 use crate::types::Request;
 
 /// gRPC deadline propagated from the `grpc-timeout` request header.
+///
+/// Extract it as `Option<GrpcDeadline>` in a handler, then pass it to
+/// [`GrpcServerStream::with_deadline`](super::GrpcServerStream::with_deadline)
+/// or bound unary work with [`remaining`](Self::remaining).
 #[derive(Debug, Clone, Copy)]
 pub struct GrpcDeadline(pub Instant);
+
+impl GrpcDeadline {
+  /// Time left until the deadline, zero once it has passed.
+  pub fn remaining(&self) -> Duration {
+    self.0.saturating_duration_since(Instant::now())
+  }
+}
 
 /// Parse the `grpc-timeout` header value (e.g. `"100m"`, `"5S"`, `"1H"`).
 ///
@@ -45,14 +68,79 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
 /// overflow — instead the header is treated as if absent, matching the
 /// no-deadline default.
 pub fn read_grpc_deadline(req: &mut Request) -> Option<GrpcDeadline> {
-  let raw = req
-    .headers()
-    .get("grpc-timeout")
-    .and_then(|v| v.to_str().ok())?;
-  let dur = parse_grpc_timeout(raw)?;
-  let deadline = GrpcDeadline(Instant::now().checked_add(dur)?);
+  let deadline = deadline_from(req.headers(), req.extensions())?;
   req.extensions_mut().insert(deadline);
   Some(deadline)
+}
+
+/// Reuses a deadline stored by [`read_grpc_deadline`] so every reader of one
+/// request sees the same instant.
+fn deadline_from(headers: &HeaderMap, extensions: &Extensions) -> Option<GrpcDeadline> {
+  if let Some(deadline) = extensions.get::<GrpcDeadline>() {
+    return Some(*deadline);
+  }
+  let raw = headers.get("grpc-timeout")?.to_str().ok()?;
+  let dur = parse_grpc_timeout(raw)?;
+  Some(GrpcDeadline(Instant::now().checked_add(dur)?))
+}
+
+impl<'a> FromRequestParts<'a> for Option<GrpcDeadline> {
+  type Error = Infallible;
+
+  fn from_request_parts(
+    parts: &'a mut Parts,
+  ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
+    futures_util::future::ready(Ok(deadline_from(&parts.headers, &parts.extensions)))
+  }
+}
+
+impl<'a> FromRequest<'a> for Option<GrpcDeadline> {
+  type Error = Infallible;
+
+  fn from_request(
+    req: &'a mut Request,
+  ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
+    futures_util::future::ready(Ok(deadline_from(req.headers(), req.extensions())))
+  }
+}
+
+#[cfg(not(feature = "compio"))]
+type Sleep = Pin<Box<tokio::time::Sleep>>;
+
+/// Compio timers are `!Send`, while response bodies must be `Send`. The timer
+/// is created and polled by the connection task that drives the body, which
+/// never leaves its runtime thread.
+#[cfg(feature = "compio")]
+type Sleep = send_wrapper::SendWrapper<Pin<Box<dyn Future<Output = ()>>>>;
+
+/// Runtime timer for a [`GrpcDeadline`], armed on first poll so it registers
+/// with the runtime that drives the response.
+pub(crate) struct DeadlineTimer {
+  deadline: Instant,
+  sleep: Option<Sleep>,
+}
+
+impl DeadlineTimer {
+  pub(crate) fn new(deadline: GrpcDeadline) -> Self {
+    Self {
+      deadline: deadline.0,
+      sleep: None,
+    }
+  }
+
+  pub(crate) fn poll_elapsed(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+    let deadline = self.deadline;
+    #[cfg(not(feature = "compio"))]
+    let sleep = self
+      .sleep
+      .get_or_insert_with(|| Box::pin(tokio::time::sleep_until(deadline.into())));
+    #[cfg(feature = "compio")]
+    let sleep = self.sleep.get_or_insert_with(|| {
+      let sleep: Pin<Box<dyn Future<Output = ()>>> = Box::pin(compio::time::sleep_until(deadline));
+      send_wrapper::SendWrapper::new(sleep)
+    });
+    sleep.as_mut().poll(cx)
+  }
 }
 
 #[cfg(test)]

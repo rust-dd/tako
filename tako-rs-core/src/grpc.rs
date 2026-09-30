@@ -1,37 +1,61 @@
 #![cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 
-//! gRPC support for unary RPCs over HTTP/2.
+//! gRPC over HTTP/2: unary, server-streaming, client-streaming, and
+//! bidirectional RPCs.
 //!
-//! Provides `GrpcRequest<T>` extractor and `GrpcResponse<T>` responder that
-//! handle gRPC framing (length-prefixed protobuf messages) and integrate with
-//! Tako's handler system.
+//! Each method is an ordinary `POST /<package>.<Service>/<Method>` route.
+//! [`GrpcRequest`](crate::grpc::GrpcRequest) and
+//! [`GrpcResponse`](crate::grpc::GrpcResponse) handle one message each way;
+//! [`GrpcServerStream`](crate::grpc::GrpcServerStream) streams replies,
+//! [`GrpcClientStream`](crate::grpc::GrpcClientStream) reads a request stream,
+//! and [`GrpcBidi`](crate::grpc::GrpcBidi) does both at once.
+//! `Option<GrpcDeadline>` extracts the client's `grpc-timeout`.
 //!
 //! # Examples
 //!
-//! ```rust,ignore
-//! use tako::grpc::{GrpcRequest, GrpcResponse};
+//! ```rust
+//! use futures_util::StreamExt;
 //! use prost::Message;
+//! use tako::Method;
+//! use tako::grpc::{GrpcBidi, GrpcClientStream, GrpcDeadline, GrpcRequest};
+//! use tako::grpc::{GrpcResponse, GrpcServerStream, GrpcStatus};
+//! use tako::responder::Responder;
+//! use tako::router::Router;
 //!
 //! #[derive(Clone, PartialEq, Message)]
-//! struct HelloRequest {
-//!     #[prost(string, tag = "1")]
-//!     pub name: String,
+//! pub struct Number {
+//!   #[prost(int64, tag = "1")]
+//!   pub value: i64,
 //! }
 //!
-//! #[derive(Clone, PartialEq, Message)]
-//! struct HelloReply {
-//!     #[prost(string, tag = "1")]
-//!     pub message: String,
+//! async fn double(req: GrpcRequest<Number>) -> GrpcResponse<Number> {
+//!   GrpcResponse::ok(Number { value: req.message.value * 2 })
 //! }
 //!
-//! async fn say_hello(req: GrpcRequest<HelloRequest>) -> GrpcResponse<HelloReply> {
-//!     GrpcResponse::ok(HelloReply {
-//!         message: format!("Hello, {}!", req.message.name),
-//!     })
+//! async fn count(deadline: Option<GrpcDeadline>, req: GrpcRequest<Number>) -> impl Responder {
+//!   let numbers = futures_util::stream::iter(1..=req.message.value).map(|value| Ok(Number { value }));
+//!   GrpcServerStream::new(numbers).with_deadline(deadline)
 //! }
 //!
-//! // Register on router:
-//! // router.route(Method::POST, "/helloworld.Greeter/SayHello", say_hello);
+//! async fn sum(mut numbers: GrpcClientStream<Number>) -> Result<GrpcResponse<Number>, GrpcStatus> {
+//!   let mut value = 0;
+//!   while let Some(number) = numbers.next().await {
+//!     value += number?.value;
+//!   }
+//!   Ok(GrpcResponse::ok(Number { value }))
+//! }
+//!
+//! async fn echo(bidi: GrpcBidi<Number, Number>) -> impl Responder {
+//!   bidi.respond(|numbers| {
+//!     numbers.map(|number| number.map(|n| Number { value: n.value * 2 }).map_err(GrpcStatus::from))
+//!   })
+//! }
+//!
+//! let mut router = Router::new();
+//! router.route(Method::POST, "/math.Math/Double", double);
+//! router.route(Method::POST, "/math.Math/Count", count);
+//! router.route(Method::POST, "/math.Math/Sum", sum);
+//! router.route(Method::POST, "/math.Math/Echo", echo);
 //! ```
 
 /// `grpc.health.v1` scaffolding.

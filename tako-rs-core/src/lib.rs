@@ -101,7 +101,7 @@ pub mod graphiql;
 #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
 pub mod openapi;
 
-/// gRPC support for unary RPCs with protobuf serialization.
+/// gRPC over HTTP/2: unary and streaming RPCs with protobuf messages.
 #[cfg(feature = "grpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 pub mod grpc;
