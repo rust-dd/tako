@@ -8,9 +8,9 @@ use super::spawn::make_handle;
 use super::spawn::spawn_done_compio;
 #[cfg(feature = "compio-tls")]
 use super::spawn::tls_alpn_for_tcp;
-#[cfg(feature = "compio-tls")]
+#[cfg(any(feature = "compio-tls", feature = "http3"))]
 use super::tls_cert::TlsCert;
-#[cfg(feature = "compio-tls")]
+#[cfg(any(feature = "compio-tls", feature = "http3"))]
 use super::tls_cert::build_rustls_server_config;
 use crate::ServerConfig;
 
@@ -18,9 +18,9 @@ use crate::ServerConfig;
 #[derive(Debug, Default, Clone)]
 pub struct CompioServerBuilder {
   config: ServerConfig,
-  // Mirrors the gating on `CompioServer.tls` — only available when the
-  // `compio-tls` feature is on so non-TLS compio builds stay warning-clean.
-  #[cfg(feature = "compio-tls")]
+  // Mirrors the gating on `CompioServer.tls` — only available when TLS or
+  // HTTP/3 is on so plain compio builds stay warning-clean.
+  #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
 }
 
@@ -32,8 +32,8 @@ impl CompioServerBuilder {
     self
   }
 
-  /// Attach TLS material so [`CompioServer::spawn_tls`] becomes usable.
-  #[cfg(feature = "compio-tls")]
+  /// Attach TLS material for `spawn_tls` (`compio-tls`) or `spawn_h3` (`http3`).
+  #[cfg(any(feature = "compio-tls", feature = "http3"))]
   #[must_use]
   pub fn tls(mut self, cert: TlsCert) -> Self {
     self.tls = Some(cert);
@@ -44,7 +44,7 @@ impl CompioServerBuilder {
   pub fn build(self) -> CompioServer {
     CompioServer {
       config: self.config,
-      #[cfg(feature = "compio-tls")]
+      #[cfg(any(feature = "compio-tls", feature = "http3"))]
       tls: self.tls,
     }
   }
@@ -57,10 +57,10 @@ impl CompioServerBuilder {
 #[derive(Debug, Clone)]
 pub struct CompioServer {
   config: ServerConfig,
-  // Only consumed by the `compio-tls` impl blocks below. Marking the field
-  // `cfg`-gated on the feature instead of `#[allow(dead_code)]` keeps the
-  // struct layout minimal in non-TLS compio builds.
-  #[cfg(feature = "compio-tls")]
+  // Only consumed by the TLS and HTTP/3 impl blocks below. Marking the field
+  // `cfg`-gated on the features instead of `#[allow(dead_code)]` keeps the
+  // struct layout minimal in plain compio builds.
+  #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
 }
 
@@ -219,6 +219,36 @@ impl CompioServer {
         Some(signal),
         self.config.clone(),
       ),
+    );
+    Ok(handle)
+  }
+  /// Spawns HTTP/3 over QUIC; startup failures are returned by `result()`.
+  #[cfg(feature = "http3")]
+  pub fn spawn_h3(&self, addr: impl Into<String>, router: Router) -> ServerHandle {
+    self
+      .try_spawn_h3(addr, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Validates TLS and binds the QUIC endpoint before starting HTTP/3.
+  #[cfg(feature = "http3")]
+  pub fn try_spawn_h3(
+    &self,
+    addr: impl Into<String>,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    let tls = self
+      .tls
+      .as_ref()
+      .ok_or("TLS certificate configuration is required")?;
+    let tls = build_rustls_server_config(tls, vec![b"h3".to_vec()])?;
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let endpoint = crate::server_compio::h3::bind_endpoint(&addr.into(), &tls, &self.config)?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(endpoint.local_addr()?));
+    spawn_done_compio(
+      &handle,
+      crate::server_compio::h3::run_endpoint(endpoint, router, Some(signal), self.config.clone()),
     );
     Ok(handle)
   }

@@ -28,8 +28,8 @@ activates both runtimes and every transport, extractor, and plugin:
 cargo test --workspace --all-features
 ```
 
-`--all-features` selects Compio and excludes Tokio-only transports. Also run a
-Tokio feature subset to cover HTTP/3, h2c, PROXY protocol, and the outbound
+`--all-features` selects Compio and excludes Tokio-only exports. Also run a Tokio
+feature subset to cover the Tokio transports, WebTransport, and the outbound
 client. See the [feature reference](/docs/reference/features).
 
 

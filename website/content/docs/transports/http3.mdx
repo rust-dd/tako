@@ -1,30 +1,36 @@
 ---
 title: HTTP/3
-description: Serve HTTP/3 over QUIC with quinn — tokio-only, TLS mandatory, configurable congestion control and stream caps.
+description: Serve HTTP/3 over QUIC on Tokio (quinn) or Compio (compio-quic) with mandatory TLS, congestion control, and stream caps.
 category: transport
 since: 2.0.0
 status: stable
 crate: tako-rs-server
-runtime: tokio
+runtime: both
 features: [http3]
 ---
 
 # HTTP/3
 
-HTTP/3 runs over QUIC (UDP) using `quinn` for transport and the `h3` crate for
-the protocol. It is gated behind the `http3` feature. The same `Router` you use
-for HTTP/1.1 and HTTP/2 drives HTTP/3 unchanged.
+HTTP/3 runs over QUIC (UDP) with the `h3` crate for the protocol: `quinn` drives
+QUIC on Tokio and `compio-quic` on Compio. It is gated behind the `http3` feature.
+The same `Router` you use for HTTP/1.1 and HTTP/2 drives HTTP/3 unchanged, and
+handlers see a `ConnInfo` whose transport is `Http3`.
 
 <Callout type="warn">
-HTTP/3 is **tokio-only** — it is not available on the Compio runtime. TLS is
-**mandatory** for QUIC, so a `TlsCert` is always required. Enable `webtransport` separately for the
-[raw QUIC session helper](/docs/transports/webtransport).
+TLS is **mandatory** for QUIC, so a `TlsCert` is always required. On Compio a
+request body is bound to the runtime thread that received it, like every compio
+task; moving it to another thread panics. Enable `webtransport` separately for the
+[raw QUIC session helper](/docs/transports/webtransport), which is Tokio-only.
 </Callout>
 
 ## Quickstart
 
 QUIC binds a UDP socket, not a `TcpListener`, so the address is passed at spawn
-time. `Server::spawn_h3` returns a handle for startup errors and shutdown.
+time. `spawn_h3` returns a handle for startup errors and shutdown; `try_spawn_h3`
+binds before returning, so certificate and bind errors surface immediately.
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
 
 ```rust
 use anyhow::Result;
@@ -48,8 +54,32 @@ async fn main() -> Result<()> {
 }
 ```
 
-The `certs` and `key` arguments are `Option<&str>` paths to PEM files; they
-default to `cert.pem` / `key.pem` when `None`. Test with a recent curl:
+</Tab>
+<Tab value="Compio">
+
+```rust
+use tako::router::Router;
+use tako::types::BoxError;
+use tako::{CompioServer, TlsCert};
+
+#[compio::main]
+async fn main() -> Result<(), BoxError> {
+  let mut router = Router::new();
+  router.get("/", || async { "Hello, HTTP/3 World!" });
+
+  let handle = CompioServer::builder()
+    .tls(TlsCert::pem_paths("cert.pem", "key.pem"))
+    .build()
+    .try_spawn_h3("[::]:4433", router)?;
+  handle.result().await?;
+  Ok(())
+}
+```
+
+</Tab>
+</Tabs>
+
+Test with a recent curl:
 
 ```
 curl --http3 -k https://localhost:4433/
@@ -82,13 +112,15 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`spawn_h3` panics if the builder was not given a `TlsCert` — QUIC cannot run
-without one. The PEM-paths fast path is used directly; `Der`, `Resolver`, and
-mTLS variants flow through the shared rustls-config helper.
+Without a `TlsCert`, `spawn_h3` reports the error through `result()` and
+`try_spawn_h3` returns it immediately — QUIC cannot run without TLS. Every
+`TlsCert` variant (PEM paths, DER, `Resolver`, mTLS) flows through the same
+rustls-config helper as HTTPS.
 
 ## Tuning QUIC
 
-HTTP/3 knobs live on `ServerConfig` alongside the HTTP/1 and HTTP/2 settings:
+HTTP/3 knobs live on `ServerConfig` alongside the HTTP/1 and HTTP/2 settings and
+apply on both runtimes:
 
 | Field | Purpose |
 |---|---|
@@ -140,11 +172,12 @@ ceiling. Raise `drain_timeout` too if you need a longer overall drain window.
 
 ## Certificate provider note
 
-HTTP/3 installs the `ring` rustls `CryptoProvider` during its QUIC bootstrap. If
-your process also serves plain TLS and you want a specific provider, pin it at
-startup with `rustls::crypto::aws_lc_rs::default_provider().install_default()`
-**before** constructing any server — once a provider is installed, Tako uses it
-as-is for key loading.
+With `http3`, rustls is compiled with two crypto providers: `aws-lc-rs` (its
+default) and `ring` (pulled in by the QUIC stack). Tako installs `aws-lc-rs` as the
+process-wide `CryptoProvider` when none is installed yet. To use a different one,
+install it at startup — for example
+`rustls::crypto::ring::default_provider().install_default()` — **before**
+constructing any server; once a provider is installed, Tako uses it as-is.
 
 ## Related
 

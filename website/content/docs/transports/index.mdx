@@ -20,7 +20,7 @@ time — the routing, middleware, and observability model does not change.
 |---|---|---|---|
 | HTTP/1.1 | yes | yes | *default* |
 | HTTP/2 | yes | yes | `http2` |
-| HTTP/3 (QUIC) | yes | — | `http3` |
+| HTTP/3 (QUIC) | yes | yes | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
 | WebSocket | yes | yes | `ws` / `compio-ws` |
 | WebTransport (raw QUIC) | yes | — | `webtransport` |
@@ -31,9 +31,9 @@ time — the routing, middleware, and observability model does not change.
 | Unix sockets | yes | yes | *default* (unix only) |
 | PROXY protocol v1/v2 | yes | yes | `proxy-protocol` |
 
-HTTP/3 and WebTransport are Tokio-only. HTTP/2 over TLS, cleartext h2c, raw
-TCP/UDP, Unix sockets, PROXY protocol, gRPC handlers, WebSocket, and SSE run on
-both runtimes. See [Runtimes](/docs/concepts/runtimes) and the
+WebTransport is Tokio-only. HTTP/2 over TLS, cleartext h2c, HTTP/3, raw TCP/UDP,
+Unix sockets, PROXY protocol, gRPC handlers, WebSocket, and SSE run on both
+runtimes. See [Runtimes](/docs/concepts/runtimes) and the
 [feature reference](/docs/reference/features).
 
 ## How transports attach to a server
@@ -78,7 +78,7 @@ The handle is runtime-agnostic — both `Server` (tokio) and `CompioServer`
 
 - [HTTP](/docs/transports/http) — HTTP/1.1, HTTP/2 cleartext (h2c), and HTTP/2
   over TLS via ALPN.
-- [HTTP/3](/docs/transports/http3) — HTTP/3 over QUIC; tokio-only, TLS required.
+- [HTTP/3](/docs/transports/http3) — HTTP/3 over QUIC on either runtime; TLS required.
 - [WebSocket](/docs/transports/websocket) — RFC-6455 upgrade inside an HTTP
   handler, on both runtimes.
 - [WebTransport](/docs/transports/webtransport) — raw QUIC session helper;

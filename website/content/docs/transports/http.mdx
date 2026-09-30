@@ -237,9 +237,8 @@ Mutual TLS is configured by attaching a `ClientAuth` policy (`Optional` or
 
 On the Compio runtime, TLS lives behind the `compio-tls` feature.
 `CompioServer::builder().tls(cert).build().spawn_tls(listener, router)` mirrors
-the tokio path; the listener is a `compio::net::TcpListener`. HTTP/3 is **not**
-available on compio — for QUIC, use the tokio runtime. See
-[HTTP/3](/docs/transports/http3).
+the tokio path; the listener is a `compio::net::TcpListener`. HTTP/3 runs on
+Compio too, through `CompioServer::spawn_h3` — see [HTTP/3](/docs/transports/http3).
 
 ## Related
 

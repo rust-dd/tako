@@ -14,6 +14,8 @@ use crate::ServerConfig;
 
 mod accept;
 mod connection;
+#[cfg(feature = "http3")]
+pub(crate) mod h3;
 #[cfg(unix)]
 pub(crate) mod unix;
 

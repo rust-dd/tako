@@ -16,10 +16,22 @@ use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::BoxError;
 
+/// `Send` on Tokio, whose work-stealing runtime may move request tasks between
+/// workers; no bound on compio, whose single-threaded runtime keeps every task
+/// on the thread that spawned it.
+#[cfg(not(feature = "compio"))]
+pub(crate) trait RuntimeSend: Send {}
+#[cfg(not(feature = "compio"))]
+impl<T: Send> RuntimeSend for T {}
+#[cfg(feature = "compio")]
+pub(crate) trait RuntimeSend {}
+#[cfg(feature = "compio")]
+impl<T> RuntimeSend for T {}
+
 /// Poll QUIC data and trailers only while the application polls its request body.
 fn build_h3_body<R>(recv: RequestStream<R, Bytes>) -> TakoBody
 where
-  R: RecvStream + Send + 'static,
+  R: RecvStream + RuntimeSend + 'static,
 {
   let stream = futures_util::stream::try_unfold(Some(recv), |state| async move {
     let Some(mut recv) = state else {
@@ -38,7 +50,13 @@ where
       ),
     }
   });
-  TakoBody::from_try_stream(stream)
+  #[cfg(not(feature = "compio"))]
+  let body = TakoBody::from_try_stream(stream);
+  // compio QUIC streams are `!Send`. The runtime keeps them on this thread, and
+  // `SendWrapper` panics instead of racing if a handler moves the body away.
+  #[cfg(feature = "compio")]
+  let body = TakoBody::from_try_stream(send_wrapper::SendWrapper::new(stream));
+  body
 }
 
 /// Handles a single HTTP/3 request.
@@ -49,9 +67,9 @@ pub(crate) async fn handle_request<S>(
   remote_addr: SocketAddr,
 ) -> Result<(), BoxError>
 where
-  S: BidiStream<Bytes> + Send + 'static,
-  <S as BidiStream<Bytes>>::SendStream: Send + 'static,
-  <S as BidiStream<Bytes>>::RecvStream: Send + 'static,
+  S: BidiStream<Bytes> + RuntimeSend + 'static,
+  <S as BidiStream<Bytes>>::SendStream: RuntimeSend + 'static,
+  <S as BidiStream<Bytes>>::RecvStream: RuntimeSend + 'static,
 {
   // Split into send and recv halves so the handler can stream the body while we
   // hold the send half locally for the response.

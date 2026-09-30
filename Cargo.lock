@@ -570,6 +570,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -803,6 +809,7 @@ dependencies = [
  "compio-log",
  "compio-macros",
  "compio-net",
+ "compio-quic",
  "compio-runtime",
  "compio-tls",
  "compio-ws",
@@ -886,6 +893,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3a354e085c4046dd8d2d9d514cf8c15c615eb8adf6c5f41dbf7899420457e9b"
 dependencies = [
+ "bytemuck",
  "compio-buf",
  "futures-util",
  "libc",
@@ -936,6 +944,31 @@ dependencies = [
  "socket2",
  "synchrony",
  "widestring",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "compio-quic"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65b1501ba168bfd2cf63ffc120d81a015a1d78cc853bbd9b4f2a7cb85cd2ab9a"
+dependencies = [
+ "cfg_aliases",
+ "compio-buf",
+ "compio-io",
+ "compio-log",
+ "compio-net",
+ "compio-runtime",
+ "flume",
+ "futures-util",
+ "h3",
+ "h3-datagram",
+ "libc",
+ "quinn-proto",
+ "rustc-hash",
+ "rustls",
+ "synchrony",
+ "thiserror 2.0.21",
  "windows-sys 0.61.2",
 ]
 
@@ -1715,6 +1748,8 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be"
 dependencies = [
+ "futures-core",
+ "futures-sink",
  "spin",
 ]
 
@@ -2057,6 +2092,17 @@ dependencies = [
  "http",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "h3-datagram"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d2c9f77921668673721ae40f17c729fc48b9e38a663858097cea547484fdf0f"
+dependencies = [
+ "bytes",
+ "h3",
+ "pin-project-lite",
 ]
 
 [[package]]

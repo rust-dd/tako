@@ -28,9 +28,7 @@
 //! # }
 //! ```
 
-mod config;
 mod connection;
-mod request;
 pub(crate) mod run;
 mod serve;
 

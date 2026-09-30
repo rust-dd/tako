@@ -8,11 +8,11 @@ use tako_rs_core::router::Router;
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 
-use super::config::transport_config_from;
 use super::connection::handle_connection;
 use super::load_certs;
 use super::load_key;
 use crate::ServerConfig;
+use crate::h3_common::config::transport_config_from;
 
 /// Runs the HTTP/3 server loop.
 pub(crate) async fn run(

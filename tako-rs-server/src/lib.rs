@@ -104,6 +104,9 @@ pub use server_tls_compio::serve_tls_with_shutdown;
 #[allow(deprecated)]
 pub use server_tls_compio::serve_tls_with_shutdown_and_config;
 
+#[cfg(feature = "http3")]
+mod h3_common;
+
 /// HTTP/3 server implementation using QUIC transport.
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]

@@ -52,7 +52,8 @@ tls = ["tako-rs/tls", "dep:tokio-rustls", "dep:rustls", "tako-rs-core/tls"]
 http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2", "tako-rs-core/http2"]
 # http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
-http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3"]
+# On compio it also turns on `compio-quic` with its ring-backed rustls glue.
+http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3", "compio?/h3", "compio?/ring"]
 compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper", "tako-rs-core/compio"]
 compio-tls = ["tako-rs/compio-tls", "compio", "tls"]
 # Forwarded so cfg-gated PROXY-protocol code can compile when plugins is enabled.

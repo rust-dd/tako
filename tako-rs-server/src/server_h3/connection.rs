@@ -5,7 +5,7 @@ use std::time::Duration;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::BoxError;
 
-use super::request::handle_request;
+use crate::h3_common::request::handle_request;
 
 /// Handles a single HTTP/3 connection.
 ///
