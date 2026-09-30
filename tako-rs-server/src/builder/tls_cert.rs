@@ -302,6 +302,11 @@ pub fn build_rustls_server_config(
 ) -> anyhow::Result<Arc<rustls::ServerConfig>> {
   use rustls::ServerConfig as RustlsServerConfig;
 
+  // With `http3`, quinn compiles rustls's ring provider next to the default
+  // aws-lc-rs one, and `ServerConfig::builder()` then refuses to choose.
+  if rustls::crypto::CryptoProvider::get_default().is_none() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+  }
   let builder = RustlsServerConfig::builder();
 
   // Resolve the client-auth verifier first. `with_no_client_auth` and
