@@ -9,6 +9,8 @@ use compio::io::AsyncRead;
 use compio::io::AsyncWrite;
 use compio::io::util::Splittable;
 use cyper_core::HyperStream;
+#[cfg(feature = "proxy-protocol")]
+use futures_util::future::Either;
 use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
@@ -29,10 +31,23 @@ use crate::ServerConfig;
 use crate::compio_h2::H2Settings;
 #[cfg(feature = "http2")]
 use crate::compio_h2::ServiceSendWrapper;
+#[cfg(feature = "proxy-protocol")]
+use crate::proxy_protocol::ProxyHeader;
 
-/// Wire protocol served on every accepted connection.
+/// What a listener serves on every accepted connection.
 #[derive(Clone, Copy)]
 pub(crate) enum Protocol {
+  Http1,
+  #[cfg(feature = "http2")]
+  H2c,
+  /// HTTP/1 after a PROXY protocol v1/v2 header names the real client.
+  #[cfg(feature = "proxy-protocol")]
+  ProxyHttp1,
+}
+
+/// The HTTP flavour hyper speaks once any preamble has been read.
+#[derive(Clone, Copy)]
+enum Wire {
   Http1,
   #[cfg(feature = "http2")]
   H2c,
@@ -44,6 +59,18 @@ impl Protocol {
       Self::Http1 => "HTTP/1",
       #[cfg(feature = "http2")]
       Self::H2c => "h2c",
+      #[cfg(feature = "proxy-protocol")]
+      Self::ProxyHttp1 => "PROXY protocol HTTP/1",
+    }
+  }
+
+  fn wire(self) -> Wire {
+    match self {
+      Self::Http1 => Wire::Http1,
+      #[cfg(feature = "http2")]
+      Self::H2c => Wire::H2c,
+      #[cfg(feature = "proxy-protocol")]
+      Self::ProxyHttp1 => Wire::Http1,
     }
   }
 }
@@ -53,25 +80,30 @@ pub(crate) enum Peer {
   Tcp(SocketAddr),
   #[cfg(unix)]
   Unix(UnixPeerAddr),
+  #[cfg(feature = "proxy-protocol")]
+  Proxy(Box<ProxyHeader>),
 }
 
 impl Peer {
-  fn annotate<B>(&self, req: &mut http::Request<B>, protocol: Protocol) {
-    let extensions = req.extensions_mut();
+  fn annotate<B>(&self, req: &mut http::Request<B>, wire: Wire) {
     match self {
       Self::Tcp(addr) => {
+        let extensions = req.extensions_mut();
         extensions.insert(*addr);
-        extensions.insert(match protocol {
-          Protocol::Http1 => ConnInfo::tcp(*addr),
+        extensions.insert(match wire {
+          Wire::Http1 => ConnInfo::tcp(*addr),
           #[cfg(feature = "http2")]
-          Protocol::H2c => ConnInfo::h2c(*addr),
+          Wire::H2c => ConnInfo::h2c(*addr),
         });
       }
       #[cfg(unix)]
       Self::Unix(peer) => {
+        let extensions = req.extensions_mut();
         extensions.insert(ConnInfo::unix(peer.path.clone()));
         extensions.insert(peer.clone());
       }
+      #[cfg(feature = "proxy-protocol")]
+      Self::Proxy(header) => crate::proxy_protocol::apply_to_request(req, header),
     }
   }
 
@@ -81,6 +113,8 @@ impl Peer {
       Self::Tcp(addr) => Some(addr.to_string()),
       #[cfg(unix)]
       Self::Unix(_) => None,
+      #[cfg(feature = "proxy-protocol")]
+      Self::Proxy(_) => None,
     }
   }
 }
@@ -92,6 +126,8 @@ pub(crate) struct ConnectionSettings {
   header_read_timeout: Option<Duration>,
   #[cfg(feature = "http2")]
   h2: H2Settings,
+  #[cfg(feature = "proxy-protocol")]
+  proxy_read_timeout: Duration,
 }
 
 impl From<&ServerConfig> for ConnectionSettings {
@@ -101,12 +137,14 @@ impl From<&ServerConfig> for ConnectionSettings {
       header_read_timeout: config.header_read_timeout,
       #[cfg(feature = "http2")]
       h2: H2Settings::from(config),
+      #[cfg(feature = "proxy-protocol")]
+      proxy_read_timeout: config.proxy_read_timeout,
     }
   }
 }
 
 pub(crate) async fn serve_connection<S>(
-  stream: S,
+  #[cfg_attr(not(feature = "proxy-protocol"), allow(unused_mut))] mut stream: S,
   peer: Peer,
   router: Arc<Router>,
   protocol: Protocol,
@@ -114,11 +152,21 @@ pub(crate) async fn serve_connection<S>(
   cancel: CancellationToken,
   permit: Option<OwnedSemaphorePermit>,
 ) where
-  S: Splittable + 'static,
+  S: Splittable + AsyncRead + 'static,
   S::ReadHalf: AsyncRead + Unpin,
   S::WriteHalf: AsyncWrite + Unpin,
 {
   let _permit = permit;
+
+  #[cfg(feature = "proxy-protocol")]
+  let peer = if matches!(protocol, Protocol::ProxyHttp1) {
+    match read_proxy_header(&mut stream, settings.proxy_read_timeout, &cancel).await {
+      Some(header) => Peer::Proxy(Box::new(header)),
+      None => return,
+    }
+  } else {
+    peer
+  };
 
   #[cfg(feature = "signals")]
   let label = peer.signal_label();
@@ -127,9 +175,10 @@ pub(crate) async fn serve_connection<S>(
     signal_tx::emit_connection_opened(label, false, None).await;
   }
 
+  let wire = protocol.wire();
   let io = HyperStream::new_plain(stream);
   let svc = service_fn(move |mut req| {
-    peer.annotate(&mut req, protocol);
+    peer.annotate(&mut req, wire);
     let router = router.clone();
     async move {
       let response = router.dispatch(req.map(TakoBody::new)).await;
@@ -137,8 +186,8 @@ pub(crate) async fn serve_connection<S>(
     }
   });
 
-  match protocol {
-    Protocol::Http1 => {
+  match wire {
+    Wire::Http1 => {
       let mut http = http1::Builder::new();
       http.keep_alive(settings.keep_alive);
       http
@@ -161,7 +210,7 @@ pub(crate) async fn serve_connection<S>(
       }
     }
     #[cfg(feature = "http2")]
-    Protocol::H2c => {
+    Wire::H2c => {
       let conn = settings
         .h2
         .builder()
@@ -181,5 +230,31 @@ pub(crate) async fn serve_connection<S>(
   #[cfg(feature = "signals")]
   if let Some(label) = &label {
     signal_tx::emit_connection_closed(label, false, None).await;
+  }
+}
+
+/// Reads the PROXY header within `timeout`; `None` drops the connection.
+#[cfg(feature = "proxy-protocol")]
+async fn read_proxy_header<S: AsyncRead>(
+  stream: &mut S,
+  timeout: Duration,
+  cancel: &CancellationToken,
+) -> Option<ProxyHeader> {
+  let cancelled = std::pin::pin!(cancel.cancelled());
+  let read = std::pin::pin!(compio::time::timeout(
+    timeout,
+    crate::proxy_protocol::read_proxy_protocol(stream),
+  ));
+  match futures_util::future::select(cancelled, read).await {
+    Either::Left(_) => None,
+    Either::Right((Ok(Ok(header)), _)) => Some(header),
+    Either::Right((Ok(Err(e)), _)) => {
+      tracing::warn!("Failed to parse PROXY protocol: {e}");
+      None
+    }
+    Either::Right((Err(_), _)) => {
+      tracing::warn!("PROXY protocol read deadline ({timeout:?}) elapsed; dropping connection");
+      None
+    }
   }
 }

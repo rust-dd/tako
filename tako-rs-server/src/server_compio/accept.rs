@@ -26,7 +26,7 @@ use crate::ServerConfig;
 
 /// A compio listener the shared accept loop can drive.
 pub(crate) trait Listener {
-  type Stream: Splittable + 'static;
+  type Stream: Splittable + AsyncRead + 'static;
 
   /// Label for logs and lifecycle signals, e.g. `127.0.0.1:8080` or a path.
   fn describe(&self) -> io::Result<String>;

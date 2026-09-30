@@ -6,7 +6,7 @@ since: 2.0.0
 status: stable
 features: [proxy-protocol]
 crate: tako-rs-server
-runtime: tokio
+runtime: both
 ---
 
 # PROXY protocol
@@ -19,22 +19,22 @@ the original source and destination. Tako parses that header and rewrites the
 request so handlers see the true client. Both **v1** (human-readable text) and
 **v2** (binary, TLV-extensible) formats are supported.
 
-This lives in `tako-rs-server` and is a **default** feature on the **tokio**
-runtime.
+This lives in `tako-rs-server` behind the `proxy-protocol` feature and works on
+both runtimes.
 
 ## Serving with PROXY protocol
 
-`serve_http_with_proxy_protocol` wraps your [`Router`](/docs/routing) exactly like
-[`Server::spawn_http`](/docs/transports/http), but reads and strips the PROXY header on
-each connection before dispatching:
+`try_spawn_proxy_protocol` serves your [`Router`](/docs/routing) exactly like
+[`try_spawn_http`](/docs/transports/http), but reads and strips the PROXY header on
+each connection before dispatching. A handler that reports what the server
+recovered:
 
 ```rust
-use anyhow::Result;
 use tako::Method;
-use tako::proxy_protocol::{ProxyHeader, serve_http_with_proxy_protocol};
+use tako::proxy_protocol::ProxyHeader;
 use tako::responder::Responder;
 use tako::router::Router;
-use tako::types::Request;
+use tako::types::{BoxError, Request};
 
 async fn handler(req: Request) -> impl Responder {
   let real_addr = req
@@ -51,16 +51,48 @@ async fn handler(req: Request) -> impl Responder {
 
   format!("Real client: {real_addr}\nPROXY header: {proxy_info}\n")
 }
+```
 
+Serve it on either runtime:
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
+
+```rust
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), BoxError> {
   let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
   let mut router = Router::new();
   router.route(Method::GET, "/", handler);
-  serve_http_with_proxy_protocol(listener, router).await;
+
+  let handle = tako::Server::builder()
+    .build()
+    .try_spawn_proxy_protocol(listener, router)?;
+  handle.result().await?;
   Ok(())
 }
 ```
+
+</Tab>
+<Tab value="Compio">
+
+```rust
+#[compio::main]
+async fn main() -> Result<(), BoxError> {
+  let listener = compio::net::TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.route(Method::GET, "/", handler);
+
+  let handle = tako::CompioServer::builder()
+    .build()
+    .try_spawn_proxy_protocol(listener, router)?;
+  handle.result().await?;
+  Ok(())
+}
+```
+
+</Tab>
+</Tabs>
 
 ## What handlers see
 
@@ -119,7 +151,8 @@ sends the header cannot pin a worker task forever.
 If you are running a custom protocol over [raw TCP](/docs/transports/tcp-udp-unix)
 rather than HTTP, call `tako::proxy_protocol::read_proxy_protocol(&mut stream)`
 yourself. It consumes the header and leaves the stream positioned at the start of
-your protocol data:
+your protocol data. The same code compiles on Compio, where `serve_tcp` hands the
+handler a compio stream and `read_proxy_protocol` reads it through compio I/O:
 
 ```rust
 use tako::proxy_protocol::read_proxy_protocol;
@@ -141,10 +174,11 @@ async fn main() -> std::io::Result<()> {
 
 ## Configuration and shutdown
 
-Variants cover the usual axes: `serve_http_with_proxy_protocol_and_shutdown` adds a
-shutdown-signal future, and the `…_and_config` forms accept a `ServerConfig` for
-connection caps, keep-alive, header/drain timeouts, and the PROXY read timeout —
-all sourced from one struct, as with every other transport.
+Pass a `ServerConfig` to the builder with `.config(…)` for connection caps,
+keep-alive, header and drain timeouts, and the PROXY read timeout — all sourced
+from one struct, as with every other transport. The returned `ServerHandle` drives
+graceful shutdown. The older `serve_http_with_proxy_protocol*` free functions are
+deprecated and Tokio-only.
 
 ## Testing
 

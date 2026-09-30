@@ -155,7 +155,7 @@ pub mod server_udp;
 pub mod server_unix;
 
 /// PROXY protocol v1/v2 parser for load balancer integration.
-#[cfg(all(feature = "proxy-protocol", not(feature = "compio")))]
+#[cfg(feature = "proxy-protocol")]
 #[cfg_attr(docsrs, doc(cfg(feature = "proxy-protocol")))]
 pub mod proxy_protocol;
 

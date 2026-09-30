@@ -2,13 +2,11 @@
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
-use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::connection_router;
@@ -16,18 +14,12 @@ use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
+use super::apply_to_request;
 use super::read_proxy_protocol;
 use crate::ServerConfig;
 
 /// Build an RFC 7239 `Forwarded` header value from the PROXY-protocol-supplied
 /// peer address. IPv6 addresses get bracketed per the RFC's `node` ABNF.
-fn format_forwarded(addr: SocketAddr) -> String {
-  match addr {
-    SocketAddr::V4(v4) => format!("for=\"{}:{}\"", v4.ip(), v4.port()),
-    SocketAddr::V6(v6) => format!("for=\"[{}]:{}\"", v6.ip(), v6.port()),
-  }
-}
-
 /// Starts an HTTP server that parses PROXY protocol headers on each connection.
 ///
 /// The real client address from the PROXY header is inserted into request
@@ -191,29 +183,12 @@ pub(crate) async fn run_proxy_http(
               }
             };
 
-          let real_addr = proxy_header.source;
           let io = hyper_util::rt::TokioIo::new(stream);
 
           let svc = service_fn(move |mut req| {
+            apply_to_request(&mut req, &proxy_header);
             let router = router.clone();
-            let proxy_header = proxy_header.clone();
-            let real_addr = real_addr;
             async move {
-
-              req.headers_mut().remove(http::header::FORWARDED);
-              req.headers_mut().remove("x-forwarded-for");
-              req.headers_mut().remove("x-forwarded-host");
-              req.headers_mut().remove("x-forwarded-proto");
-
-              if let Some(addr) = real_addr {
-                let forwarded_value = format_forwarded(addr);
-                if let Ok(v) = http::HeaderValue::from_str(&forwarded_value) {
-                  req.headers_mut().insert(http::header::FORWARDED, v);
-                }
-                req.extensions_mut().insert(addr);
-                req.extensions_mut().insert(ConnInfo::tcp(addr));
-              }
-              req.extensions_mut().insert(proxy_header);
               let response = router.dispatch(req.map(TakoBody::incoming)).await;
               Ok::<_, Infallible>(response)
             }

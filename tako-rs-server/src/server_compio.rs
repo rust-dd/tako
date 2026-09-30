@@ -1,6 +1,7 @@
 //! HTTP server entry points for the compio runtime.
 //!
-//! Every listener (TCP HTTP/1, h2c, Unix sockets) runs the same accept loop
+//! Every listener (TCP HTTP/1, h2c, PROXY protocol, Unix sockets) runs the
+//! same accept loop
 //! in `accept` and serves connections through `connection`.
 
 use std::future::Future;
@@ -96,6 +97,17 @@ pub(crate) async fn run_h2c(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   accept_loop(listener, router, signal, config, Protocol::H2c).await
+}
+
+/// HTTP/1 behind a PROXY protocol v1/v2 header.
+#[cfg(feature = "proxy-protocol")]
+pub(crate) async fn run_proxy_protocol(
+  listener: TcpListener,
+  router: Router,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
+  accept_loop(listener, router, signal, config, Protocol::ProxyHttp1).await
 }
 
 /// HTTP/1 over a Unix domain socket.

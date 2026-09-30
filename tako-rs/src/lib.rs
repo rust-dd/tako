@@ -70,7 +70,6 @@ pub use tako_rs_server::ServerError;
 pub use tako_rs_server::ServerHandle;
 pub use tako_rs_server::TlsCert;
 pub use tako_rs_server::bind_with_port_fallback;
-#[cfg(not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws")))]
 #[cfg(feature = "proxy-protocol")]
 pub use tako_rs_server::proxy_protocol;
 #[allow(deprecated)]

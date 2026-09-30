@@ -3,40 +3,34 @@
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
-use tokio::io::AsyncReadExt;
-
 use super::header::ProxyHeader;
 use super::header::ProxyTransport;
 use super::header::ProxyVersion;
 
-/// Parse PROXY protocol v1 (text format).
+/// Longest v1 header line the specification allows, CRLF included.
+const MAX_LINE_LEN: usize = 107;
+
+/// Reports whether `line` holds a complete v1 header, rejecting lines that
+/// grow past the maximum length without a CRLF.
+pub(crate) fn line_complete(line: &[u8]) -> std::io::Result<bool> {
+  if line.ends_with(b"\r\n") {
+    return Ok(true);
+  }
+  if line.len() > MAX_LINE_LEN {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      "PROXY v1 header exceeds maximum length",
+    ));
+  }
+  Ok(false)
+}
+
+/// Parse a complete PROXY protocol v1 line.
 ///
 /// Format: `PROXY TCP4|TCP6|UNKNOWN <src> <dst> <srcport> <dstport>\r\n`
-pub(crate) async fn parse_v1<R: AsyncReadExt + Unpin>(
-  reader: &mut R,
-  initial: &[u8; 12],
-) -> std::io::Result<ProxyHeader> {
-  // We already have the first 12 bytes. Read until \r\n (max 107 bytes total).
-  let mut line = Vec::from(&initial[..]);
-
-  loop {
-    let mut byte = [0u8; 1];
-    reader.read_exact(&mut byte).await?;
-    line.push(byte[0]);
-
-    if line.ends_with(b"\r\n") {
-      break;
-    }
-    if line.len() > 107 {
-      return Err(std::io::Error::new(
-        std::io::ErrorKind::InvalidData,
-        "PROXY v1 header exceeds maximum length",
-      ));
-    }
-  }
-
+pub(crate) fn parse_v1(line: &[u8]) -> std::io::Result<ProxyHeader> {
   // Parse: "PROXY TCP4 src dst srcport dstport\r\n"
-  let text = std::str::from_utf8(&line).map_err(|_| {
+  let text = std::str::from_utf8(line).map_err(|_| {
     std::io::Error::new(
       std::io::ErrorKind::InvalidData,
       "invalid UTF-8 in PROXY v1 header",

@@ -5,8 +5,6 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 
-use tokio::io::AsyncReadExt;
-
 use super::header::MAX_PROXY_ADDR_LEN;
 use super::header::PP2_TYPE_CRC32C;
 use super::header::ProxyHeader;
@@ -65,19 +63,11 @@ fn verify_v2_crc32c(
   Some(computed == expected)
 }
 
-/// Parse PROXY protocol v2 (binary format).
-pub(crate) async fn parse_v2<R: AsyncReadExt + Unpin>(
-  reader: &mut R,
-  sig: &[u8; 12],
-) -> std::io::Result<ProxyHeader> {
-  // Read remaining 4 bytes of v2 header (version/command, family/protocol, length)
-  let mut hdr = [0u8; 4];
-  reader.read_exact(&mut hdr).await?;
-
-  let ver_cmd = hdr[0];
-  let version = (ver_cmd >> 4) & 0x0F;
-  let command = ver_cmd & 0x0F;
-
+/// Validates the fixed 4-byte part of a v2 header (version/command,
+/// family/protocol, length) and returns the length of the address block that
+/// follows it.
+pub(crate) fn address_len(hdr: &[u8; 4]) -> std::io::Result<usize> {
+  let version = (hdr[0] >> 4) & 0x0F;
   if version != 2 {
     return Err(std::io::Error::new(
       std::io::ErrorKind::InvalidData,
@@ -85,31 +75,26 @@ pub(crate) async fn parse_v2<R: AsyncReadExt + Unpin>(
     ));
   }
 
-  let fam_proto = hdr[1];
-  let family = (fam_proto >> 4) & 0x0F;
-  let protocol = fam_proto & 0x0F;
-
   let addr_len = u16::from_be_bytes([hdr[2], hdr[3]]) as usize;
-
   if addr_len > MAX_PROXY_ADDR_LEN {
     return Err(std::io::Error::new(
       std::io::ErrorKind::InvalidData,
       format!("PROXY v2 addr_len {addr_len} exceeds {MAX_PROXY_ADDR_LEN}"),
     ));
   }
+  Ok(addr_len)
+}
 
-  // Read address data
-  let mut addr_buf = vec![0u8; addr_len];
-  if addr_len > 0 {
-    reader.read_exact(&mut addr_buf).await?;
-  }
+/// Parse a complete PROXY protocol v2 header (binary format) once the
+/// address block announced by [`address_len`] has been read.
+pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyHeader {
+  let command = hdr[0] & 0x0F;
+  let family = (hdr[1] >> 4) & 0x0F;
+  let protocol = hdr[1] & 0x0F;
 
   // LOCAL command: connection from proxy itself, no address info
   if command == 0 {
-    return Ok(ProxyHeader::empty(
-      ProxyVersion::V2,
-      ProxyTransport::Unknown,
-    ));
+    return ProxyHeader::empty(ProxyVersion::V2, ProxyTransport::Unknown);
   }
 
   let transport = match protocol {
@@ -157,7 +142,7 @@ pub(crate) async fn parse_v2<R: AsyncReadExt + Unpin>(
   // before TLV expansion so a corrupt payload does not silently mutate the
   // typed `ProxyHeader` fields. A mismatch is logged but does not abort the
   // parse — the operator decides via `ProxyHeader::crc32c_verified`.
-  header.crc32c_verified = verify_v2_crc32c(sig, &hdr, &addr_buf, consumed);
+  header.crc32c_verified = verify_v2_crc32c(sig, hdr, addr_buf, consumed);
   if header.crc32c_verified == Some(false) {
     tracing::warn!("PROXY v2 CRC32C mismatch — header may be corrupt or spoofed");
   }
@@ -167,7 +152,7 @@ pub(crate) async fn parse_v2<R: AsyncReadExt + Unpin>(
     apply_tlvs(&mut header, &addr_buf[consumed..]);
   }
 
-  Ok(header)
+  header
 }
 
 /// Decode a NUL-terminated `AF_UNIX` path. Returns None if the path is empty.

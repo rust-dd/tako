@@ -125,6 +125,35 @@ impl CompioServer {
     Ok(handle)
   }
 
+  /// Spawns HTTP/1 behind a PROXY protocol v1/v2 header.
+  #[cfg(feature = "proxy-protocol")]
+  pub fn spawn_proxy_protocol(
+    &self,
+    listener: compio::net::TcpListener,
+    router: Router,
+  ) -> ServerHandle {
+    self
+      .try_spawn_proxy_protocol(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Validates the router and listener before accepting PROXY connections.
+  #[cfg(feature = "proxy-protocol")]
+  pub fn try_spawn_proxy_protocol(
+    &self,
+    listener: compio::net::TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done_compio(
+      &handle,
+      crate::server_compio::run_proxy_protocol(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
   /// Spawns HTTP/1 on a Unix domain socket; bind failures are returned by
   /// `result()`.
   #[cfg(unix)]
