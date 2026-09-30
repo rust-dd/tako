@@ -75,7 +75,7 @@ for most often:
 | Flag | Turns on |
 |---|---|
 | `http2` | HTTP/2 (h2c cleartext and ALPN-negotiated h2 over TLS) |
-| `http3` | HTTP/3 over QUIC (also enables `webtransport`) |
+| `http3` | HTTP/3 over QUIC |
 | `tls` | Server-side HTTPS via rustls |
 | `grpc` | gRPC unary RPCs with protobuf |
 | `simd` | SIMD JSON parsing (`sonic-rs` + `simd-json`) |
@@ -83,7 +83,7 @@ for most often:
 | `plugins` | Bundled middleware and plugins (CORS, compression, rate limiting, idempotency) |
 | `signals` | In-process pub/sub signal bus and lifecycle signals |
 | `file-stream` | File streaming, range requests, conditional GET |
-| `jemalloc` | Set `tikv-jemallocator` as the global allocator |
+| `jemalloc` | Re-export `tako::Jemalloc`; your binary sets it as the global allocator |
 
 Compio has its own TLS and WebSocket flags, since those features compile
 differently on the two runtimes:
