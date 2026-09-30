@@ -207,8 +207,8 @@ tako-rs = { version = "2", features = ["client", "native-certs"] }
 ```
 
 <Callout type="warn">
-The `client` and `native-certs` features and `tako::client` were removed after
-2.2.0. Use [reqwest](https://crates.io/crates/reqwest) or
+The `client` and `native-certs` features and `tako::client` were removed in
+2.3.0. Use [reqwest](https://crates.io/crates/reqwest) or
 [ureq](https://crates.io/crates/ureq) for outbound HTTP.
 </Callout>
 
@@ -316,7 +316,7 @@ matching thread-safe equivalent. The `per-thread-local` /
   rejection at parse time. SPA fallback uses the same resolver.
 - WebTransport is currently raw QUIC and is also exported as
   `RawQuicSession` so call sites can pick the honest name. W3C WebTransport
-  sessions landed after 2.2.0: see [WebTransport](/docs/transports/webtransport).
+  sessions landed in 2.3.0: see [WebTransport](/docs/transports/webtransport).
 
 ## 16. gRPC
 
@@ -363,7 +363,7 @@ The legacy `TakoClient` / `TakoTlsClient` keep working for backward
 compatibility but new code should use `V2Client`.
 
 <Callout type="warn">
-The whole `tako::client` module was removed after 2.2.0. Use
+The whole `tako::client` module was removed in 2.3.0. Use
 [reqwest](https://crates.io/crates/reqwest) or
 [ureq](https://crates.io/crates/ureq) instead.
 </Callout>

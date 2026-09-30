@@ -24,7 +24,7 @@ Add these dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "2.2"
+tako-rs = "2.3"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
@@ -76,9 +76,11 @@ and integrations through [Cargo features](https://tako.rust-dd.com/docs/referenc
 See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
 for transport support on Tokio and Compio.
 
-Upgrading? The [2.2 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-2)
-covers the per-thread changes, and the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
-covers the API changes and opt-in transport features from 2.0.
+Upgrading? The [2.3 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-3)
+covers the removed HTTP client, WebTransport, and gRPC changes, the
+[2.2 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-2) the per-thread
+changes, and the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
+the API changes and opt-in transport features from 2.0.
 
 ## Benchmarks
 

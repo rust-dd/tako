@@ -7,7 +7,7 @@ export function GET() {
   return new ImageResponse(
     <OgImage
       title="Tako"
-      description="One router for HTTP/1.1, HTTP/2, HTTP/3, WebSocket, SSE, gRPC, TCP, UDP and Unix sockets, on Tokio or Compio."
+      description="One router for HTTP/1.1, HTTP/2, HTTP/3, WebTransport, WebSocket, SSE, gRPC, TCP, UDP and Unix sockets, on Tokio or Compio."
     />,
     ogSize,
   );

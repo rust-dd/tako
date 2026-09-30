@@ -49,7 +49,7 @@ if [[ $SKIP_GATE -eq 0 ]]; then
   cargo clippy --workspace --no-deps --tests --examples -- -D warnings
   cargo clippy --workspace --all-features --no-deps --tests --examples -- -D warnings
   cargo clippy --workspace --no-deps --tests --examples \
-    --features "tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql" -- -D warnings
+    --features "tls,http2,http3,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql" -- -D warnings
 
   echo "==> pre-publish gate: cargo test --workspace --all-features"
   cargo test --workspace --all-features

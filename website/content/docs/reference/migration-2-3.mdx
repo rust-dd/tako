@@ -1,0 +1,67 @@
+---
+title: Migrating to 2.3
+description: Replace the removed outbound HTTP client, review the WebTransport and gRPC changes, and use the Compio transports added in Tako 2.3.
+category: reference
+since: 2.3.0
+status: stable
+crate: tako-rs
+runtime: both
+---
+
+# Migrating to 2.3
+
+Tako 2.3.0 removes the outbound HTTP client, adds W3C WebTransport and stable
+streaming gRPC, and brings every transport to Compio. Most applications only need
+the first section. See the [release notes](https://github.com/rust-dd/tako/releases/tag/v2.3.0)
+for the complete list.
+
+## The outbound HTTP client is gone
+
+The `tako::client` module (`TakoClient`, `TakoTlsClient`, `V2Client`) and the
+`client` and `native-certs` features were removed. A build that still enables them
+fails with an unknown-feature error. Use a dedicated client instead:
+[reqwest](https://crates.io/crates/reqwest) for async code or
+[ureq](https://crates.io/crates/ureq) for blocking code.
+
+## WebTransport
+
+The `webtransport` feature now serves W3C WebTransport sessions on the HTTP/3
+server, on both runtimes, and browsers can connect to it. A session starts as a
+`CONNECT` route that takes the `WebTransport` extractor; see
+[WebTransport](/docs/transports/webtransport).
+
+- `webtransport` now enables `http3`.
+- With `webtransport`, QUIC datagrams are always on;
+  `ServerConfig::h3_enable_datagrams = false` no longer turns them off.
+- `RawQuicSession` and `serve_webtransport` are unchanged and stay Tokio-only. The
+  raw QUIC example moved from `examples/webtransport` to `examples/raw-quic`;
+  `examples/webtransport` is now a browser demo.
+
+## gRPC
+
+- `GrpcServerStream` has a new public `deadline` field. A struct literal needs
+  `deadline: None`; `GrpcServerStream::new(stream)` is unaffected.
+- The first `Err` item of a `GrpcServerStream` ends the call, and later items are
+  no longer sent. Messages that are ready together share one HTTP/2 DATA frame.
+- A successful unary reply sends `grpc-status` in the HTTP/2 trailers instead of
+  the response headers. grpc-go based clients, including grpcurl, rejected the old
+  replies with `server closed the stream without sending trailers`.
+- `GrpcRequest` reads only as far as the first message, capped at
+  `MAX_GRPC_MESSAGE_SIZE`, instead of buffering the whole request body.
+- New: the `Option<GrpcDeadline>` extractor and `with_deadline`, `Stream` for
+  `GrpcClientStream` and `GrpcBidi`, `GrpcBidi::respond`,
+  `From<GrpcError> for GrpcStatus`, and `GrpcStatus` as a responder. See
+  [gRPC](/docs/transports/grpc).
+
+## Compio
+
+h2c, Unix sockets, PROXY protocol, HTTP/3, and WebTransport now run on Compio.
+`CompioServer` has the same `try_spawn_h2c`, `try_spawn_unix_http`,
+`try_spawn_proxy_protocol`, and `try_spawn_h3` methods as `Server`, and
+`tako::server_unix` and `tako::proxy_protocol` are available with `compio`.
+`UnixPeerAddr` moved to `tako::conn_info` and is still re-exported from
+`tako::server_unix`.
+
+`build_rustls_server_config` now installs aws-lc-rs as the process-wide rustls
+provider when none is installed. Builds that compile both ring and aws-lc-rs, for
+example with `http3`, no longer panic at startup.
