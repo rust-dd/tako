@@ -53,7 +53,6 @@ prometheus = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
-rustls-native-certs = { workspace = true, optional = true }
 scc = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -78,7 +77,6 @@ urlencoding = { workspace = true }
 utoipa = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 vespera_core = { workspace = true, optional = true }
-webpki-roots = { workspace = true, optional = true }
 zstd = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "freebsd")'.dependencies]
@@ -95,11 +93,6 @@ compio-ws = ["tako-rs/compio-ws", "compio", "compio/io", "compio/ws"]
 metrics-prometheus = ["tako-rs/metrics-prometheus", "dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 graphiql = ["tako-rs/graphiql", "dep:async-graphql", "async-graphql/graphiql"]
-client = ["tako-rs/client", "tls", "dep:tokio-rustls", "dep:rustls", "dep:webpki-roots", "hyper-util/client", "hyper-util/client-legacy", "hyper-util/http1"]
-# Use the operating-system trust store (`rustls-native-certs`) instead of, or
-# in addition to, the bundled `webpki-roots` snapshot. When both feature gates
-# are active the native store is loaded first and `webpki-roots` is appended.
-native-certs = ["tako-rs/native-certs", "client", "dep:rustls-native-certs"]
 default = []
 ws = ["tako-rs/ws", "dep:tokio-tungstenite", "hyper/http1", "hyper/server"]
 file-stream = ["tako-rs/file-stream"]

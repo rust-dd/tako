@@ -21,11 +21,6 @@
 /// HTTP request and response body handling utilities.
 pub mod body;
 
-/// HTTP client implementation for making outbound requests.
-#[cfg(all(feature = "client", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "client")))]
-pub mod client;
-
 /// Configuration loading from environment variables.
 pub mod config;
 
@@ -54,11 +49,8 @@ pub mod problem;
 pub mod conn_info;
 
 /// Shared TLS certificate / key PEM loading helpers.
-#[cfg(any(feature = "tls", feature = "http3", feature = "client"))]
-#[cfg_attr(
-  docsrs,
-  doc(cfg(any(feature = "tls", feature = "http3", feature = "client")))
-)]
+#[cfg(any(feature = "tls", feature = "http3"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "http3"))))]
 pub mod tls;
 
 /// Redirection utilities for handling HTTP redirects.

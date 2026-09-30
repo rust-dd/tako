@@ -206,6 +206,12 @@ used unless `native-certs` is enabled.
 tako-rs = { version = "2", features = ["client", "native-certs"] }
 ```
 
+<Callout type="warn">
+The `client` and `native-certs` features and `tako::client` were removed after
+2.2.0. Use [reqwest](https://crates.io/crates/reqwest) or
+[ureq](https://crates.io/crates/ureq) for outbound HTTP.
+</Callout>
+
 ## 10. Unified `ConnInfo`
 
 **1.x** inserted a different connection-info type per transport:
@@ -356,11 +362,17 @@ matching thread-safe equivalent. The `per-thread-local` /
 The legacy `TakoClient` / `TakoTlsClient` keep working for backward
 compatibility but new code should use `V2Client`.
 
+<Callout type="warn">
+The whole `tako::client` module was removed after 2.2.0. Use
+[reqwest](https://crates.io/crates/reqwest) or
+[ureq](https://crates.io/crates/ureq) instead.
+</Callout>
+
 ## Runtime selection
 
-`--all-features` now compiles and selects Compio. Tokio-only transports are
-excluded from that configuration. Use a Tokio feature subset for HTTP/3,
-h2c, PROXY protocol, Unix HTTP, and the outbound client. See the
+`--all-features` now compiles and selects Compio. HTTP/3, h2c, PROXY protocol,
+and Unix sockets run on both runtimes. Only the WebTransport exports are
+Tokio-only, so use a Tokio feature subset for WebTransport. See the
 [2.1 migration guide](/docs/reference/migration-2-1).
 
 ## Deferred to a future 2.x release
@@ -374,7 +386,6 @@ The following are tracked separately and have **not yet** landed:
 - Real WebTransport CONNECT handshake
 - Generated gRPC stubs (reflection / health protobuf)
 - Cluster `SignalBus` impls (Redis, NATS, Kafka)
-- HTTP/2 + HTTP/3 + reqwest-style middleware on the v2 client
 - Hot-reload `Arc<Router>` swap (current path keeps `Box::leak` for
   per-connection performance)
 

@@ -25,9 +25,9 @@ adapter only.
 
 Without `compio`, Tako selects Tokio. Enabling `compio` switches the HTTP server,
 router timers, middleware, queues, and per-thread workers to Compio.
-`cargo build --all-features` compiles and selects Compio; Tokio-only exports
-(WebTransport and the outbound client) are excluded from that build. To use
-them, choose a Tokio feature set without `compio`.
+`cargo build --all-features` compiles and selects Compio; the Tokio-only
+WebTransport exports are excluded from that build. To use WebTransport, choose
+a Tokio feature set without `compio`.
 
 ## Switching runtimes
 
@@ -65,8 +65,7 @@ use the selected builder and its `try_spawn_*` methods.
 
 ## Transport coverage
 
-Almost every transport runs on both runtimes. Only WebTransport and the outbound
-HTTP client still depend on Tokio-only machinery:
+Every transport except WebTransport runs on both runtimes:
 
 | Protocol | Tokio | Compio | Feature flag |
 |---|---|---|---|
@@ -84,8 +83,8 @@ HTTP client still depend on Tokio-only machinery:
 | PROXY protocol v1/v2 | yes | yes | `proxy-protocol` |
 
 HTTP/2 over TLS, cleartext h2c, HTTP/3, Unix sockets, and PROXY protocol are
-supported on both runtimes. WebTransport and the outbound `tako::client` are
-Tokio-only. Raw TCP and UDP use each runtime’s native I/O API.
+supported on both runtimes. WebTransport is Tokio-only. Raw TCP and UDP use each
+runtime’s native I/O API.
 
 ## Crossing the runtime boundary internally
 

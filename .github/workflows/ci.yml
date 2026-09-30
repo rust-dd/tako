@@ -42,7 +42,7 @@ jobs:
           - label: default
             features: ""
           - label: tokio-rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
           - label: all-features
             features: --all-features
     steps:
@@ -75,7 +75,7 @@ jobs:
           - os: ubuntu-latest
             toolchain: stable
             label: rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,client,typed-header,zero-copy-extractors,jwt-simple,file-stream"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,typed-header,zero-copy-extractors,jwt-simple,file-stream"
           - os: ubuntu-latest
             toolchain: stable
             label: http3
@@ -99,7 +99,7 @@ jobs:
           - os: ubuntu-latest
             toolchain: "1.95"
             label: msrv-rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,client,typed-header,zero-copy-extractors,file-stream"
+            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,typed-header,zero-copy-extractors,file-stream"
     env:
       # Tests don't need to break on every clippy nit; only enforce build-warnings
       # in build/clippy/doc jobs.
@@ -349,7 +349,7 @@ jobs:
       - name: collect coverage
         run: |
           cargo llvm-cov --workspace \
-            --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,client,typed-header" \
+            --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,jwt-simple,typed-header" \
             --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v4
         with:

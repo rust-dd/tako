@@ -30,7 +30,8 @@ cargo metadata --format-version 1 --no-deps \
 | *(default)* | HTTP/1.1, raw TCP, Unix sockets, static files, core extractors and middleware. No optional flags are enabled. | always on |
 | `ws` | WebSocket upgrades over HTTP/1.1 on Tokio; GraphQL subscriptions also require `async-graphql`. | `tako-rs-core/ws`, `tako-rs-streams/ws` |
 | `sse` | Server-Sent Events on either runtime. | `tako-rs-streams/sse` |
-| `proxy-protocol` | Trusted PROXY v1/v2 listener on Tokio. | `tako-rs-server/proxy-protocol` |
+| `file-stream` | `FileStream` responder and range helpers; static file serving is available without this flag. | `tako-rs-streams/file-stream`, `tako-rs-core/file-stream` |
+| `proxy-protocol` | Trusted PROXY v1/v2 listener on either runtime. | `tako-rs-server/proxy-protocol` |
 | `udp` | Raw UDP datagrams on either runtime. | `tako-rs-server/udp` |
 | `socket-activation` | Inherit listener descriptors through `ListenFds`. | `tako-rs-server/socket-activation` |
 | `tls` | Server-side HTTPS via `rustls`. | `tako-rs-server/tls`, `tako-rs-core/tls` |
@@ -79,14 +80,6 @@ trade-offs.
 | `jwt-simple` | JWT decode / verify backed by [`jwt-simple`](https://crates.io/crates/jwt-simple). | `tako-rs-plugins/jwt-simple`, `tako-rs-core/jwt-simple` |
 | `ahash` | Swap the default request hasher for `ahash` across the workspace. | `tako-rs-core/ahash`, `tako-rs-extractors/ahash`, `tako-rs-plugins/ahash` |
 
-## Outbound client
-
-| Feature | Description | Gates |
-|---|---|---|
-| `client` | `tako::client` outbound HTTP client (hyper-util legacy client). Off by default. Not available with `compio`. | `tako-rs-core/client` |
-| `native-certs` | Use the OS trust store via `rustls-native-certs` instead of the bundled `webpki-roots` snapshot. Implies `client`. | `client`, `tako-rs-core/native-certs` |
-| `file-stream` | `FileStream` responder and range helpers; static file serving is available without this flag. | `tako-rs-streams/file-stream`, `tako-rs-core/file-stream` |
-
 ## Docs, GraphQL, gRPC, OpenAPI
 
 | Feature | Description | Gates |
@@ -119,8 +112,8 @@ trade-offs.
 ## Runtime and protocol combinations
 
 `--all-features` compiles and selects Compio for the HTTP server, middleware,
-signals, queues, and per-thread workers. Tokio-only outbound client and
-WebTransport exports are absent in that build. h2c is available through `http2`,
+signals, queues, and per-thread workers. The Tokio-only WebTransport exports are
+absent in that build. h2c is available through `http2`,
 HTTP/3 through `http3`, PROXY protocol through `proxy-protocol`, Unix sockets on
 every unix target, and TLS with ALPN HTTP/2 through `compio-tls` plus `http2`.
 
@@ -130,3 +123,9 @@ filesystem, and synchronization features it uses instead of `full`.
 
 The workspace MSRV is Rust 1.95. See the [2.1 migration guide](/docs/reference/migration-2-1)
 for feature changes and explicit allocator configuration.
+
+## Removed features
+
+`client` and `native-certs` were removed after 2.2.0, together with
+`tako::client`. Use [reqwest](https://crates.io/crates/reqwest) or
+[ureq](https://crates.io/crates/ureq) for outbound HTTP.

@@ -24,9 +24,6 @@ pub mod __private {
 }
 
 pub use tako_rs_core::body;
-#[cfg(all(feature = "client", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(all(feature = "client", not(feature = "compio")))))]
-pub use tako_rs_core::client;
 pub use tako_rs_core::config;
 pub use tako_rs_core::conn_info;
 #[cfg(feature = "graphiql")]
