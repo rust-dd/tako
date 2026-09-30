@@ -167,10 +167,7 @@ pub use tako_rs_server::server_tls;
 pub use tako_rs_server::server_tls_compio;
 #[cfg(feature = "udp")]
 pub use tako_rs_server::server_udp;
-#[cfg(all(
-  unix,
-  not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
-))]
+#[cfg(unix)]
 pub use tako_rs_server::server_unix;
 pub use tako_rs_server::shutdown_signal;
 #[cfg(feature = "file-stream")]

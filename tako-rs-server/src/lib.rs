@@ -151,7 +151,7 @@ pub use server_h2c::serve_h2c_with_shutdown_and_config;
 pub mod server_udp;
 
 /// Unix Domain Socket server for local IPC and reverse proxy communication.
-#[cfg(all(unix, not(feature = "compio")))]
+#[cfg(unix)]
 pub mod server_unix;
 
 /// PROXY protocol v1/v2 parser for load balancer integration.
@@ -171,3 +171,6 @@ pub mod server_vsock;
 
 mod bind;
 pub use bind::bind_with_port_fallback;
+
+#[cfg(unix)]
+mod unix_path;

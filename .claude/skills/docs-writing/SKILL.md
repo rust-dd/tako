@@ -205,7 +205,7 @@ Accuracy is the whole job. Read the crate source before writing — do not
 invent signatures or type names. Prefer `<RustExample>` pointing at a real
 file in `examples/` over a hand-written snippet. Keep tokio-only vs compio
 support correct (the README transport matrix is the reference: HTTP/2 +
-TLS, h2c, and raw TCP/UDP on both runtimes; QUIC, Unix sockets, and PROXY protocol are tokio-only). When a
+TLS, h2c, raw TCP/UDP, and Unix sockets on both runtimes; QUIC and PROXY protocol are tokio-only). When a
 type's friendly name in the README differs from its exported name, document
 the exported name and mention the catalog name once.
 

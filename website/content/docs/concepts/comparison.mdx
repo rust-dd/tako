@@ -40,7 +40,7 @@ Versions compared: Tako 2.2, Axum 0.8, and Actix Web 4.
 | WebSocket | Built in (`ws`) | Built in (`ws` feature) | `actix-ws` crate |
 | Server-Sent Events | Built in (`sse`) | Built in | `actix-web-lab` crate |
 | gRPC | Unary (`grpc`); streaming types are building blocks | Through `tonic`, which shares hyper and Tower | No first-party support |
-| Unix sockets | Yes (Tokio) | Yes, `axum::serve` accepts a `UnixListener` | Yes (`bind_uds`) |
+| Unix sockets | Yes | Yes, `axum::serve` accepts a `UnixListener` | Yes (`bind_uds`) |
 | Raw TCP and UDP servers | Built in | Not in scope; use Tokio directly | Not part of the web framework |
 | Runtime | Tokio, or Compio (io_uring on Linux, IOCP on Windows) | Tokio | actix-rt, a Tokio runtime per worker thread |
 | Thread-per-core server | `per-thread` feature | Not built in | Worker-per-core by design |

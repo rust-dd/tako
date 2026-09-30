@@ -1,3 +1,6 @@
+#[cfg(unix)]
+use std::path::PathBuf;
+
 use tako_rs_core::router::Router;
 
 use super::handle::ServerHandle;
@@ -118,6 +121,39 @@ impl CompioServer {
     spawn_done_compio(
       &handle,
       crate::server_compio::run_h2c(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
+  /// Spawns HTTP/1 on a Unix domain socket; bind failures are returned by
+  /// `result()`.
+  #[cfg(unix)]
+  pub fn spawn_unix_http(&self, path: impl Into<PathBuf>, router: Router) -> ServerHandle {
+    let path = path.into();
+    let config = self.config.clone();
+    let (handle, signal) = make_handle(config.drain_timeout, None);
+    spawn_done_compio(&handle, async move {
+      let listener = crate::server_compio::unix::UnixSocketListener::bind(path).await?;
+      crate::server_compio::run_unix(listener, router, Some(signal), config).await
+    });
+    handle
+  }
+
+  /// Binds the Unix socket and validates plugins before starting HTTP/1.
+  #[cfg(unix)]
+  pub async fn try_spawn_unix_http(
+    &self,
+    path: impl Into<PathBuf>,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let listener = crate::server_compio::unix::UnixSocketListener::bind(path.into()).await?;
+    let config = self.config.clone();
+    let (handle, signal) = make_handle(config.drain_timeout, None);
+    spawn_done_compio(
+      &handle,
+      crate::server_compio::run_unix(listener, router, Some(signal), config),
     );
     Ok(handle)
   }

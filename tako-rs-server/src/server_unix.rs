@@ -15,9 +15,9 @@
 //! ## Raw Unix socket (echo server)
 //! ```rust,no_run
 //! use tako::server_unix::serve_unix;
-//! use tokio::io::{AsyncReadExt, AsyncWriteExt};
-//!
+//! # #[cfg(not(feature = "compio"))]
 //! # async fn example() -> std::io::Result<()> {
+//! use tokio::io::{AsyncReadExt, AsyncWriteExt};
 //! serve_unix("/tmp/tako.sock", |mut stream, _addr| {
 //!     Box::pin(async move {
 //!         let mut buf = vec![0u8; 4096];
@@ -28,33 +28,76 @@
 //! }).await?;
 //! # Ok(())
 //! # }
+//! # #[cfg(feature = "compio")]
+//! # async fn example() -> std::io::Result<()> {
+//! # use compio::io::{AsyncRead, AsyncWriteExt};
+//! # serve_unix("/tmp/tako.sock", |mut stream, _peer| Box::pin(async move {
+//! #     let compio::BufResult(result, mut buf) = stream.read(vec![0u8; 4096]).await;
+//! #     buf.truncate(result?);
+//! #     let compio::BufResult(result, _) = stream.write_all(buf).await;
+//! #     result
+//! # })).await
+//! # }
 //! ```
 //!
 //! ## HTTP over Unix socket
 //! ```rust,no_run
-//! use tako::server_unix::serve_unix_http;
+//! # #[cfg(not(feature = "compio"))]
+//! # async fn example() -> Result<(), tako::types::BoxError> {
 //! use tako::router::Router;
+//! use tako::Server;
 //!
-//! # async fn example() -> std::io::Result<()> {
 //! let router = Router::new();
-//! serve_unix_http("/tmp/tako-http.sock", router).await;
+//! let handle = Server::builder()
+//!     .build()
+//!     .try_spawn_unix_http("/tmp/tako-http.sock", router)
+//!     .await?;
+//! handle.result().await?;
+//! # Ok(())
+//! # }
+//! # #[cfg(feature = "compio")]
+//! # async fn example() -> Result<(), tako::types::BoxError> {
+//! # let router = tako::router::Router::new();
+//! # let handle = tako::CompioServer::builder()
+//! #     .build()
+//! #     .try_spawn_unix_http("/tmp/tako-http.sock", router)
+//! #     .await?;
+//! # handle.result().await?;
 //! # Ok(())
 //! # }
 //! ```
 
+#[cfg(not(feature = "compio"))]
 pub(crate) mod http;
+#[cfg(not(feature = "compio"))]
 pub(crate) mod listener;
+#[cfg(not(feature = "compio"))]
 mod raw;
+#[cfg(feature = "compio")]
+mod raw_compio;
 
+#[cfg(not(feature = "compio"))]
 #[allow(deprecated)]
 pub use http::serve_unix_http;
+#[cfg(not(feature = "compio"))]
 #[allow(deprecated)]
 pub use http::serve_unix_http_with_config;
+#[cfg(not(feature = "compio"))]
 #[allow(deprecated)]
 pub use http::serve_unix_http_with_shutdown;
+#[cfg(not(feature = "compio"))]
 #[allow(deprecated)]
 pub use http::serve_unix_http_with_shutdown_and_config;
-pub use listener::UnixPeerAddr;
+#[cfg(not(feature = "compio"))]
 pub use raw::serve_unix;
+#[cfg(not(feature = "compio"))]
 pub use raw::serve_unix_with_shutdown;
+#[cfg(not(feature = "compio"))]
 pub use raw::serve_unix_with_shutdown_and_drain;
+#[cfg(feature = "compio")]
+pub use raw_compio::serve_unix;
+#[cfg(feature = "compio")]
+pub use raw_compio::serve_unix_with_shutdown;
+#[cfg(feature = "compio")]
+pub use raw_compio::serve_unix_with_shutdown_and_drain;
+pub use tako_rs_core::conn_info::UnixPeerAddr;

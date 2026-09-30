@@ -5,7 +5,7 @@ category: transport
 since: 2.0.0
 status: stable
 crate: tako-rs-server
-runtime: tokio
+runtime: both
 ---
 
 # TCP, UDP & Unix sockets
@@ -16,15 +16,17 @@ connection (or datagram) straight to your async closure: raw **TCP**, raw **UDP*
 and **Unix domain sockets**. Use them for custom line protocols, relays, gateways,
 game servers, telemetry collectors, or local IPC.
 
-All three are **default** features on the **tokio** runtime. Raw TCP and UDP also
-have compio variants, but Unix sockets and the patterns below are tokio-side.
-Unix domain sockets are **unix-only** and compile out on other platforms.
+Raw TCP and Unix sockets are part of the default build; raw UDP needs the `udp`
+feature. Every listener exists on both runtimes under the same function name: with
+the `compio` feature the handler receives compio stream types and reads and writes
+through compio's owned-buffer I/O. Unix domain sockets are **unix-only** and
+compile out on other platforms.
 
 | Listener | Function | Handler receives |
 |---|---|---|
 | TCP | `tako::server_tcp::serve_tcp` | `(TcpStream, SocketAddr)` |
 | UDP | `tako::server_udp::serve_udp` | `(Vec<u8>, SocketAddr, Arc<UdpSocket>)` |
-| Unix | `tako::server_unix::serve_unix` | `(UnixStream, SocketAddr)` |
+| Unix | `tako::server_unix::serve_unix` | `(UnixStream, SocketAddr)` on Tokio, `(UnixStream, UnixPeerAddr)` on Compio |
 
 Each handler returns a `Pin<Box<dyn Future>>` — wrap the body in `Box::pin(async move { … })`.
 The address argument is the peer; for UDP you also get a clone of the bound socket
@@ -90,6 +92,9 @@ Unix sockets give you local, file-backed IPC without binding a TCP port — idea
 sidecars, supervisors, and admin endpoints. `serve_unix` is the raw equivalent of
 `serve_tcp`, handing you a `UnixStream` per connection:
 
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
+
 ```rust
 use tako::server_unix::serve_unix;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -109,10 +114,40 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
+</Tab>
+<Tab value="Compio">
+
+```rust
+use compio::io::{AsyncRead, AsyncWriteExt};
+use tako::server_unix::serve_unix;
+
+#[compio::main]
+async fn main() -> std::io::Result<()> {
+  serve_unix("/tmp/tako.sock", |mut stream, _peer| {
+    Box::pin(async move {
+      let compio::BufResult(result, mut buf) = stream.read(vec![0u8; 4096]).await;
+      buf.truncate(result?);
+      let compio::BufResult(result, _) = stream.write_all(buf).await;
+      result
+    })
+  })
+  .await
+}
+```
+
+</Tab>
+</Tabs>
+
 To serve your full HTTP [`Router`](/docs/routing) over a socket file instead of TCP
 — the typical "behind nginx/HAProxy on a local socket" deployment — use
-`Server::spawn_unix_http`. The peer path is exposed to handlers as `UnixPeerAddr` in the
-request extensions:
+`Server::spawn_unix_http` on Tokio or `CompioServer::spawn_unix_http` on Compio.
+The `try_spawn_unix_http` variants bind the socket before returning, so bind errors
+surface immediately. The peer path is exposed to handlers as
+`tako::conn_info::UnixPeerAddr` in the request extensions, next to a `ConnInfo`
+whose transport is `Unix`:
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
 
 ```rust
 use tako::router::Router;
@@ -127,6 +162,31 @@ async fn main() {
 }
 ```
 
+</Tab>
+<Tab value="Compio">
+
+```rust
+use tako::CompioServer;
+use tako::router::Router;
+use tako::types::BoxError;
+
+#[compio::main]
+async fn main() -> Result<(), BoxError> {
+  let mut router = Router::new();
+  router.get("/", || async { "hello from unix" });
+
+  let handle = CompioServer::builder()
+    .build()
+    .try_spawn_unix_http("/tmp/tako-http.sock", router)
+    .await?;
+  handle.result().await?;
+  Ok(())
+}
+```
+
+</Tab>
+</Tabs>
+
 ```bash
 curl --unix-socket /tmp/tako-http.sock http://localhost/
 ```
@@ -138,8 +198,8 @@ Linux-only; on other unix platforms an `@`-path returns an `Unsupported` error.
 </Callout>
 
 <Callout type="warn">
-Unix sockets are **unix-only** and are absent on non-unix targets. `serve_unix_http`
-cleans up a stale filesystem socket before binding — it refuses to unlink a path
+Unix sockets are **unix-only** and are absent on non-unix targets. Both runtimes
+clean up a stale filesystem socket before binding — it refuses to unlink a path
 that is not actually an `AF_UNIX` socket (symlink-escalation guard) and removes the
 file again on graceful shutdown so the next run can re-bind.
 </Callout>

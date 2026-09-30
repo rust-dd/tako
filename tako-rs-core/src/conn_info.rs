@@ -151,6 +151,17 @@ impl ConnInfo {
   }
 }
 
+/// Peer address of an HTTP-over-Unix-socket connection, inserted into request
+/// extensions next to [`ConnInfo`] on both runtimes.
+///
+/// Handlers read it with `req.extensions().get::<UnixPeerAddr>()`.
+#[derive(Debug, Clone)]
+pub struct UnixPeerAddr {
+  /// The filesystem path of the peer socket, if available.
+  /// Most client connections are unnamed (None).
+  pub path: Option<PathBuf>,
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

@@ -28,11 +28,11 @@ time — the routing, middleware, and observability model does not change.
 | gRPC (unary) | yes | yes | `grpc` |
 | Raw TCP | yes | yes | *default* |
 | Raw UDP | yes | yes | `udp` |
-| Unix sockets | yes | — | *default* (unix only) |
+| Unix sockets | yes | yes | *default* (unix only) |
 | PROXY protocol v1/v2 | yes | — | `proxy-protocol` |
 
-HTTP/3, WebTransport, Unix sockets, and PROXY protocol are Tokio-only. HTTP/2
-over TLS, cleartext h2c, raw TCP/UDP, gRPC handlers, WebSocket, and SSE run on
+HTTP/3, WebTransport, and PROXY protocol are Tokio-only. HTTP/2 over TLS,
+cleartext h2c, raw TCP/UDP, Unix sockets, gRPC handlers, WebSocket, and SSE run on
 both runtimes. See [Runtimes](/docs/concepts/runtimes) and the
 [feature reference](/docs/reference/features).
 

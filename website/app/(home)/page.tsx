@@ -48,7 +48,7 @@ const faqs: { question: string; answer: string; link?: { href: string; label: st
   {
     question: 'Which async runtimes does Tako support?',
     answer:
-      'Tokio by default, and Compio (io_uring on Linux, IOCP on Windows) through the compio feature. HTTP/3, WebTransport, Unix sockets, and PROXY protocol are Tokio-only.',
+      'Tokio by default, and Compio (io_uring on Linux, IOCP on Windows) through the compio feature. HTTP/3, WebTransport, and PROXY protocol are Tokio-only.',
     link: { href: '/docs/concepts/runtimes', label: 'Runtime compatibility' },
   },
   {

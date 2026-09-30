@@ -10,6 +10,7 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
+use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::connection_router;
@@ -19,7 +20,6 @@ use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
-use super::listener::UnixPeerAddr;
 use super::listener::bind_unix_listener;
 use super::listener::is_abstract_path;
 use crate::ServerConfig;
