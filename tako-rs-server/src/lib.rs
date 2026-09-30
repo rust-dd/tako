@@ -48,6 +48,9 @@ pub use server::serve_with_shutdown;
 #[allow(deprecated)]
 pub use server::serve_with_shutdown_and_config;
 
+#[cfg(all(feature = "compio", feature = "http2"))]
+mod compio_h2;
+
 #[cfg(feature = "compio")]
 #[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
 pub mod server_compio;

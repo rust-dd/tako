@@ -119,9 +119,10 @@ trade-offs.
 ## Runtime and protocol combinations
 
 `--all-features` compiles and selects Compio for the HTTP server, middleware,
-signals, queues, and per-thread workers. Tokio-only HTTP/3, h2c, PROXY protocol,
-Unix HTTP, outbound client, and WebTransport exports are absent in that build.
-TLS with ALPN HTTP/2 remains available through `compio-tls` plus `http2`.
+signals, queues, and per-thread workers. Tokio-only HTTP/3, PROXY protocol, Unix
+HTTP, outbound client, and WebTransport exports are absent in that build. h2c is
+available through `http2`, and TLS with ALPN HTTP/2 through `compio-tls` plus
+`http2`.
 
 Tako enables Hyper's HTTP/2 support only through `http2` (other dependencies may
 also enable it). The workspace selects the Tokio runtime, I/O, timer, signal,

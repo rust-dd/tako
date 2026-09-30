@@ -16,7 +16,7 @@ There is no separate gRPC server: a gRPC handler is an ordinary async function
 that takes a `GrpcRequest<T>` extractor and returns a `GrpcResponse<U>` responder,
 registered on the same [`Router`](/docs/routing) as your REST endpoints. The
 helpers live in `tako-rs-core` behind `grpc` and work on either runtime. Use an
-HTTP/2 listener: h2c or TLS on Tokio, and TLS with `compio-tls` on Compio.
+HTTP/2 listener: h2c or TLS on either runtime (TLS on Compio needs `compio-tls`).
 
 ```toml
 [dependencies]

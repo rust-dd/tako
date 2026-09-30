@@ -84,7 +84,7 @@ Tokio-only:
 | Unix sockets | yes | — | *default* (unix only) |
 | PROXY protocol v1/v2 | yes | — | `proxy-protocol` |
 
-HTTP/2 over TLS is supported on both runtimes. Cleartext h2c, QUIC-based
+HTTP/2 over TLS and cleartext h2c are supported on both runtimes. QUIC-based
 protocols (HTTP/3, WebTransport), Unix sockets, PROXY protocol, and the outbound
 `tako::client` are Tokio-only. Raw TCP and UDP use each runtime’s native I/O API.
 

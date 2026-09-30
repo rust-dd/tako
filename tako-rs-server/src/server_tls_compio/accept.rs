@@ -29,11 +29,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 #[cfg(feature = "http2")]
-use crate::server_tls_compio::executor::CompioH2Executor;
+use crate::compio_h2::H2Settings;
 #[cfg(feature = "http2")]
-use crate::server_tls_compio::executor::CompioH2Timer;
-#[cfg(feature = "http2")]
-use crate::server_tls_compio::executor::ServiceSendWrapper;
+use crate::compio_h2::ServiceSendWrapper;
 
 /// Variant of [`run`](super::run) that accepts a pre-built `Arc<rustls::ServerConfig>`.
 pub async fn run_with_config(
@@ -65,15 +63,7 @@ pub async fn run_with_config(
   let keep_alive = config.keep_alive;
   let header_read_timeout = config.header_read_timeout;
   #[cfg(feature = "http2")]
-  let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
-  #[cfg(feature = "http2")]
-  let h2_max_header_list_size = config.h2_max_header_list_size;
-  #[cfg(feature = "http2")]
-  let h2_max_send_buf_size = config.h2_max_send_buf_size;
-  #[cfg(feature = "http2")]
-  let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
-  #[cfg(feature = "http2")]
-  let h2_keep_alive_interval = config.h2_keep_alive_interval;
+  let h2 = H2Settings::from(&config);
 
   let max_conn_semaphore = config
     .max_connections
@@ -207,20 +197,11 @@ pub async fn run_with_config(
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
-            let mut h2 = http2::Builder::new(CompioH2Executor);
-            h2.timer(CompioH2Timer)
-              .max_concurrent_streams(h2_max_concurrent_streams)
-              .max_header_list_size(h2_max_header_list_size)
-              .max_send_buf_size(h2_max_send_buf_size)
-              .max_pending_accept_reset_streams(h2_max_pending_accept_reset_streams);
-            if let Some(interval) = h2_keep_alive_interval {
-              h2.keep_alive_interval(Some(interval));
-            }
-
             if let Err(e) = drive_connection(
-              h2.serve_connection(io, ServiceSendWrapper::new(svc)),
+              h2.builder()
+                .serve_connection(io, ServiceSendWrapper::new(svc)),
               conn_cancel.cancelled(),
-              hyper::server::conn::http2::Connection::graceful_shutdown,
+              http2::Connection::graceful_shutdown,
             )
             .await
             {

@@ -97,6 +97,31 @@ impl CompioServer {
     Ok(handle)
   }
 
+  /// Spawns HTTP/2 prior knowledge (h2c) over cleartext TCP.
+  #[cfg(feature = "http2")]
+  pub fn spawn_h2c(&self, listener: compio::net::TcpListener, router: Router) -> ServerHandle {
+    self
+      .try_spawn_h2c(listener, router)
+      .unwrap_or_else(|error| super::spawn::failed_handle(error, self.config.drain_timeout))
+  }
+
+  /// Validates the router and listener before starting h2c.
+  #[cfg(feature = "http2")]
+  pub fn try_spawn_h2c(
+    &self,
+    listener: compio::net::TcpListener,
+    router: Router,
+  ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    #[cfg(feature = "plugins")]
+    router.setup_plugins_once()?;
+    let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
+    spawn_done_compio(
+      &handle,
+      crate::server_compio::run_h2c(listener, router, Some(signal), self.config.clone()),
+    );
+    Ok(handle)
+  }
+
   /// Spawns TLS HTTP. Startup failures are returned by `result()`.
   #[cfg(feature = "compio-tls")]
   pub fn spawn_tls(&self, listener: compio::net::TcpListener, router: Router) -> ServerHandle {

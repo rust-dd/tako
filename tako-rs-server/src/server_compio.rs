@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use compio::net::TcpListener;
@@ -9,6 +10,8 @@ use futures_util::StreamExt;
 use futures_util::future::Either;
 use futures_util::stream::FuturesUnordered;
 use hyper::server::conn::http1;
+#[cfg(feature = "http2")]
+use hyper::server::conn::http2;
 use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
@@ -19,6 +22,10 @@ use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 
 use crate::ServerConfig;
+#[cfg(feature = "http2")]
+use crate::compio_h2::H2Settings;
+#[cfg(feature = "http2")]
+use crate::compio_h2::ServiceSendWrapper;
 
 #[deprecated(
   since = "2.1.0",
@@ -79,11 +86,50 @@ pub async fn serve_with_shutdown_and_config(
   }
 }
 
+/// Wire protocol served on every accepted TCP connection.
+#[derive(Clone, Copy)]
+enum Protocol {
+  Http1,
+  #[cfg(feature = "http2")]
+  H2c,
+}
+
+impl Protocol {
+  fn conn_info(self, addr: SocketAddr) -> ConnInfo {
+    match self {
+      Self::Http1 => ConnInfo::tcp(addr),
+      #[cfg(feature = "http2")]
+      Self::H2c => ConnInfo::h2c(addr),
+    }
+  }
+}
+
 pub(crate) async fn run(
   listener: TcpListener,
   router: Router,
   signal: Option<impl Future<Output = ()>>,
   config: ServerConfig,
+) -> Result<(), BoxError> {
+  accept_loop(listener, router, signal, config, Protocol::Http1).await
+}
+
+/// HTTP/2 prior knowledge (h2c) over cleartext TCP.
+#[cfg(feature = "http2")]
+pub(crate) async fn run_h2c(
+  listener: TcpListener,
+  router: Router,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+) -> Result<(), BoxError> {
+  accept_loop(listener, router, signal, config, Protocol::H2c).await
+}
+
+async fn accept_loop(
+  listener: TcpListener,
+  router: Router,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+  protocol: Protocol,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
@@ -103,6 +149,8 @@ pub(crate) async fn run(
   let drain_timeout = config.drain_timeout;
   let keep_alive = config.keep_alive;
   let header_read_timeout = config.header_read_timeout;
+  #[cfg(feature = "http2")]
+  let h2 = H2Settings::from(&config);
 
   let max_conn_semaphore = config
     .max_connections
@@ -166,30 +214,49 @@ pub(crate) async fn run(
             let router = router.clone();
             async move {
               req.extensions_mut().insert(addr);
-              req.extensions_mut().insert(ConnInfo::tcp(addr));
+              req.extensions_mut().insert(protocol.conn_info(addr));
               let response = router.dispatch(req.map(TakoBody::new)).await;
               Ok::<_, Infallible>(response)
             }
           });
 
-          let mut http = http1::Builder::new();
-          http.keep_alive(keep_alive);
-          http
-            .timer(cyper_core::CompioTimer)
-            .header_read_timeout(header_read_timeout);
-          let conn = http.serve_connection(io, svc).with_upgrades();
+          match protocol {
+            Protocol::Http1 => {
+              let mut http = http1::Builder::new();
+              http.keep_alive(keep_alive);
+              http
+                .timer(cyper_core::CompioTimer)
+                .header_read_timeout(header_read_timeout);
+              let conn = http.serve_connection(io, svc).with_upgrades();
 
-          if let Err(err) = drive_connection(
-            conn,
-            conn_cancel.cancelled(),
-            hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
-          )
-          .await
-          {
-            if err.is_incomplete_message() {
-              tracing::debug!("client disconnected mid-message: {err}");
-            } else {
-              tracing::error!("Error serving connection: {err}");
+              if let Err(err) = drive_connection(
+                conn,
+                conn_cancel.cancelled(),
+                hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
+              )
+              .await
+              {
+                if err.is_incomplete_message() {
+                  tracing::debug!("client disconnected mid-message: {err}");
+                } else {
+                  tracing::error!("Error serving connection: {err}");
+                }
+              }
+            }
+            #[cfg(feature = "http2")]
+            Protocol::H2c => {
+              let conn = h2
+                .builder()
+                .serve_connection(io, ServiceSendWrapper::new(svc));
+              if let Err(err) = drive_connection(
+                conn,
+                conn_cancel.cancelled(),
+                http2::Connection::graceful_shutdown,
+              )
+              .await
+              {
+                tracing::warn!("h2c connection error: {err}");
+              }
             }
           }
 

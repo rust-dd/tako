@@ -127,7 +127,11 @@ read timeout, keep-alive and keep-alive timeout, HTTP/2 caps, HTTP/3 caps,
 
 Enable the `http2` feature. Prior-knowledge h2c is typically used behind an L7
 proxy (Envoy, Nginx) that terminates TLS and forwards cleartext h2c upstream.
-Use `Server::spawn_h2c` on Tokio. Compio supports HTTP/2 over TLS.
+Use `Server::spawn_h2c` on Tokio or `CompioServer::spawn_h2c` on Compio; both
+honor the HTTP/2 caps and keep-alive settings in `ServerConfig`.
+
+<Tabs items={['Tokio','Compio']}>
+<Tab value="Tokio">
 
 ```rust
 use tako::{Server, ServerConfig};
@@ -146,6 +150,30 @@ async fn main() -> anyhow::Result<()> {
   Ok(())
 }
 ```
+
+</Tab>
+<Tab value="Compio">
+
+```rust
+use compio::net::TcpListener;
+use tako::CompioServer;
+use tako::router::Router;
+use tako::types::BoxError;
+
+#[compio::main]
+async fn main() -> Result<(), BoxError> {
+  let listener = TcpListener::bind("127.0.0.1:8080").await?;
+  let mut router = Router::new();
+  router.get("/", || async { "h2c!" });
+
+  let handle = CompioServer::builder().build().try_spawn_h2c(listener, router)?;
+  handle.result().await?;
+  Ok(())
+}
+```
+
+</Tab>
+</Tabs>
 
 <Callout type="warn">
 h2c has no ALPN negotiation — the client must use prior knowledge that the
