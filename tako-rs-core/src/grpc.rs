@@ -47,6 +47,8 @@ mod framing;
 mod message;
 mod status;
 mod streaming;
+#[cfg(test)]
+mod tests;
 mod timeout;
 
 pub use framing::GrpcError;

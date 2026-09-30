@@ -32,6 +32,16 @@ pub enum GrpcStatusCode {
   Unauthenticated = 16,
 }
 
+impl GrpcStatusCode {
+  /// The decimal `grpc-status` value, without formatting or allocating.
+  fn header_value(self) -> http::HeaderValue {
+    const CODES: [&str; 17] = [
+      "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+    ];
+    http::HeaderValue::from_static(CODES[self as usize])
+  }
+}
+
 /// Percent-encode a gRPC `Status-Message` per PROTOCOL-HTTP2.md.
 ///
 /// The spec preserves visible ASCII (`0x20..=0x7E`) except `%`, and
@@ -70,9 +80,9 @@ pub(crate) fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -
     http::header::CONTENT_TYPE,
     http::HeaderValue::from_static("application/grpc"),
   );
-  if let Ok(val) = http::HeaderValue::from_str(&(status as u8).to_string()) {
-    resp.headers_mut().insert("grpc-status", val);
-  }
+  resp
+    .headers_mut()
+    .insert("grpc-status", status.header_value());
   if !message.is_empty()
     && let Ok(val) = http::HeaderValue::from_str(&percent_encode_grpc_message(message))
   {
@@ -105,9 +115,7 @@ impl GrpcStatus {
 
   pub(crate) fn write_trailers(&self) -> HeaderMap {
     let mut t = HeaderMap::new();
-    if let Ok(v) = http::HeaderValue::from_str(&(self.code as u8).to_string()) {
-      t.insert("grpc-status", v);
-    }
+    t.insert("grpc-status", self.code.header_value());
     if let Some(msg) = self.message.as_deref()
       && let Ok(v) = http::HeaderValue::from_str(&percent_encode_grpc_message(msg))
     {
