@@ -54,7 +54,7 @@ const faqs: { question: string; answer: string; link?: { href: string; label: st
   {
     question: 'Does Tako have a thread-per-core mode?',
     answer:
-      'Yes. The per-thread feature runs the router on one current-thread runtime per core with SO_REUSEPORT and balances connections across workers. In the published benchmarks it lands within a few percent of Actix Web and ntex.',
+      'Yes. The per-thread feature runs the router on one current-thread runtime per core with SO_REUSEPORT and balances connections across workers. In the published benchmarks it serves 3% more requests than Actix Web on loopback and 7% more when the server is the bottleneck.',
     link: { href: '/docs/deployment#thread-per-core', label: 'Thread-per-core deployment' },
   },
   {
@@ -192,23 +192,24 @@ export default function HomePage() {
       <section className="mt-24 w-full max-w-3xl">
         <h2 className="text-2xl font-semibold">Benchmarks</h2>
         <p className="mt-2 text-fd-muted-foreground">
-          Hello-world requests per second at 100 and 1,000 connections, measured
-          with tako-rs 2.2.0 in a 24 vCPU Linux container. The thread-per-core
-          server lands within a few percent of Actix Web and ntex; the default
-          server keeps pace with Axum and pulls ahead at 1,000 connections.
+          Hello-world requests per second under loopback, server-bound, and
+          pipelined load, measured with tako-rs 2.4.0 in a 24 vCPU Linux
+          container. The thread-per-core server leads Actix Web by 3% on
+          loopback, 7% server-bound, and 17% pipelined; the default server
+          serves about 24% more than Axum.
         </p>
         <img
           src="/benchmarks/hello-world-light.svg"
-          alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako"
-          width={896}
-          height={306}
+          alt="Hello-world requests per second under loopback, server-bound, and pipelined load for Tako per-thread with and without core pinning, Actix Web, ntex, Tako, Tako with jemalloc, and Axum"
+          width={980}
+          height={358}
           className="mt-6 w-full dark:hidden"
         />
         <img
           src="/benchmarks/hello-world-dark.svg"
-          alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako"
-          width={896}
-          height={306}
+          alt="Hello-world requests per second under loopback, server-bound, and pipelined load for Tako per-thread with and without core pinning, Actix Web, ntex, Tako, Tako with jemalloc, and Axum"
+          width={980}
+          height={358}
           className="mt-6 hidden w-full dark:block"
         />
         <p className="mt-4 text-sm text-fd-muted-foreground">

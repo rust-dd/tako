@@ -89,26 +89,30 @@ the API changes and opt-in transport features from 2.0.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/rust-dd/tako/main/website/public/benchmarks/hello-world-dark.svg">
-  <img alt="Hello-world requests per second at 100 and 1,000 connections for Actix Web, Tako per-thread, ntex, Tako with jemalloc, Axum, and Tako" src="https://raw.githubusercontent.com/rust-dd/tako/main/website/public/benchmarks/hello-world-light.svg">
+  <img alt="Hello-world requests per second under loopback, server-bound, and pipelined load for Tako per-thread with and without core pinning, Actix Web, ntex, Tako, Tako with jemalloc, and Axum" src="https://raw.githubusercontent.com/rust-dd/tako/main/website/public/benchmarks/hello-world-light.svg">
 </picture>
 
-| Framework | 100 conns · req/s | p99 | 1,000 conns · req/s | p99 |
-| --- | ---: | ---: | ---: | ---: |
-| Actix Web | 1,530,425 | 3.48 ms | 1,580,809 | 6.79 ms |
-| ntex | 1,562,670 | 3.23 ms | 1,557,559 | 6.25 ms |
-| **Tako per-thread** | 1,436,252 | 6.11 ms | 1,521,982 | 7.89 ms |
-| **Tako + `jemalloc`** | 497,515 | 1.56 ms | 1,286,328 | 3.05 ms |
-| **Tako** | 478,502 | 1.73 ms | 1,112,141 | 3.64 ms |
-| Axum | 496,454 | 1.48 ms | 1,048,804 | 3.81 ms |
+| Framework | Loopback · 1,000 conns | Server-bound · 256 conns | Pipelined ×16 · 256 conns |
+| --- | ---: | ---: | ---: |
+| **Tako per-thread** | 1,842,063 | 612,091 | 15,033,668 |
+| **Tako per-thread, pinned** | 1,780,810 | 611,956 | 15,716,822 |
+| Actix Web | 1,786,640 | 570,865 | 12,806,477 |
+| ntex | 1,740,750 | 543,076 | 8,749,294 |
+| **Tako** | 1,401,625 | 483,526 | 11,512,467 |
+| **Tako + `jemalloc`** | 1,386,954 | 469,807 | 10,853,271 |
+| Axum | 1,132,259 | 389,844 | — |
 
-Tako's default server keeps pace with Axum on the same Tokio runtime and pulls
-ahead at 1,000 connections, and the thread-per-core
+Requests per second for `GET /` → `Hello, World!`. The thread-per-core
 [`per-thread`](https://tako.rust-dd.com/docs/deployment#thread-per-core) server
-lands within a few percent of Actix Web and ntex. On the multi-threaded server,
-installing jemalloc through the `jemalloc` feature adds about 16% at 1,000
-connections. `GET /` returns `Hello, World!`; each
-number is the median of three 20-second `wrk` runs over loopback in a 24 vCPU
-Linux container (AMD EPYC 9655P), measured with tako-rs 2.2.0 in September 2026.
+serves 3% more requests than Actix Web on loopback, where kernel time
+dominates, 7% more when the server is the bottleneck, and 17% more when `wrk`
+pipelines 16 requests at a time. The pinned row turns on `pin_to_core`, which
+is off by default. Tako's default server serves about 24% more than Axum on the
+same Tokio runtime, at 1,000 connections and server-bound alike. Axum has no
+pipelined number because `axum::serve` leaves `TCP_NODELAY` off.
+
+Each number is the median of five 15-second `wrk` runs in a 24 vCPU Linux
+container (AMD EPYC 9655P), measured with tako-rs 2.4.0 in October 2026.
 Results move with hardware and configuration, so read the
 [methodology and reproduction steps](https://tako.rust-dd.com/docs/benchmarks)
 before drawing conclusions.

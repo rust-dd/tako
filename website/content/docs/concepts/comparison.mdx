@@ -20,8 +20,10 @@ methodology.
 - **Axum** keeps a small core and builds on the Tower ecosystem. Pick it when you
   want Tower middleware, the largest community, and mostly HTTP/1.1 and HTTP/2
   APIs.
-- **Actix Web** has been around since 2017 and leads hello-world throughput
-  among the three. Pick it when a long track record and raw HTTP speed matter most.
+- **Actix Web** has been around since 2017 and has the fastest default setup
+  in hello-world benchmarks; Tako's opt-in per-thread server is 3% ahead of it on
+  loopback and 7% ahead when the server is the bottleneck. Pick Actix Web
+  when a long track record and fast defaults matter most.
 - **Tako** puts several transports behind one router and middleware stack, and
   bundles auth, sessions, rate limiting, and metrics. Pick it when one service
   speaks HTTP/3, WebSocket, SSE, gRPC, or raw TCP/UDP alongside plain HTTP, or
@@ -29,7 +31,7 @@ methodology.
 
 ## Feature comparison
 
-Versions compared: Tako 2.3, Axum 0.8, and Actix Web 4.
+Versions compared: Tako 2.4, Axum 0.8, and Actix Web 4.
 
 | | Tako | Axum | Actix Web |
 | --- | --- | --- | --- |
@@ -54,23 +56,25 @@ Versions compared: Tako 2.3, Axum 0.8, and Actix Web 4.
 
 ## Throughput
 
-Hello-world requests per second, the median of three 20-second `wrk` runs in a
-24 vCPU Linux container, measured with tako-rs 2.2.0 in September 2026:
+Hello-world requests per second, the median of five 15-second `wrk` runs in a
+24 vCPU Linux container, measured with tako-rs 2.4.0 in October 2026:
 
-| Framework | 100 connections | 1,000 connections |
-| --- | ---: | ---: |
-| Actix Web | 1,530,425 | 1,580,809 |
-| Tako per-thread | 1,436,252 | 1,521,982 |
-| Tako + jemalloc | 497,515 | 1,286,328 |
-| Tako | 478,502 | 1,112,141 |
-| Axum | 496,454 | 1,048,804 |
+| Framework | Loopback, 1,000 connections | Server-bound | Pipelined |
+| --- | ---: | ---: | ---: |
+| Tako per-thread | 1,842,063 | 612,091 | 15,033,668 |
+| Actix Web | 1,786,640 | 570,865 | 12,806,477 |
+| Tako | 1,401,625 | 483,526 | 11,512,467 |
+| Tako + jemalloc | 1,386,954 | 469,807 | 10,853,271 |
+| Axum | 1,132,259 | 389,844 | n/a |
 
-Tako's default server runs on Tokio's work-stealing runtime, like Axum, and the
-two land within a few percent of each other. The thread-per-core `per-thread`
-server runs one runtime per worker, like Actix Web, and lands within a few
-percent of it. A hello-world route measures framework overhead, not application
-performance; read the [benchmark methodology](/docs/benchmarks) before drawing
-conclusions.
+Tako's default server runs on Tokio's work-stealing runtime, like Axum, and
+serves about 24% more requests at 1,000 connections and when the server is the
+bottleneck. The thread-per-core `per-thread` server runs one runtime per
+worker, like Actix Web, and serves 3% more requests than Actix Web on loopback,
+7% more server-bound, and 17% more pipelined. Axum has no pipelined number
+because `axum::serve` leaves `TCP_NODELAY` off. A hello-world route measures
+framework overhead, not application performance; read the
+[benchmark methodology](/docs/benchmarks) before drawing conclusions.
 
 ## When to choose which
 
