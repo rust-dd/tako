@@ -94,6 +94,20 @@ and join the returned OS thread handles during teardown. Bind and plugin setup
 errors are reported through the shutdown handle. These workers currently serve
 HTTP/1.1. TLS, h2c, and PROXY listeners use the regular server builder.
 
+Workers are not pinned to CPU cores by default, so the OS can move a worker off
+a core that another process keeps busy. On a machine the server has to itself,
+pinning keeps each worker's caches warm; set `pin_to_core: true` and worker *n*
+runs on the *n*-th CPU core. The `affinity` feature that does the pinning comes
+with `per-thread`.
+
+```rust
+let config = PerThreadConfig {
+  workers: 4,
+  pin_to_core: true,
+  ..PerThreadConfig::default()
+};
+```
+
 `per-thread-compio` selects Compio consistently for workers, middleware,
 signals, and queues. Kernel load balancing with `SO_REUSEPORT` is intended for
 Linux. On macOS, where the kernel sends every connection to one listener, Tokio

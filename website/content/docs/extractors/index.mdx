@@ -151,3 +151,65 @@ and `Validated<T>` (behind the `validator` / `garde` features). The
 header extractors for hot-path handlers. See the
 [crate rustdoc](https://docs.rs/tako-rs/latest/tako/extractors/) for the
 complete list.
+
+## Writing an extractor
+
+The last handler argument must implement `FromRequest`; earlier ones must
+implement `FromRequestParts`. An extractor that only reads headers, the URI, or
+extensions implements both, so it fits any position. Set `ENTRIES` to the
+framework entries it reads; this one reads none:
+
+```rust
+use http::request::Parts;
+use tako::StatusCode;
+use tako::extractors::Entries;
+use tako::extractors::FromRequest;
+use tako::extractors::FromRequestParts;
+use tako::header::HeaderMap;
+use tako::types::Request;
+
+struct RequestId(String);
+
+fn request_id(headers: &HeaderMap) -> Result<RequestId, StatusCode> {
+  headers
+    .get("x-request-id")
+    .and_then(|value| value.to_str().ok())
+    .map(|id| RequestId(id.to_owned()))
+    .ok_or(StatusCode::BAD_REQUEST)
+}
+
+impl<'a> FromRequestParts<'a> for RequestId {
+  type Error = StatusCode;
+  const ENTRIES: Entries = Entries::NONE;
+
+  async fn from_request_parts(parts: &'a mut Parts) -> Result<Self, Self::Error> {
+    request_id(&parts.headers)
+  }
+}
+
+impl<'a> FromRequest<'a> for RequestId {
+  type Error = StatusCode;
+  const ENTRIES: Entries = Entries::NONE;
+
+  async fn from_request(req: &'a mut Request) -> Result<Self, Self::Error> {
+    request_id(req.headers())
+  }
+}
+```
+
+The router can attach these entries to a request's extensions:
+
+| Entry | Attaches | Read by |
+| --- | --- | --- |
+| `Entries::CONN` | `ConnInfo` and the peer `SocketAddr` | `ConnectInfo<T>`, `IpAddr` |
+| `Entries::MATCHED_PATH` | `MatchedPath` | `MatchedPath` |
+| `Entries::PARAMS` | the matched path parameters | `Path<T>`, `Params<T>`, `TypedParams<T>` |
+| `Entries::STATE` | router and route state | `State<T>`, `IpAddr` |
+| `Entries::BODY_LIMIT` | the body size limit | `Json<T>`, `Form<T>`, `Bytes`, `String`, `Protobuf<T>`, `SimdJson<T>` |
+| `Entries::SIMD_JSON` | the route's SIMD JSON mode | `Json<T>` |
+
+A route without middleware or other per-request hooks gets only the entries its
+handler's extractors list, which saves work on every request; all other requests
+get every entry. Combine entries with `Entries::CONN.union(Entries::STATE)`.
+`ENTRIES` defaults to `Entries::ALL`, which is always correct. An extractor that
+reads an entry it does not list finds it missing on those routes.

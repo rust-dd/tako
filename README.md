@@ -76,7 +76,10 @@ and integrations through [Cargo features](https://tako.rust-dd.com/docs/referenc
 See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
 for transport support on Tokio and Compio.
 
-Upgrading? The [2.3 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-3)
+Upgrading? 2.4 needs no code changes; its
+[migration guide](https://tako.rust-dd.com/docs/reference/migration-2-4) covers
+the core pinning default, the header deadline, and extractor entries. The
+[2.3 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-3)
 covers the removed HTTP client, WebTransport, and gRPC changes, the
 [2.2 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-2) the per-thread
 changes, and the [2.1 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-1)
