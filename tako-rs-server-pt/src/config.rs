@@ -5,7 +5,11 @@ use std::time::Duration;
 pub struct PerThreadConfig {
   /// Number of worker threads. Defaults to the number of logical CPUs.
   pub workers: usize,
-  /// Pin each worker to a CPU core (requires the `affinity` feature).
+  /// Pin each worker to a CPU core; needs the `affinity` feature.
+  ///
+  /// Off by default: a pinned worker cannot move off a core that another
+  /// process keeps busy, and every process pins from core 0. Turn it on for a
+  /// server that has the machine to itself.
   pub pin_to_core: bool,
   /// `SO_REUSEPORT` listen backlog.
   pub backlog: i32,
@@ -30,7 +34,7 @@ impl Default for PerThreadConfig {
   fn default() -> Self {
     Self {
       workers: num_cpus(),
-      pin_to_core: cfg!(feature = "affinity"),
+      pin_to_core: false,
       backlog: 1024,
       drain_timeout: Duration::from_secs(30),
       header_read_timeout: Some(Duration::from_secs(30)),
@@ -42,4 +46,14 @@ impl Default for PerThreadConfig {
 
 fn num_cpus() -> usize {
   std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::PerThreadConfig;
+
+  #[test]
+  fn workers_are_not_pinned_by_default() {
+    assert!(!PerThreadConfig::default().pin_to_core);
+  }
 }
