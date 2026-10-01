@@ -243,7 +243,7 @@ async fn idle_keep_alive_connection_closes_after_the_header_deadline() {
       .await
       .expect("idle connection must close")
       .unwrap();
-    assert!(rest.is_empty());
+    assert_eq!(rest, b"");
   })
   .await;
 }
