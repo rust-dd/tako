@@ -28,8 +28,10 @@ pub struct ServerConfig {
   /// Maximum time the coordinator waits for in-flight connections to finish
   /// after a shutdown signal. After this elapses, remaining tasks are aborted.
   pub drain_timeout: Duration,
-  /// Maximum time hyper waits for the request line + headers to arrive.
-  /// `None` disables the timeout (the previous behavior).
+  /// How long a connection may go without sending a complete request head.
+  ///
+  /// On plain HTTP/1 the deadline is checked every half deadline, so an idle
+  /// connection closes after 1 to 1.5 times this value. `None` disables it.
   pub header_read_timeout: Option<Duration>,
   /// HTTP/1 keep-alive (default `true`).
   pub keep_alive: bool,

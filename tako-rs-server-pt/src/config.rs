@@ -12,7 +12,10 @@ pub struct PerThreadConfig {
   /// Maximum time the coordinator waits for in-flight requests after shutdown.
   /// Workers are dropped after this elapses.
   pub drain_timeout: Duration,
-  /// Request-header deadline. `None` disables it.
+  /// How long a connection may go without sending a complete request head.
+  ///
+  /// Checked every half deadline, so an idle connection closes after 1 to 1.5
+  /// times this value. `None` disables it.
   pub header_read_timeout: Option<Duration>,
   /// Maximum concurrent connections per worker. `None` leaves it unlimited.
   pub max_connections: Option<usize>,

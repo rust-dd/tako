@@ -60,6 +60,44 @@ pub mod range;
 /// Compile-time-shaped path parameter extractor (paired with `#[tako::route]`).
 pub mod typed_params;
 
+/// Framework entries the router puts into a request's extensions.
+///
+/// Extractors list the entries they read in `ENTRIES`. A route without
+/// middleware attaches only what its handler's extractors list; the full
+/// pipeline always attaches every entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Entries(u8);
+
+impl Entries {
+  pub const NONE: Self = Self(0);
+  /// [`ConnInfo`](crate::conn_info::ConnInfo) and the peer `SocketAddr`.
+  pub const CONN: Self = Self(1);
+  /// [`MatchedPath`](crate::router_state::MatchedPath).
+  pub const MATCHED_PATH: Self = Self(1 << 1);
+  /// The matched path parameters.
+  pub const PARAMS: Self = Self(1 << 2);
+  /// The router or route state that `State<T>` reads.
+  pub const STATE: Self = Self(1 << 3);
+  /// The body limit that body extractors enforce.
+  pub const BODY_LIMIT: Self = Self(1 << 4);
+  /// The route's SIMD JSON mode.
+  pub const SIMD_JSON: Self = Self(1 << 5);
+  /// Every entry; the default for extractors that list none.
+  pub const ALL: Self = Self(0b11_1111);
+
+  /// The entries in either set.
+  #[must_use]
+  pub const fn union(self, other: Self) -> Self {
+    Self(self.0 | other.0)
+  }
+
+  /// Whether every entry in `other` is also in `self`.
+  #[must_use]
+  pub const fn contains(self, other: Self) -> bool {
+    self.0 & other.0 == other.0
+  }
+}
+
 /// Trait for extracting data from complete HTTP requests.
 ///
 /// `FromRequest` enables types to extract and parse data from HTTP requests, including
@@ -96,6 +134,13 @@ pub mod typed_params;
 pub trait FromRequest<'a>: Sized {
   /// Error type returned when extraction fails.
   type Error: crate::responder::Responder;
+
+  /// Framework entries this extractor reads.
+  ///
+  /// The default, [`Entries::ALL`], is always correct. A route without
+  /// middleware attaches only the entries its extractors list, so an entry
+  /// left out here is missing from those requests.
+  const ENTRIES: Entries = Entries::ALL;
 
   /// Extracts the type from the HTTP request.
   fn from_request(
@@ -135,6 +180,13 @@ pub trait FromRequest<'a>: Sized {
 pub trait FromRequestParts<'a>: Sized {
   /// Error type returned when extraction fails.
   type Error: crate::responder::Responder;
+
+  /// Framework entries this extractor reads.
+  ///
+  /// The default, [`Entries::ALL`], is always correct. A route without
+  /// middleware attaches only the entries its extractors list, so an entry
+  /// left out here is missing from those requests.
+  const ENTRIES: Entries = Entries::ALL;
 
   /// Extracts the type from the HTTP request parts.
   fn from_request_parts(

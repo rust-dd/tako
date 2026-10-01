@@ -165,6 +165,7 @@ impl Responder for JsonError {
   }
 }
 
+use crate::extractors::Entries;
 use crate::extractors::is_json_content_type;
 
 impl<'a, T> FromRequest<'a> for Json<T>
@@ -172,6 +173,7 @@ where
   T: DeserializeOwned + Send + 'static,
 {
   type Error = JsonError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT.union(Entries::SIMD_JSON);
 
   /// Extracts and deserializes JSON data from the HTTP request body.
   ///

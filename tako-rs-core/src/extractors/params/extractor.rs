@@ -5,6 +5,7 @@ use smallvec::SmallVec;
 
 use super::deserializer::PathParamsDeserializer;
 use super::error::ParamsError;
+use crate::extractors::Entries;
 use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::types::Request;
@@ -23,6 +24,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = ParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request(
     req: &'a mut Request,
@@ -36,6 +38,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = ParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request_parts(
     parts: &'a mut http::request::Parts,

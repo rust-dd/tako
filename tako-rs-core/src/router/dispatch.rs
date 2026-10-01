@@ -9,9 +9,12 @@ use http::StatusCode;
 use http_body::Body;
 use smallvec::SmallVec;
 
+use super::Dispatch;
 use super::Router;
+use super::fast_path::clear_route_entries;
+use super::fast_path::set_matched_path;
+use super::fast_path::set_params;
 use crate::body::TakoBody;
-use crate::extractors::params::PathParams;
 use crate::handler::BoxHandler;
 use crate::middleware::Next;
 use crate::route::Route;
@@ -21,7 +24,7 @@ use crate::types::Response;
 /// Builds a status response with an empty body.
 #[inline]
 pub(crate) fn empty_status_response(status: StatusCode) -> Response {
-  let mut resp = http::Response::new(TakoBody::empty());
+  let mut resp = crate::responder::new_response(TakoBody::empty());
   *resp.status_mut() = status;
   resp
 }
@@ -52,13 +55,18 @@ impl Router {
 
   /// Dispatches an incoming request to the appropriate route handler.
   #[inline]
-  pub async fn dispatch(&self, mut req: Request) -> Response {
+  pub async fn dispatch(&self, req: Request) -> Response {
+    match self.begin(req, None) {
+      Dispatch::Handler(handler) => handler.await,
+      Dispatch::Full(req) => self.dispatch_full(req).await,
+    }
+  }
+
+  /// Runs a request through middleware, timeouts, fallbacks, and error hooks.
+  pub(crate) async fn dispatch_full(&self, req: Request) -> Response {
     #[cfg(feature = "plugins")]
     if self.setup_plugins_once().is_err() {
       return empty_status_response(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    if let Some(limit) = self.body_limit {
-      req.extensions_mut().insert(limit);
     }
     let request_parts = self.error_handler_with_parts.as_ref().map(|_| {
       let mut saved = Request::default();
@@ -70,76 +78,43 @@ impl Router {
       saved.into_parts().0
     });
     let is_head = req.method() == Method::HEAD;
-    // Per-router state: only inject when at least one `with_state` was called.
-    // The atomic load is monomorphic and cheap; the Arc clone (atomic incref)
-    // only happens for routers that actually use instance-local state.
-    if self.has_router_state.load(Ordering::Acquire) {
-      req.extensions_mut().insert(Arc::clone(&self.router_state));
-    }
 
-    // Borrow the path for lookup; release it before inserting request extensions.
-    let route_match = {
-      let path = req.uri().path();
+    let (mut parts, body) = req.into_parts();
+    let route = {
       let matched = self
         .inner
-        .get(req.method())
-        .and_then(|router| router.at(path).ok())
+        .get(&parts.method)
+        .and_then(|router| router.at(parts.uri.path()).ok())
         .or_else(|| {
           if is_head {
             self
               .inner
               .get(&Method::GET)
-              .and_then(|router| router.at(path).ok())
+              .and_then(|router| router.at(parts.uri.path()).ok())
           } else {
             None
           }
         });
       if let Some(matched) = matched {
-        let route: &Route = matched.value;
-        let mut it = matched.params.iter();
-        let first = it.next();
-        let params = first.map(|(fk, fv)| {
-          let mut p = SmallVec::<[(Arc<str>, String); 4]>::new();
-          p.push((
-            route
-              .parameter_keys
-              .iter()
-              .find(|key| key.as_ref() == fk)
-              .cloned()
-              .unwrap_or_else(|| Arc::from(fk)),
-            fv.to_string(),
-          ));
-          for (k, v) in it {
-            p.push((
-              route
-                .parameter_keys
-                .iter()
-                .find(|key| key.as_ref() == k)
-                .cloned()
-                .unwrap_or_else(|| Arc::from(k)),
-              v.to_string(),
-            ));
-          }
-          PathParams(p)
-        });
-        Some((route, params))
+        set_params(&mut parts.extensions, matched.value, &matched.params);
+        set_matched_path(&mut parts.extensions, matched.value);
+        Some(matched.value.as_ref())
       } else {
+        clear_route_entries(&mut parts.extensions);
         None
       }
     };
+    self.set_route_entries(&mut parts.extensions, route);
+    let req = Request::from_parts(parts, body);
 
     #[cfg(feature = "signals")]
-    let signals = super::request_signals::RequestSignals::new(
-      &self.signals,
-      route_match.as_ref().map(|(route, _)| *route),
-      &req,
-    );
+    let signals = super::request_signals::RequestSignals::new(&self.signals, route, &req);
     #[cfg(feature = "signals")]
     if let Some(signals) = &signals {
       signals.started().await;
     }
 
-    let response = if let Some((route, params)) = route_match {
+    let response = if let Some(route) = route {
       // Failures still pass through error formatting and completion signals.
       #[cfg(feature = "plugins")]
       let setup_error = route.setup_plugins_once().err();
@@ -150,28 +125,6 @@ impl Router {
       {
         res
       } else {
-        if let Some(state) = &route.scoped_state {
-          req.extensions_mut().insert(state.clone());
-        }
-        if let Some(limit) = route.body_limit {
-          req.extensions_mut().insert(limit);
-        }
-
-        if let Some(mode) = route.get_simd_json_mode() {
-          req.extensions_mut().insert(mode);
-        }
-
-        if let Some(params) = params {
-          req.extensions_mut().insert(params);
-        }
-
-        // Inject the matched route template (e.g. `/users/{id}`) so handlers
-        // and middleware can label metrics/logs by the routing key, not the
-        // concrete URI.
-        req
-          .extensions_mut()
-          .insert(crate::router_state::MatchedPath(route.matched_path()));
-
         let timeout_router = route.scoped_timeout.as_deref().unwrap_or(self);
         let effective_timeout = route
           .get_timeout()

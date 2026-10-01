@@ -7,6 +7,7 @@ use http_body_util::LengthLimitError;
 use http_body_util::Limited;
 
 use super::FromRequest;
+use crate::extractors::Entries;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
@@ -89,6 +90,7 @@ pub async fn collect_body(req: &mut Request) -> Result<Bytes, BodyReadError> {
 
 impl<'a> FromRequest<'a> for Bytes {
   type Error = BodyReadError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,
@@ -99,6 +101,7 @@ impl<'a> FromRequest<'a> for Bytes {
 
 impl<'a> FromRequest<'a> for String {
   type Error = BodyReadError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   async fn from_request(req: &'a mut Request) -> Result<Self, Self::Error> {
     String::from_utf8(collect_body(req).await?.to_vec()).map_err(|_| BodyReadError::InvalidUtf8)

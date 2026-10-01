@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use http::request::Parts;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -65,6 +66,7 @@ where
   T: Send + Sync + 'static,
 {
   type Error = MissingState;
+  const ENTRIES: Entries = Entries::STATE;
 
   fn from_request(
     req: &'a mut Request,
@@ -81,6 +83,7 @@ where
   T: Send + Sync + 'static,
 {
   type Error = MissingState;
+  const ENTRIES: Entries = Entries::STATE;
 
   fn from_request_parts(
     parts: &'a mut Parts,

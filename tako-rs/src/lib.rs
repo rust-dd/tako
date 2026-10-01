@@ -192,6 +192,7 @@ pub use tako_rs_streams::ws_compio;
 
 /// Request data extraction utilities.
 pub mod extractors {
+  pub use tako_rs_core::extractors::Entries;
   pub use tako_rs_core::extractors::FromRequest;
   pub use tako_rs_core::extractors::FromRequestParts;
   pub use tako_rs_core::extractors::body;

@@ -31,6 +31,7 @@
 
 mod definition;
 mod dispatch;
+mod fast_path;
 mod introspection;
 mod layers;
 mod method_map;
@@ -45,6 +46,7 @@ mod state;
 mod timeout;
 
 pub use definition::Router;
+pub(crate) use fast_path::Dispatch;
 pub use layers::ErrorHandler;
 pub use layers::ErrorHandlerWithParts;
 pub use mounting::TAKO_ROUTES;

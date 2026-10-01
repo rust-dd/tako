@@ -1,12 +1,20 @@
 //! Shared lifecycle primitives for the server crates.
 
+mod conn;
+mod driver;
+mod shutdown;
 mod timer;
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+pub use conn::ConnActivity;
+pub use conn::ConnCtx;
+pub use conn::tcp_service;
+pub use driver::ConnDriver;
 use futures_util::future::Either;
+pub use shutdown::ShutdownSignal;
 pub use timer::ConnectionTimer;
 
 use crate::router::Router;

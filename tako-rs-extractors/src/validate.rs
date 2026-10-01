@@ -41,6 +41,7 @@
 use http::StatusCode;
 use http::header::CONTENT_TYPE;
 use http::request::Parts;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -125,6 +126,7 @@ where
   T: FromRequest<'a> + Validate + Send + 'a,
 {
   type Error = ValidatedError<<T as FromRequest<'a>>::Error>;
+  const ENTRIES: Entries = <T as FromRequest<'a>>::ENTRIES;
 
   fn from_request(
     req: &'a mut Request,
@@ -143,6 +145,7 @@ where
   T: FromRequestParts<'a> + Validate + Send + 'a,
 {
   type Error = ValidatedError<<T as FromRequestParts<'a>>::Error>;
+  const ENTRIES: Entries = <T as FromRequestParts<'a>>::ENTRIES;
 
   fn from_request_parts(
     parts: &'a mut Parts,
@@ -173,6 +176,7 @@ where
   T: FromRequest<'a> + garde::Validate<Context = ()> + Send + 'a,
 {
   type Error = ValidatedError<<T as FromRequest<'a>>::Error>;
+  const ENTRIES: Entries = <T as FromRequest<'a>>::ENTRIES;
 
   fn from_request(
     req: &'a mut Request,
@@ -192,6 +196,7 @@ where
   T: FromRequestParts<'a> + garde::Validate<Context = ()> + Send + 'a,
 {
   type Error = ValidatedError<<T as FromRequestParts<'a>>::Error>;
+  const ENTRIES: Entries = <T as FromRequestParts<'a>>::ENTRIES;
 
   fn from_request_parts(
     parts: &'a mut Parts,

@@ -16,6 +16,7 @@ use http::HeaderMap;
 use http::StatusCode;
 use http::request::Parts;
 
+use crate::extractors::Entries;
 use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::responder::Responder;
@@ -189,6 +190,7 @@ impl Range {
 
 impl<'a> FromRequest<'a> for Option<Range> {
   type Error = RangeError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request(
     req: &'a mut Request,
@@ -199,6 +201,7 @@ impl<'a> FromRequest<'a> for Option<Range> {
 
 impl<'a> FromRequestParts<'a> for Option<Range> {
   type Error = RangeError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request_parts(
     parts: &'a mut Parts,

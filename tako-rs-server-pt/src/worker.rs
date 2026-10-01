@@ -1,17 +1,15 @@
-use std::convert::Infallible;
 use std::io;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use tako_rs_core::body::TakoBody;
-use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
-use tako_rs_core::server_support::ConnectionTimer;
-use tako_rs_core::server_support::connection_router;
-use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::ConnCtx;
+use tako_rs_core::server_support::ConnDriver;
+use tako_rs_core::server_support::ShutdownSignal;
+use tako_rs_core::server_support::tcp_service;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::runtime::Builder;
@@ -71,8 +69,9 @@ pub(crate) fn worker_main(
     }
   };
 
-  let local = LocalSet::new();
-  local.block_on(&rt, async move {
+  // The accept loop runs as its own task, so the `LocalSet` re-polls only its
+  // join handle, not the whole accept `select!`, each time a connection wakes.
+  let accept_loop = async move {
     #[cfg(feature = "plugins")]
     if let Err(error) = router.setup_plugins_once() {
       shutdown.report_bind_failure(io::Error::other(error.clone()));
@@ -117,9 +116,7 @@ pub(crate) fn worker_main(
     tokio::pin!(shutdown_fut);
 
     let mut connection_handles = tokio::task::JoinSet::new();
-    // Connections poll this token on every wake-up; a per-worker child keeps that
-    // lock on this thread instead of on the token every worker shares.
-    let worker_shutdown = shutdown.inner.child_token();
+    let stopping = Arc::new(ShutdownSignal::default());
 
     loop {
       let (stream, peer, live) = tokio::select! {
@@ -174,46 +171,40 @@ pub(crate) fn worker_main(
         None
       };
       let io = hyper_util::rt::TokioIo::new(stream);
-      let router = connection_router(&router);
-      let conn_shutdown = worker_shutdown.clone();
+      let ctx = Rc::new(ConnCtx::new(Arc::clone(&router), peer));
+      let stopping = Arc::clone(&stopping);
+      let header_read_timeout = cfg.header_read_timeout;
 
       connection_handles.spawn_local(async move {
         let _live = live;
         let _permit = permit;
-        let svc = service_fn(move |mut req| {
-          let router = router.clone();
-          async move {
-            req.extensions_mut().insert(peer);
-            req.extensions_mut().insert(ConnInfo::tcp(peer));
-            let resp = router.dispatch(req.map(TakoBody::incoming)).await;
-            Ok::<_, Infallible>(resp)
-          }
-        });
-
         let mut http = http1::Builder::new();
         http.keep_alive(true);
         http.pipeline_flush(true);
-        http
-          .timer(ConnectionTimer::new())
-          .header_read_timeout(cfg.header_read_timeout);
-        if let Err(err) = drive_connection(
-          http.serve_connection(io, svc).with_upgrades(),
-          conn_shutdown.cancelled(),
-          hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
-        )
-        .await
-        {
-          if err.is_incomplete_message() {
+        let conn = http
+          .serve_connection(io, tcp_service(Rc::clone(&ctx)))
+          .with_upgrades();
+        let driven = ConnDriver::new(
+          conn,
+          http1::UpgradeableConnection::graceful_shutdown,
+          stopping,
+          ctx,
+          header_read_timeout,
+        );
+        match driven.await {
+          Some(Err(err)) if err.is_incomplete_message() => {
             tracing::debug!("worker {worker_id}: client disconnected mid-message: {err}");
-          } else {
-            tracing::error!("worker {worker_id}: connection error: {err}");
           }
+          Some(Err(err)) => tracing::error!("worker {worker_id}: connection error: {err}"),
+          Some(Ok(())) => {}
+          None => tracing::debug!("worker {worker_id}: closed {peer} at the header deadline"),
         }
       });
 
       while connection_handles.try_join_next().is_some() {}
     }
 
+    stopping.trigger();
     let drain = tokio::time::timeout(cfg.drain_timeout, async {
       while connection_handles.join_next().await.is_some() {}
     });
@@ -222,6 +213,14 @@ pub(crate) fn worker_main(
     }
     #[cfg(feature = "signals")]
     tako_rs_core::signals::transport::emit_server_stopped(&local_addr, "tcp", false).await;
+  };
+  let local = LocalSet::new();
+  local.block_on(&rt, async move {
+    if let Err(error) = tokio::task::spawn_local(accept_loop).await
+      && error.is_panic()
+    {
+      std::panic::resume_unwind(error.into_panic());
+    }
   });
 }
 

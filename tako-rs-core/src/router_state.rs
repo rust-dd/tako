@@ -17,6 +17,8 @@ use std::sync::Arc;
 
 use scc::HashMap as SccHashMap;
 
+use crate::extractors::Entries;
+
 /// Type-keyed bag of values, lock-free for both reads and writes.
 #[derive(Default)]
 pub struct RouterState {
@@ -106,6 +108,7 @@ impl MatchedPath {
 
 impl<'a> crate::extractors::FromRequest<'a> for MatchedPath {
   type Error = MatchedPathMissing;
+  const ENTRIES: Entries = Entries::MATCHED_PATH;
 
   fn from_request(
     req: &'a mut crate::types::Request,
@@ -122,6 +125,7 @@ impl<'a> crate::extractors::FromRequest<'a> for MatchedPath {
 
 impl<'a> crate::extractors::FromRequestParts<'a> for MatchedPath {
   type Error = MatchedPathMissing;
+  const ENTRIES: Entries = Entries::MATCHED_PATH;
 
   fn from_request_parts(
     parts: &'a mut http::request::Parts,

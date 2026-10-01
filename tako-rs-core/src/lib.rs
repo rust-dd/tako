@@ -83,6 +83,8 @@ pub mod tracing;
 /// Core type definitions used throughout the framework.
 pub mod types;
 
+mod recycle;
+
 #[doc(hidden)]
 pub mod server_support;
 

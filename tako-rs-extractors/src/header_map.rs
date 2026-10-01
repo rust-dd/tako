@@ -26,6 +26,7 @@
 use std::convert::Infallible;
 
 use http::request::Parts;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::types::Request;
@@ -62,6 +63,7 @@ pub struct HeaderMap(pub http::HeaderMap);
 
 impl<'a> FromRequest<'a> for HeaderMap {
   type Error = Infallible;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request(
     req: &'a mut Request,
@@ -72,6 +74,7 @@ impl<'a> FromRequest<'a> for HeaderMap {
 
 impl<'a> FromRequestParts<'a> for HeaderMap {
   type Error = Infallible;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request_parts(
     parts: &'a mut Parts,

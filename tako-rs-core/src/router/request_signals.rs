@@ -18,12 +18,16 @@ pub(super) struct RequestSignals {
   started: Instant,
 }
 
+/// Whether any app, router, or route listener wants request signals.
+pub(super) fn listening(router: &SignalArbiter, route: Option<&Route>) -> bool {
+  app_signals().has_listeners()
+    || router.has_listeners()
+    || route.is_some_and(|route| route.signals.has_listeners())
+}
+
 impl RequestSignals {
   pub fn new(router: &SignalArbiter, route: Option<&Route>, req: &Request) -> Option<Self> {
-    if !app_signals().has_listeners()
-      && !router.has_listeners()
-      && !route.is_some_and(|route| route.signals.has_listeners())
-    {
+    if !listening(router, route) {
       return None;
     }
     let trace = Self {

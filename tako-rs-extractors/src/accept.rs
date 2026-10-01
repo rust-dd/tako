@@ -20,6 +20,7 @@
 //! ```
 
 use http::request::Parts;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequestParts;
 
 /// Parsed Accept header with content negotiation helpers.
@@ -118,6 +119,7 @@ fn parse_accept(header: &str) -> Vec<MediaType> {
 
 impl<'a> FromRequestParts<'a> for Accept {
   type Error = std::convert::Infallible;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request_parts(
     parts: &'a mut Parts,
@@ -136,6 +138,7 @@ impl<'a> FromRequestParts<'a> for Accept {
 
 impl<'a> tako_rs_core::extractors::FromRequest<'a> for Accept {
   type Error = std::convert::Infallible;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request(
     req: &'a mut tako_rs_core::types::Request,

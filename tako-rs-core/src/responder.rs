@@ -90,7 +90,7 @@ impl Responder for Response {
 
 impl Responder for TakoBody {
   fn into_response(self) -> Response {
-    Response::new(self)
+    new_response(self)
   }
 }
 
@@ -111,7 +111,7 @@ impl Responder for String {
 
 impl Responder for () {
   fn into_response(self) -> Response {
-    Response::new(TakoBody::empty())
+    new_response(TakoBody::empty())
   }
 }
 
@@ -154,7 +154,7 @@ impl Responder for serde_json::Value {
   fn into_response(self) -> Response {
     match serde_json::to_vec(&self) {
       Ok(buf) => {
-        let mut res = Response::new(TakoBody::full(Full::from(Bytes::from(buf))));
+        let mut res = new_response(TakoBody::full(Full::from(Bytes::from(buf))));
         res.headers_mut().insert(
           http::header::CONTENT_TYPE,
           HeaderValue::from_static(mime::APPLICATION_JSON.as_ref()),
@@ -194,7 +194,7 @@ impl Responder for HeaderMap {
 
 impl Responder for StatusCode {
   fn into_response(self) -> Response {
-    let mut res = Response::new(TakoBody::empty());
+    let mut res = new_response(TakoBody::empty());
     *res.status_mut() = self;
     res
   }
@@ -235,8 +235,15 @@ impl<T: Responder, E: Responder> Responder for Result<T, E> {
 #[deprecated(note = "Result errors only need to implement Responder")]
 pub trait ResponderError: Responder {}
 
-fn content_response(body: TakoBody, content_type: &'static str) -> Response {
+/// Builds a response on a header map recycled from an earlier request.
+pub(crate) fn new_response(body: TakoBody) -> Response {
   let mut response = Response::new(body);
+  *response.headers_mut() = crate::recycle::take_headers();
+  response
+}
+
+fn content_response(body: TakoBody, content_type: &'static str) -> Response {
+  let mut response = new_response(body);
   response.headers_mut().insert(
     http::header::CONTENT_TYPE,
     HeaderValue::from_static(content_type),

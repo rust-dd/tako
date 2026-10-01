@@ -24,6 +24,7 @@
 
 use http::StatusCode;
 use serde::de::DeserializeOwned;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
@@ -150,6 +151,7 @@ where
   T: DeserializeOwned + Send + 'static,
 {
   type Error = FormError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,

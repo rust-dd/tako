@@ -28,6 +28,7 @@ use std::convert::Infallible;
 
 use http::request::Parts;
 use serde::de::DeserializeOwned;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::extractors::params::Params;
@@ -113,6 +114,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = ParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request(
     req: &'a mut Request,
@@ -126,6 +128,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = ParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request_parts(
     parts: &'a mut Parts,

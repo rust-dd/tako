@@ -24,18 +24,15 @@
 //! # }
 //! ```
 
-use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use tako_rs_core::body::TakoBody;
-use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
-use tako_rs_core::server_support::ConnectionTimer;
-use tako_rs_core::server_support::connection_router;
-use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::ConnCtx;
+use tako_rs_core::server_support::ConnDriver;
+use tako_rs_core::server_support::ShutdownSignal;
+use tako_rs_core::server_support::tcp_service;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -140,6 +137,7 @@ pub(crate) async fn run(
   let drain_timeout = config.drain_timeout;
 
   let cancel = CancellationToken::new();
+  let stopping = Arc::new(ShutdownSignal::default());
   let mut signal_tasks = JoinSet::new();
   if let Some(s) = signal {
     let cancel_for_signal = cancel.clone();
@@ -181,37 +179,32 @@ pub(crate) async fn run(
         let _ = stream.set_nodelay(true);
         let io = hyper_util::rt::TokioIo::new(stream);
 
-        let router = connection_router(&router);
-        let conn_cancel = cancel.clone();
+        let ctx = Arc::new(ConnCtx::new(Arc::clone(&router), addr));
+        let stopping = Arc::clone(&stopping);
         join_set.spawn(async move {
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_opened(&addr.to_string(), false, None).await;
 
-          let svc = service_fn(move |mut req| {
-            let router = router.clone();
-            async move {
-              req.extensions_mut().insert(addr);
-              req.extensions_mut().insert(ConnInfo::tcp(addr));
-              let response = router.dispatch(req.map(TakoBody::incoming)).await;
-              Ok::<_, Infallible>(response)
-          }});
-
           let mut http = http1::Builder::new();
           http.keep_alive(keep_alive);
           http.pipeline_flush(true);
-
-          http.timer(ConnectionTimer::new());
-          http.header_read_timeout(header_read_timeout);
-
-          let conn = http.serve_connection(io, svc).with_upgrades();
-
-          if let Err(err) = drive_connection(conn, conn_cancel.cancelled(), hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown).await {
-
-            if err.is_incomplete_message() {
+          let conn = http
+            .serve_connection(io, tcp_service(Arc::clone(&ctx)))
+            .with_upgrades();
+          let driven = ConnDriver::new(
+            conn,
+            http1::UpgradeableConnection::graceful_shutdown,
+            stopping,
+            ctx,
+            header_read_timeout,
+          );
+          match driven.await {
+            Some(Err(err)) if err.is_incomplete_message() => {
               tracing::debug!("client disconnected mid-message: {err}");
-            } else {
-              tracing::error!("Error serving connection: {err}");
             }
+            Some(Err(err)) => tracing::error!("Error serving connection: {err}"),
+            Some(Ok(())) => {}
+            None => tracing::debug!("closed {addr} at the header deadline"),
           }
 
           #[cfg(feature = "signals")]
@@ -228,6 +221,7 @@ pub(crate) async fn run(
     }
   }
 
+  stopping.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   });

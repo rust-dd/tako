@@ -49,6 +49,7 @@
 use http::StatusCode;
 use http::request::Parts;
 use serde::de::DeserializeOwned;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -136,6 +137,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = QueryError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request(
     req: &'a mut Request,
@@ -149,6 +151,7 @@ where
   T: DeserializeOwned + Send + 'a,
 {
   type Error = QueryError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request_parts(
     parts: &'a mut Parts,

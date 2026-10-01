@@ -22,6 +22,7 @@ use core::fmt;
 use http::StatusCode;
 use http::request::Parts;
 
+use crate::extractors::Entries;
 use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::extractors::params::PathParams;
@@ -83,6 +84,7 @@ where
   T: TypedParamsStruct + Send + 'a,
 {
   type Error = TypedParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request_parts(
     parts: &'a mut Parts,
@@ -100,6 +102,7 @@ where
   T: TypedParamsStruct + Send + 'a,
 {
   type Error = TypedParamsError;
+  const ENTRIES: Entries = Entries::PARAMS;
 
   fn from_request(
     req: &'a mut Request,

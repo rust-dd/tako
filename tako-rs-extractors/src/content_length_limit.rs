@@ -15,6 +15,7 @@
 use http::StatusCode;
 use http_body_util::Limited;
 use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
@@ -85,6 +86,7 @@ where
   T: FromRequest<'a> + Send + 'a,
 {
   type Error = ContentLengthLimitError<T::Error>;
+  const ENTRIES: Entries = <T as FromRequest<'a>>::ENTRIES;
 
   fn from_request(
     req: &'a mut Request,

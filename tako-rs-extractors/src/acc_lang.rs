@@ -9,6 +9,7 @@
 
 use http::StatusCode;
 use http::request::Parts;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -154,6 +155,7 @@ impl Default for AcceptLanguage {
 
 impl<'a> FromRequest<'a> for AcceptLanguage {
   type Error = AcceptLanguageError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request(
     req: &'a mut Request,
@@ -164,6 +166,7 @@ impl<'a> FromRequest<'a> for AcceptLanguage {
 
 impl<'a> FromRequestParts<'a> for AcceptLanguage {
   type Error = AcceptLanguageError;
+  const ENTRIES: Entries = Entries::NONE;
 
   fn from_request_parts(
     parts: &'a mut Parts,

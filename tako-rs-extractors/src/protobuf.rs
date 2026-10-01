@@ -37,6 +37,7 @@
 
 use http::StatusCode;
 use prost::Message;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
@@ -117,6 +118,7 @@ where
   T: Message + Default + Send + 'static,
 {
   type Error = ProtobufError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,

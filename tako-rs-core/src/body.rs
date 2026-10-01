@@ -118,6 +118,12 @@ impl TakoBody {
     }
   }
 
+  /// Whether the whole body is already in memory.
+  #[inline]
+  pub(crate) fn is_buffered(&self) -> bool {
+    matches!(self.0, BodyInner::Full(_) | BodyInner::Empty(_))
+  }
+
   /// Creates a new body from any type implementing the `Body` trait.
   ///
   /// This is the generic (boxing) path — prefer [`full`](Self::full) or

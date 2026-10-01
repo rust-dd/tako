@@ -135,6 +135,7 @@ impl Responder for SimdJsonError {
   }
 }
 
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::is_json_content_type;
 
 #[cfg(feature = "simd-json-impl")]
@@ -143,6 +144,7 @@ where
   T: DeserializeOwned + Send + 'static,
 {
   type Error = SimdJsonError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,
@@ -242,6 +244,7 @@ where
   T: DeserializeOwned + Send + 'static,
 {
   type Error = SimdJsonError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,

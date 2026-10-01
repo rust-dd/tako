@@ -10,6 +10,7 @@ use http::StatusCode;
 use http::request::Parts;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -69,6 +70,7 @@ where
   T: FromConnInfo + Send + 'a,
 {
   type Error = ConnectInfoMissing;
+  const ENTRIES: Entries = Entries::CONN;
 
   fn from_request(
     req: &'a mut Request,
@@ -82,6 +84,7 @@ where
   T: FromConnInfo + Send + 'a,
 {
   type Error = ConnectInfoMissing;
+  const ENTRIES: Entries = Entries::CONN;
 
   fn from_request_parts(
     parts: &'a mut Parts,

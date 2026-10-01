@@ -35,6 +35,7 @@ use http::StatusCode;
 use http::request::Parts;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::PeerAddr;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -322,6 +323,7 @@ impl From<IpAddr> for StdIpAddr {
 
 impl<'a> FromRequest<'a> for IpAddr {
   type Error = IpAddrError;
+  const ENTRIES: Entries = Entries::CONN.union(Entries::STATE);
 
   fn from_request(
     req: &'a mut Request,
@@ -332,6 +334,7 @@ impl<'a> FromRequest<'a> for IpAddr {
 
 impl<'a> FromRequestParts<'a> for IpAddr {
   type Error = IpAddrError;
+  const ENTRIES: Entries = Entries::CONN.union(Entries::STATE);
 
   fn from_request_parts(
     parts: &'a mut Parts,
