@@ -12,7 +12,8 @@ runtime: both
 
 Tako 2.4.0 makes the HTTP/1 request path cheaper and needs no code changes.
 Per-thread workers no longer pin to cores by default, one timeout behaves
-slightly differently, and custom extractors can opt into the cheaper path. See the [release notes](https://github.com/rust-dd/tako/releases/tag/v2.4.0)
+slightly differently, request extensions are dropped earlier, and custom
+extractors can opt into the cheaper path. See the [release notes](https://github.com/rust-dd/tako/releases/tag/v2.4.0)
 for the complete list.
 
 ## Per-thread workers no longer pin to cores
@@ -50,6 +51,30 @@ per-request hooks, the router attaches only the entries that the handler's
 extractors list, such as the matched path or the connection info. The default,
 `Entries::ALL`, keeps existing extractors working unchanged; see
 [Writing an extractor](/docs/extractors#writing-an-extractor) to list fewer.
+
+## Request extensions are dropped before the handler runs
+
+A handler hands the request's header and extension maps back for reuse as soon
+as its last extractor has run. A value that middleware put into the request
+extensions is therefore dropped before the handler body runs, not after it
+returns. Values that extractors read, such as a session or JWT claims, are not
+affected, because the extractor keeps its own copy. A middleware that stores a
+guard there, such as a semaphore permit, and needs it to live until the handler
+finishes should hold the guard itself:
+
+```rust
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+let limit = Arc::new(Semaphore::new(64));
+router.middleware(move |req, next| {
+  let limit = Arc::clone(&limit);
+  async move {
+    let _permit = limit.acquire_owned().await;
+    next.run(req).await
+  }
+});
+```
 
 ## Performance changes
 
