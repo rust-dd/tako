@@ -6,6 +6,7 @@ use tako_rs_core::body::TakoBody;
 
 use super::brotli_stream::stream_brotli;
 use super::deflate_stream::stream_deflate;
+use super::encoder::compress_brotli;
 use super::encoder::compress_deflate;
 use super::gzip_stream::stream_gzip;
 #[cfg(feature = "zstd")]
@@ -69,6 +70,19 @@ fn buffered_http_deflate_uses_a_zlib_wrapper() {
     decode(flate2::read::ZlibDecoder::new(encoded.as_slice())),
     input
   );
+}
+
+#[test]
+fn buffered_brotli_round_trips_bodies_around_the_buffer_size() {
+  for len in [0, 1, 4095, 4096, 4097, 100_000] {
+    let input: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+    let encoded = compress_brotli(&input, 5).unwrap();
+    assert_eq!(
+      decode(brotli::Decompressor::new(encoded.as_slice(), 4096)),
+      input,
+      "{len} bytes"
+    );
+  }
 }
 
 #[cfg(not(feature = "compio"))]

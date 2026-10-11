@@ -1,6 +1,5 @@
 //! Buffered (whole-body) compression encoders for each supported algorithm.
 
-use std::io::Read;
 use std::io::Write;
 
 use flate2::Compression as GzLevel;
@@ -18,11 +17,17 @@ pub(crate) fn compress_gzip(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
 
 /// Compresses data using Brotli algorithm.
 pub(crate) fn compress_brotli(data: &[u8], lvl: u32) -> std::io::Result<Vec<u8>> {
-  let mut out = Vec::new();
-  brotli::CompressorReader::new(data, 4096, lvl, 22)
-    .read_to_end(&mut out)
-    .map_err(|_| std::io::Error::other("Failed to compress data"))?;
-  Ok(out)
+  // One write with a size hint: fed in small chunks, the encoder allocates its whole window.
+  let params = brotli::enc::BrotliEncoderParams {
+    quality: lvl as i32,
+    lgwin: 22,
+    size_hint: data.len(),
+    ..Default::default()
+  };
+  let mut encoder =
+    brotli::CompressorWriter::with_params(Vec::new(), data.len().max(4096), &params);
+  encoder.write_all(data)?;
+  Ok(encoder.into_inner())
 }
 
 /// Compresses data using DEFLATE algorithm.
