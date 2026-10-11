@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
+use tako_rs_core::body::TakoBody;
 
 pub(crate) mod conditional;
 pub(crate) mod date;
@@ -17,16 +18,27 @@ pub(crate) mod response;
 /// With `compio`, poll and drop the stream on the thread that opened it.
 pub type FileByteStream = BoxStream<'static, io::Result<Bytes>>;
 
+/// Files up to this size are read by the blocking call that opens them.
+#[cfg(not(feature = "compio"))]
+const INLINE_READ_MAX: u64 = 128 * 1024;
+
 pub(crate) struct OpenFile {
-  #[cfg(not(feature = "compio"))]
-  file: tokio::fs::File,
-  #[cfg(feature = "compio")]
-  file: send_wrapper::SendWrapper<compio::fs::File>,
+  source: Source,
   pub(crate) size: u64,
   pub(crate) modified: Option<SystemTime>,
 }
 
+enum Source {
+  #[cfg(not(feature = "compio"))]
+  File(tokio::fs::File),
+  #[cfg(not(feature = "compio"))]
+  Read(Bytes),
+  #[cfg(feature = "compio")]
+  File(send_wrapper::SendWrapper<compio::fs::File>),
+}
+
 impl OpenFile {
+  #[cfg(any(feature = "compio", feature = "file-stream"))]
   pub(crate) async fn open(path: &Path) -> io::Result<Self> {
     #[cfg(not(feature = "compio"))]
     {
@@ -39,7 +51,7 @@ impl OpenFile {
         ));
       }
       Ok(Self {
-        file,
+        source: Source::File(file),
         size: metadata.len(),
         modified: metadata.modified().ok(),
       })
@@ -55,12 +67,54 @@ impl OpenFile {
         ));
       }
       Ok(Self {
-        file: send_wrapper::SendWrapper::new(file),
+        source: Source::File(send_wrapper::SendWrapper::new(file)),
         size: metadata.len(),
         modified: metadata.modified().ok(),
       })
     })
     .await
+  }
+
+  /// Opens `path` on a blocking thread and reads it whole when it is small.
+  #[cfg(not(feature = "compio"))]
+  pub(crate) fn open_blocking(path: &Path) -> io::Result<Self> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "not a regular file",
+      ));
+    }
+    let modified = metadata.modified().ok();
+    if metadata.len() > INLINE_READ_MAX {
+      return Ok(Self {
+        source: Source::File(tokio::fs::File::from_std(file)),
+        size: metadata.len(),
+        modified,
+      });
+    }
+    let mut contents = Vec::with_capacity(metadata.len() as usize);
+    file.take(metadata.len()).read_to_end(&mut contents)?;
+    Ok(Self {
+      size: contents.len() as u64,
+      source: Source::Read(Bytes::from(contents)),
+      modified,
+    })
+  }
+
+  /// The body for `length` bytes from `start`; a file already read becomes one buffer.
+  pub(crate) async fn into_body(self, start: u64, length: u64) -> io::Result<TakoBody> {
+    #[cfg(not(feature = "compio"))]
+    if let Source::Read(contents) = self.source {
+      return Ok(TakoBody::from(
+        contents.slice(start as usize..(start + length) as usize),
+      ));
+    }
+    Ok(TakoBody::from_stream(
+      self.into_stream(start, length).await?,
+    ))
   }
 
   #[cfg_attr(
@@ -72,21 +126,26 @@ impl OpenFile {
   )]
   pub(crate) async fn into_stream(self, start: u64, length: u64) -> io::Result<FileByteStream> {
     #[cfg(not(feature = "compio"))]
-    {
-      use tokio::io::AsyncReadExt;
-      use tokio::io::AsyncSeekExt;
-      let mut file = self.file;
-      if start != 0 {
-        file.seek(std::io::SeekFrom::Start(start)).await?;
+    match self.source {
+      Source::File(mut file) => {
+        use tokio::io::AsyncReadExt;
+        use tokio::io::AsyncSeekExt;
+        if start != 0 {
+          file.seek(std::io::SeekFrom::Start(start)).await?;
+        }
+        Ok(tokio_util::io::ReaderStream::with_capacity(file.take(length), 64 * 1024).boxed())
       }
-      Ok(tokio_util::io::ReaderStream::with_capacity(file.take(length), 64 * 1024).boxed())
+      Source::Read(contents) => {
+        let range = contents.slice(start as usize..(start + length) as usize);
+        Ok(futures_util::stream::once(std::future::ready(Ok(range))).boxed())
+      }
     }
     #[cfg(feature = "compio")]
     {
       use compio::io::AsyncReadAt;
-      let stream = futures_util::stream::try_unfold(
-        (self.file, start, length),
-        |(file, offset, remaining)| {
+      let Source::File(file) = self.source;
+      let stream =
+        futures_util::stream::try_unfold((file, start, length), |(file, offset, remaining)| {
           send_wrapper::SendWrapper::new(async move {
             if remaining == 0 {
               return Ok(None);
@@ -105,8 +164,7 @@ impl OpenFile {
               (file, offset + read as u64, remaining - read as u64),
             )))
           })
-        },
-      );
+        });
       Ok(stream.boxed())
     }
   }

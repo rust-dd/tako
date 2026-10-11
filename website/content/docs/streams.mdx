@@ -97,7 +97,8 @@ See [WebSocket transport](/docs/transports/websocket) for the full transport ref
 and provides conditional and single-range response helpers. Metadata validators
 are weak ETags. `tako::r#static::ServeDirBuilder` and `ServeFile` stream assets,
 handle HEAD and conditional/range requests, and optionally select `.br` / `.gz`
-sidecars. Dotfiles are denied by default. Use an explicit fallback file path
+sidecars. On Tokio, files up to 128 KiB are read whole in the blocking call
+that opens them; larger files stream in 64 KiB chunks. Dotfiles are denied by default. Use an explicit fallback file path
 and keep served roots read-only to untrusted processes.
 
 <RustExample path="examples/file-stream/src/main.rs" />

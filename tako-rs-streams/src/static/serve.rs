@@ -16,6 +16,52 @@ struct Resolved {
   compressed: Option<(PathBuf, &'static str)>,
 }
 
+struct Opened {
+  file: OpenFile,
+  original: PathBuf,
+  encoding: Option<&'static str>,
+}
+
+impl Resolved {
+  #[cfg(not(feature = "compio"))]
+  fn open_blocking(self) -> Option<Opened> {
+    if let Some((path, encoding)) = &self.compressed
+      && let Ok(file) = OpenFile::open_blocking(path)
+    {
+      return Some(Opened {
+        file,
+        original: self.original,
+        encoding: Some(encoding),
+      });
+    }
+    let file = OpenFile::open_blocking(&self.original).ok()?;
+    Some(Opened {
+      file,
+      original: self.original,
+      encoding: None,
+    })
+  }
+
+  #[cfg(feature = "compio")]
+  async fn open(self) -> Option<Opened> {
+    if let Some((path, encoding)) = &self.compressed
+      && let Ok(file) = OpenFile::open(path).await
+    {
+      return Some(Opened {
+        file,
+        original: self.original,
+        encoding: Some(encoding),
+      });
+    }
+    let file = OpenFile::open(&self.original).await.ok()?;
+    Some(Opened {
+      file,
+      original: self.original,
+      encoding: None,
+    })
+  }
+}
+
 impl ServeDir {
   /// Serve a GET or HEAD request, decoding the URL before checking path components.
   pub async fn handle(&self, request: Request) -> Response {
@@ -83,34 +129,26 @@ impl ServeDir {
       })
     };
     #[cfg(not(feature = "compio"))]
-    let resolved = tokio::task::spawn_blocking(resolve).await.ok().flatten();
-    #[cfg(feature = "compio")]
-    let resolved = send_wrapper::SendWrapper::new(compio::runtime::spawn_blocking(resolve))
+    let opened = tokio::task::spawn_blocking(move || resolve().and_then(Resolved::open_blocking))
       .await
       .ok()
       .flatten();
-    let Some(resolved) = resolved else {
+    #[cfg(feature = "compio")]
+    let opened = match send_wrapper::SendWrapper::new(compio::runtime::spawn_blocking(resolve))
+      .await
+      .ok()
+      .flatten()
+    {
+      Some(resolved) => resolved.open().await,
+      None => None,
+    };
+    let Some(opened) = opened else {
       return StatusCode::NOT_FOUND.into_response();
     };
-    let mut encoding = None;
-    let mut opened = None;
-    if let Some((path, name)) = resolved.compressed
-      && let Ok(file) = OpenFile::open(&path).await
-    {
-      encoding = Some(name);
-      opened = Some(file);
-    }
-    let file = match opened {
-      Some(file) => file,
-      None => match OpenFile::open(&resolved.original).await {
-        Ok(file) => file,
-        Err(_) => return StatusCode::NOT_FOUND.into_response(),
-      },
-    };
     response::serve(
-      file,
-      &resolved.original,
-      encoding,
+      opened.file,
+      &opened.original,
+      opened.encoding,
       self.config.precompressed.brotli || self.config.precompressed.gzip,
       self.config.cache_control.as_ref(),
       &parts,

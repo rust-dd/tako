@@ -80,7 +80,7 @@ pub(crate) async fn serve(
       );
     }
     if request.method != Method::HEAD {
-      *response.body_mut() = TakoBody::from_stream(file.into_stream(start, length).await?);
+      *response.body_mut() = file.into_body(start, length).await?;
     }
     response
   };

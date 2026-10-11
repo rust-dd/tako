@@ -315,6 +315,29 @@ fn precompressed_negotiation_varies_identity_and_uses_distinct_validators() {
   });
 }
 
+#[cfg(not(feature = "compio"))]
+#[test]
+fn small_files_are_sent_in_one_frame() {
+  run(async {
+    let fixture = Fixture::new();
+    let contents = vec![b'x'; 100 * 1024];
+    fixture.write("small.bin", &contents);
+    let dir = ServeDir::builder(&fixture.0).build();
+    let mut response = dir.handle(request("/small.bin", &[])).await;
+    assert_eq!(response.headers()[header::CONTENT_LENGTH], "102400");
+    let frame = response
+      .body_mut()
+      .frame()
+      .await
+      .unwrap()
+      .unwrap()
+      .into_data()
+      .unwrap();
+    assert_eq!(frame.len(), contents.len());
+    assert!(response.body_mut().frame().await.is_none());
+  });
+}
+
 #[test]
 fn large_files_have_bounded_frames_and_can_be_router_handlers() {
   run(async {

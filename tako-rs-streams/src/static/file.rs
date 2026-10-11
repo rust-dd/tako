@@ -59,7 +59,17 @@ impl ServeFile {
     if let Some(response) = response::method_error(&parts) {
       return response;
     }
-    let Ok(file) = OpenFile::open(&self.path).await else {
+    #[cfg(not(feature = "compio"))]
+    let file = {
+      let path = self.path.clone();
+      tokio::task::spawn_blocking(move || OpenFile::open_blocking(&path))
+        .await
+        .ok()
+        .and_then(Result::ok)
+    };
+    #[cfg(feature = "compio")]
+    let file = OpenFile::open(&self.path).await.ok();
+    let Some(file) = file else {
       return StatusCode::NOT_FOUND.into_response();
     };
     response::serve(
