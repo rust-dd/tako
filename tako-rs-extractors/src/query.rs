@@ -121,14 +121,11 @@ where
   /// value. Use [`QueryMulti`](crate::query_multi::QueryMulti) when repeated
   /// keys must be preserved.
   fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
-    let Some(query) = query_string else {
-      return Err(QueryError::MissingQueryString);
-    };
-
-    let query_data = serde_urlencoded::from_str::<T>(query)
-      .map_err(|e| QueryError::DeserializationError(e.to_string()))?;
-
-    Ok(Query(query_data))
+    match serde_urlencoded::from_str::<T>(query_string.unwrap_or("")) {
+      Ok(query) => Ok(Query(query)),
+      Err(_) if query_string.is_none() => Err(QueryError::MissingQueryString),
+      Err(e) => Err(QueryError::DeserializationError(e.to_string())),
+    }
   }
 }
 

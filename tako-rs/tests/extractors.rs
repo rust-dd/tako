@@ -179,6 +179,25 @@ async fn query_missing_required_field() {
 }
 
 #[tokio::test]
+async fn query_without_a_query_string_fills_optional_fields() {
+  use tako::extractors::query::Query;
+
+  #[derive(Debug, Deserialize)]
+  struct Paging {
+    page: Option<u32>,
+  }
+
+  let mut req = http::Request::builder()
+    .method(Method::GET)
+    .uri("/items")
+    .body(TakoBody::empty())
+    .unwrap();
+
+  let Query(paging) = Query::<Paging>::from_request(&mut req).await.unwrap();
+  assert_eq!(paging.page, None);
+}
+
+#[tokio::test]
 async fn query_from_request_parts() {
   use tako::extractors::query::Query;
 

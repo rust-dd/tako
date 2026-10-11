@@ -38,7 +38,9 @@ async fn search(Query(query): Query<SearchQuery>) -> String {
 ```
 
 `QueryError` distinguishes `MissingQueryString`, `ParseError`, and
-`DeserializationError`. For query strings with repeated keys (`?tag=a&tag=b`)
+`DeserializationError`. A request without a query string reads as an empty
+one, so a struct whose fields are all `Option` still extracts;
+`MissingQueryString` is returned when it needs a field. For query strings with repeated keys (`?tag=a&tag=b`)
 reach for `QueryMulti<T>`.
 
 ## `Path<T>`
