@@ -55,8 +55,7 @@ impl RouterState {
   pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
     self
       .inner
-      .get_sync(&TypeId::of::<T>())
-      .map(|v| v.clone())
+      .read_sync(&TypeId::of::<T>(), |_, v| Arc::clone(v))
       .and_then(|v| v.downcast::<T>().ok())
       .or_else(|| self.parents.iter().find_map(|parent| parent.get::<T>()))
   }

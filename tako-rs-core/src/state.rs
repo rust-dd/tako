@@ -97,8 +97,7 @@ pub fn set_state<T: Send + Sync + 'static>(value: T) {
 /// ```
 pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
   GLOBAL_STATE
-    .get_sync(&TypeId::of::<T>())
-    .map(|v| v.clone())
+    .read_sync(&TypeId::of::<T>(), |_, v| Arc::clone(v))
     .and_then(|v| v.downcast::<T>().ok())
 }
 
