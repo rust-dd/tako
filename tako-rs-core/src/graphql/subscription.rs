@@ -23,11 +23,18 @@ use http::header;
 use hyper_util::rt::TokioIo;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::Role;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
+
+// tungstenite zero-fills the spare read buffer before every socket read, so its
+// 128 KiB default costs a large memset per message.
+fn websocket_config() -> WebSocketConfig {
+  WebSocketConfig::default().read_buffer_size(4 * 1024)
+}
 
 /// `GraphQL` WebSocket subscription responder (`GraphQL` over WebSocket).
 ///
@@ -131,7 +138,6 @@ where
     let (parts, body) = self.request.into_parts();
     let req = http::Request::from_parts(parts, body);
 
-    // Parse and negotiate subprotocol
     let selected_protocol = req
       .headers()
       .get(header::SEC_WEBSOCKET_PROTOCOL)
@@ -150,7 +156,6 @@ where
         .into_response();
     };
 
-    // Compute accept key
     let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
       return (
         StatusCode::BAD_REQUEST,
@@ -170,7 +175,6 @@ where
       STANDARD.encode(sha1.finalize())
     };
 
-    // Build upgrade response
     let builder = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)
       .header(header::UPGRADE, "websocket")
@@ -183,7 +187,6 @@ where
 
     let response = builder.body(TakoBody::empty()).unwrap();
 
-    // Upgrade and run GraphQL WS server
     if let Some(on_upgrade) = req.extensions().get::<hyper::upgrade::OnUpgrade>().cloned() {
       let executor = self.executor.clone();
       let data = self.data;
@@ -194,7 +197,9 @@ where
       tokio::spawn(async move {
         if let Ok(upgraded) = on_upgrade.await {
           let upgraded = TokioIo::new(upgraded);
-          let ws = WebSocketStream::from_raw_socket(upgraded, Role::Server, None).await;
+          let ws =
+            WebSocketStream::from_raw_socket(upgraded, Role::Server, Some(websocket_config()))
+              .await;
           let (mut sink, stream) = ws.split();
 
           let input = stream
@@ -232,5 +237,15 @@ where
     }
 
     response
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::websocket_config;
+
+  #[test]
+  fn subscriptions_read_into_a_small_buffer() {
+    assert_eq!(websocket_config().read_buffer_size, 4 * 1024);
   }
 }

@@ -41,6 +41,7 @@ use tako_rs_core::conn_info::PeerAddr;
 use tako_rs_core::conn_info::Transport;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
@@ -185,7 +186,7 @@ pub(crate) async fn run_listener(
         let permit = if let Some(sem) = &max_conn_semaphore {
           tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             permit = sem.clone().acquire_owned() => match permit {
               Ok(p) => Some(p),
               Err(_) => continue,
@@ -194,7 +195,7 @@ pub(crate) async fn run_listener(
         } else {
           None
         };
-        let io = hyper_util::rt::TokioIo::new(stream);
+        let io = hyper_util::rt::TokioIo::new(Leased::new(stream, permit));
         let router = connection_router(&router);
 
         let conn_cancel = cancel.clone();
@@ -228,8 +229,6 @@ pub(crate) async fn run_listener(
               tracing::error!("vsock HTTP error: {err}");
             }
           }
-
-          drop(permit);
         });
         while join_set.try_join_next().is_some() {}
       }

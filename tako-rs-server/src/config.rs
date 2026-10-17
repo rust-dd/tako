@@ -74,7 +74,8 @@ pub struct ServerConfig {
   /// beyond the global ceiling.
   pub h3_goaway_grace: Duration,
   /// Optional ceiling on concurrent in-flight connections. Enforced via a
-  /// semaphore in the accept loop; `None` disables.
+  /// semaphore in the accept loop; `None` disables. An upgraded connection,
+  /// such as a WebSocket, counts until its socket closes.
   pub max_connections: Option<usize>,
   /// Read deadline applied before the PROXY protocol header is parsed.
   pub proxy_read_timeout: Duration,

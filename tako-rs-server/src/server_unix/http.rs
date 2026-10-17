@@ -13,6 +13,7 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
@@ -169,7 +170,7 @@ pub(crate) async fn run_listener(
         } else {
           None
         };
-        let io = hyper_util::rt::TokioIo::new(stream);
+        let io = hyper_util::rt::TokioIo::new(Leased::new(stream, permit));
         let router = connection_router(&router);
 
         let peer_addr = UnixPeerAddr {
@@ -203,8 +204,6 @@ pub(crate) async fn run_listener(
               tracing::error!("Error serving Unix HTTP connection: {err}");
             }
           }
-
-          drop(permit);
         });
         while join_set.try_join_next().is_some() {}
       }

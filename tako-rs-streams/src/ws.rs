@@ -2,7 +2,7 @@
 //!
 //! `TakoWs<H>` performs the RFC-6455 server-side handshake and hands the
 //! upgraded stream to a handler. The builder configures subprotocols, size limits,
-//! allowed origins, upgrade timeout, and total connection lifetime.
+//! read buffer size, allowed origins, upgrade timeout, and total connection lifetime.
 //!
 //! Handlers own the stream and must implement application ping/pong loops themselves.
 
@@ -22,6 +22,10 @@ use tako_rs_core::types::Response;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+
+// tungstenite zero-fills the spare read buffer before every socket read, so its
+// 128 KiB default costs a large memset per message.
+const DEFAULT_READ_BUFFER_SIZE: usize = 4 * 1024;
 
 /// Legacy configuration accepted by the deprecated, ineffective `keep_alive` method.
 /// Applications should capture their timing configuration in the handler closure.
@@ -46,6 +50,7 @@ where
   protocols: Vec<&'static str>,
   max_frame_size: Option<usize>,
   max_message_size: Option<usize>,
+  read_buffer_size: usize,
   allowed_origins: Option<Vec<String>>,
   upgrade_timeout: Option<Duration>,
   /// Hard cap on how long a single WebSocket conversation may live after a
@@ -69,6 +74,7 @@ where
       protocols: Vec::new(),
       max_frame_size: None,
       max_message_size: None,
+      read_buffer_size: DEFAULT_READ_BUFFER_SIZE,
       allowed_origins: None,
       upgrade_timeout: None,
       max_lifetime: None,
@@ -104,6 +110,14 @@ where
     self
   }
 
+  /// Set the per-connection read buffer capacity, 4 KiB by default.
+  ///
+  /// Each socket read fills at most this many bytes; raise it for large messages.
+  pub fn read_buffer_size(mut self, n: usize) -> Self {
+    self.read_buffer_size = n;
+    self
+  }
+
   /// Restrict the upgrade to clients whose `Origin` header matches the allow-list.
   pub fn allowed_origins<I, S>(mut self, origins: I) -> Self
   where
@@ -126,18 +140,15 @@ where
     self
   }
 
-  fn websocket_config(&self) -> Option<WebSocketConfig> {
-    if self.max_frame_size.is_none() && self.max_message_size.is_none() {
-      return None;
-    }
-    let mut cfg = WebSocketConfig::default();
+  fn websocket_config(&self) -> WebSocketConfig {
+    let mut cfg = WebSocketConfig::default().read_buffer_size(self.read_buffer_size);
     if let Some(n) = self.max_frame_size {
       cfg.max_frame_size = Some(n);
     }
     if let Some(n) = self.max_message_size {
       cfg.max_message_size = Some(n);
     }
-    Some(cfg)
+    cfg
   }
 
   fn negotiate_subprotocol(&self, headers: &http::HeaderMap) -> Option<&'static str> {
@@ -251,7 +262,7 @@ where
           },
         };
         let upgraded = TokioIo::new(upgraded);
-        let ws = WebSocketStream::from_raw_socket(upgraded, Role::Server, ws_config).await;
+        let ws = WebSocketStream::from_raw_socket(upgraded, Role::Server, Some(ws_config)).await;
         let handler_fut =
           std::panic::AssertUnwindSafe(async move { handler(ws).await }).catch_unwind();
         match max_lifetime {
@@ -271,7 +282,38 @@ where
 
 #[cfg(test)]
 mod tests {
+  use tako_rs_core::body::TakoBody;
+  use tako_rs_core::types::Request;
+
+  use super::TakoWs;
   use super::normalize_origin;
+
+  fn request() -> Request {
+    http::Request::builder()
+      .uri("/ws")
+      .body(TakoBody::empty())
+      .unwrap()
+  }
+
+  #[test]
+  fn reads_into_a_small_buffer_by_default() {
+    let ws = TakoWs::new(request(), |_| async {});
+    assert_eq!(ws.websocket_config().read_buffer_size, 4 * 1024);
+  }
+
+  #[test]
+  fn read_buffer_size_is_configurable() {
+    let ws = TakoWs::new(request(), |_| async {}).read_buffer_size(64 * 1024);
+    assert_eq!(ws.websocket_config().read_buffer_size, 64 * 1024);
+  }
+
+  #[test]
+  fn frame_limits_keep_the_small_read_buffer() {
+    let ws = TakoWs::new(request(), |_| async {}).max_frame_size(1024);
+    let config = ws.websocket_config();
+    assert_eq!(config.max_frame_size, Some(1024));
+    assert_eq!(config.read_buffer_size, 4 * 1024);
+  }
 
   #[test]
   fn normalize_origin_lowercases_scheme_and_host() {

@@ -8,6 +8,7 @@ use hyper::server::conn::http1;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnCtx;
 use tako_rs_core::server_support::ConnDriver;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::ShutdownSignal;
 use tako_rs_core::server_support::tcp_service;
 use tokio::net::TcpListener;
@@ -170,14 +171,12 @@ pub(crate) fn worker_main(
       } else {
         None
       };
-      let io = hyper_util::rt::TokioIo::new(stream);
+      let io = hyper_util::rt::TokioIo::new(Leased::new(stream, (live, permit)));
       let ctx = Rc::new(ConnCtx::new(Arc::clone(&router), peer));
       let stopping = Arc::clone(&stopping);
       let header_read_timeout = cfg.header_read_timeout;
 
       connection_handles.spawn_local(async move {
-        let _live = live;
-        let _permit = permit;
         let mut http = http1::Builder::new();
         http.keep_alive(true);
         http.pipeline_flush(true);

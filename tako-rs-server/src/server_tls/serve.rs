@@ -14,6 +14,7 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
@@ -168,7 +169,7 @@ pub async fn run_with_config(
           #[cfg(feature = "http2")]
           let proto = alpn_proto;
 
-          let io = TokioIo::new(tls_stream);
+          let io = TokioIo::new(Leased::new(tls_stream, permit));
 
           let svc = service_fn(move |mut req| {
             let r = router.clone();
@@ -217,8 +218,6 @@ pub async fn run_with_config(
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), true, None).await;
-
-          drop(permit);
         });
         while join_set.try_join_next().is_some() {}
       }

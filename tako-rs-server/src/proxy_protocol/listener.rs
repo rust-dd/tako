@@ -9,6 +9,7 @@ use hyper::service::service_fn;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
@@ -183,7 +184,7 @@ pub(crate) async fn run_proxy_http(
               }
             };
 
-          let io = hyper_util::rt::TokioIo::new(stream);
+          let io = hyper_util::rt::TokioIo::new(Leased::new(stream, permit));
 
           let svc = service_fn(move |mut req| {
             apply_to_request(&mut req, &proxy_header);
@@ -207,8 +208,6 @@ pub(crate) async fn run_proxy_http(
               tracing::error!("Error serving PROXY protocol connection: {err}");
             }
           }
-
-          drop(permit);
         });
         while join_set.try_join_next().is_some() {}
       }

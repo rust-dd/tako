@@ -22,6 +22,7 @@ pub struct PerThreadConfig {
   /// times this value. `None` disables it.
   pub header_read_timeout: Option<Duration>,
   /// Maximum concurrent connections per worker. `None` leaves it unlimited.
+  /// An upgraded connection, such as a WebSocket, counts until its socket closes.
   pub max_connections: Option<usize>,
   /// Hands each accepted connection to the worker with the fewest live
   /// connections when the accepting worker is ahead. Evens out the hash-based

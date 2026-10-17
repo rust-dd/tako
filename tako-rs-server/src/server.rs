@@ -31,6 +31,7 @@ use hyper::server::conn::http1;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnCtx;
 use tako_rs_core::server_support::ConnDriver;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::ShutdownSignal;
 use tako_rs_core::server_support::tcp_service;
 #[cfg(feature = "signals")]
@@ -177,7 +178,7 @@ pub(crate) async fn run(
         };
 
         let _ = stream.set_nodelay(true);
-        let io = hyper_util::rt::TokioIo::new(stream);
+        let io = hyper_util::rt::TokioIo::new(Leased::new(stream, permit));
 
         let ctx = Arc::new(ConnCtx::new(Arc::clone(&router), addr));
         let stopping = Arc::clone(&stopping);
@@ -209,8 +210,6 @@ pub(crate) async fn run(
 
           #[cfg(feature = "signals")]
           signal_tx::emit_connection_closed(&addr.to_string(), false, None).await;
-
-          drop(permit);
         });
         while join_set.try_join_next().is_some() {}
       }
