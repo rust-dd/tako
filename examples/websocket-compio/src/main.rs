@@ -1,80 +1,45 @@
-//! WebSocket example using compio runtime.
+//! WebSocket echo and counter on the compio runtime.
 //!
-//! Run with: cargo run --example websocket-compio --features compio-ws
+//! Run with: cargo run --manifest-path examples/websocket-compio/Cargo.toml
 
 use std::time::Duration;
 
-use compio::ws::tungstenite::Message;
 use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;
-use tako::ws_compio::CompioWebSocket;
-use tako::ws_compio::TakoWsCompio;
-use tako::ws_compio::UpgradedStream;
+use tako::ws::Message;
+use tako::ws::WebSocketUpgrade;
 
 pub async fn ws_echo(req: Request) -> impl Responder {
-  TakoWsCompio::new(req, |mut ws: CompioWebSocket<UpgradedStream>| async move {
-    if let Err(e) = ws
-      .send(Message::Text("Welcome to Tako WS (compio)!".into()))
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    if ws
+      .send(Message::text("Welcome to Tako WS (compio)!"))
       .await
+      .is_err()
     {
-      tracing::error!("Failed to send welcome message: {}", e);
       return;
     }
-
-    loop {
-      match ws.read().await {
-        Ok(Message::Text(txt)) => {
-          let response = format!("Echo: {}", txt);
-          if let Err(e) = ws.send(Message::Text(response.into())).await {
-            tracing::error!("Failed to send echo: {}", e);
-            break;
-          }
-        }
-        Ok(Message::Binary(bin)) => {
-          if let Err(e) = ws.send(Message::Binary(bin)).await {
-            tracing::error!("Failed to send binary: {}", e);
-            break;
-          }
-        }
-        Ok(Message::Ping(p)) => {
-          if let Err(e) = ws.send(Message::Pong(p)).await {
-            tracing::error!("Failed to send pong: {}", e);
-            break;
-          }
-        }
-        Ok(Message::Close(_)) => {
-          let _ = ws.close(None).await;
-          break;
-        }
-        Ok(_) => {}
-        Err(e) => {
-          tracing::error!("WebSocket error: {}", e);
-          break;
-        }
+    while let Some(Ok(message)) = ws.recv().await {
+      let reply = match message {
+        Message::Text(text) => Message::text(format!("Echo: {text}")),
+        Message::Binary(data) => Message::Binary(data),
+        _ => continue,
+      };
+      if let Err(error) = ws.send(reply).await {
+        tracing::error!("Failed to send echo: {error}");
+        break;
       }
     }
   })
 }
 
 pub async fn ws_count(req: Request) -> impl Responder {
-  TakoWsCompio::new(req, |mut ws: CompioWebSocket<UpgradedStream>| async move {
-    let mut count: u64 = 0;
-
-    loop {
-      // Send current count
-      let msg = format!("count: {}", count);
-      if let Err(e) = ws.send(Message::Text(msg.into())).await {
-        tracing::error!("Failed to send count: {}", e);
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    for count in 0u64.. {
+      if ws.send(Message::text(format!("count: {count}"))).await.is_err() {
         break;
       }
-      count += 1;
-
-      // Wait 1 second
       compio::time::sleep(Duration::from_secs(1)).await;
-
-      // Check for close message (non-blocking read attempt)
-      // For simplicity, we just keep counting until connection drops
     }
   })
 }

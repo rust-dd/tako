@@ -32,8 +32,8 @@ Tokio feature set without `compio`.
 ## Switching runtimes
 
 By default you get Tokio. To build on Compio, disable defaults and enable the
-`compio` feature; add `compio-tls` and `compio-ws` for TLS and WebSocket
-support on that runtime.
+`compio` feature; add `compio-tls` for TLS on that runtime. Transport features
+such as `ws` work on either runtime.
 
 <Tabs items={['Tokio','Compio']}>
 <Tab value="Tokio">
@@ -51,7 +51,7 @@ tako-rs = "2"
 tako-rs = { version = "2", default-features = false, features = [
   "compio",
   "compio-tls",
-  "compio-ws",
+  "ws",
 ] }
 ```
 
@@ -73,7 +73,7 @@ Every transport runs on both runtimes:
 | HTTP/2 | yes | yes | `http2` |
 | HTTP/3 (QUIC) | yes | yes | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
-| WebSocket | yes | yes | `ws` / `compio-ws` |
+| WebSocket | yes | yes | `ws` |
 | WebTransport | yes | yes | `webtransport` |
 | SSE | yes | yes | `sse` |
 | gRPC (unary and streaming) | yes | yes | `grpc` |

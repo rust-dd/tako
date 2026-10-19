@@ -1,0 +1,169 @@
+---
+title: Migrating to 2.5
+description: Tako 2.5 replaces tokio-tungstenite with its own WebSocket engine; move handlers from TakoWs to WebSocketUpgrade and compio-ws to compio plus ws.
+category: reference
+since: 2.5.0
+status: stable
+crate: tako-rs
+runtime: both
+---
+
+# Migrating to 2.5
+
+Tako 2.5.0 ships its own WebSocket engine and drops `tokio-tungstenite`,
+`tungstenite` and `compio-ws`. WebSocket handlers need code changes; nothing
+else does. The engine and its API are the same on Tokio and Compio. See the
+[release notes](https://github.com/rust-dd/tako/releases/tag/v2.5.0) for the
+complete list.
+
+## Replace `TakoWs` with `WebSocketUpgrade`
+
+`tako::ws::TakoWs` is now `tako::ws::WebSocketUpgrade`, and the handler receives
+a `tako::ws::WebSocket` instead of a `tokio-tungstenite` `WebSocketStream`. Read
+with `recv()`, write with `send()`, and take `Message` from `tako::ws`.
+
+Before (2.4):
+
+```rust
+use futures_util::SinkExt;
+use futures_util::StreamExt;
+use tako::responder::Responder;
+use tako::types::Request;
+use tako::ws::TakoWs;
+use tokio_tungstenite::tungstenite::Message;
+
+async fn echo(req: Request) -> impl Responder {
+  TakoWs::new(req, |mut ws| async move {
+    while let Some(Ok(msg)) = ws.next().await {
+      match msg {
+        Message::Text(_) | Message::Binary(_) => {
+          if ws.send(msg).await.is_err() {
+            break;
+          }
+        }
+        Message::Ping(payload) => {
+          let _ = ws.send(Message::Pong(payload)).await;
+        }
+        Message::Close(_) => break,
+        _ => {}
+      }
+    }
+  })
+}
+```
+
+After (2.5):
+
+```rust
+use tako::responder::Responder;
+use tako::types::Request;
+use tako::ws::WebSocketUpgrade;
+
+async fn echo(req: Request) -> impl Responder {
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    while let Some(Ok(msg)) = ws.recv().await {
+      if (msg.is_text() || msg.is_binary()) && ws.send(msg).await.is_err() {
+        break;
+      }
+    }
+  })
+}
+```
+
+Tako answers pings and the peer's close frame itself, so the `Ping` and `Close`
+arms can go. `WebSocket` still implements `Stream` and `Sink`, so code built on
+`StreamExt::next`, `split` or `forward` keeps working once `Message` comes from
+`tako::ws`.
+
+## The message types
+
+| 2.4 (`tungstenite`) | 2.5 (`tako::ws`) |
+|---|---|
+| `Message::Text(Utf8Bytes)`, `Message::text(..)` | The same, with tako's `Utf8Bytes` |
+| `Message::Binary(Bytes)`, `Message::binary(..)` | The same |
+| `Message::Frame(_)` | Removed; raw frames are never yielded |
+| `CloseCode::Normal`, `CloseCode::from(1000)` | `CloseCode::NORMAL`, `CloseCode::new(1000)` |
+| `tungstenite::Error` | `tako::ws::Error`: `Io`, `Protocol(ProtocolError)` or `Closed` |
+
+## `send` queues frames
+
+In 2.4 every `send` wrote its frame before it returned. In 2.5 `send` queues the
+frame, and queued frames go out together when the handler waits for anything
+(the next `recv()`, a timer, a channel), when more than `write_buffer_size` bytes
+are queued (64 KiB by default), or on `flush()`. An echo loop that receives 16
+pipelined messages answers them with one write instead of 16. Call `flush()`
+where the handler must know a frame has left before it continues.
+
+A `send` from another task, for example through the write half of `split()`,
+writes at once, as before.
+
+Ping and Pong payloads over 125 bytes, close reasons over 123 bytes, and
+reserved close codes return `Error::Protocol` without sending a frame. Payloads
+are never silently shortened. Calling `close()` after receiving the peer's
+Close flushes the queued reply; repeated calls only flush.
+
+## The connection closes with a close frame
+
+In 2.4 the socket was dropped without a close frame when the handler returned,
+panicked, or ran past `max_lifetime`. In 2.5 the connection closes with code 1000
+when the handler returns and no `WebSocket` handle is left, with 1011 when the
+handler panics, and with 1001 when `max_lifetime` runs out. A `WebSocket` moved
+to another task keeps the connection open until it is dropped.
+
+The driver flushes its Close and shuts down the transport, with a five-second
+limit for a peer that stops reading. It does not wait for the peer's Close
+reply; a peer with unread data in flight can observe a transport reset.
+
+## Builder methods
+
+`keep_alive(WsKeepAlive)` never had an effect; it is removed together with
+`WsKeepAlive`. `write_buffer_size` is new. The other methods keep their names
+and arguments: `protocols`, `allowed_origins`, `max_frame_size`,
+`max_message_size`, `read_buffer_size`, `upgrade_timeout` and `max_lifetime`.
+
+`read_buffer_size` accepts 1 byte through 64 KiB and controls the initial read
+allocation, which grows with incoming frame data. Invalid buffer sizes and
+limits beyond addressable allocation sizes reject the upgrade with HTTP 500.
+Zero frame/message limits permit empty payloads; a zero write threshold flushes
+queued output before each send.
+
+## Compio
+
+The `compio-ws` feature and the `tako::ws_compio` module are gone, together with
+`TakoWsCompio`, `CompioWebSocket` and `UpgradedStream`. Enable `compio` and `ws`
+and use the same `tako::ws` API as on Tokio:
+
+```toml
+[dependencies]
+tako-rs = { version = "2.5", default-features = false, features = ["compio", "ws"] }
+```
+
+Compio's own `ws` feature is no longer needed.
+
+## Performance changes
+
+These need no code changes. Against 2.4.2 in the same benchmark run, on a
+per-thread server with 4 workers echoing 5-byte text messages, 2.5:
+
+- answers 16 pipelined messages per connection with one write instead of 16,
+  serving 8 times as many messages at 512 connections and 7 times at 4,096;
+- serves 2 to 19% more messages with one message in flight, from 512 to 16,384
+  connections, and 3 to 6% more when each connection closes after 10 messages;
+- holds slightly less heap per open connection with small messages, about
+  5.6 KiB against 5.9 KiB.
+
+On Tokio, reads go into uninitialized buffer space. Payloads up to 4 KiB are
+copied out, and larger ones are handed over without a copy. All 247 cases tako
+runs from the Autobahn suite pass on both runtimes (its performance and
+compression groups 9, 12 and 13 are excluded), with no unclean close where 2.4.2
+had 127.
+
+## Dependencies and GraphQL
+
+Remove `tokio-tungstenite` from your `Cargo.toml`, and `futures-util` if the
+socket was its only user.
+
+`GraphQLSubscription` needs no changes. `GraphQLWebSocket` now runs over tako's
+`Message` and `Error`, so a handler that drives it directly hands it the
+`WebSocket` from `WebSocketUpgrade`; see
+[`examples/graphql-generic-ws`](https://github.com/rust-dd/tako/tree/main/examples/graphql-generic-ws).

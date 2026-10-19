@@ -17,7 +17,6 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-base64 = { workspace = true, optional = true }
 bytes = { workspace = true }
 compio = { workspace = true, optional = true }
 futures-util = { workspace = true }
@@ -34,23 +33,18 @@ pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 send_wrapper = { workspace = true, optional = true }
-sha1 = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true }
-tokio-tungstenite = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["io"] }
 tracing = { workspace = true }
-url = { workspace = true }
 
 [features]
 default = []
 sse = ["tako-rs/sse"]
-ws = ["tako-rs/ws", "dep:tokio-tungstenite", "dep:sha1", "dep:base64", "hyper/http1", "hyper/server", "tako-rs-core/ws"]
 file-stream = ["tako-rs/file-stream"]
 plugins = ["tako-rs/plugins"]
 signals = ["tako-rs/signals", "tako-rs-core/signals"]
 compio = ["tako-rs/compio", "dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
-compio-ws = ["tako-rs/compio-ws", "dep:sha1", "dep:base64", "compio", "compio/io", "compio/ws"]
 http3 = ["tako-rs/http3", "dep:quinn", "dep:rustls", "tako-rs-core/http3"]
 webtransport = ["tako-rs/webtransport", "http3"]
 

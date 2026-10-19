@@ -22,7 +22,7 @@ time — the routing, middleware, and observability model does not change.
 | HTTP/2 | yes | yes | `http2` |
 | HTTP/3 (QUIC) | yes | yes | `http3` |
 | TLS (rustls) | yes | yes | `tls` / `compio-tls` |
-| WebSocket | yes | yes | `ws` / `compio-ws` |
+| WebSocket | yes | yes | `ws` |
 | WebTransport | yes | yes | `webtransport` |
 | SSE | yes | yes | `sse` |
 | gRPC (unary and streaming) | yes | yes | `grpc` |
@@ -92,8 +92,8 @@ The handle is runtime-agnostic — both `Server` (tokio) and `CompioServer`
 
 ## WebSocket, SSE, and the HTTP handler
 
-WebSocket and SSE live inside HTTP handlers. `TakoWs::new(req, fut)` performs
-an HTTP/1.1 Upgrade; it works over plain HTTP/1.1 and TLS negotiated as HTTP/1.1.
+WebSocket and SSE live inside HTTP handlers. `WebSocketUpgrade::new(req, handler)`
+performs an HTTP/1.1 Upgrade; it works over plain HTTP/1.1 and TLS negotiated as HTTP/1.1.
 HTTP/2 Extended CONNECT is not implemented. `tako::sse::Sse` wraps a stream in a
 `text/event-stream` response and can use any supported HTTP transport.
 

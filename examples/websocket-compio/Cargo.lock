@@ -2072,7 +2072,6 @@ name = "tako-rs-streams"
 version = "2.4.2"
 dependencies = [
  "anyhow",
- "base64",
  "bytes",
  "compio",
  "futures-util",
@@ -2087,12 +2086,10 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "send_wrapper",
- "sha1",
  "tako-rs-core",
  "tokio",
  "tokio-util",
  "tracing",
- "url",
 ]
 
 [[package]]

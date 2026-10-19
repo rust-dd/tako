@@ -1,4 +1,4 @@
-#![cfg(any(all(feature = "ws", not(feature = "compio")), feature = "compio-ws"))]
+#![cfg(feature = "ws")]
 
 use http::StatusCode;
 use http::header;
@@ -6,16 +6,10 @@ use tako::body::TakoBody;
 use tako::responder::Responder;
 use tako::types::Request;
 use tako::types::Response;
+use tako::ws::WebSocketUpgrade;
 
 fn respond(request: Request) -> Response {
-  #[cfg(not(feature = "compio"))]
-  {
-    tako::ws::TakoWs::new(request, |_| async {}).into_response()
-  }
-  #[cfg(feature = "compio-ws")]
-  {
-    tako::ws_compio::TakoWsCompio::new(request, |_| async {}).into_response()
-  }
+  WebSocketUpgrade::new(request, |_| async {}).into_response()
 }
 
 fn request(version: &str) -> Request {

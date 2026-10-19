@@ -32,7 +32,7 @@ places where the two differ.
 | `nest`, `fallback` | `router.nest`, `router.fallback` |
 | `axum::serve` | `Server::builder()` |
 | `with_graceful_shutdown` | `handle.shutdown_on_signal()` |
-| `WebSocketUpgrade` | `TakoWs::new(req, handler)` |
+| `WebSocketUpgrade` | `WebSocketUpgrade::new(req, handler)` |
 | `sse::Sse`, `Event` | `Sse::events`, `SseEvent` |
 | `ServiceExt::oneshot` | `router.dispatch(request)` |
 
@@ -230,16 +230,15 @@ TLS and has no HTTP/3 server.
 ## WebSocket and SSE
 
 A Tako WebSocket handler receives the whole request instead of a
-`WebSocketUpgrade` extractor, and the socket is a `tokio-tungstenite`
-`WebSocketStream`:
+`WebSocketUpgrade` extractor. The socket's `recv` and `send` work like those of
+axum's `WebSocket`:
 
 ```rust
-use futures_util::{SinkExt, StreamExt};
-use tako::ws::TakoWs;
+use tako::ws::WebSocketUpgrade;
 
 async fn echo(req: Request) -> impl Responder {
-    TakoWs::new(req, |mut ws| async move {
-        while let Some(Ok(msg)) = ws.next().await {
+    WebSocketUpgrade::new(req, |mut ws| async move {
+        while let Some(Ok(msg)) = ws.recv().await {
             if (msg.is_text() || msg.is_binary()) && ws.send(msg).await.is_err() {
                 break;
             }

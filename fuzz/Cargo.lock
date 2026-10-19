@@ -458,6 +458,7 @@ checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
 dependencies = [
  "futures-core",
  "futures-macro",
+ "futures-sink",
  "futures-task",
  "pin-project-lite",
  "slab",
@@ -1533,7 +1534,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "url",
 ]
 
 [[package]]

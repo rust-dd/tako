@@ -8,13 +8,11 @@ use async_graphql::Schema;
 use async_graphql::Subscription;
 use async_graphql::futures_util::Stream;
 use async_graphql::futures_util::stream;
-use http::HeaderValue;
 use http::StatusCode;
-use http::header;
-use hyper_util::rt::TokioIo;
 use tako::Method;
 use tako::extractors::FromRequest;
 use tako::extractors::state::State;
+use tako::graphql::GraphQLProtocol;
 use tako::graphql::GraphQLRequest;
 use tako::graphql::GraphQLResponse;
 use tako::graphql::GraphQLWebSocket;
@@ -22,9 +20,8 @@ use tako::responder::Responder;
 use tako::router::Router;
 use tako::types::Request as TakoRequest;
 use tako::types::Response as TakoResponse;
+use tako::ws::WebSocketUpgrade;
 use tokio::net::TcpListener;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::Role;
 
 struct QueryRoot;
 
@@ -57,62 +54,19 @@ async fn graphql_http(
 }
 
 async fn ws_generic(State(schema): State<AppSchema>, mut req: TakoRequest) -> TakoResponse {
-  // Extract protocol using the extractor internally
-  let tako::graphql::GraphQLProtocol(protocol) =
-    match tako::graphql::GraphQLProtocol::from_request(&mut req).await {
-      Ok(p) => p,
-      Err(_) => {
-        return (
-          StatusCode::BAD_REQUEST,
-          "Missing or invalid Sec-WebSocket-Protocol",
-        )
-          .into_response();
-      }
-    };
-  // Compute Sec-WebSocket-Accept (RFC 6455)
-  let key = match req.headers().get("Sec-WebSocket-Key") {
-    Some(k) => k,
-    None => return (StatusCode::BAD_REQUEST, "Missing Sec-WebSocket-Key").into_response(),
-  };
-  let accept = {
-    use base64::Engine as _;
-    use base64::engine::general_purpose::STANDARD;
-    use sha1::Digest;
-    use sha1::Sha1;
-    let mut sha1 = Sha1::new();
-    sha1.update(key.as_bytes());
-    sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-    STANDARD.encode(sha1.finalize())
-  };
-
-  // Build upgrade response echoing the chosen subprotocol
-  let response = http::Response::builder()
-    .status(StatusCode::SWITCHING_PROTOCOLS)
-    .header(header::UPGRADE, "websocket")
-    .header(header::CONNECTION, "Upgrade")
-    .header("Sec-WebSocket-Accept", accept)
-    .header(
-      header::SEC_WEBSOCKET_PROTOCOL,
-      HeaderValue::from_static(protocol.sec_websocket_protocol()),
+  let Ok(GraphQLProtocol(protocol)) = GraphQLProtocol::from_request(&mut req).await else {
+    return (
+      StatusCode::BAD_REQUEST,
+      "Missing or invalid Sec-WebSocket-Protocol",
     )
-    .body(tako::body::TakoBody::empty())
-    .unwrap();
-
-  // Spawn the WS task using the generic GraphQLWebSocket driver
-  if let Some(on_upgrade) = req.extensions().get::<hyper::upgrade::OnUpgrade>().cloned() {
-    tokio::spawn(async move {
-      if let Ok(upgraded) = on_upgrade.await {
-        let upgraded = TokioIo::new(upgraded);
-        let ws: WebSocketStream<TokioIo<hyper::upgrade::Upgraded>> =
-          WebSocketStream::from_raw_socket(upgraded, Role::Server, None).await;
-
-        let driver = GraphQLWebSocket::new(ws, schema.as_ref().clone(), protocol);
-        driver.serve().await;
-      }
-    });
-  }
-
-  response
+      .into_response();
+  };
+  let schema = schema.as_ref().clone();
+  WebSocketUpgrade::new(req, move |ws| {
+    GraphQLWebSocket::new(ws, schema, protocol).serve()
+  })
+  .protocols([protocol.sec_websocket_protocol()])
+  .into_response()
 }
 
 #[tokio::main]

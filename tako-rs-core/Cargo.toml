@@ -68,7 +68,6 @@ thread_local = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
 tokio-stream = { workspace = true }
-tokio-tungstenite = { workspace = true, optional = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -89,12 +88,11 @@ jwt-simple = { workspace = true, optional = true, features = ["default"] }
 async-graphql = ["tako-rs/async-graphql", "dep:async-graphql"]
 compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper"]
 compio-tls = ["tako-rs/compio-tls", "compio", "tls", "dep:rustls"]
-compio-ws = ["tako-rs/compio-ws", "compio", "compio/io", "compio/ws"]
 metrics-prometheus = ["tako-rs/metrics-prometheus", "dep:prometheus", "plugins", "signals"]
 metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
 graphiql = ["tako-rs/graphiql", "dep:async-graphql", "async-graphql/graphiql"]
 default = []
-ws = ["tako-rs/ws", "dep:tokio-tungstenite", "hyper/http1", "hyper/server"]
+ws = ["tako-rs/ws", "futures-util/sink", "hyper/http1", "hyper/server"]
 file-stream = ["tako-rs/file-stream"]
 http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2"]
 jemalloc = ["tako-rs/jemalloc"]

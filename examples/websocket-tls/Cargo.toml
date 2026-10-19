@@ -1,0 +1,15 @@
+[package]
+name = "websocket-tls"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tako-rs = { workspace = true }
+tokio = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
+tako-rs = { path = "../../tako-rs", features = ["ws", "tls"] }
+tokio = { version = "1.45.1", features = ["full"] }

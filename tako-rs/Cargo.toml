@@ -30,7 +30,7 @@ tikv-jemallocator = { workspace = true, optional = true }
 
 [features]
 default = []
-ws = ["tako-rs-core/ws", "tako-rs-streams/ws"]
+ws = ["tako-rs-core/ws"]
 sse = ["tako-rs-streams/sse"]
 proxy-protocol = ["tako-rs-server/proxy-protocol"]
 udp = ["tako-rs-server/udp"]
@@ -50,13 +50,12 @@ webtransport = ["http3", "tako-rs-server/webtransport", "tako-rs-streams/webtran
 
 # Compio runtime
 compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio", "tako-rs-server-pt?/compio"]
-# compio-tls / compio-ws imply `compio`: tako-rs-server's `compio-tls` already
+# compio-tls implies `compio`: tako-rs-server's `compio-tls` already
 # pulls in `tako-rs-server/compio`, which turns off the tokio-based `Server` /
 # `ServerBuilder` re-exports. If we didn't also flip `tako-rs/compio`, the
 # `#[cfg(not(feature = "compio"))]` gates in `src/lib.rs` would still try to
 # re-export items that are no longer present.
 compio-tls = ["compio", "tako-rs-server/compio-tls", "tako-rs-core/compio-tls"]
-compio-ws = ["compio", "tako-rs-streams/compio-ws", "tako-rs-core/compio-ws"]
 
 # Body/streaming features
 file-stream = ["tako-rs-streams/file-stream", "tako-rs-core/file-stream"]

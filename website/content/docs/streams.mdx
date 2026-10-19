@@ -61,33 +61,29 @@ SSE requires the `sse` feature.
 
 ## WebSocket
 
-`TakoWs::new(req, fut)` performs the upgrade from inside an HTTP
-handler. The closure receives a `WebSocket` half-duplex pair
-(`tokio_tungstenite` on tokio, `compio_ws` on compio) that you drive
-to completion:
+`WebSocketUpgrade::new(req, handler)` performs the upgrade from inside an HTTP
+handler and runs `handler` on the upgraded `WebSocket`:
 
 ```rust
-use futures_util::{SinkExt, StreamExt};
-use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;
-use tako::ws::TakoWs;
-use tokio_tungstenite::tungstenite::Message;
+use tako::ws::WebSocketUpgrade;
 
 async fn ws_echo(req: Request) -> impl Responder {
-  TakoWs::new(req, |mut ws| async move {
-    while let Some(Ok(msg)) = ws.next().await {
-      if let Message::Text(t) = msg {
-        let _ = ws.send(Message::Text(t)).await;
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    while let Some(Ok(message)) = ws.recv().await {
+      if message.is_text() && ws.send(message).await.is_err() {
+        break;
       }
     }
   })
 }
 ```
 
-Enable `ws` for Tokio or `compio-ws` for Compio. Configure subprotocols,
-frame/message limits, allowed origins, and upgrade timeout on the responder.
-The handler implements its own ping/pong policy; permessage-deflate is not provided.
+Enable `ws`; together with `compio` it runs on Compio. Configure subprotocols,
+frame and message limits, buffer sizes, allowed origins, and the upgrade timeout
+on the builder. tako answers pings and the closing handshake; permessage-deflate
+is not provided.
 
 See [WebSocket transport](/docs/transports/websocket) for the full transport reference.
 
@@ -116,7 +112,7 @@ See also:
   and [`examples/http3-sse`](https://github.com/rust-dd/tako/tree/main/examples/http3-sse)
   for SSE,
 - [`examples/websocket`](https://github.com/rust-dd/tako/tree/main/examples/websocket),
-  [`examples/websocket-http2`](https://github.com/rust-dd/tako/tree/main/examples/websocket-http2),
+  [`examples/websocket-tls`](https://github.com/rust-dd/tako/tree/main/examples/websocket-tls),
   and [`examples/websocket-compio`](https://github.com/rust-dd/tako/tree/main/examples/websocket-compio)
   for WebSocket,
 - [`examples/file-stream`](https://github.com/rust-dd/tako/tree/main/examples/file-stream)

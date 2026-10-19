@@ -76,6 +76,7 @@ for most often:
 | `http2` | HTTP/2 (h2c cleartext and ALPN-negotiated h2 over TLS) |
 | `http3` | HTTP/3 over QUIC |
 | `tls` | Server-side HTTPS via rustls |
+| `ws` | WebSocket upgrades, on either runtime |
 | `grpc` | gRPC unary and streaming RPCs with protobuf |
 | `simd` | SIMD JSON parsing (`sonic-rs` + `simd-json`) |
 | `multipart` | `Multipart` / typed multipart body extractors |
@@ -84,14 +85,13 @@ for most often:
 | `file-stream` | File streaming, range requests, conditional GET |
 | `jemalloc` | Re-export `tako::Jemalloc`; your binary sets it as the global allocator |
 
-Compio has its own TLS and WebSocket flags, since those features compile
-differently on the two runtimes:
+Compio has its own TLS flag, since TLS compiles differently on the two
+runtimes:
 
 | Flag | Turns on |
 |---|---|
 | `compio` | The Compio runtime (mutually exclusive with the Tokio path) |
 | `compio-tls` | TLS on Compio (implies `compio`) |
-| `compio-ws` | WebSocket on Compio (implies `compio`) |
 
 Enable several at once:
 
