@@ -4,7 +4,7 @@ description: Build a full-duplex WebSocket feature with an echo handler and a se
 category: tutorial
 since: 2.0.0
 status: stable
-crate: tako-rs-streams
+crate: tako-rs-core
 runtime: tokio
 ---
 
@@ -19,8 +19,8 @@ crate, which serves two endpoints:
 - `GET /ws/tick` — pushes a `tick #N` message to the client once per second
 
 These are the two halves of any chat-style feature: receiving messages from a
-client, and pushing messages to it on a schedule or from another source. WebSocket
-requires the `ws` feature on Tokio.
+client, and pushing messages to it on a schedule or from another source.
+WebSocket requires the `ws` feature.
 
 If you have not served a handler before, read the
 [Quickstart](/docs/getting-started/quickstart) first.
@@ -28,62 +28,67 @@ If you have not served a handler before, read the
 ## 1. The full example
 
 A WebSocket endpoint in Tako is an ordinary HTTP handler that returns
-`TakoWs::new(req, closure)`. The closure receives an upgraded socket and drives
-the conversation. This is the whole file:
+`WebSocketUpgrade::new(req, handler)`. The handler receives the upgraded
+`WebSocket` and drives the conversation. This is the whole file:
 
 <RustExample path="examples/websocket/src/main.rs" />
 
 ## 2. How the upgrade works
 
-`TakoWs::new(req, |ws| async move { … })` is a [`Responder`](/docs/routing): when
-the handler returns it, Tako performs the WebSocket handshake on the incoming
-`Request` and then runs your closure with the upgraded connection. Inside the
-closure, `ws` is both a `Stream` of inbound `Message`s and a `Sink` you can
-`send` outbound `Message`s into — the `futures_util::{StreamExt, SinkExt}` traits
-provide `.next()` and `.send()`.
+`WebSocketUpgrade::new(req, |ws| async move { … })` is a [`Responder`](/docs/routing):
+when the handler returns it, Tako answers the WebSocket handshake on the incoming
+`Request` and then runs your closure on the upgraded connection. Inside the
+closure, `ws.recv()` returns the next inbound `Message` and `ws.send()` queues an
+outbound one. Queued messages go out together once the closure waits for the next
+message, so a burst of replies leaves in one write.
 
 The echo handler is a straight read-respond loop:
 
 ```rust
-while let Some(Ok(msg)) = ws.next().await {
-  match msg {
-    Message::Text(txt) => {
-      let _ = ws.send(Message::Text(format!("Echo: {txt}").into())).await;
-    }
-    Message::Binary(bin) => { let _ = ws.send(Message::Binary(bin)).await; }
-    Message::Ping(p)     => { let _ = ws.send(Message::Pong(p)).await; }
-    Message::Close(_)    => { let _ = ws.send(Message::Close(None)).await; break; }
-    _ => {}
+while let Some(Ok(message)) = ws.recv().await {
+  let reply = match message {
+    Message::Text(text) => Message::text(format!("Echo: {text}")),
+    Message::Binary(data) => Message::Binary(data),
+    _ => continue,
+  };
+  if ws.send(reply).await.is_err() {
+    break;
   }
 }
 ```
 
-The `Message` type comes from `tokio-tungstenite`. Handling `Ping`/`Close`
-explicitly keeps the connection healthy and shuts it down cleanly.
+Tako answers pings and the closing handshake itself, so the loop only handles
+text and binary messages. `recv()` returns `None` once the connection has closed.
 
 ## 3. Server-initiated pushes
 
 A chat feed has to push messages the client did not ask for — a new message from
 another user, a periodic heartbeat. The `ws_tick` handler shows the pattern:
-`tokio::select!` races the inbound stream against a timer, so the task both
-reacts to the client (closing when it disconnects) and pushes on its own
+`tokio::select!` races the next inbound message against a timer, so the task both
+reacts to the client (stopping when it disconnects) and pushes on its own
 schedule:
 
 ```rust
+let mut ticker = tokio::time::interval(Duration::from_secs(1));
+let mut tick = 0u64;
 loop {
   tokio::select! {
-    msg = ws.next() => match msg {
-      Some(Ok(Message::Close(_))) | None => break,
-      _ => {}
+    message = ws.recv() => match message {
+      Some(Ok(_)) => {}
+      _ => break,
     },
-    Some((i, _)) = ticker.next() => {
-      let _ = ws.send(Message::Text(format!("tick #{i}").into())).await;
+    _ = ticker.tick() => {
+      if ws.send(Message::text(format!("tick #{tick}"))).await.is_err() {
+        break;
+      }
+      tick += 1;
     }
   }
 }
 ```
 
-To turn this into a real chat fan-out, replace the `ticker` arm with a
+`recv()` is cancel-safe: when the timer wins, no inbound data is lost. To turn
+this into a real chat fan-out, replace the `ticker` arm with a
 `tokio::sync::broadcast::Receiver`: every connected socket subscribes to a shared
 `broadcast::Sender`, and posting a message sends it to every subscriber. The
 `select!` skeleton stays identical — one arm reads the client, the other reads
@@ -91,21 +96,14 @@ the broadcast channel.
 
 ## 4. The Cargo.toml
 
-The example pulls in the umbrella crate plus the stream/codec helpers it uses in
-the closures:
-
 ```toml
 [dependencies]
-futures-util = "0.3"
-tako-rs = { version = "2", features = ["ws"] }
+tako-rs = { version = "2.5", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1"
-tokio-tungstenite = "0.30"
 ```
 
-The `ws` feature enables `tako::ws::TakoWs`. `futures-util`
-provides the `Stream`/`Sink` extension traits, and `tokio-tungstenite` provides
-the `Message` enum used on the wire.
+The `ws` feature enables `tako::ws`, which also provides the `Message` type, so
+no other WebSocket crate is needed.
 
 ## 5. Running it
 
@@ -135,15 +133,16 @@ ws.onopen = () => ws.send("hello");
 
 ## Tuning the connection
 
-`TakoWs` is a builder. Before returning it you can constrain the handshake and
-the frames — `protocols`, `max_frame_size`, `max_message_size`,
-`allowed_origins`, `upgrade_timeout`, and `keep_alive(WsKeepAlive)`. These guard
-against oversized frames and slow-loris upgrades on a public endpoint. See the
-[WebSocket transport reference](/docs/transports/websocket) for the full builder.
+`WebSocketUpgrade` is a builder. Before returning it you can constrain the
+handshake and the frames — `protocols`, `allowed_origins`, `max_frame_size`,
+`max_message_size`, `read_buffer_size`, `write_buffer_size`, `upgrade_timeout`
+and `max_lifetime`. These guard against oversized frames and stalled upgrades on
+a public endpoint. See the [WebSocket transport reference](/docs/transports/websocket)
+for the defaults.
 
 <Callout type="info">
-WebSocket uses `ws` on Tokio and `compio-ws` on Compio.
-HTTP/2 WebSocket (RFC 8441) and the deflate extension are covered in the
+The same handler runs on Compio when you enable `compio` next to `ws`.
+HTTP/2 WebSocket (RFC 8441) and the deflate extension are not supported; see the
 [transport reference](/docs/transports/websocket).
 </Callout>
 
@@ -175,8 +174,8 @@ collaborative editing, game state. Reach for SSE when it only needs to listen.
 
 ## Next steps
 
-- [WebSocket transport](/docs/transports/websocket) — the full `TakoWs` builder
-  and configuration.
+- [WebSocket transport](/docs/transports/websocket) — the full
+  `WebSocketUpgrade` builder and configuration.
 - [Server-Sent Events](/docs/transports/sse) — the one-way streaming
   alternative.
 - [Building a REST API](/docs/tutorials/rest-api) — the companion tutorial.

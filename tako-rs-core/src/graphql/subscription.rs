@@ -10,31 +10,20 @@ use async_graphql::Executor;
 use async_graphql::Result as GqlResult;
 use async_graphql::http::DefaultOnConnInitType;
 use async_graphql::http::DefaultOnPingType;
-use async_graphql::http::WebSocket as GqlWebSocket;
 use async_graphql::http::WebSocketProtocols;
-use async_graphql::http::WsMessage;
 use async_graphql::http::default_on_connection_init;
 use async_graphql::http::default_on_ping;
-use futures_util::SinkExt as _;
-use futures_util::StreamExt as _;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
-use hyper_util::rt::TokioIo;
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::Role;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use hyper::upgrade::OnUpgrade;
 
+use super::GraphQLWebSocket;
 use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
-
-// tungstenite zero-fills the spare read buffer before every socket read, so its
-// 128 KiB default costs a large memset per message.
-fn websocket_config() -> WebSocketConfig {
-  WebSocketConfig::default().read_buffer_size(4 * 1024)
-}
+use crate::ws;
 
 /// `GraphQL` WebSocket subscription responder (`GraphQL` over WebSocket).
 ///
@@ -134,118 +123,56 @@ where
   OnPingFut: Future<Output = GqlResult<Option<serde_json::Value>>> + Send + 'static,
 {
   fn into_response(self) -> Response {
-    // Rebuild so we can grab OnUpgrade
-    let (parts, body) = self.request.into_parts();
-    let req = http::Request::from_parts(parts, body);
-
-    let selected_protocol = req
+    let accept = match ws::accept(&self.request) {
+      Ok(accept) => accept,
+      Err(status) => return ws::rejection(status),
+    };
+    let Some(protocol) = self
+      .request
       .headers()
       .get(header::SEC_WEBSOCKET_PROTOCOL)
-      .and_then(|v| v.to_str().ok())
-      .and_then(|protocols| {
-        protocols
+      .and_then(|value| value.to_str().ok())
+      .and_then(|offered| {
+        offered
           .split(',')
-          .find_map(|p| WebSocketProtocols::from_str(p.trim()).ok())
-      });
-
-    let Some(protocol) = selected_protocol else {
+          .find_map(|name| WebSocketProtocols::from_str(name.trim()).ok())
+      })
+    else {
       return (
         StatusCode::BAD_REQUEST,
         "Missing or invalid Sec-WebSocket-Protocol",
       )
         .into_response();
     };
-
-    let Some(key) = req.headers().get("Sec-WebSocket-Key") else {
-      return (
-        StatusCode::BAD_REQUEST,
-        "Missing Sec-WebSocket-Key for WebSocket upgrade",
-      )
-        .into_response();
-    };
-
-    let accept = {
-      use base64::Engine as _;
-      use base64::engine::general_purpose::STANDARD;
-      use sha1::Digest;
-      use sha1::Sha1;
-      let mut sha1 = Sha1::new();
-      sha1.update(key.as_bytes());
-      sha1.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-      STANDARD.encode(sha1.finalize())
-    };
-
-    let builder = http::Response::builder()
+    let response = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)
       .header(header::UPGRADE, "websocket")
       .header(header::CONNECTION, "Upgrade")
-      .header("Sec-WebSocket-Accept", accept)
+      .header(header::SEC_WEBSOCKET_ACCEPT, accept)
       .header(
         header::SEC_WEBSOCKET_PROTOCOL,
         HeaderValue::from_static(protocol.sec_websocket_protocol()),
-      );
-
-    let response = builder.body(TakoBody::empty()).unwrap();
-
-    if let Some(on_upgrade) = req.extensions().get::<hyper::upgrade::OnUpgrade>().cloned() {
-      let executor = self.executor.clone();
-      let data = self.data;
-      let on_conn_init = self.on_connection_init;
-      let on_ping = self.on_ping;
-      let keepalive = self.keepalive_timeout;
-
-      tokio::spawn(async move {
-        if let Ok(upgraded) = on_upgrade.await {
-          let upgraded = TokioIo::new(upgraded);
-          let ws =
-            WebSocketStream::from_raw_socket(upgraded, Role::Server, Some(websocket_config()))
-              .await;
-          let (mut sink, stream) = ws.split();
-
-          let input = stream
-            .take_while(|res| futures_util::future::ready(res.is_ok()))
-            .map(Result::unwrap)
-            .filter_map(|msg| match msg {
-              tokio_tungstenite::tungstenite::Message::Text(_)
-              | tokio_tungstenite::tungstenite::Message::Binary(_) => {
-                futures_util::future::ready(Some(msg))
-              }
-              _ => futures_util::future::ready(None),
-            })
-            .map(tokio_tungstenite::tungstenite::Message::into_data);
-
-          let mut stream = GqlWebSocket::new(executor, input, protocol)
-            .connection_data(data)
-            .on_connection_init(on_conn_init)
-            .on_ping(on_ping.clone())
-            .keepalive_timeout(keepalive)
-            .map(|msg| match msg {
-              WsMessage::Text(text) => tokio_tungstenite::tungstenite::Message::Text(text.into()),
-              WsMessage::Close(_code, _status) => {
-                // tungstenite CloseFrame conversion requires CloseCode; close without reason
-                tokio_tungstenite::tungstenite::Message::Close(None)
-              }
-            });
-
-          while let Some(item) = stream.next().await {
-            if sink.send(item).await.is_err() {
-              break;
-            }
-          }
-        }
+      )
+      .body(TakoBody::empty())
+      .expect("valid upgrade response");
+    let Self {
+      mut request,
+      executor,
+      data,
+      on_connection_init,
+      on_ping,
+      keepalive_timeout,
+    } = self;
+    if let Some(on_upgrade) = request.extensions_mut().remove::<OnUpgrade>() {
+      ws::spawn_session(on_upgrade, move |socket| {
+        GraphQLWebSocket::new(socket, executor, protocol)
+          .with_data(data)
+          .on_connection_init(on_connection_init)
+          .on_ping(on_ping)
+          .keepalive_timeout(keepalive_timeout)
+          .serve()
       });
     }
-
     response
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::websocket_config;
-
-  #[test]
-  fn subscriptions_read_into_a_small_buffer() {
-    assert_eq!(websocket_config().read_buffer_size, 4 * 1024);
   }
 }

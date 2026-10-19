@@ -1,0 +1,16 @@
+[package]
+name = "autobahn-echo-compio"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[dependencies]
+compio = { workspace = true }
+tako-rs = { workspace = true }
+
+
+[workspace]
+
+[workspace.dependencies]
+compio = { version = "0.19.2", features = ["macros"] }
+tako-rs = { path = "../../tako-rs", features = ["compio", "ws"] }

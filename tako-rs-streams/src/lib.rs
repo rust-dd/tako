@@ -7,8 +7,6 @@
 //! via the umbrella crate.
 
 mod file_io;
-#[cfg(any(all(feature = "ws", not(feature = "compio")), feature = "compio-ws"))]
-mod ws_handshake;
 
 /// Server-Sent Events (SSE) support for real-time communication.
 #[cfg(feature = "sse")]
@@ -22,15 +20,6 @@ pub mod file_stream;
 
 /// Static file serving utilities.
 pub mod r#static;
-
-/// WebSocket connection handling and message processing.
-#[cfg(all(feature = "ws", not(feature = "compio")))]
-pub mod ws;
-
-/// WebSocket connection handling for compio runtime.
-#[cfg(feature = "compio-ws")]
-#[cfg_attr(docsrs, doc(cfg(feature = "compio-ws")))]
-pub mod ws_compio;
 
 /// WebTransport server support over QUIC.
 #[cfg(all(feature = "webtransport", not(feature = "compio")))]

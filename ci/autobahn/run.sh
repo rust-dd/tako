@@ -1,33 +1,21 @@
 #!/usr/bin/env bash
-#
 # Runs the Autobahn fuzzingclient suite against the bundled echo server.
-#
-# Required tools on PATH:
-#   - cargo (with the workspace already cloned)
-#   - docker
-#
-# Exit codes:
-#   0    every case is OK or NON-STRICT (interpreted as pass per Autobahn).
-#   1    the runner crashed, the server didn't come up, or any case is
-#        FAILED / INFORMATIONAL_FAILED / WRONG_CODE / UNCLEAN.
-#
-# Usage:
-#   ci/autobahn/run.sh                      # full case set per fuzzingclient.json
-#   AUTOBAHN_CASES='1.*,2.*' ci/autobahn/run.sh   # restrict cases (override)
+# See ci/autobahn/README.md for prerequisites, case selection, and exit codes.
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+EXAMPLE="${1:-autobahn-echo}"
 CONF_DIR="${ROOT_DIR}/ci/autobahn"
 REPORT_DIR="${ROOT_DIR}/ci/autobahn/reports"
 
 cd "${ROOT_DIR}"
 
-echo "==> Building autobahn-echo example (release)"
-cargo build --release --manifest-path examples/autobahn-echo/Cargo.toml
+echo "==> Building ${EXAMPLE} example (release)"
+cargo build --release --manifest-path "examples/${EXAMPLE}/Cargo.toml"
 
-echo "==> Starting autobahn-echo on 127.0.0.1:9001"
-"${ROOT_DIR}/examples/autobahn-echo/target/release/autobahn-echo" &
+echo "==> Starting ${EXAMPLE} on 127.0.0.1:9001"
+"${ROOT_DIR}/examples/${EXAMPLE}/target/release/${EXAMPLE}" &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 
@@ -40,7 +28,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if ! (echo > /dev/tcp/127.0.0.1/9001) 2>/dev/null; then
-  echo "autobahn-echo failed to bind 127.0.0.1:9001" >&2
+  echo "${EXAMPLE} failed to bind 127.0.0.1:9001" >&2
   exit 1
 fi
 echo "==> server up, running fuzzingclient"

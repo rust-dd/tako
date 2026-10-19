@@ -28,7 +28,7 @@ cargo metadata --format-version 1 --no-deps \
 | Feature | Description | Gates |
 |---|---|---|
 | *(default)* | HTTP/1.1, raw TCP, Unix sockets, static files, core extractors and middleware. No optional flags are enabled. | always on |
-| `ws` | WebSocket upgrades over HTTP/1.1 on Tokio; GraphQL subscriptions also require `async-graphql`. | `tako-rs-core/ws`, `tako-rs-streams/ws` |
+| `ws` | WebSocket upgrades over HTTP/1.1 on either runtime; GraphQL subscriptions also require `async-graphql` and run on Tokio. | `tako-rs-core/ws` |
 | `sse` | Server-Sent Events on either runtime. | `tako-rs-streams/sse` |
 | `file-stream` | `FileStream` responder and range helpers; static file serving is available without this flag. | `tako-rs-streams/file-stream`, `tako-rs-core/file-stream` |
 | `proxy-protocol` | Trusted PROXY v1/v2 listener on either runtime. | `tako-rs-server/proxy-protocol` |
@@ -46,7 +46,6 @@ cargo metadata --format-version 1 --no-deps \
 |---|---|---|
 | `compio` | Switch the server to the `compio` runtime (io_uring / IOCP / kqueue). Mutually exclusive with the tokio path at build time. | `tako-rs-core/compio`, `tako-rs-server/compio`, `tako-rs-streams/compio`, `tako-rs-plugins/compio`, `tako-rs-server-pt?/compio` |
 | `compio-tls` | TLS on compio. Implies `compio`. | `compio`, `tako-rs-server/compio-tls`, `tako-rs-core/compio-tls` |
-| `compio-ws` | WebSocket on compio. Implies `compio`. | `compio`, `tako-rs-streams/compio-ws`, `tako-rs-core/compio-ws` |
 | `per-thread` | Thread-per-core HTTP/1; Tokio by default, Compio when `compio` is selected. | `dep:tako-rs-server-pt` |
 | `per-thread-compio` | Thread-per-core on Compio. Implies `per-thread` and `compio` throughout the workspace. | `per-thread`, `compio`, `tako-rs-server-pt/compio` |
 

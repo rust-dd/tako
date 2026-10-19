@@ -1,36 +1,17 @@
-//! Plain echo server used by the Autobahn `fuzzingclient` test suite.
+//! Echo server for the Autobahn `fuzzingclient` suite.
 //!
-//! Listens on `127.0.0.1:9001`. Every text and binary frame is echoed back
-//! verbatim; ping is replied to with pong; close is mirrored before the
-//! task exits. No subprotocol, no compression, no auth — the suite varies
-//! all those itself.
+//! Listens on `127.0.0.1:9001` and echoes every text and binary message.
 
-use futures_util::SinkExt;
-use futures_util::StreamExt;
 use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;
-use tako::ws::TakoWs;
-use tokio_tungstenite::tungstenite::Message;
+use tako::ws::WebSocketUpgrade;
 
 async fn echo(req: Request) -> impl Responder {
-  TakoWs::new(req, |mut ws| async move {
-    while let Some(Ok(msg)) = ws.next().await {
-      match msg {
-        Message::Text(t) => {
-          let _ = ws.send(Message::Text(t)).await;
-        }
-        Message::Binary(b) => {
-          let _ = ws.send(Message::Binary(b)).await;
-        }
-        Message::Ping(p) => {
-          let _ = ws.send(Message::Pong(p)).await;
-        }
-        Message::Close(c) => {
-          let _ = ws.send(Message::Close(c)).await;
-          break;
-        }
-        _ => {}
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    while let Some(Ok(message)) = ws.recv().await {
+      if (message.is_text() || message.is_binary()) && ws.send(message).await.is_err() {
+        break;
       }
     }
   })

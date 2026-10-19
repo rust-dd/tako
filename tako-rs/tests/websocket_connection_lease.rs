@@ -3,13 +3,12 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use futures_util::SinkExt;
-use futures_util::StreamExt;
 use tako::Server;
 use tako::ServerConfig;
 use tako::router::Router;
 use tako::types::Request;
-use tako::ws::TakoWs;
+use tako::ws::Message;
+use tako::ws::WebSocketUpgrade;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -24,13 +23,13 @@ fn router() -> Router {
   let mut router = Router::new();
   router.get("/", || async { "ok" });
   router.get("/ws", |req: Request| async move {
-    TakoWs::new(req, |mut ws| async move {
+    WebSocketUpgrade::new(req, |mut ws| async move {
       let worker = std::thread::current()
         .name()
         .unwrap_or_default()
         .to_string();
-      if ws.send(worker.into()).await.is_ok() {
-        while let Some(Ok(_)) = ws.next().await {}
+      if ws.send(Message::text(worker)).await.is_ok() {
+        while let Some(Ok(_)) = ws.recv().await {}
       }
     })
   });

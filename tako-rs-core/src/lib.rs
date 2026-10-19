@@ -108,6 +108,11 @@ pub mod openapi;
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 pub mod grpc;
 
+/// WebSocket upgrades and connections.
+#[cfg(feature = "ws")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
+pub mod ws;
+
 pub use bytes::Bytes;
 pub use http::Method;
 pub use http::StatusCode;

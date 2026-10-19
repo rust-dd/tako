@@ -208,11 +208,14 @@ jobs:
       - run: cargo bench --no-run -p tako-rs-core
 
   autobahn:
-    name: autobahn websocket suite
+    name: autobahn websocket suite (${{ matrix.example }})
     runs-on: ubuntu-latest
-    # The suite is heavy (4-7 minutes) and depends on docker. Run it on
-    # PRs that touch streams + on main. PRs that don't touch the WS path
-    # opt out via path filter.
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [autobahn-echo, autobahn-echo-compio]
+    # Heavy (4-7 minutes) and needs Docker: runs on pushes to main and on PRs
+    # labeled run-autobahn.
     if: |
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
@@ -224,13 +227,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          key: autobahn
+          key: autobahn-${{ matrix.example }}
       - name: Run Autobahn fuzzingclient
-        run: ci/autobahn/run.sh
+        run: ci/autobahn/run.sh ${{ matrix.example }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: autobahn-report
+          name: autobahn-report-${{ matrix.example }}
           path: ci/autobahn/reports/
 
   fuzz-build:
@@ -268,6 +271,7 @@ jobs:
           - cookies
           - query_multi
           - sse_encoder
+          - ws_frame
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

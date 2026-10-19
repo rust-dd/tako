@@ -1,5 +1,4 @@
-//! Generic `GraphQL`-over-WebSocket driver over an arbitrary tungstenite
-//! `Sink`/`Stream` pair, reusing async-graphql's WebSocket state machine.
+//! Generic `GraphQL`-over-WebSocket driver over any `Sink`/`Stream` pair of WebSocket messages.
 
 use std::future::Future;
 use std::time::Duration;
@@ -15,14 +14,15 @@ use async_graphql::http::WsMessage;
 use async_graphql::http::default_on_connection_init;
 use async_graphql::http::default_on_ping;
 use futures_util::Sink;
-use futures_util::SinkExt as _;
 use futures_util::Stream;
 use futures_util::StreamExt as _;
 
-/// A generic `GraphQL` WebSocket driver using an arbitrary `Sink`/`Stream` of tungstenite Messages.
-///
-/// This is a generic API so you can integrate custom websocket
-/// transports while reusing Tako's mapping to async-graphql's WebSocket state machine.
+use crate::ws::CloseCode;
+use crate::ws::CloseFrame;
+use crate::ws::Error;
+use crate::ws::Message;
+
+/// Runs async-graphql's WebSocket protocol over any `Sink`/`Stream` of WebSocket messages.
 #[cfg(not(feature = "compio"))]
 pub struct GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
@@ -41,16 +41,14 @@ where
 #[cfg(not(feature = "compio"))]
 impl<S, E>
   GraphQLWebSocket<
-    futures_util::stream::SplitSink<S, tokio_tungstenite::tungstenite::Message>,
+    futures_util::stream::SplitSink<S, Message>,
     futures_util::stream::SplitStream<S>,
     E,
     DefaultOnConnInitType,
     DefaultOnPingType,
   >
 where
-  S: Stream<
-      Item = Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-    > + Sink<tokio_tungstenite::tungstenite::Message>,
+  S: Stream<Item = Result<Message, Error>> + Sink<Message>,
   E: Executor,
 {
   /// Create a `GraphQLWebSocket` from a combined websocket stream implementing `Sink`+`Stream`.
@@ -64,10 +62,8 @@ where
 impl<SinkT, StreamT, E>
   GraphQLWebSocket<SinkT, StreamT, E, DefaultOnConnInitType, DefaultOnPingType>
 where
-  SinkT: Sink<tokio_tungstenite::tungstenite::Message>,
-  StreamT: Stream<
-    Item = Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-  >,
+  SinkT: Sink<Message>,
+  StreamT: Stream<Item = Result<Message, Error>>,
   E: Executor,
 {
   /// Create a `GraphQLWebSocket` from separate sink and stream.
@@ -93,10 +89,8 @@ where
 #[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E, OnConnInit, OnPing> GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
-  SinkT: Sink<tokio_tungstenite::tungstenite::Message>,
-  StreamT: Stream<
-    Item = Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-  >,
+  SinkT: Sink<Message>,
+  StreamT: Stream<Item = Result<Message, Error>>,
   E: Executor,
 {
   pub fn with_data(self, data: Data) -> Self {
@@ -115,10 +109,8 @@ where
 impl<SinkT, StreamT, E, OnConnInit, OnConnInitFut, OnPing, OnPingFut>
   GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
-  SinkT: Sink<tokio_tungstenite::tungstenite::Message> + Unpin,
-  StreamT: Stream<
-      Item = Result<tokio_tungstenite::tungstenite::Message, tokio_tungstenite::tungstenite::Error>,
-    > + Unpin,
+  SinkT: Sink<Message> + Unpin,
+  StreamT: Stream<Item = Result<Message, Error>> + Unpin,
   E: Executor,
   OnConnInit: FnOnce(serde_json::Value) -> OnConnInitFut + Send + 'static,
   OnConnInitFut: Future<Output = GqlResult<Data>> + Send + 'static,
@@ -162,35 +154,40 @@ where
     }
   }
 
-  /// Run the `GraphQL` over WebSocket protocol loop until the connection ends.
-  pub async fn serve(mut self) {
-    let input = self
-      .stream
-      .take_while(|res| futures_util::future::ready(res.is_ok()))
-      .map(Result::unwrap)
-      .filter_map(|msg| match msg {
-        tokio_tungstenite::tungstenite::Message::Text(_)
-        | tokio_tungstenite::tungstenite::Message::Binary(_) => {
-          futures_util::future::ready(Some(msg))
-        }
-        _ => futures_util::future::ready(None),
-      })
-      .map(tokio_tungstenite::tungstenite::Message::into_data);
-
-    let mut out_stream = GqlWebSocket::new(self.executor, input, self.protocol)
-      .connection_data(self.data)
-      .on_connection_init(self.on_connection_init)
-      .on_ping(self.on_ping.clone())
-      .keepalive_timeout(self.keepalive_timeout)
-      .map(|msg| match msg {
-        WsMessage::Text(text) => tokio_tungstenite::tungstenite::Message::Text(text.into()),
-        WsMessage::Close(_code, _status) => tokio_tungstenite::tungstenite::Message::Close(None),
+  /// Runs the `GraphQL` over WebSocket protocol until the connection ends.
+  pub async fn serve(self) {
+    let Self {
+      sink,
+      stream,
+      executor,
+      data,
+      on_connection_init,
+      on_ping,
+      protocol,
+      keepalive_timeout,
+    } = self;
+    let input = stream
+      .take_while(|message| futures_util::future::ready(message.is_ok()))
+      .filter_map(|message| {
+        futures_util::future::ready(match message {
+          Ok(message @ (Message::Text(_) | Message::Binary(_))) => Some(message.into_data()),
+          _ => None,
+        })
       });
-
-    while let Some(item) = out_stream.next().await {
-      if self.sink.send(item).await.is_err() {
-        break;
-      }
-    }
+    let output = GqlWebSocket::new(executor, input, protocol)
+      .connection_data(data)
+      .on_connection_init(on_connection_init)
+      .on_ping(on_ping)
+      .keepalive_timeout(keepalive_timeout)
+      .map(|message| {
+        Ok::<_, SinkT::Error>(match message {
+          WsMessage::Text(text) => Message::text(text),
+          WsMessage::Close(code, reason) => Message::Close(Some(CloseFrame {
+            code: CloseCode::new(code),
+            reason: reason.into(),
+          })),
+        })
+      });
+    let _ = output.forward(sink).await;
   }
 }

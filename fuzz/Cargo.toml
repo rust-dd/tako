@@ -16,7 +16,7 @@ http-body-util = "0.1"
 libfuzzer-sys = "0.4"
 serde = { version = "1", features = ["derive"] }
 smallvec = "1"
-tako-rs-core = { path = "../tako-rs-core", features = ["grpc", "plugins"] }
+tako-rs-core = { path = "../tako-rs-core", features = ["grpc", "plugins", "ws"] }
 tako-rs-extractors = { path = "../tako-rs-extractors", features = ["multipart"] }
 tako-rs-plugins = { path = "../tako-rs-plugins", features = ["plugins"] }
 tako-rs-server = { path = "../tako-rs-server", features = ["proxy-protocol"] }
@@ -105,6 +105,14 @@ bench = false
 [[bin]]
 name = "sse_encoder"
 path = "fuzz_targets/sse_encoder.rs"
+test = false
+doc = false
+bench = false
+
+
+[[bin]]
+name = "ws_frame"
+path = "fuzz_targets/ws_frame.rs"
 test = false
 doc = false
 bench = false

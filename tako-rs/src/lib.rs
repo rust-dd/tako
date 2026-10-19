@@ -104,36 +104,24 @@ pub use tako_rs_server::serve_h3_with_shutdown;
 #[allow(deprecated)]
 pub use tako_rs_server::serve_h3_with_shutdown_and_config;
 #[cfg(any(
-  all(
-    feature = "tls",
-    not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
-  ),
+  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))),
   feature = "compio-tls"
 ))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
 #[allow(deprecated)]
 pub use tako_rs_server::serve_tls;
-#[cfg(all(
-  feature = "tls",
-  not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
-))]
+#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 #[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_config;
 #[cfg(any(
-  all(
-    feature = "tls",
-    not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
-  ),
+  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))),
   feature = "compio-tls"
 ))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
 #[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_shutdown;
-#[cfg(all(
-  feature = "tls",
-  not(any(feature = "compio", feature = "compio-tls", feature = "compio-ws"))
-))]
+#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))))]
 #[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
 #[allow(deprecated)]
 pub use tako_rs_server::serve_tls_with_shutdown_and_config;
@@ -183,12 +171,9 @@ pub mod webtransport {
   #[cfg(not(feature = "compio"))]
   pub use tako_rs_streams::webtransport::*;
 }
-#[cfg(not(any(feature = "compio", feature = "compio-ws")))]
 #[cfg(feature = "ws")]
-pub use tako_rs_streams::ws;
-#[cfg(feature = "compio-ws")]
-#[cfg_attr(docsrs, doc(cfg(feature = "compio-ws")))]
-pub use tako_rs_streams::ws_compio;
+#[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
+pub use tako_rs_core::ws;
 
 /// Request data extraction utilities.
 pub mod extractors {

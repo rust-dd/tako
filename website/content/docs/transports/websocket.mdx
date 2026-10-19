@@ -1,61 +1,32 @@
 ---
 title: WebSocket
-description: Upgrade an HTTP request to a WebSocket inside a handler, then run the send/receive message loop on either runtime.
+description: Upgrade an HTTP request to a WebSocket inside a handler and run the message loop, on either runtime.
 category: transport
 since: 2.0.0
 status: stable
-crate: tako-rs-streams
+crate: tako-rs-core
 runtime: both
-features: [ws, compio-ws]
+features: [ws]
 ---
 
 # WebSocket
 
-WebSocket is not a separate listener — it lives inside an HTTP handler on
-an HTTP/1.1 listener, optionally over TLS. `TakoWs::new(req, fut)` performs the
-RFC-6455 server-side handshake and hands the upgraded stream to your closure.
-The handler owns the stream and drives the message loop.
-
-WebSocket is available on both runtimes: enable `ws` for Tokio
-(`tako::ws`), and behind the `compio-ws` feature for Compio (`tako::ws_compio`).
-
-## Tokio
-
-On Tokio, `TakoWs` returns a `tokio_tungstenite` `WebSocketStream`. It is a
-`Sink` + `Stream` of `Message`, so you use `SinkExt::send` and `StreamExt::next`.
+WebSocket is not a separate listener: it lives inside an HTTP handler on an
+HTTP/1.1 listener, optionally over TLS. `WebSocketUpgrade::new(req, handler)`
+answers the RFC 6455 handshake and runs `handler` on the upgraded connection.
+Enable the `ws` feature; together with `compio` the same API runs on Compio.
 
 ```rust
-use futures_util::SinkExt;
-use futures_util::StreamExt;
 use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;
-use tako::ws::TakoWs;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::Utf8Bytes;
+use tako::ws::WebSocketUpgrade;
 
 async fn ws_echo(req: Request) -> impl Responder {
-  TakoWs::new(req, |mut ws| async move {
-    let _ = ws.send(Message::Text("Welcome to Tako WS!".into())).await;
-
-    while let Some(Ok(msg)) = ws.next().await {
-      match msg {
-        Message::Text(txt) => {
-          let _ = ws
-            .send(Message::Text(Utf8Bytes::from(format!("Echo: {txt}"))))
-            .await;
-        }
-        Message::Binary(bin) => {
-          let _ = ws.send(Message::Binary(bin)).await;
-        }
-        Message::Ping(p) => {
-          let _ = ws.send(Message::Pong(p)).await;
-        }
-        Message::Close(_) => {
-          let _ = ws.send(Message::Close(None)).await;
-          break;
-        }
-        _ => {}
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    while let Some(Ok(message)) = ws.recv().await {
+      if (message.is_text() || message.is_binary()) && ws.send(message).await.is_err() {
+        break;
       }
     }
   })
@@ -72,49 +43,51 @@ async fn main() {
 }
 ```
 
-The handler is just another route — register it with `router.route` and serve
-it on an HTTP/1.1 transport. Because the closure returns a `Responder`, the upgrade
-response (`101 Switching Protocols`) is produced for you; the upgraded socket is
-driven on a spawned task once the handshake completes.
+The handler is an ordinary route. The `101 Switching Protocols` response is
+produced for you, and the connection runs on its own task once the handshake
+completes.
 
 <RustExample path="examples/websocket/src/main.rs" />
 
+## Messages
+
+`recv()` returns `Option<Result<Message, Error>>`, and `None` once the
+connection is closed. It is cancel-safe, so it can race other futures in
+`tokio::select!`. A `Message` is `Text`, `Binary`, `Ping`, `Pong` or `Close`.
+tako answers pings and the closing handshake itself, so a handler only handles
+the messages it cares about. Extensions such as permessage-deflate are not
+negotiated.
+
+## Sending and batching
+
+`send()` queues a message. Queued messages go out together, in one write, when
+the handler waits for anything (the next `recv()`, a timer, a channel), when
+more than `write_buffer_size` bytes are queued, or on `flush()`. An echo loop
+that receives 16 pipelined messages answers them with a single write. Called
+from another task, for example after `split()`, `send()` writes at once.
+
+`WebSocket` also implements `Stream` and `Sink`, so `split`, `forward` and the
+other combinators work. Through `Sink`, `poll_flush` always writes.
+
+When the handler returns and no `WebSocket` handle is left, tako closes the
+connection with code 1000. A handler that panics closes it with 1011.
+
 ## Compio
 
-On Compio, enable the `compio-ws` feature and use `TakoWsCompio`. The upgraded
-type is `CompioWebSocket<UpgradedStream>`, which exposes an explicit `read()`
-method rather than the `Stream` interface.
+With the `compio` and `ws` features the same code runs on Compio. `WebSocket` is
+then `!Send`, and the handler runs on the connection's thread.
 
 ```rust
-use compio::ws::tungstenite::Message;
 use tako::Method;
 use tako::responder::Responder;
 use tako::types::Request;
-use tako::ws_compio::CompioWebSocket;
-use tako::ws_compio::TakoWsCompio;
-use tako::ws_compio::UpgradedStream;
+use tako::ws::WebSocketUpgrade;
 
 async fn ws_echo(req: Request) -> impl Responder {
-  TakoWsCompio::new(req, |mut ws: CompioWebSocket<UpgradedStream>| async move {
-    let _ = ws.send(Message::Text("Welcome to Tako WS (compio)!".into())).await;
-
-    loop {
-      match ws.read().await {
-        Ok(Message::Text(txt)) => {
-          let _ = ws.send(Message::Text(format!("Echo: {txt}").into())).await;
-        }
-        Ok(Message::Binary(bin)) => {
-          let _ = ws.send(Message::Binary(bin)).await;
-        }
-        Ok(Message::Ping(p)) => {
-          let _ = ws.send(Message::Pong(p)).await;
-        }
-        Ok(Message::Close(_)) => {
-          let _ = ws.close(None).await;
-          break;
-        }
-        Ok(_) => {}
-        Err(_) => break,
+  WebSocketUpgrade::new(req, |mut ws| async move {
+    while let Some(Ok(message)) = ws.recv().await {
+      if (message.is_text() || message.is_binary()) && ws.send(message).await.is_err() {
+        break;
       }
     }
   })
@@ -135,25 +108,26 @@ async fn main() {
 
 ## Configuration
 
-On Tokio, `TakoWs` is a builder. Each option is a chained method before the
+`WebSocketUpgrade` is a builder. Each option is a chained method before the
 handler runs:
 
-| Method | Effect |
-|---|---|
-| `.protocols(list)` | Subprotocol allow-list; the first server-preferred match the client offers is echoed back. |
-| `.max_frame_size(n)` | Cap a single WebSocket frame, in bytes. |
-| `.max_message_size(n)` | Cap a reassembled message, in bytes. |
-| `.allowed_origins(list)` | Reject upgrades whose `Origin` is not on the list with `403`. |
-| `.upgrade_timeout(d)` | Drop the task if the client never completes the upgrade. |
-| `.max_lifetime(d)` | Hard cap on total conversation lifetime after upgrade. |
-| `.keep_alive(WsKeepAlive { .. })` | Deprecated; has no effect. Implement keep-alive in the handler. |
+| Method | Default | Effect |
+|---|---|---|
+| `.protocols(list)` | none | Subprotocol allow-list; the first server-preferred match the client offers is echoed back. |
+| `.allowed_origins(list)` | any origin | Reject upgrades whose `Origin` is not on the list with `403`. |
+| `.max_frame_size(n)` | 16 MiB | Largest frame payload; a larger frame closes the connection with 1009. |
+| `.max_message_size(n)` | 64 MiB | Largest reassembled message; a larger one closes the connection with 1009. |
+| `.read_buffer_size(n)` | 4 KiB | Initial capacity, from 1 byte to 64 KiB; the buffer grows with incoming frame data. |
+| `.write_buffer_size(n)` | 64 KiB | Queued bytes past which `send()` writes at once. |
+| `.upgrade_timeout(d)` | none | Give up if the server never hands over the upgraded connection. |
+| `.max_lifetime(d)` | none | Close with 1001 once the connection has been open this long. |
 
 ```rust
 use std::time::Duration;
-use tako::ws::TakoWs;
+use tako::ws::WebSocketUpgrade;
 
 # fn _doc(req: tako::types::Request) -> impl tako::responder::Responder {
-TakoWs::new(req, |ws| async move { /* ... */ })
+WebSocketUpgrade::new(req, |ws| async move { /* ... */ })
   .protocols(["chat", "superchat"])
   .max_message_size(1 << 20)
   .allowed_origins(["https://app.example.com"])
@@ -162,20 +136,20 @@ TakoWs::new(req, |ws| async move { /* ... */ })
 # }
 ```
 
-The handler owns the socket and must implement ping intervals and pong deadlines.
-`max_lifetime` caps total conversation lifetime; it does not detect idle peers.
+Pings are answered while the handler reads. To detect idle peers, send your own
+pings from the handler; `max_lifetime` caps the total lifetime and does not
+detect idle peers.
 
-## TLS and HTTP/2 listeners
+## TLS listeners
 
-The `examples/websocket-http2` TLS listener supports HTTP/2 for ordinary HTTP
-requests. WebSocket upgrades on that listener still negotiate HTTP/1.1.
-HTTP/2 Extended CONNECT is not supported. Invalid upgrade methods return 405,
-unsupported WebSocket versions return 426 with `Sec-WebSocket-Version: 13`,
-and malformed handshake headers or keys return 400.
+`examples/websocket-tls` serves wss on a TLS listener. Upgrades negotiate
+HTTP/1.1; HTTP/2 Extended CONNECT (RFC 8441) is not supported. Invalid upgrade
+methods return 405, unsupported WebSocket versions return 426 with
+`Sec-WebSocket-Version: 13`, and malformed handshake headers or keys return 400.
 
 ## Related
 
 - [Routing](/docs/routing) — registering the upgrade handler as a route.
 - [HTTP](/docs/transports/http) — the listeners WebSocket rides on.
 - [Streams](/docs/streams) — SSE and other streaming responses.
-- [Feature flags](/docs/reference/features) — the `compio-ws` feature.
+- [Feature flags](/docs/reference/features) — the `ws` feature.
