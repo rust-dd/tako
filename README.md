@@ -24,7 +24,7 @@ Add these dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "2.4"
+tako-rs = "2.5"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
@@ -76,9 +76,11 @@ and integrations through [Cargo features](https://tako.rust-dd.com/docs/referenc
 See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
 for transport support on Tokio and Compio.
 
-Upgrading? 2.4 needs no code changes; its
-[migration guide](https://tako.rust-dd.com/docs/reference/migration-2-4) covers
-the core pinning default, the header deadline, and extractor entries. The
+Upgrading? 2.5 changes the WebSocket API, removes deprecated APIs, and wraps
+the raw multipart stream to enforce upload limits. Follow the
+[2.5 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-5).
+The [2.4 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-4)
+covers core pinning, the header deadline, and extractor entries. The
 [2.3 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-3)
 covers the removed HTTP client, WebTransport, and gRPC changes, the
 [2.2 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-2) the per-thread

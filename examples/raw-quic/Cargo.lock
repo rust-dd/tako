@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "linkme",
  "tako-rs-core",
@@ -2276,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-core"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-extractors"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2330,7 +2330,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-macros"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-plugins"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2367,7 +2367,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-server"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2393,7 +2393,7 @@ dependencies = [
 
 [[package]]
 name = "tako-rs-streams"
-version = "2.4.2"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "bytes",
