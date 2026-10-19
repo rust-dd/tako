@@ -1,9 +1,5 @@
-//! Signed cookie extraction and management for HTTP requests.
-//!
-//! This module provides the [`CookieSigned`](crate::cookie_signed::CookieSigned) extractor that manages HMAC-signed cookies
-//! using a master key. Signed cookies use HMAC (Hash-based Message Authentication Code)
-//! to ensure that cookie values haven't been tampered with, while keeping the content
-//! readable. This provides integrity protection without confidentiality.
+//! HMAC-signed cookies: clients can read them, but tampering is detected. The extractor takes
+//! a [`KeyRing`], or else a `cookie::Key`, from the request extensions.
 //!
 //! # Examples
 //!
@@ -11,7 +7,7 @@
 //! use tako::extractors::cookie_signed::CookieSigned;
 //! use cookie::{Cookie, Key};
 //!
-//! async fn handle_signed_cookies(mut signed: CookieSigned) {
+//! async fn handle_signed_cookies(mut signed: CookieSigned) -> CookieSigned {
 //!     // Add a signed cookie
 //!     signed.add(Cookie::new("user_id", "12345"));
 //!
@@ -21,9 +17,10 @@
 //!     }
 //!
 //!     // Check if a cookie exists and has valid signature
-//!     if signed.verify("session_token") {
+//!     if signed.contains("session_token") {
 //!         println!("Valid session found");
 //!     }
+//!     signed
 //! }
 //! ```
 

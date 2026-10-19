@@ -1,9 +1,5 @@
-//! Request ID middleware for tracing and correlation.
-//!
-//! Generates or propagates a unique request identifier via the `X-Request-ID` header.
-//! If the incoming request already has the header, it is preserved; otherwise a new
-//! UUID v4 is generated. The ID is injected into both request extensions and
-//! the response header.
+//! Propagates the inbound request id or generates one, exposing it as a [`RequestIdValue`]
+//! extension and echoing it in the response header.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -20,8 +16,6 @@ use tako_rs_core::types::Response;
 #[derive(Debug, Clone)]
 pub struct RequestIdValue(pub String);
 
-/// Request ID middleware configuration.
-///
 /// # Examples
 ///
 /// ```rust
@@ -46,7 +40,7 @@ impl Default for RequestId {
 }
 
 impl RequestId {
-  /// Creates a new `RequestId` middleware with default settings (X-Request-ID, UUID v4).
+  /// Uses the `X-Request-ID` header and UUID v4 ids.
   pub fn new() -> Self {
     Self {
       header: HeaderName::from_static("x-request-id"),
@@ -54,13 +48,13 @@ impl RequestId {
     }
   }
 
-  /// Sets a custom header name for the request ID.
+  /// Panics if `name` is not a valid header name.
   pub fn header_name(mut self, name: &'static str) -> Self {
     self.header = HeaderName::from_bytes(name.as_bytes()).expect("valid request ID header name");
     self
   }
 
-  /// Sets a custom ID generator function.
+  /// Generated ids that are not valid header values are not echoed in the response.
   pub fn generator(mut self, f: impl Fn() -> String + Send + Sync + 'static) -> Self {
     self.generator = Arc::new(f);
     self
@@ -83,13 +77,7 @@ impl IntoMiddleware for RequestId {
       let generator = generator.clone();
 
       Box::pin(async move {
-        // Use existing request ID or generate a new one. Cap the inbound
-        // header to 256 bytes — without a limit a peer can pin an
-        // arbitrarily large `String` into the request extensions and the
-        // response headers, which both flows downstream (log lines, tracing
-        // spans, response header allocator). 256 matches the X-Request-ID
-        // hygiene most CDNs already enforce and is plenty for ULIDs, UUIDs,
-        // and traceparent fragments.
+        // The common CDN cap; keeps peers from pinning large ids into logs and headers.
         const MAX_INBOUND_LEN: usize = 256;
         let id = req
           .headers()
@@ -98,12 +86,10 @@ impl IntoMiddleware for RequestId {
           .filter(|s| !s.is_empty() && s.len() <= MAX_INBOUND_LEN)
           .map_or_else(|| generator(), std::string::ToString::to_string);
 
-        // Inject into request extensions for handler access
         req.extensions_mut().insert(RequestIdValue(id.clone()));
 
         let mut resp = next.run(req).await;
 
-        // Add to response headers
         if let Ok(val) = HeaderValue::from_str(&id) {
           resp.headers_mut().insert(header, val);
         }

@@ -1,14 +1,5 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-//! HTTP response compression plugin supporting multiple algorithms and streaming.
-//!
-//! This module provides comprehensive HTTP response compression functionality for Tako
-//! applications. It supports multiple compression algorithms including Gzip, Brotli, DEFLATE,
-//! and optionally Zstandard, with configurable compression levels and streaming capabilities.
-//! The plugin automatically negotiates compression based on client Accept-Encoding headers
-//! and applies compression selectively based on content type, response size, and status code.
-//!
-//! The compression plugin can be applied at both router-level (all routes) and route-level
-//! (specific routes), allowing different compression settings for different endpoints.
+//! Response compression negotiated from `Accept-Encoding` (Brotli, Gzip, DEFLATE and, with the
+//! `zstd` feature, Zstandard), skipped by content type, size and status.
 //!
 //! # Examples
 //!
@@ -67,4 +58,3 @@ pub use config::Config;
 pub use config::ContentTypePolicy;
 pub use encoding::Encoding;
 pub use plugin::CompressionPlugin;
-pub use plugin::CompressionResponse;

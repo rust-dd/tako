@@ -1,10 +1,4 @@
-//! Bearer token authentication extraction from Authorization headers.
-//!
-//! This module provides extractors for parsing HTTP Bearer token authentication
-//! as defined in RFC 6750. It extracts and validates the Authorization header with
-//! Bearer scheme, providing structured access to the token value. This is commonly
-//! used for API authentication with JWT tokens, OAuth access tokens, or custom
-//! authentication schemes that use bearer tokens.
+//! Bearer tokens (RFC 6750) from the `Authorization` header; the token is not validated.
 //!
 //! # Examples
 //!
@@ -44,32 +38,20 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Bearer token authentication credentials extracted from Authorization header.
-///
-/// Represents the Bearer token extracted from an HTTP Authorization header. The token
-/// is extracted without the "Bearer " prefix for easy use in authentication logic.
-/// The original header value is preserved for logging or advanced use cases where
-/// the complete Authorization header is needed.
+/// A bearer token; `token` excludes the `Bearer ` prefix, `with_bearer` is the whole value.
 pub struct Bearer {
-  /// Token value extracted from Bearer auth header (without "Bearer " prefix).
   pub token: String,
-  /// Complete Bearer token string as received ("Bearer " + token).
   pub with_bearer: String,
 }
 
-/// Error types for Bearer token authentication extraction and validation.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries.
+/// Rejection of [`Bearer`]; every variant responds 401.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BearerAuthError {
-  /// Authorization header is missing from the request.
   MissingAuthHeader,
-  /// Authorization header contains invalid UTF-8 or cannot be parsed.
+  /// The header value is not visible ASCII.
   InvalidAuthHeader,
-  /// Authorization header does not use Bearer authentication scheme.
+  /// The value does not start with a case-insensitive `Bearer ` scheme.
   InvalidBearerFormat,
-  /// Bearer token is present but empty.
   EmptyToken,
 }
 
@@ -87,7 +69,6 @@ impl std::fmt::Display for BearerAuthError {
 impl std::error::Error for BearerAuthError {}
 
 impl Responder for BearerAuthError {
-  /// Converts Bearer authentication errors into appropriate HTTP responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     let (status, message) = match self {
       BearerAuthError::MissingAuthHeader => {
@@ -107,7 +88,6 @@ impl Responder for BearerAuthError {
 }
 
 impl Bearer {
-  /// Parses Bearer token from HTTP headers.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BearerAuthError> {
     let auth_header = headers
       .get("Authorization")
@@ -117,7 +97,10 @@ impl Bearer {
       .to_str()
       .map_err(|_| BearerAuthError::InvalidAuthHeader)?;
 
-    if !auth_str.starts_with("Bearer ") {
+    if !auth_str
+      .get(..7)
+      .is_some_and(|prefix| prefix.eq_ignore_ascii_case("Bearer "))
+    {
       return Err(BearerAuthError::InvalidBearerFormat);
     }
 

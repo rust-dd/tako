@@ -1,16 +1,10 @@
-//! gRPC status codes, the trailer `GrpcStatus` payload, and error-response
-//! construction shared across the unary and streaming responders.
-
 use http::HeaderMap;
-use http::StatusCode;
 
 use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// gRPC status codes.
-///
-/// See <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>
+/// gRPC status codes, see <https://grpc.github.io/grpc/core/md_doc_statuscodes.html>.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum GrpcStatusCode {
@@ -43,14 +37,8 @@ impl GrpcStatusCode {
   }
 }
 
-/// Percent-encode a gRPC `Status-Message` per PROTOCOL-HTTP2.md.
-///
-/// The spec preserves visible ASCII (`0x20..=0x7E`) except `%`, and
-/// percent-encodes every other byte as `%XX` (upper-case hex). Without
-/// this any non-ASCII character (emoji, accents, Latin-1 upstream error
-/// strings) makes `HeaderValue::from_str` fail and the surrounding
-/// `if let Ok(...)` silently drops the entire `grpc-message` — the
-/// caller would see only `grpc-status` with no human-readable detail.
+/// Percent-encodes `%` and every byte outside visible ASCII, as PROTOCOL-HTTP2 requires; a
+/// raw non-ASCII byte would fail `HeaderValue` and drop the whole `grpc-message`.
 fn percent_encode_grpc_message(s: &str) -> String {
   let mut out = String::with_capacity(s.len());
   for &b in s.as_bytes() {
@@ -76,7 +64,6 @@ fn hex_upper(n: u8) -> char {
 
 pub(crate) fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -> Response {
   let mut resp = Response::new(TakoBody::empty());
-  *resp.status_mut() = StatusCode::OK; // gRPC always uses 200 OK at HTTP level
   resp.headers_mut().insert(
     http::header::CONTENT_TYPE,
     http::HeaderValue::from_static("application/grpc"),
@@ -92,7 +79,7 @@ pub(crate) fn build_grpc_error_response(status: GrpcStatusCode, message: &str) -
   resp
 }
 
-/// gRPC status payload (status code + optional message) used in trailers.
+/// A `grpc-status` code and optional `grpc-message`, sent as trailers.
 #[derive(Debug, Clone)]
 pub struct GrpcStatus {
   pub code: GrpcStatusCode,
@@ -130,8 +117,7 @@ impl GrpcStatus {
   }
 }
 
-/// Ends the call before any message with a trailers-only response, e.g. when
-/// a handler returns `Result<GrpcServerStream<..>, GrpcStatus>`.
+/// Ends the call before any message, e.g. from `Result<GrpcServerStream<..>, GrpcStatus>`.
 impl Responder for GrpcStatus {
   fn into_response(self) -> Response {
     build_grpc_error_response(self.code, self.message.as_deref().unwrap_or(""))

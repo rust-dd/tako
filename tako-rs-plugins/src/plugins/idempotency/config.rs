@@ -1,5 +1,3 @@
-//! Idempotency cache policy, matching configuration, and the builder.
-
 use http::HeaderName;
 use http::Method;
 
@@ -14,10 +12,9 @@ pub enum Scope {
   MethodAndPath,
 }
 
-/// Cache policy and matching configuration.
 #[derive(Clone)]
 pub struct Config {
-  /// Header that carries the idempotency key.
+  /// Default: `Idempotency-Key`.
   pub header: HeaderName,
   /// Methods to protect. Default: `[POST]`.
   pub methods: Vec<Method>,
@@ -31,9 +28,9 @@ pub struct Config {
   pub inflight_wait_timeout_ms: Option<u64>,
   /// Maximum response body size to cache (bytes). Default: 1 MiB.
   pub max_cached_body_bytes: usize,
-  /// Maximum request body size to hash (bytes). Requests exceeding this are rejected with 413.
+  /// Maximum request body size to hash (bytes); larger requests get 413. Default: 1 MiB.
   pub max_request_body_bytes: usize,
-  /// If true, enforce identical payload for the same key; otherwise only the key is checked.
+  /// Reusing a key with another payload gets 409; otherwise only the key is compared.
   pub verify_payload: bool,
   /// If true, also cache non-success statuses. Default: true.
   pub cache_error_statuses: bool,
@@ -56,7 +53,6 @@ impl Default for Config {
   }
 }
 
-/// Builder for the idempotency plugin.
 pub struct IdempotencyBuilder(
   Config,
   Option<std::sync::Arc<dyn crate::stores::IdempotencyStore>>,
@@ -69,7 +65,6 @@ impl Default for IdempotencyBuilder {
 }
 
 impl IdempotencyBuilder {
-  /// Start with sensible defaults.
   pub fn new() -> Self {
     Self(Config::default(), None)
   }

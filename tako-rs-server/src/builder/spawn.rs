@@ -3,8 +3,7 @@ use std::time::Duration;
 
 use super::handle::ServerHandle;
 
-/// ALPN list used by TCP-based TLS spawn paths. Mirrors the per-feature
-/// negotiation already done in `server_tls{,_compio}::run`.
+/// ALPN list of the TCP TLS spawn methods, matching `server_tls{,_compio}::run`.
 #[cfg(any(feature = "compio-tls", all(feature = "tls", not(feature = "compio"))))]
 #[inline]
 pub(crate) fn tls_alpn_for_tcp() -> Vec<Vec<u8>> {

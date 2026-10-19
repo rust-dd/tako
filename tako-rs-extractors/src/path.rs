@@ -1,8 +1,4 @@
-//! Path extraction from HTTP requests.
-//!
-//! This module provides the [`Path`](crate::path::Path) extractor for accessing the URI path from
-//! incoming HTTP requests. It wraps an owned URI path string, allowing
-//! efficient access to the request path independently of the request lifetime.
+//! Typed path parameters ([`Path`]) and the raw URI path ([`RawPath`]).
 //!
 //! # Examples
 //!
@@ -35,10 +31,7 @@ use tako_rs_core::extractors::params::Params;
 use tako_rs_core::extractors::params::ParamsError;
 use tako_rs_core::types::Request;
 
-/// Owned URI-path extractor.
-///
-/// Returns the request path verbatim — no captures, no decoding. For typed
-/// path parameters use [`Path<T>`] (axum parity, generic over `T`).
+/// The request path verbatim, without percent-decoding.
 ///
 /// # Examples
 ///
@@ -78,15 +71,8 @@ impl<'a> FromRequestParts<'a> for RawPath {
   }
 }
 
-/// Typed path-parameter extractor (axum parity).
-///
-/// `T` may be a single primitive (`Path<u64>`), a tuple (`Path<(u64, String)>`),
-/// a `Vec<T>` for repeated captures, an `Option<T>` (`None` when no captures
-/// matched), or a struct deriving `serde::Deserialize`.
-///
-/// Internally delegates to the path-params deserializer in `tako-core`, which
-/// has been extended in v2 to support tuples, sequences, and primitive
-/// destructuring on top of the original struct/map mode.
+/// Path parameters as `T`: a primitive, a tuple, a `Vec`, an `Option` (`None` without
+/// captures), or a `Deserialize` struct.
 ///
 /// # Examples
 ///

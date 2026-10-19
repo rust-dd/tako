@@ -1,15 +1,5 @@
-//! `application/problem+json` error normalizer middleware.
-//!
-//! Wraps the response so 4xx and 5xx replies that lack a JSON body are
-//! rewritten into RFC 7807 / RFC 9457 problem documents. Handlers that
-//! already produced a structured JSON error stay authoritative — the
-//! `Content-Type` of the original response is the trigger.
-//!
-//! Sister to [`Router::use_problem_json`](tako_rs_core::router::Router::use_problem_json)
-//! / [`tako::problem::default_problem_responder`](tako_rs_core::problem::default_problem_responder).
-//! The router hook fires only when the response originated from the framework
-//! itself (e.g. 404, 405, default error handler), whereas this middleware
-//! converts any 4xx/5xx that bubbles up from handler code.
+//! Rewrites handlers' non-JSON 4xx/5xx responses into RFC 9457 problem documents; the router's
+//! [`use_problem_json`](tako_rs_core::router::Router::use_problem_json) covers only its own.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -20,11 +10,8 @@ use tako_rs_core::problem::default_problem_responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Middleware that rewrites non-JSON 4xx/5xx responses into `problem+json`.
 pub struct ProblemJson {
-  /// Convert 4xx responses (default true).
   client_errors: bool,
-  /// Convert 5xx responses (default true).
   server_errors: bool,
 }
 
@@ -35,7 +22,7 @@ impl Default for ProblemJson {
 }
 
 impl ProblemJson {
-  /// Creates the middleware with both 4xx and 5xx conversion enabled.
+  /// Converts both 4xx and 5xx responses.
   pub fn new() -> Self {
     Self {
       client_errors: true,
@@ -43,13 +30,11 @@ impl ProblemJson {
     }
   }
 
-  /// Toggles 4xx → problem+json conversion.
   pub fn client_errors(mut self, on: bool) -> Self {
     self.client_errors = on;
     self
   }
 
-  /// Toggles 5xx → problem+json conversion.
   pub fn server_errors(mut self, on: bool) -> Self {
     self.server_errors = on;
     self

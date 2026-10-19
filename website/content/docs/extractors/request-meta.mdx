@@ -37,8 +37,7 @@ async fn search(Query(query): Query<SearchQuery>) -> String {
 }
 ```
 
-`QueryError` distinguishes `MissingQueryString`, `ParseError`, and
-`DeserializationError`. A request without a query string reads as an empty
+`QueryError` distinguishes `MissingQueryString` and `DeserializationError`. A request without a query string reads as an empty
 one, so a struct whose fields are all `Option` still extracts;
 `MissingQueryString` is returned when it needs a field. For query strings with repeated keys (`?tag=a&tag=b`)
 reach for `QueryMulti<T>`.
@@ -197,9 +196,9 @@ async fn whoami(ip: IpAddr) -> String {
 }
 ```
 
-To honor forwarded headers behind a known proxy, set an `IpAddrConfig`
-with `trusted_proxies` listing your load-balancer fleet via
-`tako_rs_core::state::set_state`. Only when the direct peer is in that
+To honor forwarded headers behind a known proxy, store an `IpAddrConfig`
+with `trusted_proxies` listing your load-balancer fleet in the router's
+state with `Router::with_state`. Only when the direct peer is in that
 list are headers consulted, in priority order (`Forwarded`,
 `X-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, `CF-Connecting-IP`,
 `True-Client-IP`).

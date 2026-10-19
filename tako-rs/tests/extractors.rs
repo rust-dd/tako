@@ -88,7 +88,6 @@ async fn json_invalid_body() {
   let result = Json::<TestUser>::from_request(&mut req).await;
   match result {
     Err(JsonError::DeserializationError(_)) => {
-      // also check that DeserializationError produces 400
       let resp = JsonError::DeserializationError("test".into()).into_response();
       assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
@@ -165,11 +164,6 @@ async fn query_missing_required_field() {
 
   let result = Query::<SearchQuery>::from_request(&mut req).await;
   match result {
-    // Pre-M31: a URI with no query string used to round-trip an empty `""`
-    // into `serde_urlencoded::from_str`, which surfaced as
-    // `DeserializationError`. After M31 the absence of a query string is
-    // reported explicitly as `MissingQueryString` so the caller can
-    // distinguish "no query supplied" from "query failed to parse".
     Err(QueryError::MissingQueryString) => {
       let resp = QueryError::MissingQueryString.into_response();
       assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -349,4 +343,95 @@ async fn accept_quality_ordering() {
   assert_eq!(accept.preferred(), Some("application/json"));
   let types = accept.types();
   assert_eq!(types, vec!["application/json", "text/html"]);
+}
+
+#[cfg(feature = "multipart")]
+#[tokio::test]
+async fn buffered_uploads_spill_with_a_router_state_threshold() {
+  use tako::extractors::multipart::BufferedUploadedFile;
+  use tako::extractors::multipart::MultipartConfig;
+  use tako::extractors::multipart::TakoTypedMultipart;
+  use tako::router::Router;
+  use tako::types::Request;
+
+  #[derive(Deserialize)]
+  struct Upload {
+    file: serde_json::Value,
+  }
+
+  async fn upload(mut req: Request) -> tako::types::Response {
+    match TakoTypedMultipart::<Upload, BufferedUploadedFile>::from_request(&mut req).await {
+      Ok(TakoTypedMultipart { data, .. }) => data.file.to_string().into_response(),
+      Err(error) => error.into_response(),
+    }
+  }
+
+  let mut router = Router::new();
+  router.with_state(MultipartConfig::new().disk_spill_threshold(1024));
+  router.post("/upload", upload);
+  let body = format!(
+    "--X\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.bin\"\r\n\r\n{}\r\n--X--\r\n",
+    "x".repeat(4096)
+  );
+  let request = http::Request::builder()
+    .method(Method::POST)
+    .uri("/upload")
+    .header("content-type", "multipart/form-data; boundary=X")
+    .body(TakoBody::from(body))
+    .unwrap();
+  let response = router.dispatch(request).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let file = body_str(response).await;
+  assert!(
+    file.contains("\"path\""),
+    "the file stayed in memory: {}",
+    &file[..80.min(file.len())]
+  );
+}
+
+#[cfg(feature = "multipart")]
+#[tokio::test]
+async fn multipart_config_from_router_state_is_honoured() {
+  use tako::extractors::multipart::InMemoryFile;
+  use tako::extractors::multipart::MultipartConfig;
+  use tako::extractors::multipart::TakoTypedMultipart;
+  use tako::router::Router;
+  use tako::types::Request;
+
+  #[derive(Deserialize)]
+  struct Fields {
+    a: String,
+    b: String,
+  }
+
+  async fn upload(mut req: Request) -> tako::types::Response {
+    match TakoTypedMultipart::<Fields, InMemoryFile>::from_request(&mut req).await {
+      Ok(TakoTypedMultipart { data, .. }) => format!("{}{}", data.a, data.b).into_response(),
+      Err(error) => error.into_response(),
+    }
+  }
+
+  fn request() -> Request {
+    http::Request::builder()
+      .method(Method::POST)
+      .uri("/upload")
+      .header("content-type", "multipart/form-data; boundary=X")
+      .body(TakoBody::from(
+        "--X\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n\
+         --X\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\n2\r\n--X--\r\n",
+      ))
+      .unwrap()
+  }
+
+  let mut unlimited = Router::new();
+  unlimited.post("/upload", upload);
+  let response = unlimited.dispatch(request()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(body_str(response).await, "12");
+
+  let mut limited = Router::new();
+  limited.with_state(MultipartConfig::new().max_parts(1));
+  limited.post("/upload", upload);
+  let response = limited.dispatch(request()).await;
+  assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }

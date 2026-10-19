@@ -1,45 +1,4 @@
-//! Proc macros for the tako-rs framework.
-//!
-//! Provides [`route`], an attribute macro placed directly above an async
-//! handler function. Given an HTTP method and a path with `{name: Type}`
-//! placeholders, it generates a sibling `pub struct` whose fields exactly
-//! mirror the placeholders, plus:
-//!
-//! - `pub const METHOD: tako::Method` and `pub const PATH: &'static str`
-//! - an `impl TypedParamsStruct` that pulls each field from the request's
-//!   `PathParams` extension and parses it via [`core::str::FromStr`]
-//!
-//! The struct name is auto-derived from the handler function's name
-//! (`snake_case` → `PascalCase` + `Params`). For example, `get_user` produces
-//! `GetUserParams`. Override the default with `name = "..."` if you need a
-//! different identifier.
-//!
-//! Method-specific shortcuts ([`get`], [`post`], [`put`], [`delete`],
-//! [`patch`]) take only the path and an optional `name = "..."`.
-//!
-//! Usage:
-//!
-//! ```ignore
-//! use tako::{get, route};
-//! use tako::extractors::typed_params::TypedParams;
-//! use tako::responder::Responder;
-//!
-//! #[route(GET, "/users/{id: u64}/posts/{post_id: u64}")]
-//! async fn get_user(TypedParams(p): TypedParams<GetUserParams>) -> impl Responder {
-//!     format!("user {} post {}", p.id, p.post_id)
-//! }
-//!
-//! #[get("/health")]
-//! async fn health() -> impl Responder { "ok" }
-//!
-//! // …in build_router:
-//! // router.route(GetUserParams::METHOD, GetUserParams::PATH, get_user);
-//! // router.route(HealthParams::METHOD, HealthParams::PATH, health);
-//! ```
-//!
-//! The macro must be attached to a free async fn at module scope — Rust
-//! scopes structs declared inside fn bodies to that fn, so the generated
-//! type wouldn't be reachable from the handler signature otherwise.
+//! The `#[route]` attribute and its method shortcuts, re-exported by `tako`.
 
 mod expand;
 mod parse;
@@ -52,6 +11,26 @@ use crate::expand::expand_route;
 use crate::expand::shortcut;
 use crate::parse::RouteArgs;
 
+/// Registers the handler for `Router::mount_all`; typed placeholders such as `{id: u64}` also
+/// generate a `TypedParams` struct named `<Handler>Params` unless `name = "..."` overrides it.
+///
+/// ```ignore
+/// use tako::{get, route};
+/// use tako::extractors::typed_params::TypedParams;
+/// use tako::responder::Responder;
+///
+/// #[route(GET, "/users/{id: u64}/posts/{post_id: u64}")]
+/// async fn get_user(TypedParams(p): TypedParams<GetUserParams>) -> impl Responder {
+///     format!("user {} post {}", p.id, p.post_id)
+/// }
+///
+/// #[get("/health")]
+/// async fn health() -> impl Responder { "ok" }
+///
+/// // …in build_router, one route at a time or every attribute route at once:
+/// // router.route(GetUserParams::METHOD, GetUserParams::PATH, get_user);
+/// // router.mount_all();
+/// ```
 #[proc_macro_attribute]
 pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
   let RouteArgs {
@@ -93,13 +72,13 @@ pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
   shortcut("PATCH", attr, item)
 }
 
-/// `#[head("/path")]` is shorthand for `#[route(HEAD, ...)]`.
+/// `#[head("/path", [name = "Foo"])]` — shorthand for `#[route(HEAD, ...)]`.
 #[proc_macro_attribute]
 pub fn head(attr: TokenStream, item: TokenStream) -> TokenStream {
   shortcut("HEAD", attr, item)
 }
 
-/// `#[options("/path")]` is shorthand for `#[route(OPTIONS, ...)]`.
+/// `#[options("/path", [name = "Foo"])]` — shorthand for `#[route(OPTIONS, ...)]`.
 #[proc_macro_attribute]
 pub fn options(attr: TokenStream, item: TokenStream) -> TokenStream {
   shortcut("OPTIONS", attr, item)

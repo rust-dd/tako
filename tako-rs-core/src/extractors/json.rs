@@ -1,10 +1,4 @@
-//! JSON request body extraction and deserialization for API endpoints.
-//!
-//! This module provides extractors for parsing JSON request bodies into strongly-typed Rust
-//! structures using serde. It validates Content-Type headers, reads request bodies efficiently,
-//! and provides detailed error information for malformed JSON or incorrect content types.
-//! The extractor integrates seamlessly with serde's derive macros for automatic JSON
-//! deserialization of complex data structures.
+//! The [`Json`] body extractor and responder.
 //!
 //! # Examples
 //!
@@ -45,30 +39,16 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::body::TakoBody;
+use crate::extractors::Entries;
 use crate::extractors::FromRequest;
 use crate::extractors::body::collect_body;
+use crate::extractors::is_json_content_type;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Controls when the SIMD JSON parser is used for `Json<T>` extraction.
-///
-/// When the `simd` feature is enabled, `Json<T>` can automatically dispatch to
-/// `sonic_rs` for large payloads. This enum lets you override that behavior
-/// per-route via [`Route::simd_json`](crate::route::Route::simd_json).
-///
-/// If no config is set on a route, the default is `Threshold(2 MB)`.
-///
-/// # Security
-///
-/// `sonic_rs` is an unsafe-SIMD-heavy JSON parser. Past releases have had
-/// bugs around malformed UTF-8 / very long numbers / pathological structures
-/// that under certain inputs could be amplified into CPU spikes or panic.
-/// For routes that take untrusted JSON from the open internet, prefer
-/// `SimdJsonMode::Never` (or pair the route with
-/// `tako::extractors::content_length_limit::ContentLengthLimit` to bound the input first). The
-/// default `Threshold(2 MB)` keeps small inputs on the `serde_json` path
-/// where the attack surface is smaller.
+/// When `Json<T>` parses with `sonic-rs` (feature `simd-sonic`), set per route by
+/// [`Route::simd_json`](crate::route::Route::simd_json); prefer `Never` for untrusted input.
 ///
 /// # Examples
 ///
@@ -93,34 +73,26 @@ pub enum SimdJsonMode {
   Always,
   /// Never use the SIMD JSON parser — always fall back to `serde_json`.
   Never,
-  /// Use the SIMD JSON parser only when the payload exceeds this many bytes.
-  ///
-  /// This is the default behavior with a threshold of 2 MB (2,097,152 bytes).
+  /// Use the SIMD parser for bodies of at least this many bytes; the default is 2 MiB.
   Threshold(usize),
 }
 
 impl Default for SimdJsonMode {
   fn default() -> Self {
-    Self::Threshold(2 * 1024 * 1024) // 2 MB
+    Self::Threshold(2 * 1024 * 1024)
   }
 }
 
-/// JSON request body extractor with automatic deserialization.
+/// Deserializes a JSON request body, or serializes `T` as a JSON response.
 #[doc(alias = "json")]
 pub struct Json<T>(pub T);
 
-/// Error types for JSON extraction and deserialization.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries and provides detailed error messages for
-/// debugging JSON parsing issues.
+/// Why [`Json`] extraction failed; answered with 400, or 413 for an oversized body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JsonError {
   /// Content-Type header is not application/json or compatible JSON type.
   InvalidContentType,
-  /// Content-Type header is missing from the request.
-  MissingContentType,
-  /// Failed to read the request body (network error, timeout, etc.).
+  /// The body could not be buffered, for example because it exceeds the limit.
   BodyReadError(crate::extractors::body::BodyReadError),
   /// JSON deserialization failed (syntax error, type mismatch, etc.).
   DeserializationError(String),
@@ -132,7 +104,6 @@ impl std::fmt::Display for JsonError {
       Self::InvalidContentType => {
         write!(f, "invalid content type; expected application/json")
       }
-      Self::MissingContentType => write!(f, "missing content type header"),
       Self::BodyReadError(err) => write!(f, "failed to read request body: {err}"),
       Self::DeserializationError(err) => write!(f, "failed to deserialize JSON: {err}"),
     }
@@ -142,7 +113,6 @@ impl std::fmt::Display for JsonError {
 impl std::error::Error for JsonError {}
 
 impl Responder for JsonError {
-  /// Converts JSON extraction errors into appropriate HTTP error responses.
   fn into_response(self) -> crate::types::Response {
     match self {
       JsonError::InvalidContentType => (
@@ -150,9 +120,6 @@ impl Responder for JsonError {
         "Invalid content type; expected application/json",
       )
         .into_response(),
-      JsonError::MissingContentType => {
-        (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
-      }
       JsonError::BodyReadError(err) => {
         (err.status(), format!("Failed to read request body: {err}")).into_response()
       }
@@ -165,9 +132,6 @@ impl Responder for JsonError {
   }
 }
 
-use crate::extractors::Entries;
-use crate::extractors::is_json_content_type;
-
 impl<'a, T> FromRequest<'a> for Json<T>
 where
   T: DeserializeOwned + Send + 'static,
@@ -175,24 +139,15 @@ where
   type Error = JsonError;
   const ENTRIES: Entries = Entries::BODY_LIMIT.union(Entries::SIMD_JSON);
 
-  /// Extracts and deserializes JSON data from the HTTP request body.
-  ///
-  /// # Errors
-  ///
-  /// Returns [`JsonError`] if:
-  /// - The Content-Type header is missing or not `application/json`.
-  /// - The request body cannot be read.
-  /// - The JSON cannot be deserialized into the target type.
+  /// Requires a JSON `Content-Type` and a non-empty body.
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Validate Content-Type header for JSON compatibility
       if !is_json_content_type(req.headers()) {
         return Err(JsonError::InvalidContentType);
       }
 
-      // Read the complete request body into memory
       let body_bytes = collect_body(req).await.map_err(JsonError::BodyReadError)?;
 
       if body_bytes.is_empty() {
@@ -201,9 +156,6 @@ where
         ));
       }
 
-      // Deserialize JSON — use the `sonic-rs` SIMD parser when its sub-feature
-      // is enabled, respecting per-route `SimdJsonMode` configuration. Without
-      // `simd-sonic` (and therefore without `simd`), fall back to `serde_json`.
       #[cfg(feature = "simd-sonic")]
       let data = {
         let mode = req

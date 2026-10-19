@@ -1,11 +1,4 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "protobuf")))]
-//! Protobuf request body extraction and deserialization for API endpoints.
-//!
-//! This module provides extractors for parsing Protocol Buffer request bodies into strongly-typed
-//! Rust structures using prost. It validates Content-Type headers, reads request bodies efficiently,
-//! and provides detailed error information for malformed protobuf data or incorrect content types.
-//! The extractor integrates seamlessly with prost-generated message types for automatic protobuf
-//! deserialization of complex data structures.
+//! Protocol Buffers bodies decoded with `prost`.
 //!
 //! # Examples
 //!
@@ -43,25 +36,21 @@ use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Protobuf request body extractor with automatic deserialization.
+/// A message decoded from an `application/x-protobuf` or `application/protobuf` body; the
+/// route's body limit applies.
 #[doc(alias = "protobuf")]
 pub struct Protobuf<T>(pub T);
 
-/// Error types for Protobuf extraction and deserialization.
+/// Rejection of [`Protobuf`]; a body read error keeps its own status, everything else is 400.
 #[derive(Debug)]
 pub enum ProtobufError {
-  /// Content-Type header is not application/x-protobuf or application/protobuf.
+  /// Also returned when the `Content-Type` header is missing.
   InvalidContentType,
-  /// Content-Type header is missing from the request.
-  MissingContentType,
-  /// Failed to read the request body (network error, timeout, etc.).
   BodyReadError(tako_rs_core::extractors::body::BodyReadError),
-  /// Protobuf deserialization failed (invalid format, unknown fields, etc.).
   ProtobufDecodeError(String),
 }
 
 impl Responder for ProtobufError {
-  /// Converts Protobuf extraction errors into appropriate HTTP error responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       ProtobufError::InvalidContentType => (
@@ -69,9 +58,6 @@ impl Responder for ProtobufError {
         "Invalid content type; expected application/x-protobuf or application/protobuf",
       )
         .into_response(),
-      ProtobufError::MissingContentType => {
-        (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
-      }
       ProtobufError::BodyReadError(err) => {
         (err.status(), format!("Failed to read request body: {err}")).into_response()
       }
@@ -88,7 +74,7 @@ impl<T> Responder for Protobuf<T>
 where
   T: Message,
 {
-  /// Converts the wrapped protobuf message into an HTTP response.
+  /// Encodes the message with `Content-Type: application/x-protobuf`.
   fn into_response(self) -> tako_rs_core::types::Response {
     let buf = self.0.encode_to_vec();
     let mut res = tako_rs_core::types::Response::new(tako_rs_core::body::TakoBody::from(buf));
@@ -100,7 +86,6 @@ where
   }
 }
 
-/// Checks if the Content-Type header indicates protobuf content.
 fn is_protobuf_content_type(headers: &http::HeaderMap) -> bool {
   headers
     .get(http::header::CONTENT_TYPE)

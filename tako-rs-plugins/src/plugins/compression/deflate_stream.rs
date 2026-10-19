@@ -1,11 +1,3 @@
-//! DEFLATE compression streaming utilities for efficient HTTP response compression.
-//!
-//! This module provides streaming DEFLATE compression for HTTP response bodies using the
-//! flate2 crate. DEFLATE compression offers good compression ratios with fast processing
-//! speeds, making it suitable for real-time web content compression. The streaming
-//! implementation enables memory-efficient compression of large responses without
-//! buffering entire content in memory.
-//!
 //! # Examples
 //!
 //! ```rust
@@ -39,7 +31,7 @@ use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
 
-/// Compresses an HTTP body stream using the DEFLATE compression algorithm.
+/// Zlib-wrapped, as the HTTP `deflate` coding requires; flushes after every input chunk.
 pub fn stream_deflate<B>(body: B, level: u32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -50,7 +42,6 @@ where
 }
 
 pin_project! {
-    /// Streaming DEFLATE compressor that wraps an inner data stream.
     pub struct DeflateStream<S> {
         #[pin] inner: S,
         encoder: ZlibEncoder<Vec<u8>>,
@@ -59,7 +50,6 @@ pin_project! {
 }
 
 impl<S> DeflateStream<S> {
-  /// Creates a new DEFLATE compression stream with the specified compression level.
   pub fn new(inner: S, level: u32) -> Self {
     Self {
       inner,
@@ -75,7 +65,6 @@ where
 {
   type Item = Result<Bytes, BoxError>;
 
-  /// Polls the stream for the next compressed data chunk.
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     let mut this = self.project();
 

@@ -1,12 +1,5 @@
-//! Unified connection-info extension shared by every Tako transport.
-//!
-//! Every `serve_*` implementation inserts a [`ConnInfo`](crate::conn_info::ConnInfo) into the request's
-//! extensions before dispatch, so handlers and middleware can read peer / TLS
-//! metadata without branching on transport-specific extension types
-//! (`SocketAddr`, `UnixPeerAddr`, `ProxyHeader`, …).
-//!
-//! Existing extension inserts (`SocketAddr`, `UnixPeerAddr`, `ProxyHeader`)
-//! remain in place for backward compatibility — the new struct is additive.
+//! [`ConnInfo`], which every transport adds to request extensions next to its own entries,
+//! such as `SocketAddr` or [`UnixPeerAddr`].
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -14,7 +7,6 @@ use std::path::PathBuf;
 /// Network identity of a peer or local endpoint.
 #[derive(Debug, Clone)]
 pub enum PeerAddr {
-  /// IPv4 / IPv6 socket address.
   Ip(SocketAddr),
   /// Unix domain socket path (None for unnamed client sockets).
   Unix(Option<PathBuf>),
@@ -39,11 +31,10 @@ impl From<SocketAddr> for PeerAddr {
   }
 }
 
-/// Transport that produced the request. Lets handlers branch on plain HTTP/1
-/// vs. TLS / HTTP/2 / HTTP/3 / Unix without keeping a parallel registry.
+/// The protocol a request arrived over; TLS is reported separately in [`ConnInfo::tls`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
-  /// Plain HTTP/1.1 over TCP.
+  /// HTTP/1.x over TCP, with or without TLS.
   Http1,
   /// HTTP/2 (cleartext or via TLS).
   Http2,
@@ -51,8 +42,6 @@ pub enum Transport {
   Http3,
   /// HTTP/1.1 over Unix domain socket.
   Unix,
-  /// Raw TCP — no HTTP wrapping (custom protocols only).
-  Tcp,
 }
 
 /// TLS-specific connection metadata. Populated when the connection terminated
@@ -73,9 +62,6 @@ pub struct TlsInfo {
 pub struct ConnInfo {
   /// Remote (client) endpoint.
   pub peer: PeerAddr,
-  /// Local endpoint, if known.
-  pub local: Option<PeerAddr>,
-  /// Transport identifier.
   pub transport: Transport,
   /// TLS metadata if the connection was terminated as TLS at this server.
   pub tls: Option<TlsInfo>,
@@ -87,7 +73,6 @@ impl ConnInfo {
   pub fn tcp(peer: SocketAddr) -> Self {
     Self {
       peer: PeerAddr::Ip(peer),
-      local: None,
       transport: Transport::Http1,
       tls: None,
     }
@@ -98,20 +83,16 @@ impl ConnInfo {
   pub fn h2_tls(peer: SocketAddr, tls: TlsInfo) -> Self {
     Self {
       peer: PeerAddr::Ip(peer),
-      local: None,
       transport: Transport::Http2,
       tls: Some(tls),
     }
   }
 
-  /// Helper for HTTP/2 cleartext (prior-knowledge) connections — h2c. No TLS,
-  /// but the wire protocol is HTTP/2 not HTTP/1, so observability and policy
-  /// hooks that key on `Transport` must distinguish the two.
+  /// Helper for cleartext HTTP/2 (h2c) connections.
   #[inline]
   pub fn h2c(peer: SocketAddr) -> Self {
     Self {
       peer: PeerAddr::Ip(peer),
-      local: None,
       transport: Transport::Http2,
       tls: None,
     }
@@ -122,7 +103,6 @@ impl ConnInfo {
   pub fn h1_tls(peer: SocketAddr, tls: TlsInfo) -> Self {
     Self {
       peer: PeerAddr::Ip(peer),
-      local: None,
       transport: Transport::Http1,
       tls: Some(tls),
     }
@@ -133,7 +113,6 @@ impl ConnInfo {
   pub fn h3(peer: SocketAddr, tls: TlsInfo) -> Self {
     Self {
       peer: PeerAddr::Ip(peer),
-      local: None,
       transport: Transport::Http3,
       tls: Some(tls),
     }
@@ -144,7 +123,6 @@ impl ConnInfo {
   pub fn unix(path: Option<PathBuf>) -> Self {
     Self {
       peer: PeerAddr::Unix(path),
-      local: None,
       transport: Transport::Unix,
       tls: None,
     }
@@ -153,8 +131,6 @@ impl ConnInfo {
 
 /// Peer address of an HTTP-over-Unix-socket connection, inserted into request
 /// extensions next to [`ConnInfo`] on both runtimes.
-///
-/// Handlers read it with `req.extensions().get::<UnixPeerAddr>()`.
 #[derive(Debug, Clone)]
 pub struct UnixPeerAddr {
   /// The filesystem path of the peer socket, if available.
@@ -199,7 +175,6 @@ mod tests {
     let info = ConnInfo::tcp(addr);
     assert_eq!(info.transport, Transport::Http1);
     assert!(info.tls.is_none());
-    assert!(info.local.is_none());
     assert_eq!(info.peer.as_socket(), Some(&addr));
   }
 
@@ -240,13 +215,13 @@ mod tests {
     let info = ConnInfo::unix(Some(PathBuf::from("/var/run/x.sock")));
     assert_eq!(info.transport, Transport::Unix);
     assert!(info.tls.is_none());
-    matches!(info.peer, PeerAddr::Unix(Some(_)));
+    assert!(matches!(info.peer, PeerAddr::Unix(Some(_))));
   }
 
   #[test]
   fn conn_info_unix_helper_without_path() {
     let info = ConnInfo::unix(None);
     assert_eq!(info.transport, Transport::Unix);
-    matches!(info.peer, PeerAddr::Unix(None));
+    assert!(matches!(info.peer, PeerAddr::Unix(None)));
   }
 }

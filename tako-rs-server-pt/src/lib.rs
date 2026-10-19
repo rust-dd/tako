@@ -1,15 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Thread-per-core HTTP server bootstrap for the Tako framework.
-//!
-//! Spawns OS threads with `SO_REUSEPORT` listeners. Each worker runs a Tokio
-//! current-thread runtime by default, or Compio when `compio` is enabled.
-//! The thread-safe router is shared; connections remain on their worker thread.
-//! Tokio workers hand new connections to the least busy worker when
-//! [`PerThreadConfig::balance_connections`] is set, which it is by default.
-//!
-//! [`serve_per_thread`] waits for process shutdown. [`spawn_per_thread`] returns
-//! worker handles and a shutdown trigger for explicit control.
+//! Thread-per-core HTTP/1 server: every worker thread runs its own `SO_REUSEPORT` listener on a
+//! Tokio current-thread runtime, or compio with `compio`, and all workers share one router.
 //!
 //! ```no_run
 //! use tako_rs_server_pt::{PerThreadConfig, serve_per_thread};
@@ -50,14 +42,14 @@ use crate::worker::worker_main;
 #[cfg(feature = "compio")]
 use crate::worker_compio::worker_main_compio;
 
-/// Runs workers on the selected runtime until Ctrl+C or SIGTERM, then drains requests.
+/// Runs workers until Ctrl+C or SIGTERM, then drains requests; fails if no worker could bind.
 pub fn serve_per_thread(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
   let workers = cfg.workers;
   let (handles, shutdown) = spawn_per_thread(addr, router, cfg)?;
   wait_for_shutdown(handles, shutdown, workers)
 }
 
-/// Starts workers on the selected runtime and returns handles for explicit shutdown.
+/// Starts workers and returns their thread handles and the trigger that stops them.
 pub fn spawn_per_thread(
   addr: &str,
   router: Router,
@@ -71,24 +63,6 @@ pub fn spawn_per_thread(
   {
     spawn_workers(addr, router, cfg, worker_main_compio)
   }
-}
-
-/// Runs Compio workers until Ctrl+C or SIGTERM, then drains active requests.
-#[cfg(feature = "compio")]
-pub fn serve_per_thread_compio(addr: &str, router: Router, cfg: PerThreadConfig) -> io::Result<()> {
-  let workers = cfg.workers;
-  let (handles, shutdown) = spawn_per_thread_compio(addr, router, cfg)?;
-  wait_for_shutdown(handles, shutdown, workers)
-}
-
-/// Starts Compio workers and returns handles for explicit shutdown control.
-#[cfg(feature = "compio")]
-pub fn spawn_per_thread_compio(
-  addr: &str,
-  router: Router,
-  cfg: PerThreadConfig,
-) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
-  spawn_workers(addr, router, cfg, worker_main_compio)
 }
 
 #[cfg(not(feature = "compio"))]

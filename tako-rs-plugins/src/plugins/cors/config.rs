@@ -6,12 +6,7 @@ use http::Method;
 
 use super::origin::OriginMatcher;
 
-/// CORS policy configuration settings for cross-origin request handling.
-///
-/// `Config` defines the Cross-Origin Resource Sharing policy including allowed origins,
-/// HTTP methods, headers, credential handling, and preflight cache duration. The
-/// configuration determines which cross-origin requests are permitted and what headers
-/// are added to responses to enable secure cross-origin communication.
+/// With no origins or matchers, every origin is allowed and `*` is sent.
 ///
 /// # Examples
 ///
@@ -30,26 +25,23 @@ use super::origin::OriginMatcher;
 /// ```
 #[derive(Clone)]
 pub struct Config {
-  /// Exact origin allow-list (legacy). For wider matching, use [`Self::origin_matchers`].
+  /// Exact matches against the `Origin` header value.
   pub origins: Vec<String>,
-  /// Suffix / regex / custom origin matchers (additive on top of `origins`).
+  /// Checked in addition to `origins`.
   pub origin_matchers: Vec<OriginMatcher>,
-  /// List of allowed HTTP methods for cross-origin requests.
   pub methods: Vec<Method>,
-  /// List of allowed request headers for cross-origin requests.
+  /// Empty sends `*`, or with credentials reflects the requested headers.
   pub headers: Vec<HeaderName>,
-  /// Whether to allow credentials (cookies, authorization headers) in cross-origin requests.
+  /// Requires an explicit origin; see [`Self::validate`].
   pub allow_credentials: bool,
-  /// Maximum age in seconds for preflight request caching by browsers.
+  /// Preflight cache lifetime.
   pub max_age_secs: Option<u32>,
-  /// Send `Access-Control-Allow-Private-Network: true` in preflight responses
-  /// when the client signals `Access-Control-Request-Private-Network: true`.
-  /// Required for browsers to allow public→private requests post Chrome 104.
+  /// Answers a preflight's `Access-Control-Request-Private-Network: true`, which Chrome
+  /// requires before public pages may call private-network hosts.
   pub allow_private_network: bool,
 }
 
 impl Default for Config {
-  /// Provides permissive default CORS configuration suitable for development.
   fn default() -> Self {
     Self {
       origins: Vec::new(),
@@ -71,11 +63,7 @@ impl Default for Config {
 }
 
 impl Config {
-  /// Validates the CORS configuration against the Fetch spec's hard rules.
-  ///
-  /// Returns an error if the configuration would produce a header combination that
-  /// browsers reject (e.g. `Access-Control-Allow-Origin: *` together with
-  /// `Access-Control-Allow-Credentials: true`).
+  /// Rejects header combinations browsers refuse, such as credentials with a `*` origin.
   pub fn validate(&self) -> Result<(), CorsConfigError> {
     if self.allow_credentials && self.origins.is_empty() && self.origin_matchers.is_empty() {
       return Err(CorsConfigError::CredentialsWithWildcardOrigin);
@@ -92,9 +80,7 @@ impl Config {
 /// Errors produced when constructing an invalid [`CorsPlugin`](super::CorsPlugin) configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorsConfigError {
-  /// `allow_credentials = true` was combined with no explicit origins, which would
-  /// produce `Access-Control-Allow-Origin: *` alongside `Access-Control-Allow-Credentials: true`.
-  /// Browsers reject this combination per the Fetch spec.
+  /// Credentials without an explicit origin would pair them with `*`, which browsers reject.
   CredentialsWithWildcardOrigin,
 }
 

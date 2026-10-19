@@ -1,14 +1,5 @@
-//! W3C WebTransport over HTTP/3, on the Tokio and compio servers.
-//!
-//! A browser's `new WebTransport("https://example.com/echo")` arrives at the
-//! HTTP/3 server as an extended CONNECT request. It runs through the router
-//! like any other request, so routing and middleware such as authentication
-//! apply. The route's handler takes the
-//! [`WebTransport`](crate::webtransport::WebTransport) extractor and returns
-//! [`WebTransport::on_session`](crate::webtransport::WebTransport::on_session);
-//! the callback receives the
-//! [`WebTransportSession`](crate::webtransport::WebTransportSession) once the
-//! server has accepted it.
+//! W3C WebTransport on the HTTP/3 servers: the CONNECT request passes the router and middleware,
+//! and each QUIC connection carries one session while its other requests still reach the router.
 //!
 //! ```rust,no_run
 //! # #[cfg(not(feature = "compio"))]
@@ -35,10 +26,6 @@
 //! }
 //! # }
 //! ```
-//!
-//! Serve the router with `try_spawn_h3`. Each QUIC connection carries at most
-//! one session; other HTTP/3 requests on that connection still reach the
-//! router.
 
 use std::future::Future;
 
@@ -65,20 +52,15 @@ pub use stream::RecvStream;
 pub use stream::SendStream;
 use upgrade::SessionSlot;
 
-/// Extractor for a WebTransport session request.
-///
-/// Available only on an HTTP/3 extended CONNECT request with
-/// `:protocol = webtransport`; anything else is rejected with
-/// [`WebTransportRejection`].
+/// Extractor for an HTTP/3 extended CONNECT with `:protocol = webtransport`; any other request is
+/// rejected with [`WebTransportRejection`].
 pub struct WebTransport {
   slot: SessionSlot,
 }
 
 impl WebTransport {
-  /// Accepts the session and returns the handler's `200 OK`.
-  ///
-  /// `handler` runs once the server has sent the response. Returning a
-  /// non-2xx response instead of calling this rejects the session.
+  /// Accepts the session and returns the handler's `200 OK`; `handler` runs once it is sent.
+  /// Returning a non-2xx response instead rejects the session.
   #[cfg(not(feature = "compio"))]
   pub fn on_session<F, Fut>(self, handler: F) -> Response
   where
@@ -91,11 +73,8 @@ impl WebTransport {
     Response::new(TakoBody::empty())
   }
 
-  /// Accepts the session and returns the handler's `200 OK`.
-  ///
-  /// `handler` runs on the connection's runtime thread once the server has
-  /// sent the response, so its future need not be `Send`. Returning a
-  /// non-2xx response instead of calling this rejects the session.
+  /// Accepts the session and returns the handler's `200 OK`; `handler` runs on the connection's
+  /// thread once it is sent, so need not be `Send`. A non-2xx response instead rejects the session.
   #[cfg(feature = "compio")]
   pub fn on_session<F, Fut>(self, handler: F) -> Response
   where
@@ -136,9 +115,7 @@ fn take(extensions: &mut http::Extensions) -> Result<WebTransport, WebTransportR
     .ok_or(WebTransportRejection)
 }
 
-/// Rejection for a request that is not a WebTransport session request.
-///
-/// Responds with `400 Bad Request`.
+/// Rejection for a request that is not a WebTransport session request: `400 Bad Request`.
 #[derive(Debug)]
 pub struct WebTransportRejection;
 

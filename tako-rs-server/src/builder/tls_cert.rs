@@ -1,15 +1,7 @@
-// Used by both the TLS variants of `TlsCert` (any combination of compio+tls
-// or non-compio+tls) and the rustls config builders below — every reference in
-// this module is gated on the `tls` feature.
 #[cfg(feature = "tls")]
 use std::sync::Arc;
 
-/// Client-authentication policy applied to a TLS server.
-///
-/// Both variants carry the trusted [`rustls::RootCertStore`] used to validate
-/// the client-presented chain. `Optional` allows clients without a cert to
-/// proceed (the application can later inspect the peer certs); `Required`
-/// terminates handshakes that omit a cert.
+/// mTLS policy: client certificates are verified against the [`rustls::RootCertStore`].
 #[cfg(feature = "tls")]
 #[derive(Clone)]
 pub enum ClientAuth {
@@ -29,10 +21,7 @@ impl std::fmt::Debug for ClientAuth {
   }
 }
 
-/// Optional TLS material the builder can attach to a TLS-mode server.
-///
-/// `PemPaths` names certificate files. With `tls`, `Der` accepts an in-memory
-/// certificate/key pair and `Resolver` accepts a rustls certificate resolver.
+/// Certificate source for `spawn_tls` and `spawn_h3`; `Der` and `Resolver` need the `tls` feature.
 #[derive(Clone)]
 pub enum TlsCert {
   /// Filesystem paths for cert + key PEM files.
@@ -45,8 +34,7 @@ pub enum TlsCert {
     #[cfg(feature = "tls")]
     client_auth: Option<ClientAuth>,
   },
-  /// Pre-loaded DER cert chain + key. Useful when certs come from secret
-  /// storage rather than the filesystem.
+  /// In-memory DER chain and key, e.g. from a secret store.
   #[cfg(feature = "tls")]
   Der {
     /// DER-encoded certificate chain (leaf first).
@@ -56,9 +44,8 @@ pub enum TlsCert {
     /// Optional mTLS policy.
     client_auth: Option<ClientAuth>,
   },
-  /// User-supplied certificate resolver. The most flexible variant — drives
-  /// SNI multi-cert serving, hot reload (see [`ReloadableResolver`]), and any
-  /// custom logic that picks a cert per client-hello.
+  /// Picks a certificate per handshake: SNI multi-cert serving or hot reload through
+  /// [`ReloadableResolver`].
   #[cfg(feature = "tls")]
   Resolver {
     /// The resolver used by rustls to pick a cert per handshake.
@@ -95,7 +82,7 @@ impl std::fmt::Debug for TlsCert {
 }
 
 impl TlsCert {
-  /// Construct from filesystem paths (PEM cert + PEM key).
+  /// PEM certificate chain and key files, read when the server starts.
   pub fn pem_paths(cert: impl Into<String>, key: impl Into<String>) -> Self {
     Self::PemPaths {
       cert_path: cert.into(),
@@ -119,7 +106,7 @@ impl TlsCert {
     }
   }
 
-  /// Construct from pre-loaded DER cert chain + key.
+  /// In-memory DER chain (leaf first) and key.
   #[cfg(feature = "tls")]
   pub fn der(
     certs: Vec<rustls::pki_types::CertificateDer<'static>>,
@@ -132,8 +119,7 @@ impl TlsCert {
     }
   }
 
-  /// Construct from a user-supplied certificate resolver. This is the entry
-  /// point for SNI multi-cert servers and hot-reload (see [`ReloadableResolver`]).
+  /// Certificate resolver for SNI multi-cert servers or hot reload (see [`ReloadableResolver`]).
   #[cfg(feature = "tls")]
   pub fn resolver(resolver: Arc<dyn rustls::server::ResolvesServerCert>) -> Self {
     Self::Resolver {
@@ -142,11 +128,7 @@ impl TlsCert {
     }
   }
 
-  /// Returns a clone of the resolver (or no-op for static cert variants).
-  ///
-  /// Useful when the caller wants to swap the live cert at runtime — they pass
-  /// in a [`ReloadableResolver`] via [`TlsCert::resolver`] and keep the `Arc`
-  /// for later `.reload_*()` calls.
+  /// Replaces the mTLS policy of any variant.
   #[cfg(feature = "tls")]
   pub fn with_client_auth(mut self, auth: ClientAuth) -> Self {
     match &mut self {
@@ -158,13 +140,8 @@ impl TlsCert {
   }
 }
 
-/// A `ResolvesServerCert` whose backing [`rustls::sign::CertifiedKey`] can be
-/// swapped at runtime via [`ReloadableResolver::reload_from_pem`].
-///
-/// Backed by [`arc_swap::ArcSwap`], the swap is atomic and lock-free on the
-/// hot path (one `Arc` clone per TLS handshake). Use it via
-/// [`TlsCert::resolver`] and keep the returned `Arc` so callers can trigger
-/// reloads from anywhere (file watcher, signal handler, admin endpoint, …).
+/// Certificate resolver whose key can be swapped at runtime; keep the `Arc` passed to
+/// [`TlsCert::resolver`] to reload. Each handshake costs one lock-free `Arc` clone.
 ///
 /// # Example
 ///
@@ -199,7 +176,7 @@ impl std::fmt::Debug for ReloadableResolver {
 
 #[cfg(feature = "tls")]
 impl ReloadableResolver {
-  /// Construct from on-disk PEM files.
+  /// Loads a certificate chain and key from PEM files.
   pub fn from_pem(cert_path: &str, key_path: &str) -> anyhow::Result<Self> {
     let ck = build_certified_key(cert_path, key_path)?;
     Ok(Self {
@@ -207,17 +184,15 @@ impl ReloadableResolver {
     })
   }
 
-  /// Atomically swap to a new cert + key loaded from the given PEM files.
-  ///
-  /// Hot-path TLS handshakes pick up the new cert on the next `resolve` call
-  /// without dropping any in-flight session.
+  /// Atomically swaps in a key loaded from PEM files; established sessions are unaffected and
+  /// new handshakes use it.
   pub fn reload_from_pem(&self, cert_path: &str, key_path: &str) -> anyhow::Result<()> {
     let ck = build_certified_key(cert_path, key_path)?;
     self.current.store(Arc::new(ck));
     Ok(())
   }
 
-  /// Atomically swap to a pre-built [`rustls::sign::CertifiedKey`].
+  /// Atomically swaps in a prebuilt [`rustls::sign::CertifiedKey`].
   pub fn reload(&self, ck: rustls::sign::CertifiedKey) {
     self.current.store(Arc::new(ck));
   }
@@ -241,17 +216,8 @@ fn build_certified_key(
   let certs = tako_rs_core::tls::load_certs(cert_path)?;
   let key = tako_rs_core::tls::load_key(key_path)?;
 
-  // Use whatever rustls CryptoProvider is installed — server_h3 / webtransport
-  // install `ring` on first use; pure-TLS apps may not have installed any yet.
-  // Opportunistically install rustls's default backend (`aws-lc-rs`) if the
-  // global slot is still empty, so callers don't have to wire it themselves.
-  //
-  // SRV-08: if a provider was ALREADY installed by another part of the
-  // process (commonly `ring` via h3/webtransport bootstrap), this code uses
-  // it as-is and `load_private_key` runs against that backend. Cross-
-  // provider key loading is supported in principle, but signature output
-  // depends on which backend signs — operators surprised by behavior diff
-  // need to know we did not install aws-lc-rs in that case.
+  // Installs aws-lc-rs only when no provider exists yet; otherwise the earlier one, e.g. ring,
+  // loads and signs with the key, which the one-time warning below reports.
   let we_installed = if rustls::crypto::CryptoProvider::get_default().is_none() {
     rustls::crypto::aws_lc_rs::default_provider()
       .install_default()
@@ -260,10 +226,6 @@ fn build_certified_key(
     false
   };
   if !we_installed {
-    // Fire a one-shot warning so it shows up once in the log instead of
-    // once per certified-key build (which could be thousands per process
-    // in tests / hot-reload). Static `Once` keeps this lock-free after
-    // the first call.
     static WARNED: std::sync::Once = std::sync::Once::new();
     WARNED.call_once(|| {
       tracing::warn!(
@@ -289,12 +251,8 @@ fn build_certified_key(
   Ok(rustls::sign::CertifiedKey::new(certs, signer))
 }
 
-/// Build an `Arc<rustls::ServerConfig>` from a [`TlsCert`] and the desired
-/// ALPN protocol list.
-///
-/// Internal helper used by every `Server::spawn_*` TLS-mode method. Exposed
-/// so embedders can build the rustls config the same way Tako does and pass
-/// it to the lower-level `serve_*_with_rustls_config_*` entrypoints.
+/// Builds the rustls config the TLS spawn methods use, for the `serve_*_with_rustls_config`
+/// functions. With `h3` in `alpn`, 0-RTT early data is disabled.
 #[cfg(feature = "tls")]
 pub fn build_rustls_server_config(
   cert: &TlsCert,
@@ -309,9 +267,6 @@ pub fn build_rustls_server_config(
   }
   let builder = RustlsServerConfig::builder();
 
-  // Resolve the client-auth verifier first. `with_no_client_auth` and
-  // `with_client_cert_verifier` produce the same `ConfigBuilder<...>` next
-  // step, so we can branch cleanly here.
   let client_auth = match cert {
     TlsCert::PemPaths { client_auth, .. }
     | TlsCert::Der { client_auth, .. }
@@ -358,12 +313,7 @@ pub fn build_rustls_server_config(
   };
 
   config.alpn_protocols = alpn;
-  // Defense in depth against H3 0-RTT replay: when ALPN advertises h3 the
-  // resulting config will end up driving a quinn endpoint, and Tako has no
-  // replay cache on the request path. `server_h3::run_with_rustls_config`
-  // also clears this defensively, but doing it at construction prevents the
-  // window where the unprotected config exists in caller memory before being
-  // handed to `serve_h3_*`.
+  // Nothing protects requests from 0-RTT replay, so an h3 config never accepts early data.
   if config.alpn_protocols.iter().any(|p| p.as_slice() == b"h3") {
     config.max_early_data_size = 0;
   }

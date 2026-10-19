@@ -1,13 +1,5 @@
-//! JWT token extraction and claims parsing from Authorization headers.
-//!
-//! This module provides extractors for parsing JWT (JSON Web Token) tokens from HTTP
-//! Authorization headers and extracting claims into strongly-typed Rust structures.
-//! It supports both raw JWT access through [`crate::jwt::Jwt`] and automatic claims deserialization
-//! through [`crate::jwt::JwtClaimsUnverified`]. Parsing does not verify signatures or
-//! validate expiration and other claims.
-//!
-//! For verified claims, install `JwtAuth` middleware and extract its verified
-//! `V::Claims` type with `tako::extractors::jwt::JwtClaimsVerified`.
+//! JWTs from `Authorization: Bearer`, decoded without verifying the signature or claims. For
+//! verified claims, install `JwtAuth` middleware and extract `JwtClaimsVerified`.
 //!
 //! # Examples
 //!
@@ -50,57 +42,42 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// JWT token extractor that provides access to the raw token string.
+/// The bearer token, neither parsed nor verified.
 #[doc(alias = "jwt")]
 pub struct Jwt {
-  /// Raw JWT token string extracted from Authorization header.
   pub token: String,
-  /// Complete Authorization header value.
+  /// The whole header value, including `Bearer `.
   pub header: String,
 }
 
-/// JWT claims extractor with automatic deserialization to typed structures.
-///
-/// ⚠️ **This extractor does NOT verify the token signature.** It only base64
-/// decodes the claims segment. It does not check `exp` / `nbf`. Treat its output as
-/// untrusted unless an upstream middleware (e.g.
-/// `tako_rs_plugins::middleware::jwt_auth::JwtAuth`) has already verified the
-/// signature for this request.
-///
-/// For authenticated claims, install `JwtAuth` middleware and use
-/// `tako::extractors::jwt::JwtClaimsVerified<V::Claims>`.
+/// The claims, decoded but not verified: the signature, `exp` and `nbf` are unchecked, so treat
+/// them as untrusted unless `JwtAuth` middleware ran first.
 #[doc(alias = "jwt_claims_unverified")]
 pub struct JwtClaimsUnverified<T>(pub T);
 
-/// Error types for JWT extraction and claims parsing.
+/// Rejection of [`Jwt`] and [`JwtClaimsUnverified`]; every variant responds 401.
 #[derive(Debug)]
 pub enum JwtError {
-  /// Authorization header is missing from the request.
   MissingAuthHeader,
-  /// Authorization header contains invalid UTF-8 or cannot be parsed.
+  /// The header value is not visible ASCII.
   InvalidAuthHeader,
-  /// Authorization header does not use Bearer authentication scheme.
+  /// The value does not start with `Bearer ` (case-sensitive).
   InvalidBearerFormat,
-  /// JWT token is present but empty.
   EmptyToken,
-  /// JWT token format is invalid (not three Base64-encoded parts).
+  /// The token is not three non-empty dot-separated parts.
   InvalidJwtFormat,
-  /// JWT header section cannot be decoded or parsed.
+  /// The header part is not base64url-encoded JSON.
   InvalidJwtHeader,
-  /// JWT claims section cannot be decoded or parsed.
+  /// The claims part is not base64url-encoded JSON.
   InvalidJwtClaims,
-  /// JWT signature section cannot be decoded.
+  /// The signature part is not base64url.
   InvalidJwtSignature,
-  /// JWT claims deserialization failed.
   ClaimsDeserializationError(String),
-  /// JWT token has expired.
   TokenExpired,
-  /// JWT token is not yet valid.
   TokenNotYetValid,
 }
 
 impl Responder for JwtError {
-  /// Converts JWT errors into appropriate HTTP responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     let (status, message) = match self {
       JwtError::MissingAuthHeader => (StatusCode::UNAUTHORIZED, "Missing Authorization header"),
@@ -126,7 +103,6 @@ impl Responder for JwtError {
 }
 
 impl Jwt {
-  /// Extracts JWT token from HTTP headers.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {
     let auth_header = headers
       .get("Authorization")
@@ -151,14 +127,13 @@ impl Jwt {
     })
   }
 
-  /// Validates basic JWT token format.
+  /// Checks for three non-empty dot-separated parts without decoding them.
   pub fn validate_format(&self) -> Result<(), JwtError> {
     let parts = self.token.split('.').collect::<Vec<&str>>();
     if parts.len() != 3 {
       return Err(JwtError::InvalidJwtFormat);
     }
 
-    // Validate that each part is valid base64
     for part in &parts {
       if part.is_empty() {
         return Err(JwtError::InvalidJwtFormat);
@@ -168,7 +143,7 @@ impl Jwt {
     Ok(())
   }
 
-  /// Extracts the header section of the JWT token.
+  /// The decoded header JSON.
   pub fn header(&self) -> Result<serde_json::Value, JwtError> {
     let parts: Vec<&str> = self.token.split('.').collect();
     if parts.len() != 3 {
@@ -185,7 +160,7 @@ impl Jwt {
     Ok(header)
   }
 
-  /// Extracts the claims section of the JWT token.
+  /// The decoded claims JSON, unverified.
   pub fn claims(&self) -> Result<serde_json::Value, JwtError> {
     let parts: Vec<&str> = self.token.split('.').collect();
     if parts.len() != 3 {
@@ -202,7 +177,7 @@ impl Jwt {
     Ok(claims)
   }
 
-  /// Extracts the signature section of the JWT token.
+  /// The decoded signature bytes.
   pub fn signature(&self) -> Result<Vec<u8>, JwtError> {
     let parts: Vec<&str> = self.token.split('.').collect();
     if parts.len() != 3 {
@@ -216,12 +191,7 @@ impl Jwt {
     Ok(signature)
   }
 
-  /// Validates token expiration time.
-  ///
-  /// Note: This is an unverified time check on a token whose signature has
-  /// NOT been validated. For authenticated expiration enforcement, use
-  /// `JwtAuth` middleware and read `Extension<V::Claims>` which
-  /// validates the signature first.
+  /// Checks `exp`, when present, against the clock; worthless without a verified signature.
   pub fn validate_expiration(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
@@ -239,12 +209,7 @@ impl Jwt {
     Ok(())
   }
 
-  /// Validates token not-before time.
-  ///
-  /// Note: This is an unverified time check on a token whose signature has
-  /// NOT been validated. For authenticated nbf enforcement, use
-  /// `JwtAuth` middleware and read `Extension<V::Claims>` which
-  /// validates the signature first.
+  /// Checks `nbf`, when present, against the clock; worthless without a verified signature.
   pub fn validate_not_before(&self) -> Result<(), JwtError> {
     let claims = self.claims()?;
 
@@ -267,14 +232,6 @@ impl<T> JwtClaimsUnverified<T>
 where
   T: DeserializeOwned,
 {
-  /// Extracts and deserializes JWT claims from HTTP headers.
-  ///
-  /// **Does NOT verify the signature, expiration, or not-before time.** This
-  /// extractor is for inspection of untrusted token payloads only. If you
-  /// need authenticated claim validation, use
-  /// `JwtAuth` middleware and read `Extension<V::Claims>` instead,
-  /// which validates the signature against a JWKS / verifier and applies
-  /// `exp`/`nbf`/`iss`/`aud` constraints.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, JwtError> {
     let jwt = Jwt::extract_from_headers(headers)?;
 

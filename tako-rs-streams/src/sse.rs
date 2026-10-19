@@ -1,17 +1,5 @@
-//! Server-Sent Events (SSE) implementation conforming to the W3C
-//! [EventSource](https://html.spec.whatwg.org/multipage/server-sent-events.html)
-//! specification.
-//!
-//! `Sse::new(stream)` keeps the original raw-bytes path (legacy: each `Bytes`
-//! is wrapped as `data: …\n\n`). `Sse::events(stream)` is the v2 structured
-//! API: each item is an [`SseEvent`](crate::sse::SseEvent) with `event:`, `id:`, `retry:`, and/or
-//! comment fields. A configurable [`Sse::keep_alive`](crate::sse::Sse::keep_alive) periodically interleaves
-//! comment frames so reverse proxies do not idle-close the connection.
-//!
-//! Additional defaults:
-//! - `Cache-Control: no-cache, no-store, must-revalidate`
-//! - `Connection: keep-alive`
-//! - `X-Accel-Buffering: no` (defeats nginx response buffering)
+//! Server-Sent Events. Responses send `Cache-Control: no-cache, no-store, must-revalidate` and
+//! `X-Accel-Buffering: no`, so neither caches nor nginx hold events back.
 //!
 //! # Examples
 //!
@@ -32,6 +20,7 @@
 
 mod event;
 mod stream;
+mod timer;
 
 pub use event::SseEvent;
 pub use stream::Sse;

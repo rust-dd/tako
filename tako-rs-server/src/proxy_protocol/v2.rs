@@ -12,9 +12,8 @@ use super::header::ProxyTransport;
 use super::header::ProxyVersion;
 use super::header::apply_tlvs;
 
-/// Walks the TLV section of a PROXY v2 header and returns the offset (relative
-/// to the TLV section start) of the first `PP2_TYPE_CRC32C` value plus the
-/// expected 32-bit checksum, if a well-formed CRC32C TLV is present.
+/// Offset of the first well-formed `PP2_TYPE_CRC32C` value within the TLV section, and the
+/// checksum it carries.
 fn locate_crc32c_tlv(mut buf: &[u8]) -> Option<(usize, u32)> {
   let mut offset = 0usize;
   while buf.len() >= 3 {
@@ -35,12 +34,8 @@ fn locate_crc32c_tlv(mut buf: &[u8]) -> Option<(usize, u32)> {
   None
 }
 
-/// Verifies the PROXY v2 CRC32C TLV against the full reconstructed header.
-///
-/// Per the `HAProxy` PROXY v2 spec the checksum is computed over the entire
-/// header (signature + version/command/family/protocol/length + addr + TLVs)
-/// with the 4-byte CRC32C value field replaced by zeros. Returns `None` when
-/// no CRC32C TLV is present.
+/// Checks the CRC32C TLV against the whole header with its own value zeroed, as the spec
+/// computes it; `None` without such a TLV.
 fn verify_v2_crc32c(
   sig: &[u8; 12],
   hdr: &[u8; 4],
@@ -52,7 +47,6 @@ fn verify_v2_crc32c(
   }
   let (value_offset_in_tlvs, expected) = locate_crc32c_tlv(&addr_buf[tlv_start..])?;
   let zero_at_in_addr = tlv_start + value_offset_in_tlvs;
-  // Reconstruct the on-wire header into a single contiguous buffer.
   let mut full = Vec::with_capacity(12 + 4 + addr_buf.len());
   full.extend_from_slice(sig);
   full.extend_from_slice(hdr);
@@ -63,9 +57,8 @@ fn verify_v2_crc32c(
   Some(computed == expected)
 }
 
-/// Validates the fixed 4-byte part of a v2 header (version/command,
-/// family/protocol, length) and returns the length of the address block that
-/// follows it.
+/// Validates the 4 bytes after the signature and returns the length of the address block that
+/// follows them.
 pub(crate) fn address_len(hdr: &[u8; 4]) -> std::io::Result<usize> {
   let version = (hdr[0] >> 4) & 0x0F;
   if version != 2 {
@@ -85,8 +78,7 @@ pub(crate) fn address_len(hdr: &[u8; 4]) -> std::io::Result<usize> {
   Ok(addr_len)
 }
 
-/// Parse a complete PROXY protocol v2 header (binary format) once the
-/// address block announced by [`address_len`] has been read.
+/// Parses a v2 header once the address block announced by [`address_len`] has been read.
 pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyHeader {
   let command = hdr[0] & 0x0F;
   let family = (hdr[1] >> 4) & 0x0F;
@@ -138,16 +130,12 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
     _ => 0,
   };
 
-  // Verify the CRC32C TLV (if any) against the full reconstructed header
-  // before TLV expansion so a corrupt payload does not silently mutate the
-  // typed `ProxyHeader` fields. A mismatch is logged but does not abort the
-  // parse — the operator decides via `ProxyHeader::crc32c_verified`.
+  // A mismatch only logs; callers decide through `ProxyHeader::crc32c_verified`.
   header.crc32c_verified = verify_v2_crc32c(sig, hdr, addr_buf, consumed);
   if header.crc32c_verified == Some(false) {
     tracing::warn!("PROXY v2 CRC32C mismatch — header may be corrupt or spoofed");
   }
 
-  // Walk TLVs that follow the address payload.
   if consumed < addr_buf.len() {
     apply_tlvs(&mut header, &addr_buf[consumed..]);
   }
@@ -155,7 +143,7 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
   header
 }
 
-/// Decode a NUL-terminated `AF_UNIX` path. Returns None if the path is empty.
+/// Decodes a NUL-terminated `AF_UNIX` path; `None` when it is empty.
 fn parse_unix_path(bytes: &[u8]) -> Option<std::path::PathBuf> {
   let nul = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
   if nul == 0 {

@@ -1,11 +1,3 @@
-//! Brotli compression streaming utilities for efficient HTTP response compression.
-//!
-//! This module provides streaming Brotli compression for HTTP response bodies, enabling
-//! efficient compression of large responses without loading entire content into memory.
-//! The implementation uses the brotli crate for high-quality compression with configurable
-//! compression levels. Streaming compression is ideal for large responses, real-time data,
-//! or memory-constrained environments.
-//!
 //! # Examples
 //!
 //! ```rust
@@ -37,7 +29,7 @@ use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
 
-/// Compresses an HTTP body stream using Brotli compression algorithm.
+/// Flushes after every input chunk, trading compression ratio for latency.
 pub fn stream_brotli<B>(body: B, lvl: u32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -48,29 +40,20 @@ where
 }
 
 pin_project! {
-    /// Streaming Brotli compressor that wraps an inner data stream.
     pub struct BrotliStream<S> {
         #[pin] inner: S,
-        // `Option` so we can `take()` the encoder at EOF and call
-        // `into_inner()` — that path emits the terminal IsLast metablock
-        // (`BROTLI_OPERATION_FINISH`). Plain `flush()` only sends
-        // `BROTLI_OPERATION_FLUSH`, which never closes the stream.
+        // Taken at EOF: only `into_inner` runs FINISH and writes the closing IsLast metablock.
         encoder: Option<brotli::CompressorWriter<Vec<u8>>>,
-        // Bytes produced by `encoder.into_inner()` at EOF — held separately
-        // because the encoder is consumed at that point.
         tail: Vec<u8>,
-        done: bool,
     }
 }
 
 impl<S> BrotliStream<S> {
-  /// Creates a new Brotli compression stream with the specified compression level.
   fn new(stream: S, level: u32) -> Self {
     Self {
       inner: stream,
       encoder: Some(brotli::CompressorWriter::new(Vec::new(), 4096, level, 22)),
       tail: Vec::new(),
-      done: false,
     }
   }
 }
@@ -81,30 +64,24 @@ where
 {
   type Item = Result<Bytes, BoxError>;
 
-  /// Polls the stream for the next compressed data chunk.
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     let mut this = self.project();
 
     loop {
-      if let Some(enc) = this.encoder.as_mut() {
-        if !enc.get_ref().is_empty() {
-          let chunk = std::mem::take(enc.get_mut());
-          return Poll::Ready(Some(Ok(Bytes::from(chunk))));
+      let Some(enc) = this.encoder.as_mut() else {
+        if this.tail.is_empty() {
+          return Poll::Ready(None);
         }
-      } else if !this.tail.is_empty() {
-        let chunk = std::mem::take(this.tail);
+        return Poll::Ready(Some(Ok(Bytes::from(std::mem::take(this.tail)))));
+      };
+      if !enc.get_ref().is_empty() {
+        let chunk = std::mem::take(enc.get_mut());
         return Poll::Ready(Some(Ok(Bytes::from(chunk))));
-      }
-
-      if *this.done && this.encoder.is_none() {
-        return Poll::Ready(None);
       }
 
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(Ok(chunk))) => {
-          if let Some(enc) = this.encoder.as_mut()
-            && let Err(e) = enc.write_all(&chunk).and_then(|()| enc.flush())
-          {
+          if let Err(e) = enc.write_all(&chunk).and_then(|()| enc.flush()) {
             return Poll::Ready(Some(Err(e.into())));
           }
         }
@@ -112,17 +89,10 @@ where
           return Poll::Ready(Some(Err(e)));
         }
         Poll::Ready(None) => {
-          *this.done = true;
+          // The live buffer is drained, so this holds only what FINISH wrote.
           if let Some(enc) = this.encoder.take() {
-            // `into_inner` runs `BROTLI_OPERATION_FINISH` and returns the
-            // inner `Vec<u8>` containing every byte the encoder ever wrote,
-            // including the IsLast metablock. We've already drained the
-            // encoder's live buffer above, so the returned vec only carries
-            // anything emitted by the FINISH call itself.
             *this.tail = enc.into_inner();
-            continue;
           }
-          return Poll::Ready(None);
         }
         Poll::Pending => {
           return Poll::Pending;

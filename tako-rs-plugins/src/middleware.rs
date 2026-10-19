@@ -1,7 +1,4 @@
-//! Built-in middleware implementations.
-//!
-//! Each submodule provides one ready-to-use middleware. The middleware trait
-//! (`Next`, `IntoMiddleware`) lives in `tako-core::middleware`.
+//! One middleware per module, built on the traits in `tako_rs_core::middleware`.
 
 pub mod access_log;
 pub mod alt_svc;
@@ -28,6 +25,7 @@ pub mod request_id;
 pub mod security_headers;
 pub mod session;
 pub mod tenant;
+#[cfg(not(feature = "compio"))]
 pub mod timeout;
 pub mod traceparent;
 pub mod upload_progress;

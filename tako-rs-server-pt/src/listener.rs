@@ -8,16 +8,11 @@ use socket2::Type;
 #[cfg(not(feature = "compio"))]
 use tokio::net::TcpListener;
 
-/// One-shot platform-capability warning. `SO_REUSEPORT` behaves like
-/// kernel-level load balancing only on Linux; macOS / *BSD ignore the load-
-/// balance semantic (last-binder-wins), and Windows lacks the option entirely.
+/// Warns once off Linux, the only platform where `SO_REUSEPORT` balances load: macOS and the BSDs
+/// send every connection to the last binder, and Windows lacks the option.
 pub(crate) fn warn_reuseport_platform_once() {
   static WARNED: std::sync::Once = std::sync::Once::new();
   WARNED.call_once(|| {
-    #[cfg(target_os = "linux")]
-    {
-      // No-op: SO_REUSEPORT is the supported configuration.
-    }
     #[cfg(all(unix, not(target_os = "linux")))]
     {
       tracing::warn!(
@@ -48,10 +43,7 @@ fn bind_reuseport_std(addr: SocketAddr, backlog: i32) -> io::Result<std::net::Tc
   };
   let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
   socket.set_reuse_address(true)?;
-  // `socket2::set_reuse_port` is gated to Unix targets only; on Linux it's a
-  // genuine kernel load-balancer, on macOS / BSD it's a no-op-equivalent
-  // (last-binder-wins), on Windows the underlying SO_REUSEPORT does not
-  // exist so the call is omitted entirely.
+  // Windows has no `SO_REUSEPORT`.
   #[cfg(unix)]
   socket.set_reuse_port(true)?;
   socket.set_nonblocking(true)?;

@@ -8,12 +8,7 @@ use super::config::CorsConfigError;
 use super::origin::OriginMatcher;
 use super::plugin::CorsPlugin;
 
-/// Builder for configuring CORS policies with a fluent API.
-///
-/// `CorsBuilder` provides a convenient way to construct CORS configurations using
-/// method chaining. It starts with sensible defaults and allows selective customization
-/// of origins, methods, headers, and other CORS policy aspects. The builder pattern
-/// ensures all configuration is explicit while maintaining ease of use.
+/// With no origin configured, every origin is allowed and `*` is sent.
 ///
 /// # Examples
 ///
@@ -47,41 +42,40 @@ impl Default for CorsBuilder {
 }
 
 impl CorsBuilder {
-  /// Creates a new CORS configuration builder with default settings.
   #[inline]
   pub fn new() -> Self {
     Self(Config::default())
   }
 
-  /// Adds an allowed origin to the CORS policy.
+  /// Exact match against the `Origin` header value.
   #[inline]
   pub fn allow_origin(mut self, o: impl Into<String>) -> Self {
     self.0.origins.push(o.into());
     self
   }
 
-  /// Sets the allowed HTTP methods for cross-origin requests.
+  /// Replaces the default GET, POST, PUT, PATCH, DELETE and OPTIONS.
   #[inline]
   pub fn allow_methods(mut self, m: &[Method]) -> Self {
     self.0.methods = m.to_vec();
     self
   }
 
-  /// Sets the allowed request headers for cross-origin requests.
+  /// Without a list, `*` is sent, or with credentials the requested headers are reflected.
   #[inline]
   pub fn allow_headers(mut self, h: &[HeaderName]) -> Self {
     self.0.headers = h.to_vec();
     self
   }
 
-  /// Enables or disables credential sharing in cross-origin requests.
+  /// Requires at least one allowed origin or matcher.
   #[inline]
   pub fn allow_credentials(mut self, allow: bool) -> Self {
     self.0.allow_credentials = allow;
     self
   }
 
-  /// Sets the maximum age for preflight request caching.
+  /// Defaults to one hour.
   #[inline]
   pub fn max_age_secs(mut self, secs: u32) -> Self {
     self.0.max_age_secs = Some(secs);
@@ -99,7 +93,7 @@ impl CorsBuilder {
     self
   }
 
-  /// Plug a custom origin predicate.
+  /// Receives the raw `Origin` header value.
   #[inline]
   pub fn allow_origin_predicate<F>(mut self, f: F) -> Self
   where
@@ -119,13 +113,7 @@ impl CorsBuilder {
     self
   }
 
-  /// Builds the CORS plugin with the configured settings.
-  ///
-  /// # Panics
-  ///
-  /// Panics if [`Config::validate`] fails — typically when `allow_credentials = true`
-  /// is combined with an empty origin list. Use [`CorsBuilder::try_build`] to handle
-  /// the error explicitly.
+  /// Panics when [`Config::validate`] fails; [`Self::try_build`] returns the error instead.
   #[inline]
   pub fn build(self) -> CorsPlugin {
     self.try_build().expect("invalid CORS configuration")

@@ -1,6 +1,3 @@
-//! The future that runs an HTTP/1 connection under the server's shutdown
-//! signal and header deadline.
-
 use std::future::Future;
 use std::ops::Deref;
 use std::pin::Pin;
@@ -18,14 +15,8 @@ use super::ConnCtx;
 use super::ShutdownSignal;
 
 pin_project! {
-  /// Runs an HTTP/1 connection: starts its graceful shutdown once the server's
-  /// [`ShutdownSignal`] fires, and closes it when no request head arrives
-  /// within the header deadline.
-  ///
-  /// The deadline is checked on a timer that ticks every half deadline, so an
-  /// idle connection closes between one and one and a half deadlines after its
-  /// last request, with no timer work per request. Resolves to `None` when the
-  /// deadline closed the connection.
+  /// Runs an HTTP/1 connection, shut down gracefully on [`ShutdownSignal`]; resolves to `None`
+  /// 1 to 1.5 header deadlines after the last request, checked on a half-deadline tick.
   pub struct ConnDriver<C, G, H> {
     #[pin]
     conn: C,
@@ -139,11 +130,8 @@ impl<H: Deref<Target = ConnCtx>> Deadline<H> {
     }
   }
 
-  /// Advances the tick timer; true once the connection stayed idle, with no
-  /// new request head, for two ticks in a row.
-  ///
-  /// The timer is polled only when it elapsed or the task's waker is new,
-  /// since it keeps the last registered waker.
+  /// True after two idle ticks with no new request head; the timer is polled only when it
+  /// elapsed or the waker is new, as it keeps the last registered one.
   fn expired(self: Pin<&mut Self>, cx: &mut Context<'_>, new_waker: bool) -> bool {
     let mut this = self.project();
     if !new_waker && !this.sleep.is_elapsed() {

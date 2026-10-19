@@ -1,8 +1,5 @@
-//! Per-thread reuse of request header and extension maps.
-//!
-//! The framework hands a request's maps back once it no longer needs them and
-//! builds later responses and requests on the same thread from them, so a
-//! keep-alive connection serves requests without allocating either map.
+//! Per-thread pools of request header and extension maps, so a keep-alive connection
+//! serves later requests and responses on the same thread without allocating new ones.
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -17,6 +14,7 @@ use crate::conn_info::ConnInfo;
 use crate::extractors::body::BodyLimit;
 use crate::extractors::params::PathParams;
 use crate::router_state::MatchedPath;
+use crate::router_state::OriginalUriMarker;
 use crate::router_state::RouterState;
 
 /// Maps kept per thread; enough for the requests one worker has in flight.
@@ -55,14 +53,10 @@ pub fn take_headers() -> HeaderMap {
     .unwrap_or_default()
 }
 
-/// Keeps `extensions` for a later request on this thread.
-///
-/// Entries that the HTTP/1 servers and the router overwrite on every request
-/// stay, so the next request reuses their allocations. Router state is dropped
-/// here, so a pooled map never keeps a stopped router's state alive, and any
-/// other entry clears the map, so application values never reach another
-/// request.
+/// Pools `extensions` with the entries the servers and router overwrite on every request;
+/// router state is dropped, so it cannot outlive its router, and other entries clear the map.
 pub fn recycle_extensions(mut extensions: Extensions) {
+  extensions.remove::<OriginalUriMarker>();
   match framework_entries(&mut extensions) {
     Entries::Connection => {}
     Entries::Router => ROUTER_ENTRIES.with(|flag| flag.set(true)),
@@ -76,10 +70,8 @@ pub fn recycle_extensions(mut extensions: Extensions) {
   });
 }
 
-/// Takes an extension map from this thread's pool, or a new empty one.
-///
-/// The map may still hold the entries listed in [`recycle_extensions`]; the
-/// caller must overwrite the connection entries before dispatch.
+/// Takes a pooled extension map, or a new one; the caller must overwrite the connection
+/// entries it may still hold before dispatch.
 pub fn take_extensions() -> Extensions {
   EXTENSIONS
     .with(|pool| pool.borrow_mut().pop())
@@ -148,6 +140,7 @@ mod tests {
   use crate::conn_info::ConnInfo;
   use crate::extractors::body::BodyLimit;
   use crate::router_state::MatchedPath;
+  use crate::router_state::OriginalUriMarker;
   use crate::router_state::RouterState;
 
   fn peer() -> SocketAddr {
@@ -183,6 +176,22 @@ mod tests {
     let reused = take_extensions();
     assert_eq!(reused.len(), 3);
     assert_eq!(reused.get::<MatchedPath>().unwrap().as_str(), "/");
+  }
+
+  #[test]
+  fn recycling_drops_original_uri_and_preserves_reusable_entries() {
+    let mut extensions = Extensions::new();
+    extensions.insert(ConnInfo::tcp(peer()));
+    extensions.insert(peer());
+    extensions.insert(MatchedPath("/previous".into()));
+    extensions.insert(OriginalUriMarker("/previous?query=1".parse().unwrap()));
+    recycle_extensions(extensions);
+    let reused = take_extensions();
+    assert!(reused.get::<OriginalUriMarker>().is_none());
+    assert_eq!(reused.len(), 3);
+    assert_eq!(reused.get::<SocketAddr>(), Some(&peer()));
+    assert!(reused.get::<ConnInfo>().is_some());
+    assert_eq!(reused.get::<MatchedPath>().unwrap().as_str(), "/previous");
   }
 
   #[test]

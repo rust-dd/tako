@@ -15,10 +15,8 @@ const MAX_REASON_LEN: usize = 1024;
 /// make it buffer more than this much of one.
 const MAX_CAPSULE_LEN: usize = 16 * 1024;
 
-/// How a WebTransport session ended.
-///
-/// A client that closes without an error code reports code 0 and an empty
-/// reason, as does a session that ends because its connection went away.
+/// How a WebTransport session ended; code 0 and an empty reason when the client gave none or the
+/// connection went away.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WebTransportClose {
   /// Application error code.
@@ -43,9 +41,8 @@ pub(super) fn encode_close(code: u32, reason: &str) -> (Bytes, String) {
   (capsule.freeze(), reason.to_owned())
 }
 
-/// Reads the CONNECT stream until the client ends the session: with a
-/// `CLOSE_WEBTRANSPORT_SESSION` capsule, by finishing the stream, or by
-/// resetting it.
+/// Reads the CONNECT stream until the client ends the session with a close capsule, by finishing
+/// the stream, or by resetting it.
 pub(super) async fn watch(mut connect: ConnectRecv) -> WebTransportClose {
   let mut buffer = BytesMut::new();
   loop {

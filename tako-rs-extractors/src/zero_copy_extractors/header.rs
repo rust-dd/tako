@@ -8,48 +8,31 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 
-/// Borrowed reference to a single header value, addressed by a const name.
-///
-/// The const-generic `NAME` pattern means the header name is encoded into the
-/// type — e.g. `HeaderBorrowed<{ "x-trace-id" }>` — but Rust does not yet allow
-/// `&'static str` as a const-generic. Instead we expose `HeaderRef<'a>` plus
-/// the helper `HeaderBorrowedBy<'a, const N: usize>` for static byte names.
+/// A header name and its borrowed value, if present.
 pub struct HeaderRef<'a> {
-  /// The header name that was looked up.
   pub name: &'static str,
-  /// The borrowed value, if present.
   pub value: Option<&'a HeaderValue>,
 }
 
-/// Builder helper that resolves a single header name lazily.
-///
-/// Use `BorrowedHeader::new("x-request-id").extract(parts)` from inside a
-/// custom extractor. For routing-time fixed names prefer `HeaderRequired`.
+/// A header name parsed once for lookups in custom extractors; `new` panics on a name that is
+/// not lowercase and valid.
 pub struct BorrowedHeader {
   name: HeaderName,
 }
 
 impl BorrowedHeader {
-  /// Build a borrowed-header lookup for `name`.
   pub fn new(name: &'static str) -> Self {
     Self {
       name: HeaderName::from_static(name),
     }
   }
 
-  /// Borrowed lookup against a header map.
   pub fn lookup<'a>(&self, headers: &'a http::HeaderMap) -> Option<&'a HeaderValue> {
     headers.get(&self.name)
   }
 }
 
-/// Required-header zero-copy extractor.
-///
-/// Concrete handlers use this through `tako::extractors::header_required!`
-/// — see the macro in `tako-extractors` if/when it lands. Until then this
-/// type is a building block: implement `FromRequest`/`FromRequestParts` on a
-/// newtype that calls `BorrowedHeader::new(...)` and either returns the value
-/// or a `MissingHeader` rejection.
+/// A required header is absent; responds 400.
 pub struct MissingHeader(pub &'static str);
 
 impl Responder for MissingHeader {
@@ -62,10 +45,7 @@ impl Responder for MissingHeader {
   }
 }
 
-/// Concrete `Authorization` zero-copy required-header extractor.
-///
-/// Demonstrates the pattern; downstream crates can copy/paste for their own
-/// header-bound newtypes without inventing a new const-generic system.
+/// The `Authorization` header value; rejects with [`MissingHeader`] when absent.
 pub struct AuthorizationBorrowed<'a>(pub &'a HeaderValue);
 
 impl<'a> FromRequest<'a> for AuthorizationBorrowed<'a> {
@@ -100,7 +80,6 @@ impl<'a> FromRequestParts<'a> for AuthorizationBorrowed<'a> {
   }
 }
 
-/// Optional `Authorization` zero-copy extractor — `None` if the header is absent.
 pub struct AuthorizationOptBorrowed<'a>(pub Option<&'a HeaderValue>);
 
 impl<'a> FromRequest<'a> for AuthorizationOptBorrowed<'a> {
@@ -128,7 +107,7 @@ impl<'a> FromRequestParts<'a> for AuthorizationOptBorrowed<'a> {
 }
 
 impl HeaderRef<'_> {
-  /// Convenience to fold a `HeaderRef` into a string slice when the value is UTF-8.
+  /// The value, when present and visible ASCII.
   pub fn as_str(&self) -> Option<&str> {
     self.value.and_then(|v| v.to_str().ok())
   }

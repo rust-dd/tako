@@ -1,7 +1,3 @@
-//! The rate-limiter plugin: fluent builder, the plugin struct, and the
-//! [`TakoPlugin`] wiring that installs the middleware and the staleness
-//! janitor.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -29,7 +25,7 @@ use crate::stores::runtime;
 #[cfg(test)]
 mod tests;
 
-/// Builder.
+/// Defaults: a token bucket of 60 requests refilled every second, keyed by peer IP.
 pub struct RateLimiterBuilder {
   cfg: Config,
   key_fn: Option<KeyFn>,
@@ -95,20 +91,16 @@ impl RateLimiterBuilder {
     self
   }
 
-  /// Group IPv6 clients by a prefix; 64 groups a subnet and 128 keeps individual addresses.
-  ///
-  /// # Panics
-  /// Panics when `prefix` exceeds 128.
+  /// Groups IPv6 clients by prefix: 64 per subnet, 128 (the default) per address. Panics
+  /// above 128.
   pub fn ipv6_prefix(mut self, prefix: u8) -> Self {
     assert!(prefix <= 128, "IPv6 prefix must be at most 128");
     self.cfg.ipv6_prefix = prefix;
     self
   }
 
-  /// Override the bucket key. Common compositions:
-  /// `format!("{}|{}", path, ip)` for per-route+IP buckets,
-  /// `Some(req.headers().get("x-tenant-id")?.to_str().ok()?.to_string())`
-  /// for per-tenant.
+  /// Replaces the peer-IP key, e.g. per route and IP or per tenant header; `None` follows
+  /// [`Self::on_unkeyed`].
   pub fn key_fn<F>(mut self, f: F) -> Self
   where
     F: Fn(&Request) -> Option<String> + Send + Sync + 'static,
@@ -117,7 +109,7 @@ impl RateLimiterBuilder {
     self
   }
 
-  /// Convenience: N requests / second.
+  /// Burst and refill of `n` per second.
   pub fn requests_per_second(mut self, n: u32) -> Self {
     self.cfg.max_requests = n;
     self.cfg.refill_rate = n;
@@ -125,7 +117,7 @@ impl RateLimiterBuilder {
     self
   }
 
-  /// Convenience: N requests / minute.
+  /// Burst and refill of `n` per minute.
   pub fn requests_per_minute(mut self, n: u32) -> Self {
     self.cfg.max_requests = n;
     self.cfg.refill_rate = n;
@@ -133,20 +125,8 @@ impl RateLimiterBuilder {
     self
   }
 
-  /// Build the plugin.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `refill_rate == 0`. A zero rate poisons the GCRA path
-  /// (`rate_per_sec=0` → division-by-zero → `INFINITY`/`NaN` arithmetic that
-  /// silently bypasses the limiter) and is also nonsensical for the token
-  /// bucket (the bucket would never refill). Use a deliberately tiny rate
-  /// like `1` with a long `refill_interval` if you want hard throttling.
-  ///
-  /// Also panics if `max_requests == 0`. With cap zero, the token bucket's
-  /// `available >= 1.0` check fails forever and GCRA's `burst_tolerance=0`
-  /// produces the same result — every request is denied silently with no
-  /// startup signal that the limiter is essentially a hard-deny gate.
+  /// Panics on a zero `refill_rate`, `refill_interval_ms` or `max_requests`: a zero rate
+  /// breaks GCRA's arithmetic and a zero cap silently denies every request.
   pub fn build(self) -> RateLimiterPlugin {
     assert!(
       self.cfg.refill_rate > 0,

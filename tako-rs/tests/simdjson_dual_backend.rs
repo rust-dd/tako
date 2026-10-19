@@ -1,12 +1,5 @@
-//! Regression test for the dual `simd-json` + `sonic-rs` backend story.
-//!
-//! Both crates are intentionally pulled in by the `simd` feature:
-//! - `tako_rs_core::extractors::json::Json` uses `sonic_rs` on its SIMD fast path.
-//! - `tako_rs_extractors::simdjson::SimdJson` uses `simd_json`.
-//! - `tako_rs_extractors::simdjson::SonicJson` uses `sonic_rs` directly.
-//!
-//! This test exercises all three so a future "pick one" refactor cannot
-//! silently break either backend.
+//! All three JSON paths of the `simd` feature: `Json` on its SIMD path and `SonicJson` use
+//! `sonic_rs`, `SimdJson` uses `simd_json`.
 
 #![cfg(feature = "simd")]
 

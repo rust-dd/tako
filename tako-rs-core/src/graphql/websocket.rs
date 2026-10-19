@@ -1,5 +1,3 @@
-//! Generic `GraphQL`-over-WebSocket driver over any `Sink`/`Stream` pair of WebSocket messages.
-
 use std::future::Future;
 use std::time::Duration;
 
@@ -23,7 +21,6 @@ use crate::ws::Error;
 use crate::ws::Message;
 
 /// Runs async-graphql's WebSocket protocol over any `Sink`/`Stream` of WebSocket messages.
-#[cfg(not(feature = "compio"))]
 pub struct GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
   E: Executor,
@@ -38,7 +35,6 @@ where
   keepalive_timeout: Option<Duration>,
 }
 
-#[cfg(not(feature = "compio"))]
 impl<S, E>
   GraphQLWebSocket<
     futures_util::stream::SplitSink<S, Message>,
@@ -51,14 +47,13 @@ where
   S: Stream<Item = Result<Message, Error>> + Sink<Message>,
   E: Executor,
 {
-  /// Create a `GraphQLWebSocket` from a combined websocket stream implementing `Sink`+`Stream`.
+  /// Splits a socket that is both the `Sink` and the `Stream`.
   pub fn new(stream: S, executor: E, protocol: WebSocketProtocols) -> Self {
     let (sink, stream) = stream.split();
     GraphQLWebSocket::new_with_pair(sink, stream, executor, protocol)
   }
 }
 
-#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E>
   GraphQLWebSocket<SinkT, StreamT, E, DefaultOnConnInitType, DefaultOnPingType>
 where
@@ -66,7 +61,7 @@ where
   StreamT: Stream<Item = Result<Message, Error>>,
   E: Executor,
 {
-  /// Create a `GraphQLWebSocket` from separate sink and stream.
+  /// Uses a sink and a stream that are already separate.
   pub fn new_with_pair(
     sink: SinkT,
     stream: StreamT,
@@ -86,7 +81,6 @@ where
   }
 }
 
-#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E, OnConnInit, OnPing> GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
   SinkT: Sink<Message>,
@@ -105,7 +99,6 @@ where
   }
 }
 
-#[cfg(not(feature = "compio"))]
 impl<SinkT, StreamT, E, OnConnInit, OnConnInitFut, OnPing, OnPingFut>
   GraphQLWebSocket<SinkT, StreamT, E, OnConnInit, OnPing>
 where
@@ -154,7 +147,7 @@ where
     }
   }
 
-  /// Runs the `GraphQL` over WebSocket protocol until the connection ends.
+  /// Serves the protocol until the connection closes or a read fails.
   pub async fn serve(self) {
     let Self {
       sink,

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-/// Origin matching mode.
 #[derive(Clone)]
 pub enum OriginMatcher {
-  /// Exact match (current default).
+  /// What a plain string converts into.
   Exact(String),
   /// Suffix match — `acme.example.com` matches origin `https://api.acme.example.com`.
   Suffix(String),
@@ -16,21 +15,15 @@ impl OriginMatcher {
     match self {
       Self::Exact(s) => s == origin,
       Self::Suffix(s) => {
-        // PPL-20: parse the host with `url::Url` instead of the prior
-        // `split('/').nth(2).split(':')` chain, which mishandled
-        // trailing slashes (Origin headers should not have them, but
-        // browsers occasionally do), IPv6 literals like
-        // `https://[::1]:8443` (the `split(':')` would chop the literal
-        // mid-address), and userinfo like `https://user@example.com`
-        // (the host would have leaked the userinfo prefix).
-        let host = url::Url::parse(origin)
-          .ok()
-          .and_then(|u| u.host_str().map(str::to_owned))
-          .unwrap_or_default();
-        if host.is_empty() {
+        // `Url` handles IPv6 literals and userinfo that naive splitting gets wrong.
+        let Ok(url) = url::Url::parse(origin) else {
           return false;
-        }
-        host == *s.as_str() || host.ends_with(&format!(".{s}"))
+        };
+        let host = url.host_str().unwrap_or_default();
+        !host.is_empty()
+          && host
+            .strip_suffix(s.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.ends_with('.'))
       }
       Self::Custom(f) => f(origin),
     }

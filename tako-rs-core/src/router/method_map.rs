@@ -2,8 +2,6 @@
 
 use http::Method;
 
-/// Maps the 9 standard HTTP methods to array indices.
-/// Returns `None` for non-standard / extension methods.
 #[inline]
 fn method_slot(method: &Method) -> Option<usize> {
   Some(match *method {
@@ -20,12 +18,7 @@ fn method_slot(method: &Method) -> Option<usize> {
   })
 }
 
-/// Reconstructs a `Method` from its slot index.
-///
-/// The only caller iterates `0..9` over the `standard` array, so out-of-range
-/// indices indicate an internal invariant violation. In debug builds this
-/// trips an assertion; in release we degrade to `Method::GET` rather than
-/// panic from a hot router path.
+/// Inverse of `method_slot`; out-of-range indices are a bug and yield GET in release builds.
 #[inline]
 fn method_from_slot(idx: usize) -> Method {
   match idx {
@@ -45,10 +38,7 @@ fn method_from_slot(idx: usize) -> Method {
   }
 }
 
-/// A compact, cache-friendly map keyed by HTTP method.
-///
-/// Standard methods (GET, POST, PUT, …) use O(1) array indexing.
-/// Non-standard methods fall back to linear scan (extremely rare in practice).
+/// Standard methods index an array; extension methods fall back to a linear scan.
 pub(crate) struct MethodMap<V> {
   standard: [Option<V>; 9],
   custom: Vec<(Method, V)>,
@@ -62,7 +52,6 @@ impl<V> MethodMap<V> {
     }
   }
 
-  /// O(1) lookup for standard methods, linear scan for custom.
   #[inline]
   pub(crate) fn get(&self, method: &Method) -> Option<&V> {
     if let Some(idx) = method_slot(method) {
@@ -76,7 +65,6 @@ impl<V> MethodMap<V> {
     }
   }
 
-  /// Returns a mutable reference, inserting `V::default()` if absent.
   pub(crate) fn get_or_default_mut(&mut self, method: &Method) -> &mut V
   where
     V: Default,
@@ -89,9 +77,6 @@ impl<V> MethodMap<V> {
         &mut self.custom[pos].1
       } else {
         self.custom.push((method.clone(), V::default()));
-        // SAFETY-style invariant: we just pushed, so the vec is non-empty.
-        // Using `expect` over `unwrap` to surface the invariant if it ever
-        // breaks in a future refactor.
         &mut self
           .custom
           .last_mut()
@@ -109,14 +94,5 @@ impl<V> MethodMap<V> {
       .enumerate()
       .filter_map(|(idx, slot)| slot.as_ref().map(|v| (method_from_slot(idx), v)))
       .chain(self.custom.iter().map(|(m, v)| (m.clone(), v)))
-  }
-
-  /// Mutable counterpart of [`MethodMap::iter`]. Used by router GC paths.
-  pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut V> {
-    self
-      .standard
-      .iter_mut()
-      .filter_map(|slot| slot.as_mut())
-      .chain(self.custom.iter_mut().map(|(_, v)| v))
   }
 }

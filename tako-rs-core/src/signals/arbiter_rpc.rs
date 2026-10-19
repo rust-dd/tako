@@ -1,5 +1,3 @@
-//! Typed-RPC registration and call methods for the shared signal arbiter.
-
 use std::any::Any;
 use std::sync::Arc;
 
@@ -9,18 +7,8 @@ use super::rpc::RpcResult;
 use super::signal::RpcHandler;
 
 impl SignalArbiter {
-  /// Registers a typed RPC handler under the given id.
-  ///
-  /// This allows request/response style interactions over the same arbiter,
-  /// using type-erased storage internally for flexibility.
-  ///
-  /// # Panics
-  ///
-  /// The returned handler panics *at call time* (not at registration) if a
-  /// caller invokes [`SignalArbiter::call_rpc`] under this id with a request
-  /// type that does not match `Req`. Type erasure happens during dispatch, so
-  /// the mismatch surfaces as a fail-fast panic instead of returning `None`.
-  /// Keep the `Req` type stable across registrations.
+  /// Registers the RPC handler for `id`, replacing any previous one; a call with a request
+  /// type other than `Req` panics.
   pub fn register_rpc<Req, Res, F, Fut>(&self, id: impl Into<String>, f: F)
   where
     Req: Send + Sync + 'static,
@@ -44,13 +32,10 @@ impl SignalArbiter {
       })
     });
 
-    // `upsert_sync`: re-registering the same id replaces the prior handler.
-    // `insert_sync` would keep the old one and silently drop the new closure
-    // — a re-`register_rpc` after hot-reload or test reset would be a no-op.
     self.inner.rpc.upsert_sync(id_str, handler);
   }
 
-  /// Calls a typed RPC handler and returns a shared pointer to the response.
+  /// Calls the RPC for `id`; `None` without a handler or when the response is not `Res`.
   pub async fn call_rpc_arc<Req, Res>(&self, id: impl AsRef<str>, req: Req) -> Option<Arc<Res>>
   where
     Req: Send + Sync + 'static,
@@ -67,7 +52,8 @@ impl SignalArbiter {
     raw_res.downcast::<Res>().ok()
   }
 
-  /// Calls a typed RPC handler and returns an owned response with an error type.
+  /// Like [`call_rpc_arc`](Self::call_rpc_arc), but clones the response and says why it
+  /// failed.
   pub async fn call_rpc_result<Req, Res>(&self, id: impl AsRef<str>, req: Req) -> RpcResult<Res>
   where
     Req: Send + Sync + 'static,
@@ -89,7 +75,7 @@ impl SignalArbiter {
     }
   }
 
-  /// Calls a typed RPC handler and returns an owned response.
+  /// [`call_rpc_result`](Self::call_rpc_result) without the reason.
   pub async fn call_rpc<Req, Res>(&self, id: impl AsRef<str>, req: Req) -> Option<Res>
   where
     Req: Send + Sync + 'static,
@@ -98,7 +84,6 @@ impl SignalArbiter {
     self.call_rpc_result::<Req, Res>(id, req).await.ok()
   }
 
-  /// Returns a list of registered RPC ids.
   pub fn rpc_ids(&self) -> Vec<String> {
     let mut ids = Vec::new();
     self.inner.rpc.iter_sync(|k, _| {

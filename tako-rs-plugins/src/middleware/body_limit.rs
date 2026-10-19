@@ -1,10 +1,5 @@
-//! Request body size limiting middleware for preventing resource exhaustion attacks.
-//!
-//! This module provides middleware for limiting the size of HTTP request bodies to prevent
-//! denial-of-service attacks and resource exhaustion. It supports both static size limits
-//! and dynamic limits based on request properties. The middleware performs fast rejection
-//! using the Content-Length header when available, avoiding unnecessary body processing
-//! for oversized requests.
+//! Request body limits: oversized `Content-Length` is rejected with 413 up front, and the
+//! body is capped while it streams.
 //!
 //! # Examples
 //!
@@ -24,16 +19,6 @@
 //!         1024 * 1024 // 1MB for other requests
 //!     }
 //! });
-//!
-//! // Combined static and dynamic limits
-//! let combined = BodyLimit::new_with_dynamic(5 * 1024 * 1024, |req| {
-//!     // Dynamic limit overrides static one
-//!     if req.headers().get("x-large-upload").is_some() {
-//!         100 * 1024 * 1024 // 100MB for special uploads
-//!     } else {
-//!         2 * 1024 * 1024 // 2MB override
-//!     }
-//! });
 //! ```
 
 use std::future::Future;
@@ -50,17 +35,7 @@ use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Request body size limiting middleware configuration.
-///
-/// `BodyLimit` provides configurable middleware for limiting HTTP request body sizes
-/// to prevent resource exhaustion and denial-of-service attacks. It supports both
-/// static size limits and dynamic limits that can vary based on request properties
-/// such as path, headers, or other metadata. The middleware performs efficient
-/// early rejection using Content-Length headers when available.
-///
-/// # Type Parameters
-///
-/// * `F` - Dynamic limit function type that takes a request and returns the size limit
+/// Limits are in bytes.
 ///
 /// # Examples
 ///
@@ -84,18 +59,19 @@ pub struct BodyLimit<F = fn(&Request) -> usize>
 where
   F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-  /// Static size limit in bytes, if configured.
-  limit: Option<usize>,
-  /// Dynamic limit function for request-based limits.
-  dynamic_limit: Option<F>,
+  limit: Limit<F>,
+}
+
+#[derive(Clone)]
+enum Limit<F> {
+  Static(usize),
+  Dynamic(F),
 }
 
 impl BodyLimit<fn(&Request) -> usize> {
-  /// Creates a body limit middleware with a fixed size limit.
   pub fn new(limit: usize) -> Self {
     Self {
-      limit: Some(limit),
-      dynamic_limit: None,
+      limit: Limit::Static(limit),
     }
   }
 }
@@ -104,19 +80,9 @@ impl<F> BodyLimit<F>
 where
   F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-  /// Creates a body limit middleware with a dynamic limit function.
   pub fn with_dynamic_limit(f: F) -> Self {
     Self {
-      limit: None,
-      dynamic_limit: Some(f),
-    }
-  }
-
-  /// Creates a body limit middleware with both static and dynamic limits.
-  pub fn new_with_dynamic(limit: usize, f: F) -> Self {
-    Self {
-      limit: Some(limit),
-      dynamic_limit: Some(f),
+      limit: Limit::Dynamic(f),
     }
   }
 }
@@ -125,7 +91,6 @@ impl<F> IntoMiddleware for BodyLimit<F>
 where
   F: Fn(&Request) -> usize + Send + Sync + 'static,
 {
-  /// Converts the body limit configuration into middleware.
   fn into_middleware(
     self,
   ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
@@ -133,21 +98,20 @@ where
   + Send
   + Sync
   + 'static {
-    let static_limit = self.limit;
-    let dynamic_limit = self.dynamic_limit.map(Arc::new);
+    let limit = match self.limit {
+      Limit::Static(n) => Limit::Static(n),
+      Limit::Dynamic(f) => Limit::Dynamic(Arc::new(f)),
+    };
 
     move |req: Request, next: Next| {
-      let dynamic_limit = dynamic_limit.clone();
+      let limit = limit.clone();
 
       Box::pin(async move {
-        // Determine effective limit: dynamic → static → default 10 MiB
-        let limit = dynamic_limit
-          .as_ref()
-          .map(|f| f(&req))
-          .or(static_limit)
-          .unwrap_or(10 * 1024 * 1024);
+        let limit = match &limit {
+          Limit::Static(n) => *n,
+          Limit::Dynamic(f) => f(&req),
+        };
 
-        // Fast-path rejection via Content-Length header
         if let Some(len) = req
           .headers()
           .get(CONTENT_LENGTH)
@@ -158,10 +122,7 @@ where
           return (StatusCode::PAYLOAD_TOO_LARGE, "Body exceeds allowed size").into_response();
         }
 
-        // Stream-aware enforcement: wrap the body in `Limited` so reads past `limit`
-        // produce a `LengthLimitError` instead of buffering the entire body up-front.
-        // Handlers that consume the body see a normal body error and can return 413
-        // via `LengthLimitError` downcasting.
+        // Reads past `limit` fail with `LengthLimitError`; handlers can downcast it to answer 413.
         let (parts, body) = req.into_parts();
         let limited = Limited::new(body, limit);
         let req = http::Request::from_parts(parts, TakoBody::new(limited));

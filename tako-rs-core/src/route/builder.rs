@@ -1,10 +1,4 @@
-//! The chainable route configuration API.
-//!
-//! These `&self -> &Self` builder methods are chained off the `&Route`
-//! returned by the router: middleware and plugin registration, the HTTP
-//! protocol-version guard, per-route signal wiring, the timeout override,
-//! and the SIMD JSON dispatch mode — plus the crate-private getters the
-//! dispatch hot path reads back.
+//! The chainable configuration methods of a registered [`Route`], and the getters dispatch reads.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -24,7 +18,7 @@ use crate::types::BoxMiddleware;
 use crate::types::Request;
 
 impl Route {
-  /// Adds middleware to this route's execution chain.
+  /// Adds middleware that runs after the router's global middleware.
   pub fn middleware<F, Fut, R>(&self, f: F) -> &Self
   where
     F: Fn(Request, Next) -> Fut + Clone + Send + Sync + 'static,
@@ -37,8 +31,7 @@ impl Route {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    // RCU-style append: ArcSwap retries the closure on CAS conflict, so
-    // concurrent route-level middleware pushes cannot lose entries.
+    // `rcu` retries on a concurrent update, so no registration is lost.
     self.middlewares.rcu(move |current| {
       let mut next = Vec::with_capacity(current.len() + 1);
       next.extend(current.iter().cloned());
@@ -49,11 +42,7 @@ impl Route {
     self
   }
 
-  /// Adds a plugin to this route.
-  ///
-  /// Route-level plugins allow applying functionality like compression, CORS,
-  /// or rate limiting to specific routes instead of globally. Plugins added
-  /// to a route are initialized when the route is first accessed.
+  /// Adds a plugin for this route only; its `setup` runs on the route's first request.
   ///
   /// # Examples
   ///
@@ -90,14 +79,9 @@ impl Route {
     self
   }
 
-  /// Initializes route-level plugins exactly once.
-  ///
-  /// This method sets up all plugins registered with this route by calling
-  /// their setup method. It uses a mini-router to collect the middleware
-  /// that plugins register, then adds that middleware to the route's
-  /// middleware chain. This ensures plugins are only initialized once.
+  /// Runs the plugins' `setup` once against a scratch router and prepends the middleware
+  /// they register.
   #[cfg(feature = "plugins")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   pub(crate) fn setup_plugins_once(&self) -> Result<(), String> {
     self
       .plugins_initialized
@@ -128,11 +112,7 @@ impl Route {
       .clone()
   }
 
-  /// Restricts this route to a specific HTTP protocol version.
-  ///
-  /// Requests whose `version()` does not match are answered with
-  /// `505 HTTP Version Not Supported`. Set once at registration; later calls
-  /// are no-ops (lock-free reads in the hot path).
+  /// Answers requests of any other HTTP version with 505; only the first call takes effect.
   pub fn version(&self, version: http::Version) -> &Self {
     if let Err(_existing) = self.http_protocol.set(version) {
       tracing::warn!(
@@ -166,14 +146,13 @@ impl Route {
     self.version(http::Version::HTTP_2)
   }
 
-  /// Returns the configured protocol guard, if any.
   #[inline]
   pub(crate) fn protocol_guard(&self) -> Option<http::Version> {
     self.http_protocol.get().copied()
   }
 
   #[cfg(feature = "signals")]
-  /// Returns a reference to this route's signal arbiter.
+  /// This route's arbiter; its request start and completion signals are emitted on it.
   pub fn signals(&self) -> &SignalArbiter {
     &self.signals
   }
@@ -200,11 +179,7 @@ impl Route {
     self.signals.emit(signal).await;
   }
 
-  /// Sets a timeout for this route, overriding the router-level timeout.
-  ///
-  /// When a request exceeds the timeout duration, the timeout fallback handler
-  /// is invoked (if configured on the router) or a 408 Request Timeout response
-  /// is returned.
+  /// Overrides the router's timeout for this route; only the first call takes effect.
   ///
   /// # Examples
   ///
@@ -227,20 +202,13 @@ impl Route {
     self
   }
 
-  /// Returns the configured timeout for this route, if any.
   #[inline]
   pub(crate) fn get_timeout(&self) -> Option<Duration> {
     self.timeout.get().copied()
   }
 
-  /// Configures the SIMD JSON dispatch behavior for this route.
-  ///
-  /// When the `simd` feature is enabled, `Json<T>` can use the `sonic_rs` SIMD
-  /// parser for faster deserialization. By default, SIMD is used for payloads
-  /// above 2 MB. This method lets you override that threshold — or force
-  /// SIMD on/off — for individual routes.
-  ///
-  /// Without the `simd` feature this setting is accepted but has no effect.
+  /// When `Json<T>` parses with `sonic-rs` on this route (default: bodies of 2 MiB or more);
+  /// needs the `simd-sonic` feature, and only the first call takes effect.
   ///
   /// # Examples
   ///
@@ -272,7 +240,6 @@ impl Route {
     self
   }
 
-  /// Returns the configured SIMD JSON mode for this route, if any.
   #[inline]
   pub(crate) fn get_simd_json_mode(&self) -> Option<SimdJsonMode> {
     self.simd_json_mode.get().copied()

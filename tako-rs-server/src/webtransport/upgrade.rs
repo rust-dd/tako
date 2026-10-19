@@ -56,10 +56,8 @@ pub(crate) fn is_session_request(req: &Request<()>) -> bool {
     && req.extensions().get::<Protocol>() == Some(&Protocol::WEB_TRANSPORT)
 }
 
-/// Runs a WebTransport CONNECT request through the router.
-///
-/// Returns the request when a handler called `on_session` and the response is
-/// 2xx. Any other response goes back to the client as is.
+/// Routes a WebTransport CONNECT; returns it when a handler called `on_session` and answered 2xx,
+/// and sends any other response back to the client as is.
 pub(crate) async fn route(
   request: Request<()>,
   mut stream: ServerStream,

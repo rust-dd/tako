@@ -8,7 +8,7 @@ use tako::responder::Responder;
 use tako::router::Router;
 use tako::signals::Signal;
 use tako::signals::SignalArbiter;
-use tako::signals::app_events;
+use tako::signals::app_signals;
 use tako::signals::ids;
 use tako::types::BuildHasher;
 use tokio::net::TcpListener;
@@ -50,7 +50,7 @@ async fn trigger_hot_reload() -> impl Responder {
 }
 
 fn init_app_signals() {
-  let arbiter = app_events();
+  let arbiter = app_signals();
 
   // Log when server starts
   arbiter.on(ids::SERVER_STARTED, |signal: Signal| async move {
@@ -72,7 +72,7 @@ fn init_app_signals() {
   });
 
   // Wait once for router.hot_reload, then log
-  let arbiter_once = app_events().clone();
+  let arbiter_once = app_signals().clone();
   tokio::spawn(async move {
     if let Some(signal) = arbiter_once.once(ids::ROUTER_HOT_RELOAD).await {
       println!("[signals-complex] router.hot_reload: {:?}", signal.metadata);

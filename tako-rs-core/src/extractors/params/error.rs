@@ -7,10 +7,7 @@ use serde::de::{self};
 
 use crate::responder::Responder;
 
-/// Error types for path parameter extraction and deserialization.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries.
+/// Why [`Params`](crate::extractors::params::Params) extraction failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParamsError {
   /// Path parameters not found in request extensions (internal routing error).
@@ -33,12 +30,7 @@ impl std::fmt::Display for ParamsError {
 impl std::error::Error for ParamsError {}
 
 impl Responder for ParamsError {
-  /// Converts path parameter errors into appropriate HTTP error responses.
-  ///
-  /// `MissingPathParams` is an internal-routing condition (the router did not
-  /// populate the extension), so the response body is intentionally generic
-  /// — the detailed framing ("request extensions") stays in the
-  /// `Display`/`tracing` form so it does not leak through the wire.
+  /// `MissingPathParams` answers 500 with a generic body that keeps routing details private.
   fn into_response(self) -> crate::types::Response {
     match self {
       ParamsError::MissingPathParams => {
@@ -53,7 +45,6 @@ impl Responder for ParamsError {
   }
 }
 
-// Custom error type for the deserializer
 #[derive(Debug)]
 pub(crate) struct PathParamsDeError(String);
 
@@ -77,9 +68,7 @@ mod tests {
 
   #[test]
   fn params_error_responder_status_codes() {
-    // Missing PathParams in request extensions is a routing-internal bug,
-    // so the responder maps it to 500 rather than 400. Deserialization
-    // failure is caller-visible and stays at 400.
+    // A missing extension is a routing bug (500); a bad value is the caller's (400).
     let resp = ParamsError::MissingPathParams.into_response();
     assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let resp = ParamsError::DeserializationError("bad".to_string()).into_response();

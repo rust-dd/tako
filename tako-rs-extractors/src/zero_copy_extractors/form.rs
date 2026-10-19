@@ -1,8 +1,4 @@
-//! Zero-copy form-urlencoded extractor.
-//!
-//! Mirrors `JsonBorrowed`: the body is collected once and cached in request
-//! extensions, then deserialized via `serde_urlencoded::from_bytes` into a `T`
-//! that borrows from the cached buffer.
+//! A form body deserialized into a `T` that borrows from the collected body.
 
 use bytes::Bytes;
 use http::StatusCode;
@@ -10,20 +6,14 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 
-/// Zero-copy `application/x-www-form-urlencoded` extractor.
-///
-/// The deserialized value `T` may borrow string slices from the cached body
-/// buffer, so callers can decode forms without per-field allocations.
+/// An `application/x-www-form-urlencoded` body as a `T` that may borrow from the collected body.
 pub struct FormBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
-/// Error type for `FormBorrowed`.
+/// Rejection of [`FormBorrowed`].
 #[derive(Debug)]
 pub enum FormBorrowedError {
-  /// Content-Type is not `application/x-www-form-urlencoded`.
   InvalidContentType,
-  /// Body collection failed.
   BodyReadError(tako_rs_core::extractors::body::BodyReadError),
-  /// `serde_urlencoded` failed to deserialize.
   DeserializationError(String),
 }
 

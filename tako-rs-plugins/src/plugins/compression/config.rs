@@ -1,8 +1,5 @@
-//! Compression configuration: content-type policy and runtime settings.
-
 use super::encoding::Encoding;
 
-/// Content-type matching policy.
 #[derive(Clone, Default)]
 pub enum ContentTypePolicy {
   /// Default heuristic: text/*, anything containing `json`, `javascript`, `xml`.
@@ -12,7 +9,7 @@ pub enum ContentTypePolicy {
   Exact(Vec<String>),
   /// MIME prefixes (case-insensitive). E.g. `["text/", "application/x-json-"]`.
   Prefix(Vec<String>),
-  /// Caller-provided predicate. Receives the verbatim header value.
+  /// Receives the MIME type without parameters.
   Custom(std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>),
 }
 
@@ -36,12 +33,11 @@ impl ContentTypePolicy {
   }
 }
 
-/// Configuration settings for HTTP response compression.
 #[derive(Clone)]
 pub struct Config {
-  /// List of enabled compression encodings in preference order.
+  /// Order is ignored: negotiation prefers Brotli, Gzip, DEFLATE, then Zstandard.
   pub enabled: Vec<Encoding>,
-  /// Minimum response size in bytes required for compression to be applied.
+  /// Bytes; smaller bodies are sent uncompressed.
   pub min_size: usize,
   /// Buffered bodies at least this large are compressed on a blocking worker.
   pub blocking_threshold: usize,
@@ -54,21 +50,14 @@ pub struct Config {
   /// Zstandard compression level (1-22, where 22 is maximum compression).
   #[cfg(feature = "zstd")]
   pub zstd_level: i32,
-  /// Whether to use streaming compression instead of buffering entire responses.
+  /// Compress chunk by chunk instead of buffering the whole body.
   pub stream: bool,
-  /// Which response content types are eligible for compression.
   pub content_types: ContentTypePolicy,
-  /// When true (default), responses that look like they carry authenticated
-  /// secrets (Set-Cookie present, or the request had Authorization /
-  /// Proxy-Authorization / Cookie) are *not* compressed. This is the
-  /// canonical CRIME / BREACH mitigation. Disable explicitly with
-  /// [`CompressionBuilder::protect_sensitive`](super::builder::CompressionBuilder::protect_sensitive) when you have other
-  /// mitigations (e.g. per-response random padding or rotated CSRF tokens).
+  /// Skip compression when the response sets cookies or the request carried credentials.
   pub protect_sensitive: bool,
 }
 
 impl Default for Config {
-  /// Provides sensible default compression configuration.
   fn default() -> Self {
     Self {
       enabled: vec![Encoding::Gzip, Encoding::Brotli, Encoding::Deflate],

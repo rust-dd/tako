@@ -1,16 +1,9 @@
-//! Fluent builder for assembling a [`CompressionPlugin`](super::plugin::CompressionPlugin).
-
 use super::config::Config;
 use super::config::ContentTypePolicy;
 use super::encoding::Encoding;
 use super::plugin::CompressionPlugin;
 
-/// Builder for configuring HTTP response compression settings.
-///
-/// `CompressionBuilder` provides a fluent API for constructing compression plugin
-/// configurations. It allows selective enabling/disabling of compression algorithms,
-/// setting compression levels, and configuring behavior options like streaming and
-/// minimum response size thresholds.
+/// Defaults: Gzip, Brotli and DEFLATE at level 5 for buffered bodies of at least 1 KiB.
 ///
 /// # Examples
 ///
@@ -40,64 +33,45 @@ impl Default for CompressionBuilder {
 }
 
 impl CompressionBuilder {
-  /// Creates a new compression configuration builder with default settings.
   pub fn new() -> Self {
     Self(Config::default())
   }
 
-  /// Enables or disables Gzip compression.
-  pub fn enable_gzip(mut self, yes: bool) -> Self {
-    if yes && !self.0.enabled.contains(&Encoding::Gzip) {
-      self.0.enabled.push(Encoding::Gzip);
+  fn toggle(mut self, encoding: Encoding, yes: bool) -> Self {
+    if yes && !self.0.enabled.contains(&encoding) {
+      self.0.enabled.push(encoding);
     }
     if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Gzip);
+      self.0.enabled.retain(|e| *e != encoding);
     }
     self
   }
 
-  /// Enables or disables Brotli compression.
-  pub fn enable_brotli(mut self, yes: bool) -> Self {
-    if yes && !self.0.enabled.contains(&Encoding::Brotli) {
-      self.0.enabled.push(Encoding::Brotli);
-    }
-    if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Brotli);
-    }
-    self
+  pub fn enable_gzip(self, yes: bool) -> Self {
+    self.toggle(Encoding::Gzip, yes)
   }
 
-  /// Enables or disables DEFLATE compression.
-  pub fn enable_deflate(mut self, yes: bool) -> Self {
-    if yes && !self.0.enabled.contains(&Encoding::Deflate) {
-      self.0.enabled.push(Encoding::Deflate);
-    }
-    if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Deflate);
-    }
-    self
+  pub fn enable_brotli(self, yes: bool) -> Self {
+    self.toggle(Encoding::Brotli, yes)
   }
 
-  /// Enables or disables Zstandard compression (requires zstd feature).
+  pub fn enable_deflate(self, yes: bool) -> Self {
+    self.toggle(Encoding::Deflate, yes)
+  }
+
   #[cfg(feature = "zstd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
-  pub fn enable_zstd(mut self, yes: bool) -> Self {
-    if yes && !self.0.enabled.contains(&Encoding::Zstd) {
-      self.0.enabled.push(Encoding::Zstd);
-    }
-    if !yes {
-      self.0.enabled.retain(|e| *e != Encoding::Zstd);
-    }
-    self
+  pub fn enable_zstd(self, yes: bool) -> Self {
+    self.toggle(Encoding::Zstd, yes)
   }
 
-  /// Enables or disables streaming compression mode.
+  /// Compresses chunk by chunk instead of buffering the whole body.
   pub fn enable_stream(mut self, stream: bool) -> Self {
     self.0.stream = stream;
     self
   }
 
-  /// Sets the minimum response size threshold for compression.
+  /// Smaller bodies are sent uncompressed; streams are checked only by `Content-Length`.
   pub fn min_size(mut self, bytes: usize) -> Self {
     self.0.min_size = bytes;
     self
@@ -110,31 +84,30 @@ impl CompressionBuilder {
     self
   }
 
-  /// Replaces the content-type matching policy.
   pub fn content_types(mut self, policy: ContentTypePolicy) -> Self {
     self.0.content_types = policy;
     self
   }
 
-  /// Sets the Gzip compression level (1-9).
+  /// Capped at 9.
   pub fn gzip_level(mut self, lvl: u32) -> Self {
     self.0.gzip_level = lvl.min(9);
     self
   }
 
-  /// Sets the Brotli compression level (1-11).
+  /// Capped at 11.
   pub fn brotli_level(mut self, lvl: u32) -> Self {
     self.0.brotli_level = lvl.min(11);
     self
   }
 
-  /// Sets the DEFLATE compression level (1-9).
+  /// Capped at 9.
   pub fn deflate_level(mut self, lvl: u32) -> Self {
     self.0.deflate_level = lvl.min(9);
     self
   }
 
-  /// Sets the Zstandard compression level (1-22, requires zstd feature).
+  /// Clamped to 1–22.
   #[cfg(feature = "zstd")]
   #[cfg_attr(docsrs, doc(cfg(feature = "zstd")))]
   pub fn zstd_level(mut self, lvl: i32) -> Self {
@@ -142,17 +115,13 @@ impl CompressionBuilder {
     self
   }
 
-  /// Toggle the CRIME/BREACH mitigation. Default is `true`: responses
-  /// containing `Set-Cookie`, or whose request carried `Authorization`,
-  /// `Proxy-Authorization`, or `Cookie`, are sent uncompressed. Setting this
-  /// to `false` re-enables compression unconditionally — only do so if you
-  /// have an alternative mitigation (per-response padding, rotated tokens).
+  /// CRIME/BREACH guard, on by default: responses that set cookies, or answer requests with
+  /// credentials or cookies, stay uncompressed. Disable only with another mitigation.
   pub fn protect_sensitive(mut self, on: bool) -> Self {
     self.0.protect_sensitive = on;
     self
   }
 
-  /// Builds the compression plugin with the configured settings.
   pub fn build(self) -> CompressionPlugin {
     CompressionPlugin { cfg: self.0 }
   }

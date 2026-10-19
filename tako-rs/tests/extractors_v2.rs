@@ -1,6 +1,3 @@
-//! v2 extractor regression tests covering the new shapes added in roadmap §5.1:
-//! `Path<T>`, `QueryMulti<T>`, `MatchedPath`, `OriginalUri`, `Host`, `ContentLengthLimit`.
-
 use http::Request;
 use tako::body::TakoBody;
 use tako::extractors::FromRequest;
@@ -73,9 +70,7 @@ async fn query_multi_repeated_keys() {
 
 #[tokio::test]
 async fn host_ignores_x_forwarded_host_when_untrusted() {
-  // No UriPartsConfig in extensions → secure-by-default: the
-  // X-Forwarded-Host header is ignored, and with no Host header and no
-  // authority on the request URI the extractor returns HostMissing.
+  // There is no `Host` header or URI authority either, so ignoring the header leaves no host.
   let mut req = Request::builder()
     .uri("/")
     .header("x-forwarded-host", "evil.example.com")
@@ -108,7 +103,7 @@ async fn host_uses_x_forwarded_host_when_proxy_trusted() {
   let Host(h) = Host::from_request(&mut req).await.unwrap();
   assert_eq!(h, "example.com");
 
-  // Sanity: a peer not in the trusted list must not unlock the header.
+  // A peer outside the trusted list must not unlock the header.
   let mut req = Request::builder()
     .uri("/")
     .header("x-forwarded-host", "example.com")
@@ -133,8 +128,6 @@ async fn host_falls_back_to_host_header() {
   assert_eq!(h, "fallback.test");
 }
 
-// --- helpers -----------------------------------------------------------------
-
 fn make_path_params(pairs: &[(&str, &str)]) -> tako_rs_core::extractors::params::PathParams {
   use smallvec::SmallVec;
   let mut sv: SmallVec<[(std::sync::Arc<str>, String); 4]> = SmallVec::new();
@@ -146,7 +139,6 @@ fn make_path_params(pairs: &[(&str, &str)]) -> tako_rs_core::extractors::params:
 
 #[tokio::test]
 async fn params_extractor_matches_path_extractor_for_struct() {
-  // Sanity: `Path<T>` is just a re-export wrapper around `Params<T>`.
   #[derive(serde::Deserialize)]
   struct Pair {
     a: u64,

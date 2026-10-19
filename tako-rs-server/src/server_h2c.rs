@@ -1,15 +1,4 @@
-#![cfg(feature = "http2")]
-#![cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-
-//! HTTP/2 cleartext (h2c) server, prior-knowledge mode.
-//!
-//! For deployments where a reverse proxy (Envoy, nginx, `HAProxy`) speaks HTTP/2
-//! to the upstream over plain TCP — there is no TLS handshake or HTTP/1
-//! Upgrade negotiation. Clients open a TCP connection and immediately send the
-//! HTTP/2 connection preface; the server reads frames straight away.
-//!
-//! Use [`serve_h2c`] for a default-config server, or [`serve_h2c_with_config`]
-//! to supply a [`crate::ServerConfig`] (drain timeout, `max_connections`, h2 caps).
+//! HTTP/2 prior-knowledge (h2c) accept loop, for proxies that speak HTTP/2 over plain TCP.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -32,70 +21,10 @@ use tokio::task::JoinSet;
 
 use crate::ServerConfig;
 
-/// Starts an h2c server with default [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_h2c(listener: TcpListener, router: Router) {
-  if let Err(e) = run(
-    listener,
-    router,
-    None::<std::future::Pending<()>>,
-    ServerConfig::default(),
-  )
-  .await
-  {
-    tracing::error!("h2c server error: {e}");
-  }
-}
-
-/// Starts an h2c server with graceful shutdown support.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_h2c_with_shutdown(
-  listener: TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-) {
-  if let Err(e) = run(listener, router, Some(signal), ServerConfig::default()).await {
-    tracing::error!("h2c server error: {e}");
-  }
-}
-
-/// Like [`serve_h2c`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_h2c_with_config(listener: TcpListener, router: Router, config: ServerConfig) {
-  if let Err(e) = run(listener, router, None::<std::future::Pending<()>>, config).await {
-    tracing::error!("h2c server error: {e}");
-  }
-}
-
-/// Like [`serve_h2c_with_shutdown`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_h2c_with_shutdown_and_config(
-  listener: TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-  config: ServerConfig,
-) {
-  if let Err(e) = run(listener, router, Some(signal), config).await {
-    tracing::error!("h2c server error: {e}");
-  }
-}
-
 pub(crate) async fn run(
   listener: TcpListener,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -124,13 +53,11 @@ pub(crate) async fn run(
 
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
-  if let Some(s) = signal {
-    let cancel_for_signal = cancel.clone();
-    signal_tasks.spawn(async move {
-      s.await;
-      cancel_for_signal.cancel();
-    });
-  }
+  let cancel_for_signal = cancel.clone();
+  signal_tasks.spawn(async move {
+    signal.await;
+    cancel_for_signal.cancel();
+  });
 
   loop {
     tokio::select! {

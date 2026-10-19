@@ -1,8 +1,5 @@
-//! PROXY protocol v1/v2 parser for extracting real client addresses.
-//!
-//! When running behind load balancers (`HAProxy`, nginx, AWS ELB/NLB), the real
-//! client IP is communicated via the PROXY protocol header prepended to the
-//! TCP connection. This module parses both text (v1) and binary (v2) formats.
+//! PROXY protocol v1 (text) and v2 (binary) parsing, for the real client address a load balancer
+//! such as `HAProxy` or AWS NLB prepends to each TCP connection.
 //!
 //! # Examples
 //!
@@ -63,18 +60,6 @@ pub use header::ProxyTlsInfo;
 pub use header::ProxyTlv;
 pub use header::ProxyTransport;
 pub use header::ProxyVersion;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use listener::serve_http_with_proxy_protocol;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use listener::serve_http_with_proxy_protocol_and_config;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use listener::serve_http_with_proxy_protocol_and_shutdown;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use listener::serve_http_with_proxy_protocol_shutdown_and_config;
 
 /// PROXY protocol v2 binary signature (12 bytes).
 const PROXY_V2_SIG: [u8; 12] = *b"\r\n\r\n\0\r\nQUIT\n";
@@ -98,16 +83,8 @@ fn signature(sig: &[u8; 12]) -> std::io::Result<Signature> {
   }
 }
 
-/// Reads and parses a PROXY protocol header from a stream (tokio runtime).
-///
-/// Supports both v1 (text) and v2 (binary) formats. After this function
-/// returns, the stream is positioned right after the PROXY header and
-/// ready for reading the actual protocol data (HTTP, etc.).
-///
-/// # Errors
-///
-/// Returns an error if the stream doesn't start with a valid PROXY protocol
-/// header or if the header is malformed.
+/// Reads a v1 or v2 header and leaves the stream at the first byte after it; an unrecognized or
+/// malformed header is an `InvalidData` error.
 #[cfg(not(feature = "compio"))]
 pub async fn read_proxy_protocol<R: tokio::io::AsyncReadExt + Unpin>(
   reader: &mut R,
@@ -141,16 +118,8 @@ pub async fn read_proxy_protocol<R: tokio::io::AsyncReadExt + Unpin>(
   }
 }
 
-/// Reads and parses a PROXY protocol header from a stream (compio runtime).
-///
-/// Supports both v1 (text) and v2 (binary) formats. After this function
-/// returns, the stream is positioned right after the PROXY header and
-/// ready for reading the actual protocol data (HTTP, etc.).
-///
-/// # Errors
-///
-/// Returns an error if the stream doesn't start with a valid PROXY protocol
-/// header or if the header is malformed.
+/// Reads a v1 or v2 header and leaves the stream at the first byte after it; an unrecognized or
+/// malformed header is an `InvalidData` error.
 #[cfg(feature = "compio")]
 pub async fn read_proxy_protocol<R: compio::io::AsyncRead>(
   reader: &mut R,
@@ -199,12 +168,8 @@ async fn read_exact_compio<R: compio::io::AsyncRead>(
   result.map(|()| buf)
 }
 
-/// Replaces client-supplied forwarding headers with one `Forwarded` entry
-/// for the PROXY source and exposes that source as the request's peer.
-///
-/// Stripping `Forwarded` and `X-Forwarded-*` stops a client behind the load
-/// balancer from spoofing its address; the header was already vouched for by
-/// the PROXY hop.
+/// Replaces client-supplied `Forwarded` and `X-Forwarded-*` headers, which a client could spoof,
+/// with one `Forwarded` entry for the PROXY source, and makes that source the request's peer.
 pub(crate) fn apply_to_request<B>(req: &mut http::Request<B>, header: &ProxyHeader) {
   let headers = req.headers_mut();
   headers.remove(http::header::FORWARDED);

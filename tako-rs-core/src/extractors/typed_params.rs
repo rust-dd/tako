@@ -1,21 +1,5 @@
-//! Compile-time-shaped path parameter extractor backed by [`FromStr`].
-//!
-//! Pair this with the [`#[tako::route]`](https://docs.rs/tako-rs) attribute
-//! macro from `tako-macros`: place the attribute on an async handler and the
-//! macro generates a sibling struct whose fields exactly mirror the path
-//! placeholders, associated `METHOD`/`PATH` consts, and a
-//! [`TypedParamsStruct`](crate::extractors::typed_params::TypedParamsStruct) impl that pulls each value from the request's
-//! [`PathParams`] extension and parses it via [`core::str::FromStr`]. The
-//! struct name defaults to the handler's name in PascalCase plus a `Params`
-//! suffix (e.g. `get_user` → `GetUserParams`).
-//!
-//! Compared to [`Params<T>`](crate::extractors::params::Params), this extractor
-//! sidesteps `serde::Deserialize` entirely — the generated impl is direct
-//! field-by-field parsing, and parse errors carry the offending field name in
-//! the response body.
-//!
-//! [`PathParams`]: crate::extractors::params::PathParams
-//! [`FromStr`]: core::str::FromStr
+//! Path parameters parsed field by field with `FromStr` into the struct `#[tako::route]`
+//! generates (`get_user` → `GetUserParams`); errors name the offending field.
 
 use core::fmt;
 

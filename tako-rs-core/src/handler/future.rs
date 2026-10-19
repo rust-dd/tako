@@ -18,11 +18,8 @@ const WORDS: usize = 6;
 
 type Slot = MaybeUninit<[usize; WORDS]>;
 
-/// A handler's response future, stored inline when it fits in [`WORDS`] words
-/// and boxed otherwise.
-///
-/// It is `!Unpin`, so once pinned the inline future never moves again; moving
-/// it before the first poll is allowed like for any future.
+/// A handler's future, inline when it fits in [`WORDS`] words and boxed otherwise; it is
+/// `!Unpin`, so a pinned inline future never moves.
 pub(crate) struct HandlerFuture {
   repr: Repr,
   _pinned: PhantomPinned,

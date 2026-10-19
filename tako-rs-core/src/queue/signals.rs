@@ -1,11 +1,7 @@
-//! Queue signal ids and emission helper.
-
-#![cfg(feature = "signals")]
-
 use crate::signals::Signal;
 use crate::signals::SignalArbiter;
 
-/// Well-known queue signal ids.
+/// Ids of the signals the queue emits on the app arbiter.
 pub mod signal_ids {
   pub const QUEUE_JOB_QUEUED: &str = "queue.job.queued";
   pub const QUEUE_JOB_STARTED: &str = "queue.job.started";

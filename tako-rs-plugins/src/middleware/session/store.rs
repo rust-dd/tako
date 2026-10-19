@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::stores::memory::MemorySessionStore;
 
-/// Session expiration policy.
 #[derive(Clone, Copy)]
 pub struct SessionTtl {
   /// Maximum inactivity in seconds.
@@ -10,6 +9,7 @@ pub struct SessionTtl {
   /// Maximum lifetime irrespective of activity. `None` disables the absolute cap.
   pub absolute_secs: Option<u64>,
 }
+
 impl Default for SessionTtl {
   fn default() -> Self {
     Self {
@@ -32,6 +32,7 @@ pub(crate) struct SessionRecord {
 pub struct SessionStoreHandle {
   pub(crate) store: Arc<MemorySessionStore>,
 }
+
 impl SessionStoreHandle {
   /// Remove every session in this backend.
   pub fn revoke_all(&self) {

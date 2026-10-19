@@ -1,25 +1,9 @@
-//! W3C Trace Context propagation middleware (`traceparent` / `tracestate`).
-//!
-//! Implements the wire format defined in <https://www.w3.org/TR/trace-context/>:
+//! W3C Trace Context: a valid inbound `traceparent` continues with a fresh span id, otherwise a
+//! new trace starts; [`TraceContext`] reaches handlers and both headers are echoed back.
 //!
 //! ```text
 //! traceparent: <version>-<trace-id>-<parent-id>-<flags>
 //! ```
-//!
-//! On every request the middleware:
-//!
-//! 1. Parses an inbound `traceparent`. If well-formed, the [`TraceContext`]
-//!    extension is populated with the existing trace-id and a freshly minted
-//!    span-id (so this hop becomes the parent of any downstream call).
-//! 2. If the inbound header is missing or malformed (per W3C: malformed →
-//!    treat as absent), a new trace-id + span-id pair is generated.
-//! 3. The resulting `traceparent` is written into the response so caches /
-//!    proxies / clients can correlate.
-//! 4. `tracestate` is propagated verbatim when present (max 32 list members
-//!    per spec — strings longer than the limit are dropped silently).
-//!
-//! Handlers and downstream middleware can read [`TraceContext`] from request
-//! extensions to forward the trace identifiers into outbound calls.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -36,22 +20,16 @@ pub const TRACEPARENT: HeaderName = HeaderName::from_static("traceparent");
 /// Header carrying vendor-specific trace state.
 pub const TRACESTATE: HeaderName = HeaderName::from_static("tracestate");
 
-/// Decoded W3C trace context for the current request.
-///
-/// `trace_id` is shared by every span in a trace; `span_id` is unique to this
-/// hop. `parent_id` carries the inbound `parent-id` value when the request
-/// arrived with a usable `traceparent`, otherwise it is `None`.
+/// Ids are lowercase hex; `parent_id` is set only when a valid `traceparent` arrived.
 #[derive(Debug, Clone)]
 pub struct TraceContext {
-  /// Lowercase 32-hex-char trace identifier (16 bytes).
+  /// 16 bytes, shared by every span of the trace.
   pub trace_id: String,
-  /// Lowercase 16-hex-char span identifier (8 bytes) for this hop.
+  /// 8 bytes, fresh for this hop.
   pub span_id: String,
-  /// Inbound parent span id if propagated from upstream.
   pub parent_id: Option<String>,
-  /// 8-bit sampling / flags field (only the `sampled` bit is currently spec'd).
+  /// Only the `sampled` bit is specified.
   pub flags: u8,
-  /// Original `tracestate` value, if any.
   pub tracestate: Option<String>,
 }
 
@@ -62,9 +40,7 @@ impl TraceContext {
   }
 }
 
-/// Builder for the [`TraceContext`] middleware.
 pub struct Traceparent {
-  /// When true, emit `tracestate` in the response unchanged (when present).
   emit_tracestate: bool,
 }
 
@@ -75,7 +51,6 @@ impl Default for Traceparent {
 }
 
 impl Traceparent {
-  /// Creates the middleware with sensible defaults.
   pub fn new() -> Self {
     Self {
       emit_tracestate: true,
@@ -90,20 +65,11 @@ impl Traceparent {
   }
 }
 
+/// OS-random UUID v4 bytes as lowercase hex; `bytes` is at most 16.
 fn rand_hex(bytes: usize) -> String {
-  let mut buf = vec![0u8; bytes];
-  // Use uuid v4 underlying RNG: cheap, no extra dep, OS-backed (`getrandom`).
-  // Two UUIDs cover up to 32 random bytes — enough for a 16-byte trace id.
-  let u1 = uuid::Uuid::new_v4().into_bytes();
-  let u2 = uuid::Uuid::new_v4().into_bytes();
-  let combined = [u1, u2].concat();
-  buf.copy_from_slice(&combined[..bytes]);
-  let mut out = String::with_capacity(bytes * 2);
-  for b in buf {
-    use std::fmt::Write;
-    let _ = write!(out, "{b:02x}");
-  }
-  out
+  let mut hex = uuid::Uuid::new_v4().simple().to_string();
+  hex.truncate(bytes * 2);
+  hex
 }
 
 fn parse_traceparent(value: &str) -> Option<(String, String, u8)> {

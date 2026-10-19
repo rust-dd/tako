@@ -1,5 +1,3 @@
-//! Integration tests for the `#[route]` proc macro + `TypedParams<T>` extractor.
-
 use http::Method;
 use http::StatusCode;
 use http_body_util::BodyExt;
@@ -127,8 +125,6 @@ async fn typed_route_auto_struct_name_from_fn() {
 
 #[tokio::test]
 async fn typed_route_router_route_chains_middleware() {
-  // `router.route(...)` returns Arc<Route>; chain a no-op middleware to
-  // confirm the typed-route attribute keeps the standard registration path.
   let mut router = Router::new();
   let route = router.route(SinglePath::METHOD, SinglePath::PATH, one);
   route.middleware(|req, next| async move { next.run(req).await });

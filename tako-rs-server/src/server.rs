@@ -1,28 +1,4 @@
-//! HTTP server implementation and lifecycle management.
-//!
-//! This module provides the core server functionality for Tako, built on top of Hyper.
-//! It handles incoming TCP connections, dispatches requests through the router, and
-//! manages the server lifecycle. The main entry point is the `serve` function which
-//! starts an HTTP server with the provided listener and router configuration.
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use tako::{serve, router::Router, Method, responder::Responder, types::Request};
-//! use tokio::net::TcpListener;
-//!
-//! async fn hello(_: Request) -> impl Responder {
-//!     "Hello, World!".into_response()
-//! }
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let listener = TcpListener::bind("127.0.0.1:8080").await?;
-//! let mut router = Router::new();
-//! router.route(Method::GET, "/", hello);
-//! serve(listener, router).await;
-//! # Ok(())
-//! # }
-//! ```
+//! Tokio HTTP/1 accept loop behind `Server::spawn_http`.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -44,75 +20,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 
-/// Starts the Tako HTTP server with the given listener and router.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve(listener: TcpListener, router: Router) {
-  if let Err(e) = run(
-    listener,
-    router,
-    None::<std::future::Pending<()>>,
-    ServerConfig::default(),
-  )
-  .await
-  {
-    tracing::error!("Server error: {e}");
-  }
-}
-
-/// Starts the Tako HTTP server with graceful shutdown support.
-///
-/// When the `signal` future completes, the server stops accepting new connections
-/// and waits up to `ServerConfig::drain_timeout` (default 30 s) for in-flight
-/// requests to finish.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_with_shutdown(
-  listener: TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-) {
-  if let Err(e) = run(listener, router, Some(signal), ServerConfig::default()).await {
-    tracing::error!("Server error: {e}");
-  }
-}
-
-/// Like [`serve`] but with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_with_config(listener: TcpListener, router: Router, config: ServerConfig) {
-  if let Err(e) = run(listener, router, None::<std::future::Pending<()>>, config).await {
-    tracing::error!("Server error: {e}");
-  }
-}
-
-/// Like [`serve_with_shutdown`] but with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_with_shutdown_and_config(
-  listener: TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-  config: ServerConfig,
-) {
-  if let Err(e) = run(listener, router, Some(signal), config).await {
-    tracing::error!("Server error: {e}");
-  }
-}
-
-/// Runs the main server loop, accepting connections and dispatching requests.
+/// Serves until `signal` resolves, then drains connections for at most `config.drain_timeout`.
 pub(crate) async fn run(
   listener: TcpListener,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -140,13 +52,11 @@ pub(crate) async fn run(
   let cancel = CancellationToken::new();
   let stopping = Arc::new(ShutdownSignal::default());
   let mut signal_tasks = JoinSet::new();
-  if let Some(s) = signal {
-    let cancel_for_signal = cancel.clone();
-    signal_tasks.spawn(async move {
-      s.await;
-      cancel_for_signal.cancel();
-    });
-  }
+  let cancel_for_signal = cancel.clone();
+  signal_tasks.spawn(async move {
+    signal.await;
+    cancel_for_signal.cancel();
+  });
 
   loop {
     tokio::select! {

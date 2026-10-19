@@ -1,8 +1,5 @@
-//! API Key authentication middleware for simple token-based access control.
-//!
-//! This module provides middleware for validating API keys from HTTP headers or query
-//! parameters. It supports multiple key sources, custom header names, and dynamic
-//! key verification functions for flexible authentication strategies.
+//! API key authentication: a key passes when it matches a static key (compared in constant
+//! time) or the verify callback accepts it.
 //!
 //! # Examples
 //!
@@ -48,12 +45,8 @@ use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Constant-time match against a list of candidate keys.
-///
-/// Iterates the full list every call; per-byte comparison uses `subtle::ConstantTimeEq`
-/// so equal-length matches do not leak via wall-clock. Length mismatches still return
-/// faster than equal-length compares — clients learn key length but not contents.
-fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
+/// Scans every candidate; timing can reveal a key's length but not its contents.
+pub(super) fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
   let mut found = Choice::from(0u8);
   for candidate in candidates {
     found |= input.ct_eq(candidate.as_slice());
@@ -61,14 +54,12 @@ fn constant_time_contains(input: &[u8], candidates: &[Vec<u8>]) -> bool {
   bool::from(found)
 }
 
-/// Location where the API key should be extracted from.
+/// Defaults to the `X-API-Key` header.
 #[derive(Clone)]
 pub enum ApiKeyLocation {
-  /// Extract from HTTP header with the given name.
   Header(&'static str),
-  /// Extract from query parameter with the given name.
   Query(&'static str),
-  /// Try header first, then query parameter.
+  /// Tries the header first, then the query parameter.
   HeaderOrQuery(&'static str, &'static str),
 }
 
@@ -78,10 +69,10 @@ impl Default for ApiKeyLocation {
   }
 }
 
-/// API Key authentication middleware configuration.
-///
-/// `ApiKeyAuth` provides flexible configuration for API key authentication,
-/// supporting static keys, dynamic verification, and multiple extraction locations.
+/// Custom verification closure for [`ApiKeyAuth`].
+pub type ApiKeyVerifyFn = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+
+/// Rejects a missing or unknown key with 401 and `WWW-Authenticate: ApiKey`.
 ///
 /// # Examples
 ///
@@ -101,22 +92,13 @@ impl Default for ApiKeyLocation {
 ///     key.len() == 32 && key.chars().all(|c| c.is_ascii_hexdigit())
 /// });
 /// ```
-/// Custom verification closure for [`ApiKeyAuth`].
-pub type ApiKeyVerifyFn = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
-
 pub struct ApiKeyAuth {
-  /// Static API keys (raw bytes, scanned in constant time).
   keys: Option<Vec<Vec<u8>>>,
-  /// Custom verification function for dynamic key validation.
   verify: Option<ApiKeyVerifyFn>,
-  /// Location to extract the API key from.
   location: ApiKeyLocation,
 }
 
 impl ApiKeyAuth {
-  /// Creates authentication middleware with a single static API key.
-  ///
-  /// By default, the key is extracted from the `X-API-Key` header.
   pub fn new(key: impl Into<String>) -> Self {
     let key: String = key.into();
     Self {
@@ -126,7 +108,6 @@ impl ApiKeyAuth {
     }
   }
 
-  /// Creates authentication middleware with multiple static API keys.
   pub fn from_keys<I>(keys: I) -> Self
   where
     I: IntoIterator,
@@ -144,7 +125,6 @@ impl ApiKeyAuth {
     }
   }
 
-  /// Creates authentication middleware with a custom verification function.
   pub fn with_verify<F>(f: F) -> Self
   where
     F: Fn(&str) -> bool + Send + Sync + 'static,
@@ -156,7 +136,6 @@ impl ApiKeyAuth {
     }
   }
 
-  /// Creates authentication with both static keys and custom verification.
   pub fn from_keys_with_verify<I, F>(keys: I, f: F) -> Self
   where
     I: IntoIterator,
@@ -175,68 +154,49 @@ impl ApiKeyAuth {
     }
   }
 
-  /// Sets the location where the API key should be extracted from.
   pub fn location(mut self, location: ApiKeyLocation) -> Self {
     self.location = location;
     self
   }
 
-  /// Sets a custom header name for API key extraction.
-  ///
-  /// This is a convenience method equivalent to
-  /// `.location(ApiKeyLocation::Header(name))`.
   pub fn header_name(mut self, name: &'static str) -> Self {
     self.location = ApiKeyLocation::Header(name);
     self
   }
 
-  /// Sets a query parameter name for API key extraction.
-  ///
-  /// This is a convenience method equivalent to
-  /// `.location(ApiKeyLocation::Query(name))`.
   pub fn query_param(mut self, name: &'static str) -> Self {
     self.location = ApiKeyLocation::Query(name);
     self
   }
 }
 
-/// Extracts API key from request based on location configuration.
+fn header_key<'a>(req: &'a Request, name: &str) -> Option<Cow<'a, str>> {
+  req
+    .headers()
+    .get(name)
+    .and_then(|v| v.to_str().ok())
+    .map(|s| Cow::Borrowed(s.trim()))
+}
+
+fn query_key<'a>(req: &'a Request, name: &str) -> Option<Cow<'a, str>> {
+  req.uri().query().and_then(|q| {
+    url::form_urlencoded::parse(q.as_bytes())
+      .find(|(k, _)| k == name)
+      .map(|(_, v)| v)
+  })
+}
+
 fn extract_api_key<'a>(req: &'a Request, location: &ApiKeyLocation) -> Option<Cow<'a, str>> {
   match location {
-    ApiKeyLocation::Header(name) => req
-      .headers()
-      .get(*name)
-      .and_then(|v| v.to_str().ok())
-      .map(|s| Cow::Borrowed(s.trim())),
-
-    ApiKeyLocation::Query(name) => req.uri().query().and_then(|q| {
-      url::form_urlencoded::parse(q.as_bytes())
-        .find(|(k, _)| k == *name)
-        .map(|(_, v)| v)
-    }),
-
+    ApiKeyLocation::Header(name) => header_key(req, name),
+    ApiKeyLocation::Query(name) => query_key(req, name),
     ApiKeyLocation::HeaderOrQuery(header, query) => {
-      // Try header first
-      if let Some(key) = req
-        .headers()
-        .get(*header)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| Cow::Borrowed(s.trim()))
-      {
-        return Some(key);
-      }
-      // Fall back to query parameter
-      req.uri().query().and_then(|q| {
-        url::form_urlencoded::parse(q.as_bytes())
-          .find(|(k, _)| k == *query)
-          .map(|(_, v)| v)
-      })
+      header_key(req, header).or_else(|| query_key(req, query))
     }
   }
 }
 
 impl IntoMiddleware for ApiKeyAuth {
-  /// Converts the API key authentication configuration into middleware.
   fn into_middleware(
     self,
   ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
@@ -256,7 +216,6 @@ impl IntoMiddleware for ApiKeyAuth {
       let api_key_authenticate = api_key_authenticate.clone();
 
       Box::pin(async move {
-        // Extract API key from configured location
         let Some(api_key) = extract_api_key(&req, &location) else {
           return http::Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -266,21 +225,18 @@ impl IntoMiddleware for ApiKeyAuth {
             .into_response();
         };
 
-        // Validate against static keys (constant-time scan)
         if let Some(set) = &keys
           && constant_time_contains(api_key.as_bytes(), set)
         {
           return next.run(req).await.into_response();
         }
 
-        // Validate using custom verification function
         if let Some(v) = verify.as_ref()
           && v(api_key.as_ref())
         {
           return next.run(req).await.into_response();
         }
 
-        // Return 401 Unauthorized for invalid keys
         http::Response::builder()
           .status(StatusCode::UNAUTHORIZED)
           .header(header::WWW_AUTHENTICATE, api_key_authenticate)

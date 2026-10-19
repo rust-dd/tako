@@ -1,26 +1,5 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
-
-//! Raw QUIC session helper (NOT W3C WebTransport — see notes below).
-//!
-//! ⚠️ **Status (v2):** what this module currently exposes is a thin wrapper
-//! over a `quinn` server endpoint. It accepts QUIC connections, enables
-//! datagrams, and surfaces bi/uni streams plus unreliable datagrams. It does
-//! **not** implement the W3C WebTransport draft handshake
-//! (`CONNECT :protocol = webtransport` over HTTP/3, `SETTINGS_ENABLE_WEBTRANSPORT`,
-//! per-session demultiplexing). Browsers cannot reach this server through
-//! the WebTransport API; only QUIC peers that speak the same private framing
-//! can.
-//!
-//! The W3C-compliant CONNECT handshake is a follow-up roadmap item. For now:
-//!
-//! - Use this module when you want a private QUIC tunnel between Tako-aware
-//!   peers (server-to-server, custom client).
-//! - Do **not** advertise this endpoint as `WebTransport` to browsers; they
-//!   will reject it.
-//!
-//! The canonical type is [`crate::webtransport::RawQuicSession`]; the historical
-//! `WebTransportSession` alias was deprecated in 1.2 and removed in 2.0
-//! because the name implied a W3C handshake this module does not perform.
+//! Raw QUIC sessions for peers that do not speak WebTransport; browsers need the W3C
+//! `WebTransport` extractor on the HTTP/3 server instead.
 //!
 //! # Examples
 //!
@@ -53,82 +32,61 @@ use std::time::Duration;
 
 use quinn::crypto::rustls::QuicServerConfig;
 
-/// Default drain timeout for graceful shutdown.
+/// How long shutdown waits for sessions before aborting them.
 const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A raw QUIC session.
-///
-/// Raw QUIC session. **Not** a W3C WebTransport session — see the
-/// module-level docs for the trust model. Exposes bi/unidirectional streams
-/// and unreliable datagrams from the underlying `quinn::Connection`.
+/// A QUIC connection with datagrams enabled.
 pub struct RawQuicSession {
   conn: quinn::Connection,
 }
 
 impl RawQuicSession {
-  /// Creates a new session from a QUIC connection.
   pub fn new(conn: quinn::Connection) -> Self {
     Self { conn }
   }
 
-  /// Returns the remote address of the peer.
   pub fn remote_address(&self) -> SocketAddr {
     self.conn.remote_address()
   }
 
-  /// Accepts an incoming bidirectional stream.
   pub async fn accept_bi(
     &self,
   ) -> Result<(quinn::SendStream, quinn::RecvStream), quinn::ConnectionError> {
     self.conn.accept_bi().await
   }
 
-  /// Accepts an incoming unidirectional stream.
   pub async fn accept_uni(&self) -> Result<quinn::RecvStream, quinn::ConnectionError> {
     self.conn.accept_uni().await
   }
 
-  /// Opens a new bidirectional stream.
   pub async fn open_bi(
     &self,
   ) -> Result<(quinn::SendStream, quinn::RecvStream), quinn::ConnectionError> {
     self.conn.open_bi().await
   }
 
-  /// Opens a new unidirectional stream.
   pub async fn open_uni(&self) -> Result<quinn::SendStream, quinn::ConnectionError> {
     self.conn.open_uni().await
   }
 
-  /// Reads an unreliable datagram from the peer.
   pub async fn read_datagram(&self) -> Result<bytes::Bytes, quinn::ConnectionError> {
     self.conn.read_datagram().await
   }
 
-  /// Sends an unreliable datagram to the peer.
   pub fn send_datagram(&self, data: bytes::Bytes) -> Result<(), quinn::SendDatagramError> {
     self.conn.send_datagram(data)
   }
 
-  /// Closes the session with a reason.
   pub fn close(&self, code: u32, reason: &[u8]) {
     self.conn.close(quinn::VarInt::from_u32(code), reason);
   }
 
-  /// Returns a reference to the underlying QUIC connection.
   pub fn connection(&self) -> &quinn::Connection {
     &self.conn
   }
 }
 
-/// Handler function type for raw QUIC sessions.
-pub type WebTransportHandler =
-  Arc<dyn Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-/// Starts a WebTransport server on the given address.
-///
-/// Each accepted QUIC connection is wrapped in a [`crate::webtransport::RawQuicSession`] and
-/// dispatched to the handler.
+/// Runs a QUIC server with ALPN `h3` until the endpoint closes; errors are logged, not returned.
 pub async fn serve_webtransport<F>(addr: &str, cert_path: &str, key_path: &str, handler: F)
 where
   F: Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
@@ -146,7 +104,7 @@ where
   }
 }
 
-/// Starts a WebTransport server with graceful shutdown support.
+/// [`serve_webtransport`] until `signal` resolves, then drains sessions for up to 30 seconds.
 pub async fn serve_webtransport_with_shutdown<F, S>(
   addr: &str,
   cert_path: &str,
@@ -172,8 +130,6 @@ async fn run<F>(
 where
   F: Fn(RawQuicSession) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync + 'static,
 {
-  // Use the consolidated PEM loaders from tako-core::tls so this crate does
-  // not reach across into another transport crate's private surface.
   let _ = rustls::crypto::ring::default_provider().install_default();
 
   let certs = tako_rs_core::tls::load_certs(cert_path)?;
@@ -189,7 +145,6 @@ where
   let mut server_config =
     quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config)?));
 
-  // Enable datagrams for WebTransport
   let mut transport_config = quinn::TransportConfig::default();
   transport_config.datagram_receive_buffer_size(Some(65536));
   transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
@@ -251,11 +206,6 @@ where
   });
 
   if drain.await.is_err() {
-    // Sample `len()` once before the abort so the logged count matches the
-    // count we acted on. Reading it inside `abort_all()`'s argument list
-    // races with the runtime finishing tasks between the read and the
-    // abort, which makes log lines look like "aborting 0 remaining
-    // sessions" while the abort_all call was still meaningful.
     let remaining = join_set.len();
     tracing::warn!("Drain timeout exceeded, aborting {remaining} remaining sessions");
     join_set.abort_all();

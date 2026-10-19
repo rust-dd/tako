@@ -147,7 +147,6 @@ thread_local = "1.1.10"
 tikv-jemallocator = "0.7.0"
 tokio = { version = "1.52.1", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = "0.26.2"
-tokio-stream = "0.1.17"
 tokio-util = { version = "0.7.15", features = ["compat"] }
 tokio-vsock = "0.7.2"
 tonic = { version = "0.14.6", default-features = false, features = ["channel"] }

@@ -1,20 +1,5 @@
-//! Structured access log middleware.
-//!
-//! Emits one log line per request after the response is produced, separate
-//! from the metrics signal pipeline so operators can keep request-level audit
-//! trails even when metrics are disabled.
-//!
-//! Default sink writes through the `tracing` macros at INFO level
-//! (`target = "tako::access"`). Plug a custom sink via [`AccessLog::sink`] for
-//! JSON / OTLP / file rotation.
-//!
-//! Fields per record:
-//!
-//! - `method`, `path`, `version`
-//! - `status` (numeric)
-//! - `duration_us` (microseconds)
-//! - `request_id` if a [`RequestIdValue`] extension is present
-//! - `peer` (ip / unix / other) if a [`ConnInfo`] extension is present
+//! Structured access log emitted after each response, independent of the metrics pipeline.
+//! `request_id` is set only when [`RequestId`](super::request_id::RequestId) runs first.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -44,7 +29,6 @@ pub struct AccessRecord {
 
 type SinkFn = Arc<dyn Fn(AccessRecord) + Send + Sync + 'static>;
 
-/// Access log middleware.
 pub struct AccessLog {
   sink: SinkFn,
 }
@@ -56,7 +40,7 @@ impl Default for AccessLog {
 }
 
 impl AccessLog {
-  /// Creates an access log middleware that writes through `tracing` at INFO.
+  /// Logs through `tracing` at INFO with target `tako::access`.
   pub fn new() -> Self {
     Self {
       sink: Arc::new(|rec: AccessRecord| {
@@ -75,8 +59,7 @@ impl AccessLog {
     }
   }
 
-  /// Replaces the default `tracing` sink with a custom one (JSON exporter,
-  /// async channel, file rotation, …).
+  /// Replaces the default `tracing` sink; it runs inline on the request task.
   pub fn sink<F>(mut self, f: F) -> Self
   where
     F: Fn(AccessRecord) + Send + Sync + 'static,

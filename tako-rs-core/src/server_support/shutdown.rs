@@ -1,5 +1,3 @@
-//! Graceful-shutdown broadcast that connections check with one atomic load.
-
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
@@ -7,10 +5,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::task::Waker;
 
-/// Tells a server's HTTP/1 connections to shut down gracefully.
-///
-/// A connection registers its task once and afterwards only loads a flag, so
-/// watching for shutdown takes no lock on the request path.
+/// Graceful shutdown for HTTP/1 connections; each registers its task once and then only
+/// loads a flag, so the request path takes no lock.
 #[derive(Default)]
 pub struct ShutdownSignal {
   stopping: AtomicBool,

@@ -1,4 +1,4 @@
-//! Memory backends for the stateful middleware store traits.
+//! In-process backends: each process keeps its own state, so replicas do not share it.
 
 mod csrf;
 mod idempotency;

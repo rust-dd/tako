@@ -1,5 +1,4 @@
-//! HTTP-over-Unix-domain-socket server: the public `serve_unix_http*` entry
-//! points and the shared accept/serve loop that dispatches into the router.
+//! Tokio HTTP/1 accept loop over a Unix domain socket.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -22,87 +21,13 @@ use tako_rs_core::types::BoxError;
 use tokio::task::JoinSet;
 
 use super::listener::bind_unix_listener;
-use super::listener::is_abstract_path;
 use crate::ServerConfig;
-
-/// Starts an HTTP server over a Unix domain socket.
-///
-/// Ideal for production deployments behind a reverse proxy (nginx, `HAProxy`)
-/// where the app communicates via a local socket file instead of TCP.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_unix_http(path: impl AsRef<Path>, router: Router) {
-  if let Err(e) = run_http(
-    path.as_ref(),
-    router,
-    None::<std::future::Pending<()>>,
-    ServerConfig::default(),
-  )
-  .await
-  {
-    tracing::error!("Unix HTTP server error: {e}");
-  }
-}
-
-/// Starts an HTTP server over a Unix domain socket with graceful shutdown.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_unix_http_with_shutdown(
-  path: impl AsRef<Path>,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-) {
-  if let Err(e) = run_http(path.as_ref(), router, Some(signal), ServerConfig::default()).await {
-    tracing::error!("Unix HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_unix_http`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_unix_http_with_config(
-  path: impl AsRef<Path>,
-  router: Router,
-  config: ServerConfig,
-) {
-  if let Err(e) = run_http(
-    path.as_ref(),
-    router,
-    None::<std::future::Pending<()>>,
-    config,
-  )
-  .await
-  {
-    tracing::error!("Unix HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_unix_http_with_shutdown`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_unix_http_with_shutdown_and_config(
-  path: impl AsRef<Path>,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-  config: ServerConfig,
-) {
-  if let Err(e) = run_http(path.as_ref(), router, Some(signal), config).await {
-    tracing::error!("Unix HTTP server error: {e}");
-  }
-}
+use crate::unix_path::is_abstract_path;
 
 pub(crate) async fn run_http(
   path: &Path,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   let listener = bind_unix_listener(path).await?;
@@ -113,7 +38,7 @@ pub(crate) async fn run_listener(
   listener: tokio::net::UnixListener,
   path: &Path,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   let router = Arc::new(router);
@@ -136,13 +61,11 @@ pub(crate) async fn run_listener(
   let keep_alive = config.keep_alive;
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
-  if let Some(s) = signal {
-    let cancel_for_signal = cancel.clone();
-    signal_tasks.spawn(async move {
-      s.await;
-      cancel_for_signal.cancel();
-    });
-  }
+  let cancel_for_signal = cancel.clone();
+  signal_tasks.spawn(async move {
+    signal.await;
+    cancel_for_signal.cancel();
+  });
 
   loop {
     tokio::select! {

@@ -1,7 +1,6 @@
-//! Redirect response utilities for handlers.
+//! [`Redirect`] responses and an HTTP-to-HTTPS redirect router.
 //!
-//! This module provides a small helper type and constructors to build
-//! HTTP redirect responses from handlers. Example:
+//! # Examples
 //!
 //! ```rust
 //! use tako::{redirect, responder::Responder};
@@ -23,10 +22,7 @@ use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// A redirect response builder that implements `Responder`.
-///
-/// Use the constructors like [`found`], [`see_other`], [`temporary`], or [`permanent`]
-/// to create redirects with appropriate HTTP status codes.
+/// A redirect response; a location that is not a valid header value answers 500 instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Redirect {
   status: StatusCode,
@@ -81,14 +77,6 @@ impl Redirect {
 }
 
 impl Responder for Redirect {
-  /// Builds the redirect response.
-  ///
-  /// The `Location` header is constructed via the fallible
-  /// [`http::HeaderValue::try_from`], not via `.unwrap()`, so that
-  /// caller-supplied locations containing CR / LF / NUL bytes (which would
-  /// otherwise be a HTTP response-splitting / open-redirect vector) cannot
-  /// turn a redirect into a panic. Malformed locations yield a
-  /// `500 Internal Server Error` with an explanatory body instead.
   fn into_response(self) -> Response {
     let Ok(value) = http::HeaderValue::try_from(self.location.as_str()) else {
       let mut resp = http::Response::new(TakoBody::from(
@@ -129,11 +117,7 @@ pub fn permanent(location: impl Into<String>) -> Redirect {
   Redirect::permanent(location)
 }
 
-/// Extracts the host portion (without port) from a `Host` header and validates
-/// it as a syntactically well-formed authority. Returns `None` for missing,
-/// malformed, or empty values — including anything containing CR/LF or
-/// scheme-like prefixes (`javascript:`, `data:`, …) that could be smuggled
-/// into a redirect's `Location` header.
+/// The host of a `Host` header without its port, or `None` unless it is a valid authority.
 fn validate_host(header_value: &str) -> Option<String> {
   let trimmed = header_value.trim();
   if trimmed.is_empty() {
@@ -167,33 +151,22 @@ fn validate_host(header_value: &str) -> Option<String> {
   Some(host)
 }
 
-/// Builds a router whose fallback redirects every request to the `https://`
-/// equivalent on the same host, suitable for binding to port 80 alongside the
-/// real TLS listener on `https_port`.
-///
-/// The `Host` header is parsed as an RFC 3986 authority before being placed
-/// in the `Location`; malformed values (including CRLF or scheme smuggling)
-/// produce a `400 Bad Request` to prevent open-redirect / cache-poisoning
-/// phishing. For strict deployments, prefer
-/// [`http_to_https_router_with_allowed_hosts`].
+/// A router that 308-redirects every request to the same host on `https_port`; an invalid
+/// `Host` gets 400. On a public listener prefer [`http_to_https_router_with_allowed_hosts`].
 ///
 /// # Examples
 ///
 /// ```rust,no_run
 /// use tako::redirect::http_to_https_router;
 ///
-/// // serve(http80_listener, http_to_https_router(443)).await;
+/// let port_80_router = http_to_https_router(443);
 /// ```
 pub fn http_to_https_router(https_port: u16) -> crate::router::Router {
   http_to_https_router_inner(https_port, Vec::new())
 }
 
-/// Like [`http_to_https_router`] but additionally enforces that the parsed
-/// host is one of `allowed_hosts` (case-insensitive). Requests for any other
-/// host receive `421 Misdirected Request`. Use this when binding the HTTP
-/// listener on the public internet — it blocks the cache-poisoning
-/// phishing vector where an attacker sends `Host: evil.com` and the response
-/// gets cached against the URL key.
+/// [`http_to_https_router`] that answers 421 to hosts outside `allowed_hosts` (any case),
+/// so a forged `Host` cannot get an attacker's URL cached as the redirect.
 pub fn http_to_https_router_with_allowed_hosts(
   https_port: u16,
   allowed_hosts: impl IntoIterator<Item = impl Into<String>>,

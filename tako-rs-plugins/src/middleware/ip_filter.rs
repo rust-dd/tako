@@ -1,13 +1,5 @@
-//! IP allow / deny filter with CIDR support.
-//!
-//! Reads the client IP from the unified [`ConnInfo`] extension (falling back
-//! to the legacy `SocketAddr` extension), then matches it against an allow
-//! list, a deny list, or both. Deny rules win when both match.
-//!
-//! `X-Forwarded-For` is intentionally not honored here — that path is the
-//! responsibility of an upstream PROXY-protocol handler or an explicit
-//! reverse-proxy gate. Trusting client-controlled headers in this layer
-//! would let any caller spoof the source IP.
+//! CIDR allow and deny lists matched against the transport peer IP; deny wins.
+//! `X-Forwarded-For` is ignored because clients control it.
 
 use std::future::Future;
 use std::net::IpAddr;
@@ -25,16 +17,18 @@ use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Allow / deny list of CIDR ranges.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct IpFilter {
   allow: Vec<IpNet>,
   deny: Vec<IpNet>,
-  /// When true, a request without a discoverable peer IP is denied. Default
-  /// is false (allow when peer is unknown — typical for Unix sockets).
   deny_unknown: bool,
-  /// Status returned on rejection.
   status: StatusCode,
+}
+
+impl Default for IpFilter {
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl IpFilter {
@@ -48,19 +42,20 @@ impl IpFilter {
     }
   }
 
-  /// Adds a CIDR (or single IP) to the allow list.
+  /// Accepts a CIDR or a bare IP; a non-empty allow list rejects every IP outside it.
   pub fn allow(mut self, cidr: &str) -> Result<Self, ipnet::AddrParseError> {
     self.allow.push(parse_cidr(cidr)?);
     Ok(self)
   }
 
-  /// Adds a CIDR (or single IP) to the deny list.
+  /// Accepts a CIDR or a bare IP.
   pub fn deny(mut self, cidr: &str) -> Result<Self, ipnet::AddrParseError> {
     self.deny.push(parse_cidr(cidr)?);
     Ok(self)
   }
 
-  /// Reject requests whose peer IP cannot be determined.
+  /// Reject peers without an IP even with an empty allow list; defaults to false.
+  /// A non-empty allow list always rejects peers without an IP.
   pub fn deny_unknown(mut self, deny: bool) -> Self {
     self.deny_unknown = deny;
     self
@@ -74,14 +69,14 @@ impl IpFilter {
 }
 
 fn parse_cidr(cidr: &str) -> Result<IpNet, ipnet::AddrParseError> {
-  // Single addresses (`1.2.3.4`) are parsed as `/32` or `/128` automatically.
   if let Ok(net) = cidr.parse::<IpNet>() {
     return Ok(net);
   }
-  let ip: IpAddr = cidr.parse().map_err(|_| {
-    // Re-parse to surface the original ipnet error rather than fabricating one.
-    "invalid".parse::<IpNet>().unwrap_err()
-  })?;
+  // `IpNet` needs a prefix, so a bare address becomes a /32 or /128 here.
+  // `AddrParseError` has no public constructor.
+  let ip: IpAddr = cidr
+    .parse()
+    .map_err(|_| "invalid".parse::<IpNet>().unwrap_err())?;
   Ok(IpNet::from(ip))
 }
 
@@ -116,7 +111,7 @@ impl IntoMiddleware for IpFilter {
       Box::pin(async move {
         let ip = peer_ip(&req);
         let reject = match ip {
-          None => deny_unknown,
+          None => deny_unknown || !allow.is_empty(),
           Some(ip) => {
             if deny.iter().any(|n| n.contains(&ip)) {
               true

@@ -1,10 +1,4 @@
-//! Query parameter extraction and deserialization from URL query strings.
-//!
-//! This module provides extractors for parsing URL query parameters into strongly-typed Rust
-//! structures using serde. It handles URL-encoded query strings from GET requests and other
-//! HTTP methods, automatically deserializing them into custom types. The extractor supports
-//! nested structures, optional fields, and automatic type coercion for common data types
-//! like numbers and booleans.
+//! Query strings deserialized with `serde_urlencoded`.
 //!
 //! # Examples
 //!
@@ -55,21 +49,16 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Query parameter extractor with automatic deserialization to typed structures.
+/// The query string as `T`. A repeated key fails a struct field, so lists need
+/// [`QueryMulti`](crate::query_multi::QueryMulti).
 #[doc(alias = "query")]
 pub struct Query<T>(pub T);
 
-/// Error types for query parameter extraction and deserialization.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries.
+/// Rejection of [`Query`]; every variant responds 400.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
-  /// No query string found in the request URI.
+  /// No query string, and `T` cannot be built from an empty one.
   MissingQueryString,
-  /// Failed to parse query parameters from the query string.
-  ParseError(String),
-  /// Query parameter deserialization failed (type mismatch, missing field, etc.).
   DeserializationError(String),
 }
 
@@ -77,7 +66,6 @@ impl std::fmt::Display for QueryError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Self::MissingQueryString => write!(f, "no query string found in request URI"),
-      Self::ParseError(err) => write!(f, "failed to parse query parameters: {err}"),
       Self::DeserializationError(err) => {
         write!(f, "failed to deserialize query parameters: {err}")
       }
@@ -88,17 +76,11 @@ impl std::fmt::Display for QueryError {
 impl std::error::Error for QueryError {}
 
 impl Responder for QueryError {
-  /// Converts query parameter errors into appropriate HTTP error responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       QueryError::MissingQueryString => (
         StatusCode::BAD_REQUEST,
         "No query string found in request URI",
-      )
-        .into_response(),
-      QueryError::ParseError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to parse query parameters: {err}"),
       )
         .into_response(),
       QueryError::DeserializationError(err) => (
@@ -114,12 +96,6 @@ impl<T> Query<T>
 where
   T: DeserializeOwned,
 {
-  /// Extracts and deserializes query parameters from a URI query string.
-  ///
-  /// **Repeated keys**: `serde_urlencoded` uses last-write-wins, so a query
-  /// like `?a=1&a=2` deserializes `a = 2` and silently drops the earlier
-  /// value. Use [`QueryMulti`](crate::query_multi::QueryMulti) when repeated
-  /// keys must be preserved.
   fn extract_from_query_string(query_string: Option<&str>) -> Result<Query<T>, QueryError> {
     match serde_urlencoded::from_str::<T>(query_string.unwrap_or("")) {
       Ok(query) => Ok(Query(query)),

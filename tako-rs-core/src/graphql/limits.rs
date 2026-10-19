@@ -1,8 +1,4 @@
-//! `GraphQL` execution-cost limits.
-//!
-//! Thin re-export layer over `async_graphql::extensions::Logger` /
-//! `MaxDepth` / `MaxComplexity`-style controls, exposing one `Limits` builder
-//! that callers attach to their schema before serving requests.
+//! Query depth and complexity caps applied to an `async_graphql` schema builder.
 //!
 //! ```rust,ignore
 //! use async_graphql::Schema;
@@ -18,10 +14,9 @@
 //! let schema = limits.apply(Schema::build(Q, M, S)).finish();
 //! ```
 
-#[cfg(feature = "async-graphql")]
 use async_graphql::SchemaBuilder;
 
-/// Builder for execution-cost limits.
+/// Execution-cost caps for a schema; `None` leaves a cap off.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Limits {
   pub max_depth: Option<usize>,
@@ -29,25 +24,22 @@ pub struct Limits {
 }
 
 impl Limits {
-  /// Empty limits (no caps).
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// Cap query depth — depth is the longest selection-set chain.
+  /// Caps query depth, the longest chain of nested selection sets.
   pub fn max_depth(mut self, n: usize) -> Self {
     self.max_depth = Some(n);
     self
   }
 
-  /// Cap query complexity — sum of `@cost`-annotated field weights.
+  /// Caps query complexity, the sum of field complexities (1 each unless overridden).
   pub fn max_complexity(mut self, n: usize) -> Self {
     self.max_complexity = Some(n);
     self
   }
 
-  /// Apply both limits to an `async_graphql::SchemaBuilder`.
-  #[cfg(feature = "async-graphql")]
   pub fn apply<Q, M, S>(self, mut b: SchemaBuilder<Q, M, S>) -> SchemaBuilder<Q, M, S> {
     if let Some(d) = self.max_depth {
       b = b.limit_depth(d);

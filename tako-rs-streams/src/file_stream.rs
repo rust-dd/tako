@@ -1,9 +1,4 @@
-//! File streaming utilities for efficient HTTP file delivery.
-//!
-//! This module provides `FileStream` for streaming files over HTTP with support for
-//! range requests, content-length headers, and proper MIME type detection. It enables
-//! efficient delivery of large files without loading them entirely into memory, making
-//! it suitable for serving media files, downloads, and other binary content.
+//! Streamed file responses, plus the precondition and `ETag` helpers behind them.
 //!
 //! # Examples
 //!
@@ -18,8 +13,6 @@
 //! # Ok(())
 //! # }
 //! ```
-
-#![cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 
 mod stream;
 

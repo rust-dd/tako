@@ -1,8 +1,4 @@
-//! Raw TCP server for handling arbitrary TCP connections.
-//!
-//! Provides a TCP server that accepts connections and dispatches them through
-//! a user-defined handler function with raw read/write access. Supports both
-//! tokio and compio runtimes.
+//! Raw TCP servers that hand each accepted stream to a handler, on Tokio or compio.
 //!
 //! # Examples
 //!
@@ -49,10 +45,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// Starts a raw TCP server (tokio runtime).
-///
-/// Each accepted connection is dispatched to the handler with the TCP stream
-/// and the peer's socket address.
+/// Runs `handler` for every accepted connection until an accept error, which it returns.
 ///
 /// # Examples
 ///
@@ -110,11 +103,8 @@ where
   }
 }
 
-/// Starts a raw TCP server with a shutdown signal (tokio runtime).
-///
-/// The server stops accepting new connections when the shutdown signal completes.
-/// In-flight connections are drained with a 30 second timeout. Use
-/// [`serve_tcp_with_shutdown_and_drain`] to override this bound.
+/// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
+/// [`serve_tcp_with_shutdown_and_drain`] for another bound.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_tcp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
 where
@@ -130,7 +120,7 @@ where
   serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30)).await
 }
 
-/// Same as [`serve_tcp_with_shutdown`] but with an explicit drain timeout.
+/// Like [`serve_tcp_with_shutdown`] with an explicit drain timeout.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_tcp_with_shutdown_and_drain<F, S>(
   addr: &str,
@@ -224,7 +214,7 @@ where
   Ok(())
 }
 
-/// Starts a raw TCP server (compio runtime).
+/// Runs `handler` for every accepted connection until an accept error, which it returns.
 #[cfg(feature = "compio")]
 pub async fn serve_tcp<F>(addr: &str, handler: F) -> std::io::Result<()>
 where
@@ -260,7 +250,8 @@ where
   }
 }
 
-/// Starts a raw TCP server with a shutdown signal (compio runtime).
+/// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
+/// [`serve_tcp_with_shutdown_and_drain`] for another bound.
 #[cfg(feature = "compio")]
 pub async fn serve_tcp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
 where
@@ -273,7 +264,7 @@ where
   serve_tcp_with_shutdown_and_drain(addr, handler, signal, std::time::Duration::from_secs(30)).await
 }
 
-/// Same as [`serve_tcp_with_shutdown`] but with an explicit drain timeout.
+/// Like [`serve_tcp_with_shutdown`] with an explicit drain timeout.
 #[cfg(feature = "compio")]
 pub async fn serve_tcp_with_shutdown_and_drain<F, S>(
   addr: &str,

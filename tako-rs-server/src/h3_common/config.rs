@@ -8,7 +8,7 @@ use quinn::congestion::NewRenoConfig;
 use crate::H3Congestion;
 use crate::ServerConfig;
 
-/// Build a `quinn::TransportConfig` from the H3-specific knobs in [`ServerConfig`].
+/// Builds the QUIC transport limits from the `h3_*` fields of [`ServerConfig`].
 pub(crate) fn transport_config_from(config: &ServerConfig) -> quinn::TransportConfig {
   let mut tc = quinn::TransportConfig::default();
   tc.max_concurrent_bidi_streams(VarInt::from_u32(config.h3_max_concurrent_bidi_streams));
@@ -18,9 +18,8 @@ pub(crate) fn transport_config_from(config: &ServerConfig) -> quinn::TransportCo
   {
     tc.max_idle_timeout(Some(idle));
   }
-  // QUIC datagrams (RFC 9221). WebTransport advertises HTTP/3 datagrams,
-  // which RFC 9297 only allows on top of QUIC datagram support. Send buffer is
-  // left at the quinn default.
+  // WebTransport advertises HTTP/3 datagrams, which RFC 9297 allows only on top of QUIC
+  // datagrams (RFC 9221).
   if config.h3_enable_datagrams || cfg!(feature = "webtransport") {
     tc.datagram_receive_buffer_size(Some(64 * 1024));
   } else {

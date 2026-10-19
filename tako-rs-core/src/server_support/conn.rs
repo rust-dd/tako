@@ -1,6 +1,3 @@
-//! Per-connection state shared by an HTTP/1 connection, its service, and the
-//! response bodies it streams.
-
 use std::convert::Infallible;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -28,11 +25,8 @@ use crate::types::BoxError;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Request activity of one HTTP/1 connection, read by its
-/// [`ConnDriver`](super::ConnDriver) to enforce the header deadline.
-///
-/// Only the connection's own task writes it, so relaxed loads and stores
-/// are enough.
+/// Request activity behind the [`ConnDriver`](super::ConnDriver) header deadline; only the
+/// connection's own task writes it, so relaxed ordering is enough.
 #[derive(Debug, Default)]
 pub struct ConnActivity {
   requests: AtomicU32,
@@ -116,11 +110,8 @@ impl Body for IdleOnDrop {
   }
 }
 
-/// Builds the hyper service for one HTTP/1 TCP connection.
-///
-/// It records request activity for the header deadline, adds the connection
-/// entries on a recycled extension map, and starts the handler of a plain
-/// route before hyper polls the response future.
+/// Hyper service for one HTTP/1 connection: records activity for the header deadline and
+/// starts a plain route's handler before hyper polls the response future.
 pub fn tcp_service<H>(
   ctx: H,
 ) -> impl Service<

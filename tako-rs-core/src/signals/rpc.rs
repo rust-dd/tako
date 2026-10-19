@@ -1,9 +1,4 @@
-//! Typed-RPC error model surfaced by the arbiter's `call_rpc*` methods.
-
-/// Error type for typed RPC calls.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries.
+/// Why a typed RPC call returned no response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RpcError {
   /// No handler registered for the requested RPC method.
@@ -23,18 +18,12 @@ impl std::fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
-/// Result type for RPC calls with explicit error reporting.
 pub type RpcResult<T> = Result<T, RpcError>;
 
-/// Error type for RPC calls with timeout support.
-///
-/// This error type implements `std::error::Error` for integration with
-/// error handling libraries.
+/// Error of [`SignalArbiter::call_rpc_timeout`](super::SignalArbiter::call_rpc_timeout).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RpcTimeoutError {
-  /// The RPC call timed out before completing.
   Timeout,
-  /// An RPC error occurred.
   Rpc(RpcError),
 }
 

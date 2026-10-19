@@ -1,14 +1,4 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
-
-//! gRPC over HTTP/2: unary, server-streaming, client-streaming, and
-//! bidirectional RPCs.
-//!
-//! Each method is an ordinary `POST /<package>.<Service>/<Method>` route.
-//! [`GrpcRequest`](crate::grpc::GrpcRequest) and
-//! [`GrpcResponse`](crate::grpc::GrpcResponse) handle one message each way;
-//! [`GrpcServerStream`](crate::grpc::GrpcServerStream) streams replies,
-//! [`GrpcClientStream`](crate::grpc::GrpcClientStream) reads a request stream,
-//! and [`GrpcBidi`](crate::grpc::GrpcBidi) does both at once.
+//! gRPC over HTTP/2: each method is a `POST /<package>.<Service>/<Method>` route, and
 //! `Option<GrpcDeadline>` extracts the client's `grpc-timeout`.
 //!
 //! # Examples
@@ -58,13 +48,9 @@
 //! router.route(Method::POST, "/math.Math/Echo", echo);
 //! ```
 
-/// `grpc.health.v1` scaffolding.
 pub mod health;
-/// gRPC-specific interceptor pattern.
 pub mod interceptor;
-/// `grpc.reflection.v1` scaffolding.
 pub mod reflection;
-/// gRPC-Web bridge translating browser-friendly framing to canonical gRPC.
 pub mod web;
 
 mod framing;
@@ -83,7 +69,6 @@ pub use message::GrpcRequest;
 pub use message::GrpcResponse;
 pub use status::GrpcStatus;
 pub use status::GrpcStatusCode;
-pub(crate) use status::build_grpc_error_response;
 pub use streaming::GrpcBidi;
 pub use streaming::GrpcClientStream;
 pub use streaming::GrpcServerStream;

@@ -7,6 +7,7 @@ use scc::HashMap as SccHashMap;
 
 use crate::stores::SessionStore;
 use crate::stores::StoreResult;
+
 #[derive(Clone)]
 struct SessionEntry {
   data: Vec<u8>,

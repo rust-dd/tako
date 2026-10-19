@@ -10,14 +10,10 @@ use tako_rs_core::types::Request;
 use crate::multipart::FromMultipartField;
 use crate::multipart::MultipartConfig;
 use crate::multipart::MultipartError;
+use crate::multipart::MultipartFields;
 use crate::multipart::TypedMultipartError;
 
-/// Wrapper around `multer::Multipart` to provide additional functionality.
-///
-/// This wrapper provides a unified interface for processing multipart form data
-/// while maintaining compatibility with the underlying `multer` crate. It can be
-/// used for manual processing of multipart fields when more control is needed
-/// than the typed multipart extractor provides.
+/// A field stream enforcing [`MultipartConfig`]'s size, part-count, and content-type limits.
 ///
 /// # Examples
 ///
@@ -45,12 +41,11 @@ use crate::multipart::TypedMultipartError;
 /// }
 /// ```
 #[doc(alias = "multipart")]
-pub struct TakoMultipart<'a>(pub Multipart<'a>);
+pub struct TakoMultipart<'a>(pub MultipartFields<'a>);
 
 impl<'a> TakoMultipart<'a> {
-  /// Consumes the wrapper and returns the inner `Multipart` instance.
   #[inline]
-  pub fn into_inner(self) -> Multipart<'a> {
+  pub fn into_inner(self) -> MultipartFields<'a> {
     self.0
   }
 }
@@ -82,29 +77,18 @@ impl<'a> TakoMultipart<'a> {
     let cfg = MultipartConfig::lookup(req.extensions());
     let constraints = cfg.to_constraints();
     let body_stream = req.body_mut().into_data_stream();
-    Ok(TakoMultipart(Multipart::with_constraints(
-      body_stream,
-      boundary,
-      constraints,
+    Ok(TakoMultipart(MultipartFields::new(
+      Multipart::with_constraints(body_stream, boundary, constraints),
+      cfg,
     )))
   }
 }
 
-/// Represents a strongly-typed multipart request.
-///
-/// This struct allows deserialization of multipart form data into a strongly-typed
-/// structure, combining both file and text fields. It provides automatic handling
-/// of different field types and deserializes the entire form into a single data structure.
-///
-/// # Type Parameters
-///
-/// * `T` - The target type to deserialize form data into
-/// * `F` - The type used for file fields (must implement `FromMultipartField`)
+/// A multipart body deserialized into `T`: text fields become strings and file fields are
+/// read as `F`. Enforces every [`MultipartConfig`] limit.
 #[doc(alias = "typed_multipart")]
 pub struct TakoTypedMultipart<'a, T, F> {
-  /// Deserialized data from the multipart request.
   pub data: T,
-  /// Marker for the field type (used for type inference).
   _marker: core::marker::PhantomData<&'a F>,
 }
 
@@ -178,7 +162,7 @@ where
 
         if field.file_name().is_some() {
           let file_value: F = match field_timeout {
-            Some(d) => match tokio::time::timeout(d, F::from_field(field)).await {
+            Some(d) => match tokio::time::timeout(d, F::from_field_with(field, &cfg)).await {
               Ok(Ok(v)) => v,
               Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
               Err(_) => {
@@ -187,7 +171,7 @@ where
                 ));
               }
             },
-            None => F::from_field(field)
+            None => F::from_field_with(field, &cfg)
               .await
               .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
           };

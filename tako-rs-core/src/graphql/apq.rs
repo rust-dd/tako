@@ -1,19 +1,5 @@
-//! Apollo Persisted Queries (APQ) support.
-//!
-//! APQ flow:
-//!
-//! 1. Client sends `{extensions: {persistedQuery: {sha256Hash, version: 1}}}`
-//!    without a `query` field.
-//! 2. Server looks up the hash in a [`PersistedQueryStore`](crate::graphql::apq::PersistedQueryStore).
-//!    - **Hit:** populate the request `query` from the cache and execute.
-//!    - **Miss:** respond with `PERSISTED_QUERY_NOT_FOUND`. Client retries
-//!      with the full `query`.
-//! 3. Server caches the `(hash, query)` pair on first full submission.
-//!
-//! This module exposes the [`PersistedQueryStore`](crate::graphql::apq::PersistedQueryStore) trait, an in-memory
-//! implementation, and the [`process`](crate::graphql::apq::process) helper that walks an `async_graphql`
-//! request through the lookup-or-store flow. It is a thin wrapper — the
-//! actual `GraphQL` execution still goes through the `async-graphql` schema.
+//! Apollo Persisted Queries: a client may send only a query's `sha256Hash` and, on
+//! `PERSISTED_QUERY_NOT_FOUND`, retry with the full query, which is then cached.
 
 use std::sync::Arc;
 
@@ -22,34 +8,16 @@ use scc::HashMap as SccHashMap;
 use sha2::Digest;
 use sha2::Sha256;
 
-/// Store backing the persisted-query cache.
+/// Cache of persisted queries keyed by their hash.
 #[async_trait]
 pub trait PersistedQueryStore: Send + Sync + 'static {
-  /// Retrieve a cached query by its SHA-256 hex hash.
+  /// Looks up a query by its lowercase hex SHA-256.
   async fn get(&self, hash: &str) -> Option<String>;
-  /// Cache a `(hash, query)` pair.
   async fn put(&self, hash: String, query: String);
 }
 
-/// Default in-memory store backed by `scc::HashMap` with a hard-capped entry
-/// count. The previous implementation was unbounded, which let any client
-/// flood the cache with `(unique-hash, full-query)` pairs and OOM the
-/// process. Use [`Self::with_max_entries`] to size the cap; the default is
-/// 1024 entries.
-///
-/// When the cap is reached, the store performs a bulk flush rather than LRU
-/// eviction (the underlying `scc::HashMap` does not expose ordering hooks).
-/// Callers that need finer-grained eviction should wrap their own store
-/// implementing [`PersistedQueryStore`].
-///
-/// **Soft cap, not hard:** the `len() >= cap → clear() → insert()` sequence
-/// in [`PersistedQueryStore::put`] is not atomic. Concurrent puts each
-/// observe `len < cap`, all proceed past the check, and each insert lands —
-/// the effective ceiling is `cap + concurrent_put_count`. The race is
-/// memory-safe (scc takes care of the per-entry locking) and only ever
-/// over-shoots by the number of in-flight `put`s, which is bounded by your
-/// request concurrency. If you need a hard cap, layer in your own
-/// `PersistedQueryStore` impl with `Mutex<HashMap>` semantics.
+/// In-memory store that drops every entry once full; concurrent `put`s can overshoot the
+/// cap by their number.
 #[derive(Clone)]
 pub struct MemoryPersistedQueryStore {
   inner: Arc<SccHashMap<String, String>>,
@@ -63,13 +31,12 @@ impl Default for MemoryPersistedQueryStore {
 }
 
 impl MemoryPersistedQueryStore {
-  /// Create a store with the default 1024-entry cap.
+  /// Creates a store capped at 1024 entries.
   pub fn new() -> Self {
     Self::with_max_entries(1024)
   }
 
-  /// Create a store that admits at most `max_entries` cached `(hash, query)`
-  /// pairs before the next insert triggers a full flush.
+  /// A `max_entries` of 0 is treated as 1.
   pub fn with_max_entries(max_entries: usize) -> Self {
     Self {
       inner: Arc::new(SccHashMap::new()),
@@ -92,20 +59,19 @@ impl PersistedQueryStore for MemoryPersistedQueryStore {
   }
 }
 
-/// Errors emitted by the APQ pipeline.
+/// Errors emitted by [`process`].
 #[derive(Debug, Clone)]
 pub enum ApqError {
-  /// Client referenced a hash the store does not know — instruct the client
-  /// to retry with the full query.
+  /// The hash is not cached; the client should retry with the full query.
   PersistedQueryNotFound,
-  /// Client supplied both a query and a hash but they don't match.
+  /// The request carries both a query and a hash, and they do not match.
   HashMismatch,
   /// `extensions.persistedQuery.version` was not `1`.
   UnsupportedVersion,
 }
 
 impl ApqError {
-  /// `PERSISTED_QUERY_NOT_FOUND` is the canonical Apollo extensions code.
+  /// The Apollo `extensions.code` to report, e.g. `PERSISTED_QUERY_NOT_FOUND`.
   pub fn extensions_code(&self) -> &'static str {
     match self {
       ApqError::PersistedQueryNotFound => "PERSISTED_QUERY_NOT_FOUND",
@@ -115,28 +81,19 @@ impl ApqError {
   }
 }
 
-/// Compute the lowercase hex SHA-256 of a query string.
+/// Lowercase hex SHA-256 of `query`.
 pub fn sha256_hash(query: &str) -> String {
   use std::fmt::Write as _;
   let digest = Sha256::digest(query.as_bytes());
   let mut hex = String::with_capacity(64);
-  // `write!` formats directly into the existing buffer; the old
-  // `format!("{b:02x}")` allocated a fresh 2-byte String per nibble
-  // pair (32 throwaway allocations per hash) on the APQ hot path.
   for b in digest {
     let _ = write!(&mut hex, "{b:02x}");
   }
   hex
 }
 
-/// Process an `async_graphql::Request` against the persisted-query store.
-///
-/// - When the request carries `extensions.persistedQuery.sha256Hash`:
-///   - if `query` is empty: look up the hash in the store; on miss return
-///     `PersistedQueryNotFound`.
-///   - if `query` is present: verify the hash matches; on success cache it.
-/// - When no persisted-query extension is present: pass-through.
-#[cfg(feature = "async-graphql")]
+/// Fills an empty `query` from `store` by its `persistedQuery` hash, or checks and caches a
+/// full one; requests without the extension pass through unchanged.
 pub async fn process(
   mut req: async_graphql::Request,
   store: &dyn PersistedQueryStore,

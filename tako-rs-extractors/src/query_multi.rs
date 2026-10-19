@@ -1,12 +1,4 @@
-//! Multi-value query extractor.
-//!
-//! `serde_urlencoded` (the parser behind [`crate::query::Query`]) treats each
-//! key as scalar, so `?tag=a&tag=b` becomes a single `tag` value (the last one
-//! wins). This module exposes [`QueryMulti<T>`](crate::query_multi::QueryMulti) backed by `serde_html_form`,
-//! which preserves repeated keys and decodes them into `Vec`-shaped fields.
-//!
-//! It also recognises CSV-style multi values inside a single key
-//! (`?tags=a,b,c`) when configured via [`QueryMultiOptions::csv_key`](crate::query_multi::QueryMultiOptions::csv_key).
+//! Query strings parsed with `serde_html_form`, so repeated keys fill `Vec` fields.
 
 use std::borrow::Cow;
 
@@ -18,7 +10,8 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Multi-value query extractor — preserves repeated keys and arrays.
+/// The query string as `T`, with the CSV splitting of any [`QueryMultiOptions`] in the
+/// request extensions.
 ///
 /// # Examples
 ///
@@ -39,29 +32,21 @@ use tako_rs_core::types::Request;
 /// ```
 pub struct QueryMulti<T>(pub T);
 
-/// Options controlling CSV-style expansion before delegating to
-/// `serde_html_form`. CSV keys are expanded so `?tags=a,b,c` becomes
-/// `tags=a&tags=b&tags=c` before parsing.
+/// Keys whose comma-separated values are split into repeated keys before parsing.
 #[derive(Debug, Clone, Default)]
 pub struct QueryMultiOptions {
   csv_keys: Vec<&'static str>,
 }
 
 impl QueryMultiOptions {
-  /// Adds a key whose CSV value should be expanded into repeated entries.
+  /// Splits `key=a,b` into `key=a&key=b`.
   pub fn csv_key(mut self, key: &'static str) -> Self {
     self.csv_keys.push(key);
     self
   }
 
-  /// Internal: rewrite the query string by expanding CSV values for the
-  /// configured keys. Skips keys not in `csv_keys` (passes them through).
-  ///
-  /// CSV detection works on the URL-decoded value so `?tags=hello%2Cworld`
-  /// (a percent-encoded comma) splits the same way as `?tags=hello,world` —
-  /// previously only literal commas triggered the split, which was an
-  /// interop bug because the percent-encoded form is what well-behaved
-  /// clients produce.
+  /// Compares decoded keys and splits decoded values, so `ta%67s` matches `tags` and `%2C`
+  /// splits like `,`.
   fn rewrite<'a>(&self, query: &'a str) -> Cow<'a, str> {
     if self.csv_keys.is_empty() {
       return Cow::Borrowed(query);
@@ -74,9 +59,6 @@ impl QueryMultiOptions {
         Some(idx) => (&pair[..idx], &pair[idx + 1..]),
         None => (pair, ""),
       };
-      // EXT-9: compare the *decoded* key — a client sending
-      // `?ta%67s=…` (percent-encoded `g`) would otherwise bypass the
-      // CSV-split rewrite because raw `ta%67s` does not equal `tags`.
       let decoded_key = urlencoding::decode(key).unwrap_or(Cow::Borrowed(key));
       let decoded_value = urlencoding::decode(value).unwrap_or(Cow::Borrowed(value));
       if self.csv_keys.contains(&decoded_key.as_ref()) && decoded_value.contains(',') {
@@ -87,9 +69,7 @@ impl QueryMultiOptions {
           first = false;
           out.push_str(key);
           out.push('=');
-          // Re-encode the part so the rewritten query string remains a
-          // valid `application/x-www-form-urlencoded` payload that the
-          // downstream parser will decode again identically.
+          // Re-encoded so the parser decodes it back to the same value.
           out.push_str(&urlencoding::encode(part));
         }
       } else {
@@ -104,10 +84,9 @@ impl QueryMultiOptions {
   }
 }
 
-/// Error returned by [`QueryMulti`].
+/// Rejection of [`QueryMulti`]; responds 400.
 #[derive(Debug)]
 pub enum QueryMultiError {
-  /// Underlying `serde_html_form` deserialization failure.
   DeserializationError(String),
 }
 

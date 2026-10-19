@@ -1,5 +1,3 @@
-//! The [`JwtAuth`] middleware layer and its request-time enforcement.
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -18,7 +16,7 @@ use super::revocation::RevocationList;
 use super::verifier::JwtVerifier;
 use super::verifier::VerifyConstraints;
 
-/// JWT authentication middleware.
+/// Verified claims are inserted into request extensions as `V::Claims`.
 pub struct JwtAuth<V: JwtVerifier> {
   verifier: V,
   constraints: Option<VerifyConstraints>,
@@ -28,8 +26,6 @@ pub struct JwtAuth<V: JwtVerifier> {
 }
 
 impl<V: JwtVerifier> JwtAuth<V> {
-  /// Creates a JWT auth middleware with the given verifier and no extra
-  /// constraints / revocation.
   pub fn new(verifier: V) -> Self {
     Self {
       verifier,
@@ -46,15 +42,13 @@ impl<V: JwtVerifier> JwtAuth<V> {
     self
   }
 
-  /// Sets per-claim constraints (issuer, audience, leeway).
   pub fn constraints(mut self, c: VerifyConstraints) -> Self {
     self.constraints = Some(c);
     self
   }
 
-  /// Plugs a revocation list checked after signature verification.
-  /// `extractor` returns the revocation key (typically the `jti` claim) for
-  /// each decoded claims value.
+  /// Checked after signature verification; `extractor` returns the revocation key, typically
+  /// the `jti` claim.
   pub fn revocation<R, F>(mut self, list: R, extractor: F) -> Self
   where
     R: RevocationList,
@@ -64,9 +58,7 @@ impl<V: JwtVerifier> JwtAuth<V> {
     self
   }
 
-  /// Plugs a remote introspection callback. The callback is invoked on every
-  /// successful local verification — short-lived caches belong inside the
-  /// callback itself.
+  /// Called after every successful local verification, so caching belongs in the callback.
   pub fn introspect<F, Fut>(mut self, f: F) -> Self
   where
     F: Fn(&str) -> Fut + Send + Sync + 'static,

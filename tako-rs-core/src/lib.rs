@@ -1,86 +1,25 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-// `FromRequest::from_request` and `FromRequestParts::from_request_parts` use the
-// `fn(...) -> impl Future + Send + 'a` shape on purpose: the explicit `+ Send`
-// bound is what lets handlers be hosted by the hyper service trait. Rewriting
-// these as `async fn` would drop the bound.
+// Extractor impls spell out `-> impl Future + Send`; an `async fn` would not promise `Send`.
 #![allow(clippy::manual_async_fn)]
 
-//! Internal core for the Tako framework.
+//! Routing, handler, extractor and responder primitives shared by the Tako crates.
 //!
-//! This crate hosts the framework primitives shared across all Tako sub-crates:
-//! routing, request/response types, body, middleware/plugin traits, extractor
-//! traits, state, signals, queue, and a few cross-cutting features such as
-//! `graphql`, `grpc`, and `openapi` that interact tightly with the router.
-//!
-//! Concrete extractors live in `tako-rs-extractors`, server bootstrap code in
-//! `tako-rs-server`, streaming/upgrade transports in `tako-rs-streams`, and concrete
-//! middleware/plugin implementations in `tako-rs-plugins`. Users should depend on
-//! the `tako-rs` umbrella crate, which re-exports everything under the original
-//! `tako::*` paths.
+//! Depend on the `tako-rs` umbrella crate instead; it re-exports these under `tako::*`.
 
-/// HTTP request and response body handling utilities.
 pub mod body;
-
-/// Configuration loading from environment variables.
 pub mod config;
-
-/// Request data extraction trait + the two extractors (`json`, `params`)
-/// whose internal types are referenced by the router and route.
-pub mod extractors;
-
-/// Request handler traits and implementations.
-pub mod handler;
-
-/// Middleware trait + `Next` execution chain.
-pub mod middleware;
-
-/// Plugin system trait (`TakoPlugin`).
-#[cfg(feature = "plugins")]
-#[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-pub mod plugins;
-
-/// Response generation utilities and traits.
-pub mod responder;
-
-/// RFC 7807 / RFC 9457 `application/problem+json` error responses.
-pub mod problem;
-
-/// Unified per-connection metadata extension shared by every transport.
 pub mod conn_info;
-
-/// Shared TLS certificate / key PEM loading helpers.
-#[cfg(any(feature = "tls", feature = "http3"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "http3"))))]
-pub mod tls;
-
-/// Redirection utilities for handling HTTP redirects.
-pub mod redirect;
-
-/// Route definition and matching logic.
-pub mod route;
-
-/// Request routing and dispatch functionality.
-pub mod router;
-
-/// In-memory background job queue with retry, delayed jobs, and dead letter support.
+pub mod extractors;
+pub mod handler;
+pub mod middleware;
+pub mod problem;
 pub mod queue;
-
-/// Application state management and dependency injection.
-pub mod state;
-
-/// Per-router typed state container (instance-scoped, complements `state`).
+pub mod redirect;
+pub mod responder;
+pub mod route;
+pub mod router;
 pub mod router_state;
-
-#[cfg(feature = "signals")]
-/// In-process signal arbiter for custom events.
-pub mod signals;
-
-/// Distributed tracing integration for observability.
-#[cfg(feature = "tako-tracing")]
-#[cfg_attr(docsrs, doc(cfg(feature = "tako-tracing")))]
-pub mod tracing;
-
-/// Core type definitions used throughout the framework.
+pub mod state;
 pub mod types;
 
 mod recycle;
@@ -88,27 +27,37 @@ mod recycle;
 #[doc(hidden)]
 pub mod server_support;
 
-/// `GraphQL` support (request extractors, responses, and subscriptions).
+#[cfg(feature = "plugins")]
+#[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+pub mod plugins;
+
+#[cfg(any(feature = "tls", feature = "http3"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "http3"))))]
+pub mod tls;
+
+#[cfg(feature = "signals")]
+pub mod signals;
+
+#[cfg(feature = "tako-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tako-tracing")))]
+pub mod tracing;
+
 #[cfg(feature = "async-graphql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 pub mod graphql;
 
-/// `GraphiQL` UI helpers.
 #[cfg(feature = "graphiql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "graphiql")))]
 pub mod graphiql;
 
-/// `OpenAPI` documentation generation integrations (utoipa, vespera).
 #[cfg(any(feature = "utoipa", feature = "vespera"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
 pub mod openapi;
 
-/// gRPC over HTTP/2: unary and streaming RPCs with protobuf messages.
 #[cfg(feature = "grpc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "grpc")))]
 pub mod grpc;
 
-/// WebSocket upgrades and connections.
 #[cfg(feature = "ws")]
 #[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
 pub mod ws;

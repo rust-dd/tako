@@ -4,7 +4,7 @@ use std::future::ready;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 
-/// Zero-copy path extractor borrowing the request URI path.
+/// The request path, borrowed and not percent-decoded.
 pub struct PathBorrowed<'a>(pub &'a str);
 
 impl<'a> FromRequest<'a> for PathBorrowed<'a> {
@@ -13,7 +13,6 @@ impl<'a> FromRequest<'a> for PathBorrowed<'a> {
   fn from_request(
     req: &'a mut tako_rs_core::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    // The returned &str borrows from the request for the same lifetime 'a.
     ready(Ok(PathBorrowed(req.uri().path())))
   }
 }

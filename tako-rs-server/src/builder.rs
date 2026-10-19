@@ -1,9 +1,5 @@
-//! Server builders and owned shutdown handles.
-//!
-//! Use `Server::builder()` for Tokio or `CompioServer::builder()` for Compio.
-//! The `try_spawn_*` methods validate configuration and return startup errors;
-//! `ServerHandle::result` reports failures after startup. `trigger` stops acceptance,
-//! and `shutdown` waits for bounded draining before cancelling remaining work.
+//! `Server` (Tokio) and `CompioServer` builders whose `try_spawn_*` methods return startup errors,
+//! and the `ServerHandle` that stops and drains them.
 
 mod handle;
 mod spawn;
@@ -20,7 +16,6 @@ pub use compio_server::CompioServer;
 pub use compio_server::CompioServerBuilder;
 pub use handle::ServerError;
 pub use handle::ServerHandle;
-pub use handle::either;
 #[cfg(feature = "tls")]
 pub use tls_cert::ClientAuth;
 #[cfg(feature = "tls")]

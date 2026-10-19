@@ -23,13 +23,8 @@ use super::driver::Driver;
 use crate::h3_common::connection::QuicConnection;
 use crate::h3_common::request::handle_request;
 
-/// An established WebTransport session.
-///
-/// Clone it to use the session from several tasks; on compio the clones stay
-/// on the connection's thread. Once the session is closed — by the client,
-/// by [`close`](Self::close), or by server shutdown — the accept and read
-/// methods return `Ok(None)`. When the handler returns, the server ends the
-/// session and closes its connection.
+/// An established session, shared by its clones (on compio within one thread). Once it closes,
+/// accept and read return `Ok(None)`; the handler returning closes it and its connection.
 #[derive(Clone)]
 pub struct WebTransportSession {
   inner: Shared<Inner>,
@@ -52,9 +47,8 @@ struct Inner {
 }
 
 impl WebTransportSession {
-  /// Accepts the session and runs `handler` until it returns, or until
-  /// `grace` after the client closed the session or the server started to
-  /// shut down.
+  /// Runs `handler` until it returns, or until `grace` after the client closed the session or
+  /// the server began to shut down.
   pub(crate) async fn run<F: Future<Output = ()>>(
     stream: crate::h3_common::sessions::ServerStream,
     conn: h3::server::Connection<QuicConnection, Bytes>,
@@ -98,9 +92,8 @@ impl WebTransportSession {
       futures_util::future::select(handler, ended).await;
     }
 
-    // Finishing the CONNECT stream is a clean close with code 0. Dropping the
-    // connection would discard a close capsule still in flight, so wait for
-    // the client to end its side first.
+    // Finishing the CONNECT stream closes cleanly with code 0; wait for the client's side so a
+    // close capsule still in flight is not dropped with the connection.
     let close = async {
       if let Some(mut connect) = inner.connect.lock().await.take() {
         let _ = connect.finish().await;
@@ -122,10 +115,8 @@ impl WebTransportSession {
     self.inner.remote_addr
   }
 
-  /// Waits for the next bidirectional stream the client opens.
-  ///
-  /// HTTP/3 requests that arrive on the same connection are served by the
-  /// router meanwhile.
+  /// Waits for the next bidirectional stream the client opens; HTTP/3 requests on the same
+  /// connection reach the router meanwhile.
   pub async fn accept_bi(&self) -> Result<Option<BidiStream>, BoxError> {
     self
       .until_closed(async {
@@ -190,9 +181,8 @@ impl WebTransportSession {
     Ok(())
   }
 
-  /// Closes the session with an application error code and a reason, which
-  /// the browser reports from `WebTransport.closed`. The reason is trimmed to
-  /// 1024 bytes.
+  /// Closes the session with a code and a reason, trimmed to 1024 bytes, that the browser
+  /// reports from `WebTransport.closed`.
   pub async fn close(&self, code: u32, reason: &str) -> Result<(), BoxError> {
     let (capsule, reason) = capsule::encode_close(code, reason);
     let connect = self.inner.connect.lock().await.take();

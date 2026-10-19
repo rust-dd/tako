@@ -10,15 +10,8 @@ use crate::handler::Handler;
 use crate::route::Route;
 
 impl Router {
-  /// Registers a new route with the router.
-  ///
-  /// Associates an HTTP method and path pattern with a handler function. The path
-  /// can contain dynamic segments using curly braces (e.g., `/users/{id}`), which
-  /// are extracted as parameters during request processing.
-  ///
-  /// # Panics
-  ///
-  /// Panics if a route with the same method and path pattern is already registered.
+  /// Registers `handler` for `method` and `path`, whose `{name}` segments become parameters;
+  /// panics if that method and path are already registered.
   ///
   /// # Examples
   ///
@@ -66,8 +59,6 @@ impl Router {
     route
   }
 
-  /// Returns `path` with the active `pending_prefix` (if any) prepended.
-  /// Cold path; only runs at registration time.
   pub(crate) fn apply_pending_prefix(&self, path: &str) -> String {
     match &self.pending_prefix {
       None => path.to_string(),
@@ -158,16 +149,8 @@ impl Router {
     self.route(Method::OPTIONS, path, handler)
   }
 
-  /// Registers a route with trailing slash redirection enabled.
-  ///
-  /// When TSR is enabled, requests to paths with or without trailing slashes
-  /// are automatically redirected to the canonical version. This helps maintain
-  /// consistent URLs and prevents duplicate content issues.
-  ///
-  /// # Panics
-  ///
-  /// - Panics if called with the root path (`"/"`) since TSR is not applicable.
-  /// - Panics if a route with the same method and path pattern is already registered.
+  /// [`Router::route`], plus a 307 redirect to `path` for requests with the other trailing
+  /// slash; panics for `/` and for an already registered route.
   ///
   /// # Examples
   ///

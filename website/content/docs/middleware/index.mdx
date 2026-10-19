@@ -148,6 +148,5 @@ Beyond the grouped catalog, `tako-rs-plugins` ships several more middleware:
 (`hmac-signature`), and `json_schema::JsonSchema` (`json-schema`).
 
 <Callout type="warn">
-  `timeout::Timeout` currently ships a Tokio-runtime path. A Compio variant is
-  on the follow-up list — on Compio, prefer a per-route timeout instead.
+  `timeout::Timeout` is Tokio-only. On Compio, use a per-route timeout instead.
 </Callout>

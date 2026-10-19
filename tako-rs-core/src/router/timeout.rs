@@ -9,10 +9,7 @@ use crate::types::Request;
 use crate::types::Response;
 
 impl Router {
-  /// Executes the middleware chain with an optional timeout.
-  ///
-  /// If a timeout is specified and exceeded, the timeout fallback handler
-  /// is invoked or a default 504 Gateway Timeout response is returned.
+  /// Runs `next`; once `timeout_duration` passes, answers with the timeout fallback or status.
   pub(super) async fn run_with_timeout(
     &self,
     req: Request,
@@ -53,7 +50,6 @@ impl Router {
     }
   }
 
-  /// Returns the timeout response using the fallback handler or a configured timeout status.
   async fn handle_timeout(&self, request: Option<Request>) -> Response {
     if let Some(handler) = &self.timeout_fallback {
       handler.call(request.unwrap_or_default()).await

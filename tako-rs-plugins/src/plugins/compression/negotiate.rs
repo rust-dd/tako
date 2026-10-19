@@ -1,15 +1,9 @@
-//! `Accept-Encoding` parsing and server-side encoding negotiation.
-
 use super::encoding::Encoding;
 
-/// Selects the best compression encoding based on client preferences and server capabilities.
-///
-/// Honors RFC 9110 quality values: a token with `q=0` is rejected, an unlisted
-/// token defers to the wildcard `*` if present, otherwise it is unacceptable.
-/// Server preference order is `br > gzip > deflate > zstd`.
+/// RFC 9110 q-values: `q=0` rejects a coding and unlisted codings follow `*`. The server
+/// prefers br, gzip, deflate, then zstd.
 pub(crate) fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
   let parsed = parse_accept_encoding(header);
-  // Pull `*` once — it determines acceptance of any encoding not listed explicitly.
   let wildcard_q = parsed.iter().find(|(c, _)| c == "*").map(|(_, q)| *q);
 
   let acceptable = |enc: Encoding| -> bool {
@@ -39,16 +33,8 @@ pub(crate) fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Enco
   None
 }
 
-/// Parses an `Accept-Encoding` header into `(token, q)` pairs.
-///
-/// Tokens are lowercased. `q=` is honored when valid and absent → `1.0`.
-///
-/// PPL-15: per RFC 9110 / RFC 7231 §5.3, a malformed q-value (e.g.
-/// `gzip;q=`, `gzip;q=banana`) means the entire entry MUST be ignored, not
-/// silently defaulted to full strength. Previously a malformed q parsed to
-/// `1.0`, so a client sending `gzip;q=` would erroneously get gzip as the
-/// most preferred encoding even though they intended to disable it or
-/// signal something else. Drop entries with a present-but-unparseable `q=`.
+/// Lowercased `(coding, q)` pairs. A missing q is 1.0; per RFC 9110 an entry with an
+/// unparsable q is dropped rather than defaulted to full strength.
 fn parse_accept_encoding(header: &str) -> Vec<(String, f32)> {
   header
     .split(',')
@@ -69,7 +55,6 @@ fn parse_accept_encoding(header: &str) -> Vec<(String, f32)> {
           .strip_prefix("q=")
           .or_else(|| param.strip_prefix("Q="));
         if let Some(qv) = qv {
-          // Malformed q-value → drop the whole entry (RFC 9110).
           q = qv.parse().ok()?;
         }
       }

@@ -1,29 +1,17 @@
-//! Zero-copy body extractor.
-//!
-//! `BytesBorrowed<'a>` collects the request body into request extensions on
-//! first access and hands subsequent extractors a borrowed `&'a Bytes` so the
-//! same body can drive several zero-copy parses (form, json, custom) without
-//! re-collecting or cloning.
+//! The collected request body, borrowed as `&Bytes` or `&[u8]`.
 
 use bytes::Bytes;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::body::collect_body;
 
-/// Wrapper around the cached request body inserted into request extensions.
-///
-/// Using a newtype prevents collisions with other middleware that might also
-/// stash a raw [`Bytes`] in extensions for unrelated purposes — both inserts
-/// would otherwise share the same `TypeId` and clobber each other.
+/// The collected body in the request extensions; a newtype so a raw `Bytes` from other code
+/// cannot collide with it.
 #[derive(Clone)]
 pub struct CachedRequestBody(pub Bytes);
 
-/// Zero-copy access to the cached request body bytes.
-///
-/// On first call the body is collected and stored in request extensions; later
-/// calls return the cached reference.
+/// The body, collected into [`CachedRequestBody`] by the first extractor that needs it.
 pub struct BytesBorrowed<'a>(pub &'a Bytes);
 
-/// Error returned while buffering the request body.
 pub use tako_rs_core::extractors::body::BodyReadError as BytesReadError;
 
 impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
@@ -49,15 +37,10 @@ impl<'a> FromRequest<'a> for BytesBorrowed<'a> {
   }
 }
 
-/// Zero-copy convenience that yields the cached body as `&'a [u8]`.
+/// [`BytesBorrowed`] as a slice.
 pub struct BodySliceBorrowed<'a>(pub &'a [u8]);
 
 impl<'a> FromRequest<'a> for BodySliceBorrowed<'a> {
-  /// Mirrors [`BytesBorrowed::Error`]. Previously this extractor returned
-  /// [`std::convert::Infallible`] and swallowed a body-read failure by caching
-  /// an empty slice, which made downstream parsers report "empty body" for
-  /// what was really a transport-level error. Propagate the underlying read
-  /// failure so the caller can distinguish the two.
   type Error = BytesReadError;
 
   fn from_request(

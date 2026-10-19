@@ -1,7 +1,4 @@
-//! v2 queue regression tests covering dedup keys and the new
-//! `MemoryBackend` exposed via the `QueueBackend` trait.
-
-#![cfg_attr(feature = "compio", allow(unused_imports))]
+#![cfg(not(feature = "compio"))]
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
@@ -13,7 +10,6 @@ use tako_rs_core::queue::backend::MemoryBackend;
 use tako_rs_core::queue::backend::PushOptions;
 use tako_rs_core::queue::backend::QueueBackend;
 
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn dedup_key_collapses_in_pending() {
   let counter = Arc::new(AtomicU32::new(0));
@@ -28,8 +24,7 @@ async fn dedup_key_collapses_in_pending() {
     }
   });
 
-  // Push three with the same dedup key BEFORE starting workers, so they
-  // all sit in pending at once and the dedup check kicks in.
+  // Pushed before the workers start, so all three are pending when dedup runs.
   let id_a = queue.push_dedup("noop", &(), "key-1").await.unwrap();
   let id_b = queue.push_dedup("noop", &(), "key-1").await.unwrap();
   let id_c = queue.push_dedup("noop", &(), "key-1").await.unwrap();
@@ -43,7 +38,6 @@ async fn dedup_key_collapses_in_pending() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_push_and_reserve_round_trip() {
   let backend = MemoryBackend::new();
@@ -56,11 +50,9 @@ async fn memory_backend_push_and_reserve_round_trip() {
   assert_eq!(job.id, id);
   assert_eq!(job.payload, b"hello");
   backend.complete(job.id).await.unwrap();
-  // After completion, queue is empty.
   assert!(backend.reserve("emails").await.unwrap().is_none());
 }
 
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_dead_letter_path() {
   let backend = MemoryBackend::new();
@@ -75,7 +67,6 @@ async fn memory_backend_dead_letter_path() {
   assert_eq!(dlq[0].0, id);
 }
 
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn memory_backend_fail_requeues_with_attempt_increment() {
   let backend = MemoryBackend::new();

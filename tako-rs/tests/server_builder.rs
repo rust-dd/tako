@@ -1,8 +1,4 @@
-//! End-to-end tests for the unified `Server::builder()` entry point.
-//!
-//! These spin up a real TCP listener, hit it with a tokio `TcpStream`, and
-//! verify the response. The compio path is excluded — these tests only run on
-//! the default tokio transport.
+//! `Server::builder()` against real TCP and UDP sockets.
 
 #![cfg(not(feature = "compio"))]
 
@@ -12,7 +8,6 @@ use http::Method;
 use http::StatusCode;
 use tako::Server;
 use tako::ServerConfig;
-use tako::body::TakoBody;
 use tako::router::Router;
 use tako::types::Request;
 use tokio::io::AsyncReadExt;
@@ -46,7 +41,7 @@ async fn server_builder_handles_http_request() {
   let server = Server::builder().config(ServerConfig::default()).build();
   let handle = server.spawn_http(listener, router);
 
-  // Tiny delay to let the spawn task start the accept loop.
+  // Lets the spawned accept loop start.
   tokio::time::sleep(Duration::from_millis(50)).await;
 
   let status_line = fetch_status_line(&addr).await;
@@ -55,7 +50,6 @@ async fn server_builder_handles_http_request() {
     "status line was {status_line:?}"
   );
 
-  // Trigger graceful shutdown.
   handle.shutdown(Duration::from_secs(2)).await;
 }
 
@@ -66,14 +60,12 @@ async fn server_builder_default_config_is_default() {
   assert_eq!(server.config().h2_max_concurrent_streams, 100);
 }
 
-// Smoke-test the raw TCP path on the builder.
 #[tokio::test]
 async fn server_builder_handles_raw_tcp_echo() {
   use tokio::io::AsyncReadExt as _;
   use tokio::io::AsyncWriteExt as _;
 
-  // Bind once just to discover a free port, then drop the listener so the
-  // builder can rebind via serve_tcp_with_shutdown.
+  // Finds a free port, then frees it for `spawn_tcp_raw`, which binds by address.
   let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
   let addr = probe.local_addr().unwrap();
   drop(probe);
@@ -127,8 +119,6 @@ async fn server_builder_handles_raw_udp_echo() {
   handle.trigger();
 }
 
-// Smoke-test that the 405 + Allow path keeps working through the builder
-// without any caller-side wiring.
 #[tokio::test]
 async fn server_builder_propagates_405_with_allow() {
   let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -162,9 +152,6 @@ async fn server_builder_propagates_405_with_allow() {
     txt.to_ascii_lowercase().contains("allow:"),
     "wanted Allow header, got: {txt:?}"
   );
-
-  // Drop the in-flight body so we can use TakoBody import without a warning.
-  let _ = TakoBody::empty();
 
   handle.shutdown(Duration::from_secs(2)).await;
 }

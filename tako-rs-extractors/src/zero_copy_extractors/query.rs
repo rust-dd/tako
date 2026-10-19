@@ -1,8 +1,4 @@
-//! Zero-copy query-string extractor.
-//!
-//! `QueryBorrowed<'a, T>` deserializes from the URI query slice directly. The
-//! borrowed `T` (e.g. `Cow<'a, str>` fields) lives as long as the request, so
-//! string parameters do not need to be cloned out of the URI buffer.
+//! The query string, raw or deserialized into a `T` that borrows from the URI.
 
 use std::convert::Infallible;
 use std::future::ready;
@@ -13,7 +9,7 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 
-/// Zero-copy access to the raw query string.
+/// The raw query string; empty when there is none.
 pub struct RawQueryBorrowed<'a>(pub &'a str);
 
 impl<'a> FromRequest<'a> for RawQueryBorrowed<'a> {
@@ -36,15 +32,12 @@ impl<'a> FromRequestParts<'a> for RawQueryBorrowed<'a> {
   }
 }
 
-/// Zero-copy typed query extractor.
-///
-/// `T` must be `Deserialize<'a>` so it can borrow from the URI query slice.
+/// The query string as a `T` that may borrow from the URI.
 pub struct QueryBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
-/// Error type for `QueryBorrowed`.
+/// Rejection of [`QueryBorrowed`]; responds 400.
 #[derive(Debug)]
 pub enum QueryBorrowedError {
-  /// `serde_urlencoded` failed to deserialize the query slice.
   DeserializationError(String),
 }
 

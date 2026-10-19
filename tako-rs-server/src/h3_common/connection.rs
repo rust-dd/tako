@@ -9,11 +9,8 @@ pub(crate) type QuicConnection = h3_quinn::Connection;
 #[cfg(feature = "compio")]
 pub(crate) type QuicConnection = compio::quic::Connection;
 
-/// Starts HTTP/3 on an accepted QUIC connection.
-///
-/// With `webtransport`, the SETTINGS frame also advertises extended CONNECT,
-/// HTTP/3 datagrams, and one WebTransport session per connection, which is
-/// what browsers require before they open a session.
+/// Starts HTTP/3 on an accepted QUIC connection. With `webtransport`, SETTINGS also advertise what
+/// browsers require first: extended CONNECT, datagrams and one session per connection.
 pub(crate) async fn accept<C>(conn: C) -> Result<Connection<C, Bytes>, ConnectionError>
 where
   C: quic::Connection<Bytes>,

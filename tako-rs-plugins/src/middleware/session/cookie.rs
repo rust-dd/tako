@@ -1,8 +1,5 @@
-//! Cookie serialization, `SameSite` selection, and session-id generation.
-
 use tako_rs_core::types::Request;
 
-/// `SameSite` cookie attribute.
 #[derive(Clone, Copy, Debug)]
 pub enum SameSite {
   Strict,
@@ -11,7 +8,7 @@ pub enum SameSite {
 }
 
 impl SameSite {
-  fn as_str(self) -> &'static str {
+  pub(crate) fn as_str(self) -> &'static str {
     match self {
       SameSite::Strict => "Strict",
       SameSite::Lax => "Lax",
@@ -21,10 +18,7 @@ impl SameSite {
 }
 
 pub(crate) fn generate_session_id() -> String {
-  // UUIDv4 from `getrandom` — 122 bits of unpredictable entropy (the other 6
-  // bits encode the RFC 4122 version + variant). Plenty for session-cookie
-  // unguessability, but document the bit count rather than claim "128 bits"
-  // since that misconception leaks into security reviews.
+  // 122 random bits: unguessable, but do not advertise it as 128-bit secure.
   uuid::Uuid::new_v4().simple().to_string()
 }
 

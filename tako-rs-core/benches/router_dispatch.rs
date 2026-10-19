@@ -1,6 +1,4 @@
 //! Hot-path bench: router dispatch for static and dynamic paths.
-//!
-//! Run with: `cargo bench -p tako-rs-core --bench router_dispatch`.
 
 use std::hint::black_box;
 

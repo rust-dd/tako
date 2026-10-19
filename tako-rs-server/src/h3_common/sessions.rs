@@ -1,8 +1,5 @@
-//! Hand-off of accepted WebTransport sessions from request tasks to the
-//! connection loop, which owns the h3 connection a session takes over.
-//!
-//! Without the `webtransport` feature the hand-off never fires and costs
-//! nothing: the loop's `recv` arm stays pending forever.
+//! Hands accepted WebTransport sessions from request tasks to the connection loop that owns the
+//! h3 connection; without `webtransport` the loop's `recv` arm just stays pending.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

@@ -1,11 +1,4 @@
 //! RFC 7807 / RFC 9457 `application/problem+json` error responses.
-//!
-//! Provides a typed [`Problem`](crate::problem::Problem) struct, a [`Responder`](crate::responder::Responder) implementation that
-//! emits `application/problem+json`, and a helper that builds a default
-//! problem response from a status code. Hook the helper into
-//! [`Router::error_handler`](crate::router::Router::error_handler) /
-//! [`Router::client_error_handler`](crate::router::Router::client_error_handler)
-//! to upgrade plain text 4xx/5xx responses into structured problem documents.
 
 use std::collections::BTreeMap;
 
@@ -21,10 +14,7 @@ use crate::types::Response;
 /// Media type for RFC 7807 problem details.
 pub const PROBLEM_JSON: &str = "application/problem+json";
 
-/// RFC 7807 / RFC 9457 problem details document.
-///
-/// All fields except `status` are optional. `extensions` carries any extra
-/// implementation-specific members and is flattened into the JSON output.
+/// A problem details document; only `status` is required.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Problem {
   /// URI reference identifying the problem type. Defaults to `"about:blank"`.
@@ -60,25 +50,21 @@ impl Problem {
     }
   }
 
-  /// Sets the `detail` field.
   pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
     self.detail = Some(detail.into());
     self
   }
 
-  /// Sets the `type` URI.
   pub fn with_type(mut self, type_uri: impl Into<String>) -> Self {
     self.r#type = Some(type_uri.into());
     self
   }
 
-  /// Sets the `instance` URI.
   pub fn with_instance(mut self, instance: impl Into<String>) -> Self {
     self.instance = Some(instance.into());
     self
   }
 
-  /// Adds an extension member.
   pub fn with_extension(
     mut self,
     key: impl Into<String>,
@@ -103,19 +89,8 @@ impl Responder for Problem {
   }
 }
 
-/// Default problem-formatter to be installed into
-/// [`Router::error_handler`](crate::router::Router::error_handler) and/or
-/// [`Router::client_error_handler`](crate::router::Router::client_error_handler).
-///
-/// Behavior:
-/// - Successful responses (1xx/2xx/3xx) pass through unchanged so callers may
-///   reuse this function as a wrapper without stripping non-error bodies.
-/// - Error responses (4xx/5xx) that already carry an `application/json` or
-///   `application/problem+json` `Content-Type` pass through (the handler
-///   produced its own structured error and stays authoritative).
-/// - Every other error response is rewritten into a [`Problem`] document
-///   built from the status code, replacing the body and forcing
-///   `Content-Type: application/problem+json`.
+/// Rewrites a 4xx/5xx response that is not JSON into a [`Problem`] for its status, using a
+/// plain-text 4xx body as `detail`; other responses pass through unchanged.
 pub fn default_problem_responder(response: Response) -> Response {
   let status = response.status();
 

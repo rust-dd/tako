@@ -1,16 +1,7 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "simd")))]
-//! SIMD-accelerated JSON extraction from HTTP request bodies.
-//!
-//! This module provides two extractors behind the `simd` feature:
-//! - [`SimdJson`](crate::simdjson::SimdJson) uses the `simd_json` crate.
-//! - [`SonicJson`](crate::simdjson::SonicJson) uses the `sonic_rs` crate.
-//!
-//! Both extractors validate the `Content-Type` header, read the full request body into an owned buffer,
-//! and deserialize it into the requested type.
+//! JSON bodies parsed by `simd_json` (`SimdJson`, feature `simd-json-impl`) or `sonic_rs`
+//! (`SonicJson`, feature `simd-sonic`).
 //!
 //! # Examples
-//!
-//! Using [`SimdJson`](crate::simdjson::SimdJson):
 //!
 //! ```
 //! use tako::extractors::simdjson::SimdJson;
@@ -29,8 +20,6 @@
 //!     SimdJson(user)
 //! }
 //! ```
-//!
-//! Using [`SonicJson`](crate::simdjson::SonicJson):
 //!
 //! ```
 //! use tako::extractors::simdjson::SonicJson;
@@ -56,23 +45,15 @@ use http::header::{self};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::Entries;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::body::collect_body;
+use tako_rs_core::extractors::is_json_content_type;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// An extractor that (de)serializes JSON using SIMD-accelerated parsing.
-///
-/// `SimdJson<T>` behaves similarly to standard JSON extractors but leverages
-/// SIMD-accelerated parsing for potentially higher performance, especially with
-/// large JSON payloads. It automatically handles content-type validation,
-/// request body reading, and deserialization.
-///
-/// The extractor also implements [`Responder`], allowing it to be returned
-/// directly from handler functions for JSON responses.
-///
-/// See also [`SonicJson`] for an alternative backend with the same API.
+/// JSON parsed in place by `simd_json`; the route's body limit applies. Also a responder.
 ///
 /// # Examples
 ///
@@ -98,21 +79,16 @@ use tako_rs_core::types::Response;
 #[cfg(feature = "simd-json-impl")]
 pub struct SimdJson<T>(pub T);
 
-/// Error type for the SIMD JSON extractors.
+/// Rejection of the SIMD JSON extractors; a body read error keeps its own status, else 400.
 #[derive(Debug)]
 pub enum SimdJsonError {
-  /// Request content type is not recognized as JSON.
+  /// Also returned when the `Content-Type` header is missing.
   InvalidContentType,
-  /// Content-Type header is missing from the request.
-  MissingContentType,
-  /// Failed to read the request body.
   BodyReadError(tako_rs_core::extractors::body::BodyReadError),
-  /// Failed to deserialize JSON using SIMD parser.
   DeserializationError(String),
 }
 
 impl Responder for SimdJsonError {
-  /// Converts the error into an HTTP response.
   fn into_response(self) -> Response {
     match self {
       SimdJsonError::InvalidContentType => (
@@ -120,9 +96,6 @@ impl Responder for SimdJsonError {
         "Invalid content type; expected JSON",
       )
         .into_response(),
-      SimdJsonError::MissingContentType => {
-        (StatusCode::BAD_REQUEST, "Missing content type header").into_response()
-      }
       SimdJsonError::BodyReadError(err) => {
         (err.status(), format!("Failed to read request body: {err}")).into_response()
       }
@@ -134,9 +107,6 @@ impl Responder for SimdJsonError {
     }
   }
 }
-
-use tako_rs_core::extractors::Entries;
-use tako_rs_core::extractors::is_json_content_type;
 
 #[cfg(feature = "simd-json-impl")]
 impl<'a, T> FromRequest<'a> for SimdJson<T>
@@ -150,27 +120,20 @@ where
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Basic content-type validation so we can fail fast.
       if !is_json_content_type(req.headers()) {
         return Err(SimdJsonError::InvalidContentType);
       }
 
-      // Collect the entire request body.
       let bytes = collect_body(req)
         .await
         .map_err(SimdJsonError::BodyReadError)?;
 
-      // simd_json needs `&mut [u8]` for in-place parsing. When the
-      // collected body has no other owners (typical for hyper-driven
-      // requests where the body is freshly assembled), `try_into_mut`
-      // returns the underlying `BytesMut` and we avoid a full copy.
-      // Otherwise we fall back to the previous deep clone.
+      // simd_json parses in place; `try_into_mut` skips the copy when the buffer is unshared.
       let mut owned: Vec<u8> = match bytes.try_into_mut() {
         Ok(bm) => bm.into(),
         Err(b) => b.to_vec(),
       };
 
-      // SIMD-accelerated deserialization.
       let data = simd_json::from_slice::<T>(&mut owned)
         .map_err(|e| SimdJsonError::DeserializationError(e.to_string()))?;
 
@@ -184,7 +147,7 @@ impl<T> Responder for SimdJson<T>
 where
   T: Serialize,
 {
-  /// Converts the wrapped data into an HTTP JSON response.
+  /// A serialization error becomes a plain-text 500.
   fn into_response(self) -> Response {
     match simd_json::to_vec(&self.0) {
       Ok(buf) => {
@@ -208,16 +171,7 @@ where
   }
 }
 
-/// An extractor that (de)serializes JSON using the `sonic_rs` backend.
-///
-/// `SonicJson<T>` behaves similarly to [`SimdJson`] but uses `sonic_rs` for parsing
-/// and serialization.
-///
-/// The extractor validates the `Content-Type` header, reads the full request body,
-/// and deserializes it into the requested type.
-///
-/// The extractor also implements [`Responder`], allowing it to be returned
-/// directly from handler functions for JSON responses.
+/// JSON parsed by `sonic_rs`; the route's body limit applies. Also a responder.
 ///
 /// # Examples
 ///
@@ -250,17 +204,14 @@ where
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Basic content-type validation so we can fail fast.
       if !is_json_content_type(req.headers()) {
         return Err(SimdJsonError::InvalidContentType);
       }
 
-      // Collect the entire request body.
       let bytes = collect_body(req)
         .await
         .map_err(SimdJsonError::BodyReadError)?;
 
-      // SIMD-accelerated deserialization.
       let data = sonic_rs::from_slice::<T>(&bytes)
         .map_err(|e| SimdJsonError::DeserializationError(e.to_string()))?;
 
@@ -274,7 +225,7 @@ impl<T> Responder for SonicJson<T>
 where
   T: Serialize,
 {
-  /// Converts the wrapped data into an HTTP JSON response.
+  /// A serialization error becomes a plain-text 500.
   fn into_response(self) -> Response {
     match sonic_rs::to_vec(&self.0) {
       Ok(buf) => {

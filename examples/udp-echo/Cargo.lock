@@ -1017,16 +1017,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1082,17 +1072,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "sha1"
-version = "0.10.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.2.17",
- "digest 0.10.7",
 ]
 
 [[package]]
@@ -1212,16 +1191,13 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
- "base64",
  "bytes",
- "cookie",
  "envy",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
  "hyper",
- "hyper-util",
  "linkme",
  "matchit",
  "mime",
@@ -1230,19 +1206,11 @@ dependencies = [
  "pin-project-lite",
  "scc",
  "serde",
- "serde_bytes",
  "serde_json",
- "serde_urlencoded",
- "sha1",
- "sha2 0.11.0",
  "smallvec",
  "thread_local",
  "tokio",
- "tokio-stream",
- "tokio-util",
  "tracing",
- "url",
- "urlencoding",
 ]
 
 [[package]]
@@ -1250,31 +1218,22 @@ name = "tako-rs-extractors"
 version = "2.4.2"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64",
  "bytes",
  "cookie",
  "futures-util",
  "hkdf",
  "http",
- "http-body",
  "http-body-util",
  "ipnet",
  "mime",
- "mime_guess",
- "parking_lot",
  "serde",
- "serde_bytes",
  "serde_html_form",
  "serde_json",
  "serde_urlencoded",
- "sha1",
  "sha2 0.11.0",
- "smallvec",
  "tako-rs-core",
  "tokio",
- "tracing",
- "url",
  "urlencoding",
 ]
 
@@ -1295,29 +1254,23 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
- "cookie",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
  "httpdate",
- "mime",
  "parking_lot",
  "pin-project-lite",
  "scc",
  "serde",
  "serde_json",
- "sha1",
  "sha2 0.11.0",
- "smallvec",
  "subtle",
  "tako-rs-core",
  "tako-rs-extractors",
  "tokio",
- "tokio-stream",
  "tracing",
  "url",
- "urlencoding",
  "uuid",
 ]
 
@@ -1331,13 +1284,11 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "hyper",
  "hyper-util",
  "pin-project-lite",
  "tako-rs-core",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "tracing",
 ]
@@ -1353,9 +1304,6 @@ dependencies = [
  "http-body",
  "http-body-util",
  "httpdate",
- "hyper",
- "hyper-util",
- "mime",
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
@@ -1363,7 +1311,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -1442,17 +1389,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "tokio-stream"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
-dependencies = [
- "futures-core",
- "pin-project-lite",
- "tokio",
 ]
 
 [[package]]

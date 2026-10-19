@@ -1,9 +1,4 @@
-//! HTTP route definition and path matching functionality.
-//!
-//! This module provides the core `Route` struct for defining HTTP routes with path patterns,
-//! parameter extraction, and middleware support. Routes can contain dynamic segments like
-//! `{id}` that are captured as parameters, and support method-specific handlers with
-//! optional trailing slash redirection and route-specific middleware chains.
+//! The [`Route`] that router registration returns, for configuring that one route.
 //!
 //! # Examples
 //!

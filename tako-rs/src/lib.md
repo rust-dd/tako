@@ -111,13 +111,14 @@ every flag.
 This umbrella crate stitches together the workspace sub-crates:
 
 - `tako-rs-core`: routing, handlers, middleware and plugin traits, body and
-  request types, state, signals, queue, plus GraphQL, gRPC, and `OpenAPI` helpers
+  request types, state, signals, queue, WebSocket, plus GraphQL, gRPC, and
+  `OpenAPI` helpers
 - `tako-rs-extractors`: concrete request extractors (cookies, form, query,
   path, JWT, multipart, SIMD JSON, …)
 - `tako-rs-server`: HTTP/1, TLS, HTTP/3, WebTransport, raw TCP, UDP, and Unix
   sockets, PROXY protocol, plus the Compio variants
-- `tako-rs-streams`: WebSocket, SSE, file streaming, static file serving, and
-  raw QUIC sessions
+- `tako-rs-streams`: SSE, file streaming, static file serving, and raw QUIC
+  sessions
 - `tako-rs-plugins`: built-in middleware (auth, CSRF, sessions, …) and plugins
   (CORS, compression, rate limiting, idempotency, metrics)
 

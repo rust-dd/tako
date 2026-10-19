@@ -1,10 +1,4 @@
-//! HTTP request and response body handling utilities for efficient data processing.
-//!
-//! This module provides `TakoBody`, a flexible wrapper around HTTP body implementations
-//! that supports various data sources including static content, streams, and dynamic
-//! generation. It integrates with Hyper's body system while providing convenience methods
-//! for common use cases like creating empty bodies, streaming data, and converting from
-//! different input types with efficient memory management.
+//! [`TakoBody`], the body of every request and response.
 //!
 //! # Examples
 //!
@@ -36,7 +30,6 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
-use anyhow::Result;
 use bytes::Bytes;
 use futures_util::Stream;
 use futures_util::TryStream;
@@ -52,25 +45,15 @@ use http_body_util::StreamBody;
 use crate::types::BoxBody;
 use crate::types::BoxError;
 
-/// Internal enum to avoid heap-boxing for the most common body kinds.
-/// `Full`, `Empty`, and `Incoming` are stored inline (zero allocations).
-/// Anything else (streams, mapped bodies, etc.) goes through the `Boxed` variant.
-#[allow(dead_code)]
+/// `Full`, `Empty` and hyper's `Incoming` are stored unboxed; any other body is boxed.
 enum BodyInner {
   Full(Full<Bytes>),
   Empty(Empty<Bytes>),
-  /// Hyper's incoming request body — stored inline to avoid boxing on every request.
   Incoming(hyper::body::Incoming),
   Boxed(BoxBody),
 }
 
-/// HTTP body wrapper with streaming and conversion support.
-///
-/// `TakoBody` provides a unified interface for handling HTTP request and response bodies
-/// with support for various data sources. It wraps Hyper's body system with additional
-/// convenience methods and efficient conversion capabilities. The implementation supports
-/// both static content and streaming data while maintaining performance through zero-copy
-/// operations where possible.
+/// Request and response body; buffered, empty and incoming bodies are not boxed.
 ///
 /// # Examples
 ///
@@ -124,10 +107,7 @@ impl TakoBody {
     matches!(self.0, BodyInner::Full(_) | BodyInner::Empty(_))
   }
 
-  /// Creates a new body from any type implementing the `Body` trait.
-  ///
-  /// This is the generic (boxing) path — prefer [`full`](Self::full) or
-  /// [`empty`](Self::empty) when the concrete type is known.
+  /// Boxes any `Body`; prefer [`full`](Self::full) or [`empty`](Self::empty) where they fit.
   #[inline]
   pub fn new<B>(body: B) -> Self
   where
@@ -183,7 +163,6 @@ impl TakoBody {
   }
 }
 
-/// Provides a default empty body implementation.
 impl Default for TakoBody {
   fn default() -> Self {
     Self::empty()
@@ -223,16 +202,15 @@ impl From<Bytes> for TakoBody {
 /// Converts an `Infallible` poll result into a `BoxError` poll result at zero cost.
 #[inline]
 fn map_infallible_frame(
-  poll: Poll<Option<core::result::Result<Frame<Bytes>, Infallible>>>,
-) -> Poll<Option<core::result::Result<Frame<Bytes>, BoxError>>> {
+  poll: Poll<Option<Result<Frame<Bytes>, Infallible>>>,
+) -> Poll<Option<Result<Frame<Bytes>, BoxError>>> {
   poll.map(|opt| opt.map(|res| res.map_err(|e| match e {})))
 }
 
-/// Converts a `hyper::Error` poll result into a `BoxError` poll result.
 #[inline]
 fn map_hyper_frame(
-  poll: Poll<Option<core::result::Result<Frame<Bytes>, hyper::Error>>>,
-) -> Poll<Option<core::result::Result<Frame<Bytes>, BoxError>>> {
+  poll: Poll<Option<Result<Frame<Bytes>, hyper::Error>>>,
+) -> Poll<Option<Result<Frame<Bytes>, BoxError>>> {
   poll.map(|opt| opt.map(|res| res.map_err(Into::into)))
 }
 
@@ -244,7 +222,7 @@ impl Body for TakoBody {
   fn poll_frame(
     self: Pin<&mut Self>,
     cx: &mut Context<'_>,
-  ) -> Poll<Option<core::result::Result<Frame<Self::Data>, Self::Error>>> {
+  ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
     // All variants are Unpin, so get_mut is safe.
     match &mut self.get_mut().0 {
       BodyInner::Full(body) => map_infallible_frame(Pin::new(body).poll_frame(cx)),

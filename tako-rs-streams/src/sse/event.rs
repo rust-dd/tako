@@ -3,26 +3,21 @@ use std::time::Duration;
 use bytes::Bytes;
 use bytes::BytesMut;
 
-/// A single SSE event.
-///
-/// Build with [`SseEvent::data`] / [`SseEvent::comment`] / [`SseEvent::retry`]
-/// then chain [`SseEvent::event`] / [`SseEvent::id`].
+/// One event frame; newlines in `event` and `id` become spaces, while `data` and `comment`
+/// span one field per line.
 #[derive(Debug, Clone, Default)]
 pub struct SseEvent {
-  /// `data:` payload — multi-line strings are split into multiple `data:` fields.
   pub data: Option<String>,
-  /// `event:` field — the event name handler.
   pub event: Option<String>,
-  /// `id:` field — sets the `Last-Event-ID` for client reconnection.
+  /// Sent back by the client as `Last-Event-ID` when it reconnects.
   pub id: Option<String>,
-  /// `retry:` field — reconnection delay hint, in milliseconds.
+  /// Reconnection delay in milliseconds.
   pub retry_ms: Option<u64>,
-  /// `:` comment — invisible to handlers, useful for keepalive.
+  /// Ignored by `EventSource`, which makes it a keepalive.
   pub comment: Option<String>,
 }
 
 impl SseEvent {
-  /// New event carrying a single `data:` payload.
   pub fn data(d: impl Into<String>) -> Self {
     Self {
       data: Some(d.into()),
@@ -30,7 +25,6 @@ impl SseEvent {
     }
   }
 
-  /// New event consisting only of a comment line.
   pub fn comment(c: impl Into<String>) -> Self {
     Self {
       comment: Some(c.into()),
@@ -38,7 +32,6 @@ impl SseEvent {
     }
   }
 
-  /// New event setting the reconnection retry hint.
   pub fn retry(d: Duration) -> Self {
     Self {
       retry_ms: Some(d.as_millis() as u64),
@@ -46,19 +39,17 @@ impl SseEvent {
     }
   }
 
-  /// Set the `event:` field.
   pub fn event(mut self, e: impl Into<String>) -> Self {
     self.event = Some(e.into());
     self
   }
 
-  /// Set the `id:` field.
   pub fn id(mut self, i: impl Into<String>) -> Self {
     self.id = Some(i.into());
     self
   }
 
-  /// Encode as a single SSE wire frame.
+  /// The wire frame, ending in a blank line.
   pub fn encode(&self) -> Bytes {
     let mut buf = BytesMut::with_capacity(64);
     if let Some(c) = self.comment.as_deref() {
@@ -70,9 +61,6 @@ impl SseEvent {
     }
     if let Some(e) = self.event.as_deref() {
       buf.extend_from_slice(b"event: ");
-      // `event` is a single-line field per SSE spec; collapse any embedded
-      // CR/LF the caller may have included to keep an attacker from
-      // injecting synthetic fields (`event: foo\nid: hostile`).
       buf.extend_from_slice(sanitize_single_line(e).as_bytes());
       buf.extend_from_slice(b"\n");
     }
@@ -98,14 +86,12 @@ impl SseEvent {
   }
 }
 
-/// Replace SSE-control characters with a space so single-line fields cannot
-/// smuggle extra `event:` / `id:` lines.
+/// CR and LF become spaces, so a single-line field cannot inject fields such as `id:`.
 fn sanitize_single_line(s: &str) -> String {
   s.replace(['\n', '\r'], " ")
 }
 
-/// Strip lone `\r`s from a line value. (`\n` is already handled by the caller
-/// which splits on it.)
+/// Callers split on `\n` first.
 fn strip_cr(s: &str) -> String {
   s.replace('\r', "")
 }
@@ -116,14 +102,11 @@ mod tests {
 
   #[test]
   fn event_and_id_strip_crlf() {
-    // Attacker-controlled string tries to inject a fake `id:` line.
     let frame = SseEvent::data("payload")
       .event("legit\nid: hostile")
       .id("a\r\nb")
       .encode();
     let s = std::str::from_utf8(&frame).unwrap();
-    // The `event:` line must collapse the embedded newline so no synthetic
-    // SSE field appears (each \n/\r → single space).
     assert!(
       s.contains("event: legit id: hostile\n"),
       "expected sanitized event line, got: {s:?}"
@@ -132,7 +115,6 @@ mod tests {
       s.contains("id: a  b\n"),
       "expected sanitized id line, got: {s:?}"
     );
-    // No raw control characters anywhere inside the value bytes.
     assert!(!s.contains('\r'));
   }
 }

@@ -1,12 +1,4 @@
-//! Cron scheduling for the queue.
-//!
-//! Wraps the `cron` crate's `Schedule::upcoming` iterator and exposes a
-//! [`CronScheduler`](crate::queue::cron::CronScheduler) that, given a backend,
-//! periodically pushes the same payload to a named queue.
-//!
-//! ⚠️ Requires the `queue-cron` cargo feature on `tako-core`.
-
-#![cfg(feature = "queue-cron")]
+//! Cron scheduling for [`QueueBackend`] queues.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,7 +10,7 @@ use cron::Schedule;
 use super::backend::PushOptions;
 use super::backend::QueueBackend;
 
-/// Periodic-push driver bound to a `QueueBackend`.
+/// Pushes the same payload to one queue each time a cron schedule fires.
 pub struct CronScheduler {
   schedule: Schedule,
   queue: String,
@@ -27,7 +19,8 @@ pub struct CronScheduler {
 }
 
 impl CronScheduler {
-  /// Build a scheduler from a `"0 9 * * * *"` (sec min hr dom mon dow)-style cron expression.
+  /// Parses `expression` in `sec min hour day-of-month month day-of-week` order, e.g.
+  /// `"0 9 * * * *"`.
   pub fn new(
     expression: &str,
     queue: impl Into<String>,
@@ -43,48 +36,17 @@ impl CronScheduler {
     })
   }
 
-  /// Drive the scheduler in the current async context until cancelled.
-  ///
-  /// Tokio variant — pins to `tokio::time` so `Queue::start` workers on the
-  /// tokio runtime can share the same reactor.
-  #[cfg(not(feature = "compio"))]
+  /// Pushes at every fire time until the schedule runs out; drop the future to stop it.
   pub async fn run(self) {
     loop {
       let Some(next) = self.schedule.upcoming(Utc).next() else {
         return;
       };
-      let now = Utc::now();
-      let wait = (next - now).to_std().unwrap_or(Duration::from_secs(0));
-      // Pin the wakeup to a concrete monotonic instant. `tokio::sleep(wait)`
-      // accumulates micro-overshoot across iterations because each `wait` is
-      // recomputed from the post-sleep wall clock; `sleep_until(deadline)`
-      // resolves exactly at `deadline` even after task descheduling.
-      let deadline = tokio::time::Instant::now() + wait;
-      tokio::time::sleep_until(deadline).await;
-      let _ = self
-        .backend
-        .push(&self.queue, self.payload.as_slice(), PushOptions::default())
-        .await;
-    }
-  }
-
-  /// Drive the scheduler in the current async context until cancelled.
-  ///
-  /// Compio variant — `Queue::start` spawns onto the compio runtime under the
-  /// `compio` feature, so cron must use `compio::time` too. Hard-coding
-  /// `tokio::time::*` here used to guarantee a "no reactor running" panic
-  /// in any compio + queue-cron deployment without a parallel tokio runtime.
-  #[cfg(feature = "compio")]
-  pub async fn run(self) {
-    loop {
-      let Some(next) = self.schedule.upcoming(Utc).next() else {
-        return;
-      };
-      let now = Utc::now();
-      let wait = (next - now).to_std().unwrap_or(Duration::from_secs(0));
-      // Same monotonic-anchor rationale as the tokio path.
-      let deadline = std::time::Instant::now() + wait;
-      compio::time::sleep_until(deadline).await;
+      let wait = (next - Utc::now()).to_std().unwrap_or(Duration::ZERO);
+      #[cfg(not(feature = "compio"))]
+      tokio::time::sleep(wait).await;
+      #[cfg(feature = "compio")]
+      compio::time::sleep(wait).await;
       let _ = self
         .backend
         .push(&self.queue, self.payload.as_slice(), PushOptions::default())

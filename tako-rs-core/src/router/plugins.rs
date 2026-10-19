@@ -8,11 +8,7 @@ use super::Router;
 use crate::plugins::TakoPlugin;
 
 impl Router {
-  /// Registers a plugin with the router.
-  ///
-  /// Plugins extend the router's functionality by providing additional features
-  /// like compression, CORS handling, rate limiting, or custom behavior. Plugins
-  /// are initialized once when the server starts.
+  /// Adds a router-wide plugin; its `setup` runs once, at server start or on first dispatch.
   ///
   /// # Examples
   ///
@@ -54,14 +50,7 @@ impl Router {
     self
   }
 
-  /// Returns references to all registered plugins.
-  #[cfg(feature = "plugins")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-  pub(crate) fn plugins(&self) -> Vec<&dyn TakoPlugin> {
-    self.plugins.iter().map(AsRef::as_ref).collect()
-  }
-
-  /// Initializes all registered plugins exactly once.
+  /// Sets up nested routers' plugins, then this router's, once; later calls return that result.
   #[cfg(feature = "plugins")]
   #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
   #[doc(hidden)]
@@ -74,7 +63,7 @@ impl Router {
           #[cfg(feature = "signals")]
           self.signals.merge_from(&child.signals);
         }
-        for plugin in self.plugins() {
+        for plugin in &self.plugins {
           plugin.setup(self).map_err(|error| {
             let message = format!("plugin {}: {error:#}", plugin.name());
             tracing::error!(error = %message, "router plugin initialization failed");
@@ -86,10 +75,7 @@ impl Router {
       .clone()
   }
 
-  /// Collects `OpenAPI` metadata from all registered routes.
-  ///
-  /// Returns a vector of tuples containing the HTTP method, path, and `OpenAPI`
-  /// metadata for each route that has `OpenAPI` information attached.
+  /// `(method, path, metadata)` for every route that has `OpenAPI` metadata attached.
   ///
   /// # Examples
   ///
@@ -121,21 +107,5 @@ impl Router {
     }
 
     result
-  }
-
-  /// Drops dangling `Weak<Route>` entries from the per-method `routes` index.
-  ///
-  /// All current routes stay live for the router's lifetime, so this is a
-  /// no-op in well-behaved code. It exists as a safety valve: if any future
-  /// API ever removes from `inner` (hot reload, route deregistration), or if
-  /// downstream code holds the `Arc<Route>` returned from [`Router::route`]
-  /// past the router's lifetime, this method bounds the size of the index.
-  ///
-  /// Cold path; safe to call repeatedly. Linear in the total number of
-  /// registered routes.
-  pub fn compact_routes(&mut self) {
-    for weak_vec in self.routes.iter_mut() {
-      weak_vec.retain(|w| w.strong_count() > 0);
-    }
   }
 }

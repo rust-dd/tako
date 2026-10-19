@@ -1,22 +1,5 @@
-//! `ETag` and conditional GET helper middleware.
-//!
-//! For 200-OK responses without an existing `ETag` header, hashes the body
-//! with SHA-256 and emits a **weak** validator (`W/"<sha256-hex>"`). On
-//! subsequent requests with `If-None-Match` containing the same validator
-//! the middleware short-circuits to a `304 Not Modified` reply with the
-//! original headers preserved (sans the body and `Content-Length`).
-//!
-//! `If-Modified-Since` is honored only when the upstream response carries
-//! a `Last-Modified` header; the comparison is RFC 7232 / RFC 9110 semantic
-//! (date-truncated to seconds, weak comparator).
-//!
-//! Limitations:
-//! - Buffers the response body to compute the hash. Callers can opt out by
-//!   skipping the middleware on streaming routes. A streaming-aware
-//!   variant could expose a custom validator builder, but that requires
-//!   handler cooperation and is deliberately out of scope here.
-//! - Only safe methods (GET, HEAD) trigger `ETag` generation. PUT / PATCH
-//!   conditionals (`If-Match`) are passed through untouched.
+//! Weak SHA-256 `ETag`s for 200 responses to GET and HEAD, answering matching conditionals
+//! with 304. Bodies are buffered to hash them, so skip it on streaming routes.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -39,10 +22,7 @@ use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// `ETag` middleware configuration.
 pub struct ETag {
-  /// Maximum body size considered for `ETag` computation. Larger responses
-  /// pass through untouched.
   max_bytes: usize,
 }
 
@@ -60,7 +40,7 @@ impl ETag {
     }
   }
 
-  /// Sets the maximum response size eligible for `ETag` generation.
+  /// Larger bodies of known size pass through; a streamed body that exceeds it becomes a 500.
   pub fn max_bytes(mut self, n: usize) -> Self {
     self.max_bytes = n;
     self
@@ -80,35 +60,18 @@ fn weak_match(if_none_match: &str, etag: &str) -> bool {
   })
 }
 
-fn build_304(
-  status_headers: http::HeaderMap,
-  request_id_header_keep: Option<HeaderValue>,
-) -> Response {
+fn build_304(mut status_headers: http::HeaderMap) -> Response {
   let mut resp = http::Response::builder()
     .status(StatusCode::NOT_MODIFIED)
     .body(TakoBody::empty())
     .expect("valid 304 response");
-  for (k, v) in &status_headers {
-    if k == CONTENT_LENGTH {
-      continue;
-    }
-    let _ = resp.headers_mut().insert(k.clone(), v.clone());
-  }
-  if let Some(req_id) = request_id_header_keep {
-    let _ = resp.headers_mut().insert("x-request-id", req_id);
-  }
+  status_headers.remove(CONTENT_LENGTH);
+  *resp.headers_mut() = status_headers;
   resp
 }
 
-/// Computes a weak `ETag` (`W/"…"`) from a body slice.
-///
-/// Uses SHA-256 for collision resistance: SHA-1 was upgrade-flagged here
-/// because two bodies with a colliding hash would be served with the same
-/// validator (cache poisoning). Emitted as `W/` (weak) because hashing the
-/// body alone cannot distinguish two responses that differ only by metadata
-/// the validator should also cover (e.g. content-type negotiation on the same
-/// path) — clients may not assume byte-for-byte equality, only semantic
-/// equivalence.
+/// SHA-256 so colliding bodies cannot share a validator; weak because negotiated metadata
+/// such as the content type is not hashed.
 fn make_etag(bytes: &[u8]) -> String {
   let mut hasher = Sha256::new();
   hasher.update(bytes);
@@ -123,20 +86,14 @@ fn make_etag(bytes: &[u8]) -> String {
   hex
 }
 
-/// Compares an `If-Modified-Since` value against `Last-Modified` using
-/// semantic HTTP-date comparison: RFC 9110 §5.6.7 / §13.1.3 allows
-/// IMF-fixdate, RFC 850 and asctime formats; comparing byte-for-byte would
-/// reject legitimate clients and force the server to send a full body.
+/// Compares parsed dates: RFC 9110 §5.6.7 allows IMF-fixdate, RFC 850 and asctime forms.
 fn not_modified_since(if_modified_since: &str, last_modified: &str) -> bool {
   match (
     httpdate::parse_http_date(if_modified_since.trim()),
     httpdate::parse_http_date(last_modified.trim()),
   ) {
     (Ok(ims), Ok(lm)) => ims >= lm,
-    // Parsing failure on either side falls back to byte equality so a
-    // malformed Last-Modified the server itself emitted still produces a
-    // stable result — but the typical RFC 850/asctime client now succeeds.
-    _ => if_modified_since.trim() == last_modified.trim(),
+    _ => false,
   }
 }
 
@@ -158,18 +115,32 @@ impl IntoMiddleware for ETag {
           .get(IF_NONE_MATCH)
           .and_then(|v| v.to_str().ok())
           .map(str::to_string);
-        let if_modified_since = req
-          .headers()
-          .get(IF_MODIFIED_SINCE)
-          .and_then(|v| v.to_str().ok())
-          .map(str::to_string);
+        let if_modified_since = if req.headers().contains_key(IF_NONE_MATCH) {
+          None
+        } else {
+          let mut values = req.headers().get_all(IF_MODIFIED_SINCE).iter();
+          values
+            .next()
+            .filter(|_| values.next().is_none())
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+        };
 
         let resp = next.run(req).await;
         if !safe || resp.status() != StatusCode::OK {
           return resp;
         }
 
-        // Honor handler-provided ETag immediately.
+        if let Some(ims) = if_modified_since.as_ref()
+          && let Some(lm) = resp
+            .headers()
+            .get(LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok())
+          && not_modified_since(ims, lm)
+        {
+          return build_304(resp.into_parts().0.headers);
+        }
+
         if let Some(existing_etag) = resp
           .headers()
           .get(ETAG)
@@ -179,28 +150,12 @@ impl IntoMiddleware for ETag {
           if let Some(req_etag) = if_none_match.as_ref()
             && weak_match(req_etag, &existing_etag)
           {
-            let headers = resp.headers().clone();
-            return build_304(headers, None);
-          }
-          // Last-Modified fast path.
-          if let Some(lm) = resp
-            .headers()
-            .get(LAST_MODIFIED)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string)
-            && let Some(ims) = if_modified_since.as_ref()
-            && not_modified_since(ims, &lm)
-          {
-            let headers = resp.headers().clone();
-            return build_304(headers, None);
+            return build_304(resp.into_parts().0.headers);
           }
           return resp;
         }
 
-        // No handler ETag: compute one if the body is bounded. Cap on both
-        // sides: skip when the body advertises an exact size over `max_bytes`,
-        // and wrap with `Limited` so streaming bodies that lie about their
-        // size can't OOM the process.
+        // `Limited` also caps bodies that under-report their size.
         let (parts, body) = resp.into_parts();
         if let Some(n) = body.size_hint().exact()
           && (n as usize) > max_bytes
@@ -211,8 +166,7 @@ impl IntoMiddleware for ETag {
         let collected = match limited.collect().await {
           Ok(c) => c.to_bytes(),
           Err(_) => {
-            // The body exceeded the cap mid-stream. Surface as 500 — the
-            // body has been partially consumed and cannot be replayed.
+            // Partially consumed, so the original body cannot be replayed.
             return http::Response::builder()
               .status(StatusCode::INTERNAL_SERVER_ERROR)
               .body(TakoBody::empty())
@@ -227,8 +181,7 @@ impl IntoMiddleware for ETag {
         if let Some(req_etag) = if_none_match.as_ref()
           && weak_match(req_etag, &etag)
         {
-          let headers = resp.headers().clone();
-          return build_304(headers, None);
+          return build_304(resp.into_parts().0.headers);
         }
         resp
       })

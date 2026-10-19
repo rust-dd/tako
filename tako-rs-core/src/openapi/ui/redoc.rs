@@ -1,11 +1,9 @@
-//! `Redoc` responder for serving the `Redoc` API documentation interface.
-
 use crate::body::TakoBody;
 use crate::openapi::ui::escape::html_escape;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// `Redoc` responder that serves the `Redoc` API documentation interface.
+/// Serves the `Redoc` page for the spec at `spec_url`.
 ///
 /// # Examples
 ///
@@ -23,7 +21,6 @@ pub struct Redoc {
 }
 
 impl Redoc {
-  /// Creates a new `Redoc` UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -31,7 +28,7 @@ impl Redoc {
     }
   }
 
-  /// Sets the page title.
+  /// Page title, `API Documentation` by default.
   pub fn title(mut self, title: impl Into<String>) -> Self {
     self.title = title.into();
     self
@@ -40,7 +37,6 @@ impl Redoc {
 
 impl Responder for Redoc {
   fn into_response(self) -> Response {
-    // `title` (HTML text) and `spec_url` (HTML attribute) both need escaping.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">

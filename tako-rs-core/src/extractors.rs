@@ -1,11 +1,4 @@
-//! HTTP request data extraction utilities and traits.
-//!
-//! This module provides a comprehensive system for extracting data from HTTP requests in a
-//! type-safe and ergonomic way. Extractors can parse various parts of requests including
-//! headers, query parameters, JSON/form bodies, cookies, and path parameters. The module
-//! defines two core traits: `FromRequest` for extractors that need access to the full
-//! request (including body), and `FromRequestParts` for extractors that only need request
-//! metadata like headers and URI.
+//! [`FromRequest`] and [`FromRequestParts`], plus the extractors whose types the router uses.
 //!
 //! # Examples
 //!
@@ -33,7 +26,7 @@
 
 use http::request::Parts;
 
-/// Checks if the Content-Type header indicates JSON content.
+/// Whether `Content-Type` is `application/json` or an `application/*+json` type.
 #[doc(hidden)]
 pub fn is_json_content_type(headers: &http::HeaderMap) -> bool {
   headers
@@ -47,24 +40,13 @@ pub fn is_json_content_type(headers: &http::HeaderMap) -> bool {
 }
 
 pub mod body;
-
-/// JSON request body parsing and deserialization.
 pub mod json;
-
-/// Path parameter extraction from dynamic route segments.
 pub mod params;
-
-/// Range header parsing for partial content requests.
 pub mod range;
-
-/// Compile-time-shaped path parameter extractor (paired with `#[tako::route]`).
 pub mod typed_params;
 
-/// Framework entries the router puts into a request's extensions.
-///
-/// Extractors list the entries they read in `ENTRIES`. A route without
-/// middleware attaches only what its handler's extractors list; the full
-/// pipeline always attaches every entry.
+/// Request extensions the router provides; a route without middleware attaches only those
+/// its handler's extractors list in `ENTRIES`, the full pipeline all of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Entries(u8);
 
@@ -98,12 +80,7 @@ impl Entries {
   }
 }
 
-/// Trait for extracting data from complete HTTP requests.
-///
-/// `FromRequest` enables types to extract and parse data from HTTP requests, including
-/// access to the request body. This trait is designed for extractors that need to consume
-/// or parse the request body, such as JSON deserializers, form parsers, or raw byte
-/// extractors. The extraction is asynchronous to support streaming body processing.
+/// Extracts a value from the whole request, body included; a handler's last argument is one.
 ///
 /// # Examples
 ///
@@ -132,28 +109,19 @@ impl Entries {
 /// }
 /// ```
 pub trait FromRequest<'a>: Sized {
-  /// Error type returned when extraction fails.
+  /// Sent as the response, instead of calling the handler, when extraction fails.
   type Error: crate::responder::Responder;
 
-  /// Framework entries this extractor reads.
-  ///
-  /// The default, [`Entries::ALL`], is always correct. A route without
-  /// middleware attaches only the entries its extractors list, so an entry
-  /// left out here is missing from those requests.
+  /// Entries this extractor reads; the default, [`Entries::ALL`], is always correct, while
+  /// an entry left out is missing on routes without middleware.
   const ENTRIES: Entries = Entries::ALL;
 
-  /// Extracts the type from the HTTP request.
   fn from_request(
     req: &'a mut crate::types::Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
 }
 
-/// Trait for extracting data from HTTP request parts (metadata only).
-///
-/// `FromRequestParts` enables types to extract data from request metadata such as
-/// headers, URI, method, and extensions, without needing access to the request body.
-/// This is more efficient for extractors that only need metadata and allows multiple
-/// extractors to be used on the same request since the body is not consumed.
+/// Extracts a value from the request head; every handler argument but the last is one.
 ///
 /// # Examples
 ///
@@ -178,30 +146,14 @@ pub trait FromRequest<'a>: Sized {
 /// }
 /// ```
 pub trait FromRequestParts<'a>: Sized {
-  /// Error type returned when extraction fails.
+  /// Sent as the response, instead of calling the handler, when extraction fails.
   type Error: crate::responder::Responder;
 
-  /// Framework entries this extractor reads.
-  ///
-  /// The default, [`Entries::ALL`], is always correct. A route without
-  /// middleware attaches only the entries its extractors list, so an entry
-  /// left out here is missing from those requests.
+  /// Entries this extractor reads; the default, [`Entries::ALL`], is always correct, while
+  /// an entry left out is missing on routes without middleware.
   const ENTRIES: Entries = Entries::ALL;
 
-  /// Extracts the type from the HTTP request parts.
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a;
-}
-
-// Built-in extractor for borrowing the request itself in handlers: `&mut Request`.
-// This enables signatures like `async fn handler(req: &mut Request, Path(..), ...)`.
-impl<'a> FromRequest<'a> for &'a mut crate::types::Request {
-  type Error = core::convert::Infallible;
-
-  fn from_request(
-    req: &'a mut crate::types::Request,
-  ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Ok(req))
-  }
 }

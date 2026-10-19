@@ -1,4 +1,4 @@
-//! The compression plugin, its response wrapper, and the buffered/streaming middlewares.
+use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -17,7 +17,6 @@ use http_body_util::BodyExt;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::Next;
 use tako_rs_core::plugins::TakoPlugin;
-use tako_rs_core::responder::Responder;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
@@ -36,35 +35,6 @@ use super::negotiate::choose_encoding;
 #[cfg(feature = "zstd")]
 use super::zstd_stream::stream_zstd;
 
-pub enum CompressionResponse<R>
-where
-  R: Responder,
-{
-  /// Plain, uncompressed response.
-  Plain(R),
-  /// Compressed or streaming response.
-  Stream(R),
-}
-
-impl<R> Responder for CompressionResponse<R>
-where
-  R: Responder,
-{
-  fn into_response(self) -> Response {
-    match self {
-      CompressionResponse::Plain(r) => r.into_response(),
-      CompressionResponse::Stream(r) => r.into_response(),
-    }
-  }
-}
-
-/// HTTP response compression plugin for Tako applications.
-///
-/// `CompressionPlugin` provides automatic response compression based on client
-/// Accept-Encoding headers and configurable compression algorithms. It supports
-/// multiple compression formats, streaming compression, and intelligent content
-/// type detection to optimize bandwidth usage and response times.
-///
 /// # Examples
 ///
 /// ```rust
@@ -85,7 +55,7 @@ where
 ///     .build();
 /// router.plugin(custom);
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 #[doc(alias = "compression")]
 #[doc(alias = "gzip")]
 #[doc(alias = "brotli")]
@@ -94,37 +64,21 @@ pub struct CompressionPlugin {
   pub(crate) cfg: Config,
 }
 
-impl Default for CompressionPlugin {
-  /// Creates a compression plugin with default configuration settings.
-  fn default() -> Self {
-    Self {
-      cfg: Config::default(),
-    }
-  }
-}
-
 #[async_trait]
 impl TakoPlugin for CompressionPlugin {
-  /// Returns the plugin name for identification and debugging.
   fn name(&self) -> &'static str {
     "CompressionPlugin"
   }
 
-  /// Sets up the compression plugin by registering middleware with the router.
   fn setup(&self, router: &Router) -> Result<()> {
-    let cfg = self.cfg.clone();
+    let cfg = Arc::new(self.cfg.clone());
     router.middleware(move |req, next| {
       let cfg = cfg.clone();
-      let stream = cfg.stream;
       async move {
-        if stream {
-          CompressionResponse::Stream(
-            compress_stream_middleware(req, next, cfg)
-              .await
-              .into_response(),
-          )
+        if cfg.stream {
+          compress_stream_middleware(req, next, cfg).await
         } else {
-          CompressionResponse::Plain(compress_middleware(req, next, cfg).await.into_response())
+          compress_middleware(req, next, cfg).await
         }
       }
     });
@@ -132,72 +86,25 @@ impl TakoPlugin for CompressionPlugin {
   }
 }
 
-/// Middleware function for buffered response compression.
-///
-/// This middleware compresses entire response bodies in memory before sending them
-/// to clients. It's more memory-intensive than streaming compression but may have
-/// better compression ratios for smaller responses.
-async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Responder {
-  let accepted = req
-    .headers()
-    .get(ACCEPT_ENCODING)
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("")
-    .to_ascii_lowercase();
+async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Response {
+  let chosen = negotiate(&req, &cfg);
   let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
   let mut resp = next.run(req).await;
-  let chosen = choose_encoding(&accepted, &cfg.enabled);
-
-  let status = resp.status();
-  if !status.is_success()
-    || matches!(
-      status,
-      StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::PARTIAL_CONTENT
-    )
-    || resp.headers().contains_key(CONTENT_RANGE)
-  {
-    return resp.into_response();
-  }
-
-  if resp.headers().contains_key(CONTENT_ENCODING) {
-    return resp.into_response();
-  }
-
-  // CRIME/BREACH mitigation: compressing an authenticated response next to
-  // attacker-controlled body content leaks the secret via the ciphertext
-  // length. Skip compression entirely if either the request looked
-  // authenticated or the response carries credentials.
-  if cfg.protect_sensitive
-    && (request_is_authenticated || resp.headers().contains_key(http::header::SET_COOKIE))
-  {
-    return resp.into_response();
-  }
-
-  if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
-    let ct = ct.to_str().unwrap_or("");
-    if !cfg.content_types.matches(ct)
-      || ct
-        .split(';')
-        .next()
-        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/event-stream"))
-    {
-      return resp.into_response();
-    }
+  if !eligible(&resp, &cfg, request_is_authenticated) || is_event_stream(&resp) {
+    return resp;
   }
 
   // Open-ended bodies must keep yielding frames without waiting for stream completion.
   if resp.body().size_hint().exact().is_none() {
-    return resp.into_response();
+    return resp;
   }
 
-  // The response is now compression-eligible. Always advertise that the
-  // representation depends on `Accept-Encoding` so caches don't serve a
-  // wrongly-encoded variant to a peer with different `Accept-Encoding`.
+  // Eligible from here on, so caches must key on `Accept-Encoding` even when none applies.
   ensure_vary_accept_encoding(resp.headers_mut());
 
   let Some(enc) = chosen else {
-    return resp.into_response();
+    return resp;
   };
 
   let body_bytes = if let Ok(c) = resp.body_mut().collect().await {
@@ -210,11 +117,11 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     resp.headers_mut().remove(http::header::CONTENT_ENCODING);
     resp.headers_mut().remove(CONTENT_LENGTH);
     *resp.body_mut() = TakoBody::empty();
-    return resp.into_response();
+    return resp;
   };
   if body_bytes.len() < cfg.min_size {
     *resp.body_mut() = TakoBody::from(body_bytes);
-    return resp.into_response();
+    return resp;
   }
 
   let compressed = if body_bytes.len() >= cfg.blocking_threshold {
@@ -243,7 +150,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Config) -> impl Resp
     resp.headers_mut().remove(CONTENT_ENCODING);
   }
 
-  resp.into_response()
+  resp
 }
 
 fn compress_buffer(body: &Bytes, encoding: Encoding, cfg: &Config) -> Option<Vec<u8>> {
@@ -256,60 +163,15 @@ fn compress_buffer(body: &Bytes, encoding: Encoding, cfg: &Config) -> Option<Vec
   }
 }
 
-/// Middleware function for streaming response compression.
-///
-/// This middleware compresses response bodies on-the-fly as they stream to clients.
-/// It's more memory-efficient than buffered compression but requires compatible
-/// response body types that support streaming.
-///
-/// Installed through [`CompressionPlugin::setup`].
-pub(crate) async fn compress_stream_middleware(
-  req: Request,
-  next: Next,
-  cfg: Config,
-) -> impl Responder {
-  let accepted = req
-    .headers()
-    .get(ACCEPT_ENCODING)
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("")
-    .to_ascii_lowercase();
+async fn compress_stream_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Response {
+  let chosen = negotiate(&req, &cfg);
   let request_is_authenticated = cfg.protect_sensitive && request_carries_credentials(&req);
 
   let mut resp = next.run(req).await;
-  let chosen = choose_encoding(&accepted, &cfg.enabled);
-
-  let status = resp.status();
-  if !status.is_success()
-    || matches!(
-      status,
-      StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::PARTIAL_CONTENT
-    )
-    || resp.headers().contains_key(CONTENT_RANGE)
-  {
-    return resp.into_response();
+  if !eligible(&resp, &cfg, request_is_authenticated) {
+    return resp;
   }
 
-  if resp.headers().contains_key(CONTENT_ENCODING) {
-    return resp.into_response();
-  }
-
-  // CRIME/BREACH mitigation: see `compress_middleware`.
-  if cfg.protect_sensitive
-    && (request_is_authenticated || resp.headers().contains_key(http::header::SET_COOKIE))
-  {
-    return resp.into_response();
-  }
-
-  if let Some(ct) = resp.headers().get(CONTENT_TYPE) {
-    let ct = ct.to_str().unwrap_or("");
-    if !cfg.content_types.matches(ct) {
-      return resp.into_response();
-    }
-  }
-
-  // The response is compression-eligible: advertise Vary regardless of whether we
-  // actually apply an encoding, so caches key on `Accept-Encoding`.
   ensure_vary_accept_encoding(resp.headers_mut());
 
   if let Some(len) = resp
@@ -319,7 +181,7 @@ pub(crate) async fn compress_stream_middleware(
     .and_then(|v| v.parse::<usize>().ok())
     && len < cfg.min_size
   {
-    return resp.into_response();
+    return resp;
   }
 
   if let Some(enc) = chosen {
@@ -339,12 +201,47 @@ pub(crate) async fn compress_stream_middleware(
     resp.headers_mut().remove(ACCEPT_RANGES);
   }
 
-  resp.into_response()
+  resp
 }
 
-/// Returns true if the request carries credentials that would make its
-/// response a CRIME/BREACH target. The check is intentionally broad: any
-/// auth header or cookie is treated as authenticated.
+fn negotiate(req: &Request, cfg: &Config) -> Option<Encoding> {
+  let accepted = req
+    .headers()
+    .get(ACCEPT_ENCODING)
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("");
+  choose_encoding(accepted, &cfg.enabled)
+}
+
+fn eligible(resp: &Response, cfg: &Config, request_is_authenticated: bool) -> bool {
+  let status = resp.status();
+  let headers = resp.headers();
+  status.is_success()
+    && !matches!(
+      status,
+      StatusCode::NO_CONTENT | StatusCode::RESET_CONTENT | StatusCode::PARTIAL_CONTENT
+    )
+    && !headers.contains_key(CONTENT_RANGE)
+    && !headers.contains_key(CONTENT_ENCODING)
+    // CRIME/BREACH: compressing secrets beside attacker-controlled content leaks them
+    // through the compressed length.
+    && !(cfg.protect_sensitive
+      && (request_is_authenticated || headers.contains_key(http::header::SET_COOKIE)))
+    && headers
+      .get(CONTENT_TYPE)
+      .is_none_or(|ct| cfg.content_types.matches(ct.to_str().unwrap_or("")))
+}
+
+fn is_event_stream(resp: &Response) -> bool {
+  resp
+    .headers()
+    .get(CONTENT_TYPE)
+    .and_then(|ct| ct.to_str().ok())
+    .and_then(|ct| ct.split(';').next())
+    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/event-stream"))
+}
+
+/// Deliberately broad: any auth header or cookie marks the response as a CRIME/BREACH target.
 fn request_carries_credentials(req: &Request) -> bool {
   req.headers().contains_key(http::header::AUTHORIZATION)
     || req
@@ -353,11 +250,6 @@ fn request_carries_credentials(req: &Request) -> bool {
     || req.headers().contains_key(http::header::COOKIE)
 }
 
-/// Appends `Accept-Encoding` to the `Vary` header without duplicating it.
-///
-/// `Vary: Accept-Encoding` is required on every compression-eligible response
-/// so shared caches don't serve a wrongly-encoded representation to a different
-/// client.
 fn ensure_vary_accept_encoding(headers: &mut http::HeaderMap) {
   let already_present = headers.get_all(VARY).iter().any(|v| {
     v.to_str().is_ok_and(|s| {

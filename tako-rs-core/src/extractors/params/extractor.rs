@@ -10,12 +10,12 @@ use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::types::Request;
 
-/// Internal helper struct for storing path parameters extracted from routes.
+/// The matched parameters as `(name, value)` pairs, in path order.
 #[derive(Clone, Default)]
 #[doc(hidden)]
 pub struct PathParams(pub SmallVec<[(std::sync::Arc<str>, String); 4]>);
 
-/// Path parameter extractor with automatic deserialization to typed structures.
+/// Deserializes the matched path parameters into `T`: a struct, a tuple or a single value.
 #[doc(alias = "params")]
 pub struct Params<T>(pub T);
 
@@ -51,7 +51,6 @@ impl<T> Params<T>
 where
   T: DeserializeOwned,
 {
-  /// Extracts and deserializes path parameters from request extensions.
   fn extract_params(extensions: &http::Extensions) -> Result<Params<T>, ParamsError> {
     let path_params = extensions
       .get::<PathParams>()

@@ -1,5 +1,4 @@
-//! The compio TLS accept/serve loop: per-connection handshake, protocol
-//! dispatch (HTTP/1.1 and HTTP/2), graceful shutdown, and connection draining.
+//! Compio TLS accept loop: handshake, HTTP/1.1 or HTTP/2 by ALPN, graceful shutdown and draining.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -33,7 +32,7 @@ use crate::compio_h2::H2Settings;
 #[cfg(feature = "http2")]
 use crate::compio_h2::ServiceSendWrapper;
 
-/// Variant of [`run`](super::run) that accepts a pre-built `Arc<rustls::ServerConfig>`.
+/// Serves TLS HTTP with a prebuilt rustls config; a given `signal` starts the drain.
 pub async fn run_with_config(
   listener: TcpListener,
   router: Router,

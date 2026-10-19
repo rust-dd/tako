@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use tako_rs_core::plugins::TakoPlugin;
 use tako_rs_core::router::Router;
@@ -5,13 +7,6 @@ use tako_rs_core::router::Router;
 use super::config::Config;
 use super::middleware::handle_cors;
 
-/// CORS plugin for handling cross-origin resource sharing in Tako applications.
-///
-/// `CorsPlugin` implements the `TakoPlugin` trait to provide comprehensive CORS support
-/// including preflight request handling, origin validation, and response header
-/// management. It automatically handles OPTIONS preflight requests and adds appropriate
-/// CORS headers to all responses based on the configured policy.
-///
 /// # Examples
 ///
 /// ```rust
@@ -33,33 +28,22 @@ use super::middleware::handle_cors;
 ///     .build();
 /// router.plugin(prod_cors);
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 #[doc(alias = "cors")]
 pub struct CorsPlugin {
   pub(crate) cfg: Config,
 }
 
-impl Default for CorsPlugin {
-  /// Creates a CORS plugin with permissive default configuration.
-  fn default() -> Self {
-    Self {
-      cfg: Config::default(),
-    }
-  }
-}
-
 impl TakoPlugin for CorsPlugin {
-  /// Returns the plugin name for identification and debugging.
   fn name(&self) -> &'static str {
     "CorsPlugin"
   }
 
-  /// Sets up the CORS plugin by registering middleware with the router.
   fn setup(&self, router: &Router) -> Result<()> {
-    let cfg = self.cfg.clone();
+    let cfg = Arc::new(self.cfg.clone());
     router.middleware(move |req, next| {
       let cfg = cfg.clone();
-      async move { handle_cors(req, next, cfg).await }
+      async move { handle_cors(req, next, &cfg).await }
     });
     Ok(())
   }

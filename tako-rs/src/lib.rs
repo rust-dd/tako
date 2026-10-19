@@ -16,8 +16,7 @@ pub use tako_rs_macros::post;
 pub use tako_rs_macros::put;
 pub use tako_rs_macros::route;
 
-/// Implementation details for tako's proc macros. Not part of the stable
-/// API — relied on only by macro-generated code.
+/// Used only by macro-generated code; not part of the stable API.
 #[doc(hidden)]
 pub mod __private {
   pub use linkme;
@@ -49,15 +48,29 @@ pub use tako_rs_core::router_state;
 #[cfg_attr(docsrs, doc(cfg(feature = "signals")))]
 pub use tako_rs_core::signals;
 pub use tako_rs_core::state;
+#[cfg(any(feature = "tls", feature = "http3", feature = "compio-tls"))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(any(feature = "tls", feature = "http3", feature = "compio-tls")))
+)]
+pub use tako_rs_core::tls;
 #[cfg(feature = "tako-tracing")]
 #[cfg_attr(docsrs, doc(cfg(feature = "tako-tracing")))]
 pub use tako_rs_core::tracing;
 pub use tako_rs_core::types;
+#[cfg(feature = "ws")]
+#[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
+pub use tako_rs_core::ws;
 pub use tako_rs_server::AcceptBackoff;
+#[cfg(any(feature = "tls", feature = "http3", feature = "compio-tls"))]
+pub use tako_rs_server::ClientAuth;
 #[cfg(feature = "compio")]
 pub use tako_rs_server::CompioServer;
 #[cfg(feature = "compio")]
 pub use tako_rs_server::CompioServerBuilder;
+pub use tako_rs_server::H3Congestion;
+#[cfg(any(feature = "tls", feature = "http3", feature = "compio-tls"))]
+pub use tako_rs_server::ReloadableResolver;
 #[cfg(not(feature = "compio"))]
 pub use tako_rs_server::Server;
 #[cfg(not(feature = "compio"))]
@@ -67,78 +80,10 @@ pub use tako_rs_server::ServerError;
 pub use tako_rs_server::ServerHandle;
 pub use tako_rs_server::TlsCert;
 pub use tako_rs_server::bind_with_port_fallback;
+#[cfg(any(feature = "tls", feature = "http3", feature = "compio-tls"))]
+pub use tako_rs_server::build_rustls_server_config;
 #[cfg(feature = "proxy-protocol")]
 pub use tako_rs_server::proxy_protocol;
-#[allow(deprecated)]
-pub use tako_rs_server::serve;
-#[cfg(all(feature = "http2", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h2c;
-#[cfg(all(feature = "http2", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h2c_with_config;
-#[cfg(all(feature = "http2", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h2c_with_shutdown;
-#[cfg(all(feature = "http2", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h2c_with_shutdown_and_config;
-#[cfg(all(feature = "http3", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h3;
-#[cfg(all(feature = "http3", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h3_with_config;
-#[cfg(all(feature = "http3", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h3_with_shutdown;
-#[cfg(all(feature = "http3", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_h3_with_shutdown_and_config;
-#[cfg(any(
-  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))),
-  feature = "compio-tls"
-))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_tls;
-#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))))]
-#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_tls_with_config;
-#[cfg(any(
-  all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))),
-  feature = "compio-tls"
-))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "tls", feature = "compio-tls"))))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_tls_with_shutdown;
-#[cfg(all(feature = "tls", not(any(feature = "compio", feature = "compio-tls"))))]
-#[cfg_attr(docsrs, doc(cfg(feature = "tls")))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_tls_with_shutdown_and_config;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_with_config;
-#[allow(deprecated)]
-pub use tako_rs_server::serve_with_shutdown;
-#[cfg(not(feature = "compio"))]
-#[allow(deprecated)]
-pub use tako_rs_server::serve_with_shutdown_and_config;
-#[cfg(feature = "compio")]
-#[cfg_attr(docsrs, doc(cfg(feature = "compio")))]
-pub use tako_rs_server::server_compio;
-#[cfg(all(feature = "http2", not(feature = "compio")))]
-#[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
-pub use tako_rs_server::server_h2c;
 #[cfg(all(feature = "http3", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "http3")))]
 pub use tako_rs_server::server_h3;
@@ -154,16 +99,17 @@ pub use tako_rs_server::server_udp;
 #[cfg(unix)]
 pub use tako_rs_server::server_unix;
 pub use tako_rs_server::shutdown_signal;
+#[cfg(feature = "socket-activation")]
+pub use tako_rs_server::socket_activation;
 #[cfg(feature = "file-stream")]
 #[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub use tako_rs_streams::file_stream;
 #[cfg(feature = "sse")]
 pub use tako_rs_streams::sse;
 pub use tako_rs_streams::r#static;
-/// W3C WebTransport sessions on the HTTP/3 server, on either runtime.
-///
-/// On Tokio the module also holds `RawQuicSession`, a plain QUIC endpoint for
-/// peers that do not speak WebTransport.
+
+/// W3C WebTransport sessions on the HTTP/3 server, on either runtime; on Tokio also
+/// `RawQuicSession`, a plain QUIC endpoint for peers that do not speak WebTransport.
 #[cfg(feature = "webtransport")]
 #[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
 pub mod webtransport {
@@ -171,9 +117,6 @@ pub mod webtransport {
   #[cfg(not(feature = "compio"))]
   pub use tako_rs_streams::webtransport::*;
 }
-#[cfg(feature = "ws")]
-#[cfg_attr(docsrs, doc(cfg(feature = "ws")))]
-pub use tako_rs_core::ws;
 
 /// Request data extraction utilities.
 pub mod extractors {
@@ -181,8 +124,6 @@ pub mod extractors {
   pub use tako_rs_core::extractors::FromRequest;
   pub use tako_rs_core::extractors::FromRequestParts;
   pub use tako_rs_core::extractors::body;
-  #[doc(hidden)]
-  pub use tako_rs_core::extractors::is_json_content_type;
   pub use tako_rs_core::extractors::json;
   pub use tako_rs_core::extractors::params;
   pub use tako_rs_core::extractors::range;
@@ -229,6 +170,10 @@ pub mod extractors {
   pub use tako_rs_extractors::validate;
 }
 
+#[cfg(feature = "zero-copy-extractors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zero-copy-extractors")))]
+pub use tako_rs_extractors::zero_copy_extractors;
+
 /// Middleware for processing requests and responses in a pipeline.
 pub mod middleware {
   pub use tako_rs_core::middleware::IntoMiddleware;
@@ -258,6 +203,7 @@ pub mod middleware {
   pub use tako_rs_plugins::middleware::security_headers;
   pub use tako_rs_plugins::middleware::session;
   pub use tako_rs_plugins::middleware::tenant;
+  #[cfg(not(any(feature = "compio", feature = "compio-tls")))]
   pub use tako_rs_plugins::middleware::timeout;
   pub use tako_rs_plugins::middleware::traceparent;
   pub use tako_rs_plugins::middleware::upload_progress;
@@ -284,32 +230,24 @@ pub mod plugins {
   pub use tako_rs_plugins::plugins::rate_limiter;
 }
 
-#[cfg(feature = "zero-copy-extractors")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zero-copy-extractors")))]
-pub use tako_rs_extractors::zero_copy_extractors;
 #[cfg(feature = "per-thread")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_rs_server_pt::PerThreadConfig;
 #[cfg(feature = "per-thread")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadShutdown;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_rs_server_pt::serve_per_thread;
-#[cfg(feature = "per-thread-compio")]
-#[cfg_attr(docsrs, doc(cfg(feature = "per-thread-compio")))]
-pub use tako_rs_server_pt::serve_per_thread_compio;
-#[cfg(feature = "per-thread-compio")]
-pub use tako_rs_server_pt::spawn_per_thread_compio;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::spawn_per_thread;
 #[cfg(feature = "jemalloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
 pub use tikv_jemallocator::Jemalloc;
 
-/// Re-exports of the types most handlers reach for in everyday code.
-///
-/// Import everything with `use tako::prelude::*;` to get `Method`,
-/// `StatusCode`, `Router`, `Responder`, `Request`, `Response`, the common
-/// body / query / form / path extractors, and the middleware traits.
-/// The prelude intentionally re-exports types only — modules stay at their
-/// canonical `tako::extractors::…` / `tako::middleware::…` paths so users
-/// can still pull individual items in qualified form when they prefer.
+/// The types most handlers need, for `use tako::prelude::*;`. Modules stay at their
+/// canonical paths, such as `tako::extractors` and `tako::middleware`.
 pub mod prelude {
   pub use tako_rs_core::Method;
   pub use tako_rs_core::StatusCode;
@@ -329,12 +267,3 @@ pub mod prelude {
   pub use tako_rs_extractors::query::Query;
   pub use tako_rs_extractors::state::State;
 }
-
-#[cfg(all(target_os = "linux", feature = "vsock", not(feature = "compio")))]
-pub use tako_rs_server::server_vsock;
-#[cfg(feature = "socket-activation")]
-pub use tako_rs_server::socket_activation;
-#[cfg(feature = "per-thread")]
-pub use tako_rs_server_pt::PerThreadShutdown;
-#[cfg(feature = "per-thread")]
-pub use tako_rs_server_pt::spawn_per_thread;

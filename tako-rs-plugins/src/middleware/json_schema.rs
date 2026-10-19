@@ -1,13 +1,5 @@
-//! JSON-schema request / response validator middleware.
-//!
-//! Builds a [`jsonschema::Validator`] once at construction and applies it to
-//! the request body (or response body) of every JSON request. Non-JSON
-//! content types are passed through unchanged. Validation failures emit a
-//! `application/problem+json` response listing the offending paths.
-//!
-//! The middleware buffers the body for inspection. For large streaming
-//! payloads, attach this only on the routes that actually need validation —
-//! the design favors correctness over zero-copy throughput on the hot path.
+//! Validates JSON request or response bodies against a schema compiled once; violations become
+//! `application/problem+json`. Bodies are buffered, so mount it only where needed.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -25,33 +17,27 @@ use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// What the middleware should validate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ValidateTarget {
-  /// Validate the request body before invoking the handler.
+enum ValidateTarget {
   Request,
-  /// Validate the response body before returning it.
   Response,
 }
 
-/// JSON-schema validator middleware.
 pub struct JsonSchema {
   validator: Arc<Validator>,
   target: ValidateTarget,
   max_bytes: usize,
 }
 
-// `jsonschema::ValidationError<'static>` is a few hundred bytes; boxing it on
-// every constructor would be churn for callers. The constructors are cold-path
-// startup code, so size on the error variant doesn't matter.
+// Cold startup constructors; boxing the error would only burden callers.
 #[allow(clippy::result_large_err)]
 impl JsonSchema {
-  /// Builds a validator that runs against the request body.
+  /// Invalid or non-conforming JSON bodies get 400 before the handler runs.
   pub fn for_request(schema: Value) -> Result<Self, jsonschema::ValidationError<'static>> {
     Self::new(schema, ValidateTarget::Request)
   }
 
-  /// Builds a validator that runs against the response body.
+  /// Non-conforming JSON responses become 500; unparsable ones pass through unchanged.
   pub fn for_response(schema: Value) -> Result<Self, jsonschema::ValidationError<'static>> {
     Self::new(schema, ValidateTarget::Response)
   }
@@ -68,8 +54,7 @@ impl JsonSchema {
     })
   }
 
-  /// Maximum body size the middleware is willing to validate. Larger payloads
-  /// are rejected with `413` (request side) or passed through (response side).
+  /// Defaults to 1 MiB; larger requests get 413 and larger responses become 500.
   pub fn max_bytes(mut self, n: usize) -> Self {
     self.max_bytes = n;
     self
@@ -159,8 +144,7 @@ impl IntoMiddleware for JsonSchema {
             let collected = match limited.collect().await {
               Ok(c) => c.to_bytes(),
               Err(_) => {
-                // Response exceeded the validator budget — surface as 500;
-                // the upstream body has been partially consumed.
+                // Partially consumed, so the original body cannot be replayed.
                 return http::Response::builder()
                   .status(StatusCode::INTERNAL_SERVER_ERROR)
                   .body(TakoBody::empty())

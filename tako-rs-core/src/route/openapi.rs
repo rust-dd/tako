@@ -1,12 +1,4 @@
-//! `OpenAPI` metadata attachment for a route.
-//!
-//! The chainable builder methods that record `OpenAPI` documentation
-//! (operation id, summary, description, tags, deprecation, responses,
-//! parameters, request body, security) onto the route's `RouteOpenApi`
-//! store, plus the accessor that reads it back. Compiled only when an
-//! `OpenAPI` backend feature is enabled.
-
-#![cfg(any(feature = "utoipa", feature = "vespera"))]
+//! `OpenAPI` metadata builders on [`Route`].
 
 use super::Route;
 use crate::openapi::RouteOpenApi;
@@ -20,7 +12,6 @@ impl Route {
   /// router.route(Method::GET, "/users", list_users)
   ///     .operation_id("listUsers");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn operation_id(&self, id: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -37,7 +28,6 @@ impl Route {
   /// router.route(Method::GET, "/users/{id}", get_user)
   ///     .summary("Get user by ID");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn summary(&self, summary: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -54,7 +44,6 @@ impl Route {
   /// router.route(Method::GET, "/users/{id}", get_user)
   ///     .description("Retrieves a user by their unique identifier");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn description(&self, description: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -72,7 +61,6 @@ impl Route {
   ///     .tag("users")
   ///     .tag("public");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn tag(&self, tag: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -89,7 +77,6 @@ impl Route {
   /// router.route(Method::GET, "/v1/users", list_users_v1)
   ///     .deprecated();
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn deprecated(&self) -> &Self {
     let mut guard = self.openapi.write();
@@ -107,7 +94,6 @@ impl Route {
   ///     .response(200, "Successful response with user data")
   ///     .response(404, "User not found");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn response(&self, status: u16, description: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -131,7 +117,6 @@ impl Route {
   ///         required: false,
   ///     });
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn parameter(&self, param: crate::openapi::OpenApiParameter) -> &Self {
     let mut guard = self.openapi.write();
@@ -154,7 +139,6 @@ impl Route {
   ///         content_type: "application/json".to_string(),
   ///     });
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn request_body(&self, body: crate::openapi::OpenApiRequestBody) -> &Self {
     let mut guard = self.openapi.write();
@@ -171,7 +155,6 @@ impl Route {
   /// router.route(Method::DELETE, "/users/{id}", delete_user)
   ///     .security("bearerAuth");
   /// ```
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn security(&self, requirement: impl Into<String>) -> &Self {
     let mut guard = self.openapi.write();
@@ -181,7 +164,6 @@ impl Route {
   }
 
   /// Returns a clone of the `OpenAPI` metadata for this route, if any.
-  #[cfg(any(feature = "utoipa", feature = "vespera"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "utoipa", feature = "vespera"))))]
   pub fn openapi_metadata(&self) -> Option<RouteOpenApi> {
     self.openapi.read().clone()

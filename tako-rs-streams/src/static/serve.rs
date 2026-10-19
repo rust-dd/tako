@@ -63,7 +63,7 @@ impl Resolved {
 }
 
 impl ServeDir {
-  /// Serve a GET or HEAD request, decoding the URL before checking path components.
+  /// Serves GET and HEAD, percent-decoding the path before checking it; other methods get 405.
   pub async fn handle(&self, request: Request) -> Response {
     let (parts, _) = request.into_parts();
     if let Some(response) = response::method_error(&parts) {

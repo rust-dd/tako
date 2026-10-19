@@ -27,9 +27,7 @@ impl<'de> PathParamsDeserializer<'de> {
   }
 }
 
-// Trampoline closures preserve the `V` visitor binding through the trait
-// method; replacing them with `Trait::method` function refs introduces UFCS
-// ambiguity around the generic `V`.
+// A method path would need the visitor type spelled out; the closures infer it.
 #[allow(clippy::redundant_closure_for_method_calls)]
 impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
   type Error = PathParamsDeError;
@@ -55,7 +53,6 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
     self.deserialize_map(visitor)
   }
 
-  // For single-value extraction (e.g. Params<String> or Params<u64>)
   fn deserialize_newtype_struct<V: Visitor<'de>>(
     self,
     _name: &'static str,
@@ -81,10 +78,6 @@ impl<'de> Deserializer<'de> for PathParamsDeserializer<'de> {
     visitor: V,
   ) -> Result<V::Value, Self::Error> {
     if self.0.len() != len {
-      // Include the captured parameter names so the resulting error points
-      // the user at the actual mismatch between the route pattern (e.g.
-      // `/users/{id}/posts/{post_id}` — 2 slots) and the tuple type they
-      // tried to extract.
       let captured: Vec<&str> = self.0.iter().map(|(k, _)| k.as_ref()).collect();
       return Err(de::Error::custom(format!(
         "expected tuple of {} path parameters, got {} (captured: [{}])",

@@ -1,11 +1,3 @@
-//! Gzip compression streaming utilities for efficient HTTP response compression.
-//!
-//! This module provides streaming Gzip compression for HTTP response bodies using the
-//! flate2 crate. Gzip is one of the most widely supported compression formats on the web,
-//! offering excellent compatibility across all browsers and HTTP clients. The streaming
-//! implementation enables memory-efficient compression of large responses without
-//! buffering entire content in memory, making it ideal for real-time web applications.
-//!
 //! # Examples
 //!
 //! ```rust
@@ -39,7 +31,7 @@ use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
 
-/// Compresses an HTTP body stream using Gzip compression algorithm.
+/// Flushes after every input chunk, trading compression ratio for latency.
 pub fn stream_gzip<B>(body: B, level: u32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -50,7 +42,6 @@ where
 }
 
 pin_project! {
-    /// Streaming Gzip compressor that wraps an inner data stream.
     pub struct GzipStream<S> {
         #[pin] inner: S,
         encoder: GzEncoder<Vec<u8>>,
@@ -59,7 +50,6 @@ pin_project! {
 }
 
 impl<S> GzipStream<S> {
-  /// Creates a new Gzip compression stream with the specified compression level.
   fn new(stream: S, level: u32) -> Self {
     Self {
       inner: stream,
@@ -75,7 +65,6 @@ where
 {
   type Item = Result<Bytes, BoxError>;
 
-  /// Polls the stream for the next compressed data chunk.
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     let mut this = self.project();
 
@@ -102,11 +91,7 @@ where
         }
         Poll::Ready(None) => {
           *this.done = true;
-          // Must be `try_finish` (not `flush`): the gzip trailer (CRC32 +
-          // ISIZE) is only written by FINISH. A plain `flush` emits a sync
-          // DEFLATE block but never the trailer — the response would be
-          // rejected by every conforming gzip decoder. Mirrors
-          // `deflate_stream.rs` and `zstd_stream.rs` for end-of-stream.
+          // `try_finish`, not `flush`: only FINISH writes the CRC32/ISIZE trailer decoders need.
           if let Err(e) = this.encoder.try_finish() {
             return Poll::Ready(Some(Err(e.into())));
           }

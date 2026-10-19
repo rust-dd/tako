@@ -10,6 +10,7 @@ use tako_rs_core::extractors::json::JsonError;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Response;
 
+/// A JSON body as a `T` that may borrow from the collected body.
 pub struct JsonBorrowed<'a, T>(pub T, std::marker::PhantomData<&'a ()>);
 
 impl<'a, T> FromRequest<'a> for JsonBorrowed<'a, T>
@@ -23,24 +24,14 @@ where
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     use crate::zero_copy_extractors::bytes::CachedRequestBody;
     async move {
-      // EXT-6: match the owned `Json<T>` extractor and reject requests
-      // that don't declare a JSON content-type. Without this guard a
-      // client could submit `application/x-www-form-urlencoded` and we'd
-      // run a generic deserializer over arbitrary bytes, conflicting
-      // with sibling body extractors.
       if !is_json_content_type(req.headers()) {
         return Err(JsonError::InvalidContentType);
       }
-      // Collect the body once and cache it in request extensions so the parsed
-      // value can borrow from it for the lifetime of the request. Keyed by the
-      // `CachedRequestBody` newtype to avoid colliding with other middleware
-      // that might stash a raw `Bytes` value in extensions.
       if req.extensions().get::<CachedRequestBody>().is_none() {
         let buf = collect_body(req).await.map_err(JsonError::BodyReadError)?;
         req.extensions_mut().insert(CachedRequestBody(buf));
       }
 
-      // SAFETY: We just inserted it above if it was missing.
       let body_bytes: &'a Bytes = &req
         .extensions()
         .get::<CachedRequestBody>()

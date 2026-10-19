@@ -53,9 +53,7 @@ impl ServerBuilder {
 #[derive(Debug, Clone)]
 pub struct Server {
   config: ServerConfig,
-  // Read only by the `tls` / `http3` cfg-gated spawn methods; the field is
-  // always present so the builder API surface stays stable across feature
-  // combinations.
+  // Kept without `tls`/`http3` so `ServerBuilder::tls` exists under every feature set.
   #[cfg_attr(not(any(feature = "tls", feature = "http3")), allow(dead_code))]
   tls: Option<TlsCert>,
 }
@@ -91,7 +89,7 @@ impl Server {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done(
       &handle,
-      crate::server::run(listener, router, Some(signal), self.config.clone()),
+      crate::server::run(listener, router, signal, self.config.clone()),
     );
     Ok(handle)
   }
@@ -116,7 +114,7 @@ impl Server {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done(
       &handle,
-      crate::server_h2c::run(listener, router, Some(signal), self.config.clone()),
+      crate::server_h2c::run(listener, router, signal, self.config.clone()),
     );
     Ok(handle)
   }
@@ -189,7 +187,7 @@ impl Server {
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done(&handle, async move {
-      crate::server_unix::http::run_http(&path, router, Some(signal), config).await
+      crate::server_unix::http::run_http(&path, router, signal, config).await
     });
     handle
   }
@@ -208,7 +206,7 @@ impl Server {
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done(&handle, async move {
-      crate::server_unix::http::run_listener(listener, &path, router, Some(signal), config).await
+      crate::server_unix::http::run_listener(listener, &path, router, signal, config).await
     });
     Ok(handle)
   }
@@ -236,7 +234,7 @@ impl Server {
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done(
       &handle,
-      crate::server_vsock::run_listener(listener, cid, port, router, Some(signal), config),
+      crate::server_vsock::run_listener(listener, cid, port, router, signal, config),
     );
     Ok(handle)
   }
@@ -264,7 +262,7 @@ impl Server {
       crate::proxy_protocol::listener::run_proxy_http(
         listener,
         router,
-        Some(signal),
+        signal,
         self.config.clone(),
       ),
     );

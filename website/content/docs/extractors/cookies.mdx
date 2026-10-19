@@ -9,9 +9,10 @@ crate: tako-rs-extractors
 
 # Cookie extractors
 
-Three cookie jars cover three trust levels. All parse the incoming
-`Cookie:` header into a jar and emit `Set-Cookie` headers for cookies you
-add; they differ in whether values are plaintext, signed, or encrypted.
+Three cookie jars cover three trust levels. All parse every incoming
+`Cookie:` header into a jar. Return the jar, or `jar.with_response(body)`,
+to emit its additions and removals as separate `Set-Cookie` headers.
+Values are plaintext, signed, or encrypted depending on the jar.
 
 | Extractor | Catalog name | Protection |
 |---|---|---|
@@ -22,19 +23,28 @@ add; they differ in whether values are plaintext, signed, or encrypted.
 ## `CookieJar`
 
 Plain cookie reading and writing. Wraps the `cookie` crate's jar and
-parses the `Cookie:` header on extraction. Its error type is `Infallible`.
+parses all `Cookie:` headers on extraction. Its error type is `Infallible`.
 
 ```rust
 use cookie::Cookie;
 use tako::extractors::cookie_jar::CookieJar;
 
-async fn handle(mut jar: CookieJar) {
+async fn handle(mut jar: CookieJar) -> CookieJar {
   if let Some(session) = jar.get("session_id") {
     println!("session: {}", session.value());
   }
   jar.add(Cookie::new("visited", "true"));
+  jar
 }
 ```
+
+Use `jar.with_response("saved")` to retain a response body, status, and
+existing headers while appending cookie changes. Unchanged request cookies
+are not echoed, and dropping a jar does not write cookies to the response.
+Invalid cookie names, wire values, or attributes produce a 500 response.
+Plain and signed values must contain valid cookie bytes; encode text with
+spaces or non-ASCII characters before storing it. Private values are encrypted
+before serialization and can contain arbitrary text.
 
 `remove(name)` copies the existing cookie's `Path` / `Domain` into the
 removal marker so the browser actually invalidates it (rather than leaving

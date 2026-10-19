@@ -1,5 +1,3 @@
-//! Shared signal arbiter: registry, subscription, dispatch, and RPC wiring.
-
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicBool;
@@ -37,54 +35,40 @@ fn new_handler_list() -> HandlerList {
   Arc::new(ArcSwap::new(Arc::new(Vec::new())))
 }
 
-/// Shared arbiter used to register and dispatch named signals.
+/// Dispatches signals to handlers, subscribers and exporters; clones share them.
 #[derive(Clone, Default)]
 pub struct SignalArbiter {
   pub(crate) inner: Arc<Inner>,
 }
 
-/// Global application-level signal arbiter.
 static APP_SIGNAL_ARBITER: LazyLock<SignalArbiter> = LazyLock::new(SignalArbiter::new);
 
-/// Returns a reference to the global application-level signal arbiter.
+/// The process-wide arbiter, which also receives the server, connection and request signals.
 pub fn app_signals() -> &'static SignalArbiter {
   &APP_SIGNAL_ARBITER
 }
 
-/// Returns the global application-level signal arbiter.
-pub fn app_events() -> &'static SignalArbiter {
-  app_signals()
-}
-
 impl SignalArbiter {
-  /// Creates a new, empty signal arbiter.
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// Checks whether any subscription, handler or exporter has been registered.
-  /// This permits callers to skip building unused signal payloads.
+  /// Whether anything ever listened here, so callers can skip building unused signals.
   pub fn has_listeners(&self) -> bool {
     self.inner.has_listeners.load(Ordering::Acquire)
   }
 
-  /// Sets the global broadcast capacity used for topic channels.
-  ///
-  /// This affects all newly created topics across all arbiters. The capacity
-  /// is clamped to `[1, MAX_BROADCAST_CAPACITY]` (1 MiB-element ceiling) so a
-  /// caller can never request a `usize::MAX`-element channel that would OOM
-  /// on the next `topic_sender` allocation.
+  /// Capacity of the topics created afterwards in every arbiter, clamped to
+  /// `1..=`[`MAX_BROADCAST_CAPACITY`](super::MAX_BROADCAST_CAPACITY).
   pub fn set_global_broadcast_capacity(capacity: usize) {
     let cap = capacity.clamp(1, super::signal::MAX_BROADCAST_CAPACITY);
     GLOBAL_BROADCAST_CAPACITY.store(cap, Ordering::SeqCst);
   }
 
-  /// Returns the current global broadcast capacity.
   pub fn global_broadcast_capacity() -> usize {
     GLOBAL_BROADCAST_CAPACITY.load(Ordering::SeqCst)
   }
 
-  /// Returns (and lazily initializes) the broadcast sender for a signal id.
   pub(crate) fn topic_sender(&self, id: &str) -> broadcast::Sender<Signal> {
     if let Some(existing) = self.inner.topics.get_sync(id) {
       existing.clone()
@@ -96,9 +80,7 @@ impl SignalArbiter {
     }
   }
 
-  /// Registers a handler for the given signal id.
-  ///
-  /// Handlers are invoked in registration order whenever a matching signal is emitted.
+  /// Registers a handler for `id`; [`emit`](Self::emit) runs an id's handlers concurrently.
   pub fn on<F, Fut>(&self, id: impl Into<String>, handler: F)
   where
     F: Fn(Signal) -> Fut + Send + Sync + 'static,
@@ -120,10 +102,7 @@ impl SignalArbiter {
     self.inner.has_listeners.store(true, Ordering::Release);
   }
 
-  /// Returns (creating if necessary) the per-id `ArcSwap` holding the handler list.
-  /// The SCC hashmap protects only the slot lookup; handler-list updates are
-  /// wait-free via `ArcSwap` RCU, so concurrent `on()` / `emit()` calls cannot
-  /// race on a `Vec::push` reallocation.
+  /// Handler lists are swapped by RCU, so concurrent `on` and `emit` never race on a push.
   fn handler_list_for(&self, id: String) -> HandlerList {
     let entry = self
       .inner
@@ -133,20 +112,8 @@ impl SignalArbiter {
     entry.clone()
   }
 
-  /// Subscribes to a broadcast channel for the given signal id.
-  ///
-  /// This is useful for long-lived listeners such as metrics collectors,
-  /// background workers, plugins, or middleware driven tasks.
-  ///
-  /// ⚠️ **Topic retention:** the topic map is keyed by `id` and entries
-  /// are created lazily on the first `subscribe`/`emit`. The `Sender` is
-  /// retained for the lifetime of the arbiter — there is no TTL or LRU
-  /// eviction. With **high-cardinality dynamic ids** (e.g. one signal id
-  /// per session or per request) this is an unbounded slow-leak.
-  ///
-  /// Use a low-cardinality id set ("`request.started`", "`order.placed`")
-  /// and put the per-request discriminator inside the [`Signal`] payload
-  /// instead of the id string.
+  /// Subscribes to signals with exactly `id`. Each topic lives as long as the arbiter, so keep
+  /// ids low-cardinality and put per-request data in the metadata.
   pub fn subscribe(&self, id: impl AsRef<str>) -> broadcast::Receiver<Signal> {
     let id_str = id.as_ref();
     let sender = self.topic_sender(id_str);
@@ -155,10 +122,7 @@ impl SignalArbiter {
     receiver
   }
 
-  /// Subscribes to all signals whose id starts with the given prefix.
-  ///
-  /// For example, `subscribe_prefix("request.")` will receive
-  /// `request.started`, `request.completed`, etc.
+  /// Subscribes to every id starting with `prefix`; a trailing `*` is ignored.
   pub fn subscribe_prefix(&self, prefix: impl AsRef<str>) -> broadcast::Receiver<Signal> {
     let key = prefix.as_ref().trim_end_matches('*').to_string();
     let (sender, receiver) = broadcast::channel(Self::global_broadcast_capacity());
@@ -171,17 +135,11 @@ impl SignalArbiter {
     receiver
   }
 
-  /// Subscribes to all signals regardless of their id.
-  ///
-  /// This is a special variant that receives every emitted signal.
-  /// Internally uses a wildcard prefix matching (empty prefix = all signals).
   pub fn subscribe_all(&self) -> broadcast::Receiver<Signal> {
     self.subscribe_prefix("")
   }
 
-  /// Broadcasts a signal to all subscribers without awaiting handler completion.
   pub(crate) fn broadcast(&self, signal: Signal) {
-    // Exact id subscribers
     if let Some(sender) = self.inner.topics.get_sync(signal.id.as_ref()) {
       let _ = sender.send(signal.clone());
     }
@@ -193,10 +151,7 @@ impl SignalArbiter {
     }
   }
 
-  /// Waits for the next occurrence of a signal id (oneshot-style).
-  ///
-  /// This uses the broadcast channel under the hood but resolves on the
-  /// first successfully received signal.
+  /// Waits for the next signal with `id`; `None` once the topic closes.
   pub async fn once(&self, id: impl AsRef<str>) -> Option<Signal> {
     let mut rx = self.subscribe(id);
     loop {
@@ -208,17 +163,14 @@ impl SignalArbiter {
     }
   }
 
-  /// Emits a signal and awaits all registered handlers.
-  ///
-  /// Handlers run concurrently and this method resolves once all handlers have completed.
+  /// Sends `signal` to subscribers and exporters, then awaits its handlers, which run
+  /// concurrently.
   pub async fn emit(&self, signal: Signal) {
     if !self.has_listeners() {
       return;
     }
-    // First, broadcast to any subscribers.
     self.broadcast(signal.clone());
 
-    // Call exporters asynchronously.
     self
       .inner
       .exporters
@@ -242,30 +194,24 @@ impl SignalArbiter {
     }
   }
 
-  /// Emits a signal using the global application-level arbiter.
+  /// Emits on [`app_signals`].
   pub async fn emit_app(signal: Signal) {
     app_signals().emit(signal).await;
   }
 
-  /// Registers a global exporter that is invoked for every emitted signal.
-  ///
-  /// Exporters are merged when routers are merged, similar to handlers.
+  /// Registers a callback run for every signal this arbiter emits; router merges keep it.
   pub fn register_exporter<F>(&self, exporter: F)
   where
     F: Fn(&Signal) + Send + Sync + 'static,
   {
     let key = EXPORTER_KEY_COUNTER.fetch_add(1, Ordering::Relaxed);
     let exporter: SignalExporter = Arc::new(exporter);
-    // `upsert_sync` mirrors `register_rpc`: makes re-registration on the
-    // same (very-rare) duplicate key a replace instead of a silent drop.
     self.inner.exporters.upsert_sync(key, exporter);
     self.inner.has_listeners.store(true, Ordering::Release);
   }
 
-  /// Merges all handlers from `other` into `self`.
-  ///
-  /// This is used by router merging so that signal handlers attached to
-  /// a merged router continue to be active.
+  /// Copies `other`'s handlers, subscriptions, RPCs and exporters into `self`; `other` wins
+  /// when both register an RPC under one id.
   pub(crate) fn merge_from(&self, other: &SignalArbiter) {
     let prefixes = other.inner.prefix_topics.load_full();
     self.inner.prefix_topics.rcu(|current| {
@@ -294,9 +240,6 @@ impl SignalArbiter {
       true
     });
 
-    // On merge, the merged-in arbiter wins for conflicting ids/keys.
-    // `insert_sync` would silently keep `self`'s entry, dropping the
-    // intentional value the caller wanted to pull in.
     other.inner.rpc.iter_sync(|k, v| {
       self.inner.rpc.upsert_sync(k.clone(), v.clone());
       true
@@ -311,7 +254,7 @@ impl SignalArbiter {
     }
   }
 
-  /// Returns a list of known signal ids (exact topics) currently registered.
+  /// Ids of the exact-id topics created so far.
   pub fn signal_ids(&self) -> Vec<String> {
     let mut ids = Vec::new();
     self.inner.topics.iter_sync(|k, _| {
@@ -323,7 +266,7 @@ impl SignalArbiter {
     ids
   }
 
-  /// Returns a list of known signal prefixes (topics ending with '*').
+  /// Subscribed prefixes, each with a trailing `*`, sorted and deduplicated.
   pub fn signal_prefixes(&self) -> Vec<String> {
     let mut prefixes = self
       .inner

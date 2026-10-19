@@ -12,13 +12,10 @@ use crate::config::PerThreadConfig;
 use crate::listener::bind_reuseport_compio;
 use crate::shutdown::PerThreadShutdown;
 
-#[cfg(feature = "compio")]
 fn compio_accept_backoff() -> Duration {
   Duration::from_millis(5)
 }
 
-#[cfg(feature = "compio")]
-#[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 pub(crate) fn worker_main_compio(
   worker_id: usize,
   addr: SocketAddr,

@@ -1,8 +1,4 @@
-//! Form data extraction from HTTP request bodies.
-//!
-//! This module provides the [`Form`](crate::form::Form) extractor for parsing `application/x-www-form-urlencoded`
-//! request bodies into strongly-typed Rust structures. It uses serde for deserialization,
-//! allowing automatic parsing of form data into any type that implements `DeserializeOwned`.
+//! `application/x-www-form-urlencoded` bodies deserialized with `serde_urlencoded`.
 //!
 //! # Examples
 //!
@@ -30,11 +26,7 @@ use tako_rs_core::extractors::body::collect_body;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Represents a form extracted from an HTTP request body.
-///
-/// This generic struct wraps the deserialized form data of type `T`. It automatically
-/// parses `application/x-www-form-urlencoded` request bodies and deserializes them
-/// into the specified type using serde.
+/// A form body as `T`; the route's body limit applies.
 ///
 /// # Examples
 ///
@@ -57,22 +49,13 @@ use tako_rs_core::types::Request;
 #[doc(alias = "form")]
 pub struct Form<T>(pub T);
 
-/// Error type for Form extraction.
-///
-/// Represents various failure modes that can occur when extracting and parsing
-/// form data from HTTP request bodies. This error type implements
-/// `std::error::Error` for integration with error handling libraries.
+/// Rejection of [`Form`]; a body read error keeps its own status, everything else is 400.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormError {
-  /// Request content type is not `application/x-www-form-urlencoded`.
+  /// The `Content-Type` does not start with `application/x-www-form-urlencoded`.
   InvalidContentType,
-  /// Failed to read the request body.
   BodyReadError(tako_rs_core::extractors::body::BodyReadError),
-  /// Request body contains invalid UTF-8 sequences.
   InvalidUtf8,
-  /// Failed to parse the form data format.
-  ParseError(String),
-  /// Failed to deserialize form data into the target type.
   DeserializationError(String),
 }
 
@@ -87,7 +70,6 @@ impl std::fmt::Display for FormError {
       }
       Self::BodyReadError(err) => write!(f, "failed to read request body: {err}"),
       Self::InvalidUtf8 => write!(f, "request body contains invalid UTF-8"),
-      Self::ParseError(err) => write!(f, "failed to parse form data: {err}"),
       Self::DeserializationError(err) => write!(f, "failed to deserialize form data: {err}"),
     }
   }
@@ -96,12 +78,6 @@ impl std::fmt::Display for FormError {
 impl std::error::Error for FormError {}
 
 impl Responder for FormError {
-  /// Converts the error into an HTTP response.
-  ///
-  /// Maps form extraction errors to appropriate HTTP status codes with descriptive
-  /// error messages. All errors result in `400 Bad Request` as they indicate
-  /// client-side issues with the request format or content.
-  ///
   /// # Examples
   ///
   /// ```rust
@@ -132,11 +108,6 @@ impl Responder for FormError {
         "Request body contains invalid UTF-8",
       )
         .into_response(),
-      FormError::ParseError(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to parse form data: {err}"),
-      )
-        .into_response(),
       FormError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Failed to deserialize form data: {err}"),
@@ -157,11 +128,7 @@ where
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      // Check content type. `starts_with` matches both the bare media type
-      // and the common `; charset=utf-8` variant; the zero-copy `FormBorrowed`
-      // already used the looser check, so anchoring both extractors at the
-      // same string keeps clients from getting random InvalidContentType
-      // rejects based on which extractor a route picked.
+      // A prefix match admits `; charset=utf-8`, the same check `FormBorrowed` uses.
       let content_type = req
         .headers()
         .get(http::header::CONTENT_TYPE)
@@ -172,13 +139,8 @@ where
         return Err(FormError::InvalidContentType);
       }
 
-      // Read the request body
       let body_bytes = collect_body(req).await.map_err(FormError::BodyReadError)?;
-
-      // Convert to string
       let body_str = std::str::from_utf8(&body_bytes).map_err(|_| FormError::InvalidUtf8)?;
-
-      // Deserialize directly from URL-encoded form data
       let form_data = serde_urlencoded::from_str::<T>(body_str)
         .map_err(|e| FormError::DeserializationError(e.to_string()))?;
 

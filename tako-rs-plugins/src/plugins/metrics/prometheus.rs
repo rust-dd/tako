@@ -1,5 +1,3 @@
-//! Prometheus metrics backend, scrape-endpoint configuration, and handler.
-
 use std::sync::Arc;
 
 use prometheus::Encoder;
@@ -13,8 +11,6 @@ use tako_rs_extractors::state::State;
 use crate::plugins::metrics::DEFAULT_LATENCY_BUCKETS_SEC;
 use crate::plugins::metrics::MetricsPlugin;
 
-/// Prometheus backend implementation.
-#[cfg(feature = "metrics-prometheus")]
 pub mod prometheus_backend {
   use std::sync::Arc;
 
@@ -26,12 +22,13 @@ pub mod prometheus_backend {
   use prometheus::core::Collector;
   use tako_rs_core::signals::Signal;
 
+  use super::super::recorder::route_label;
+  use super::super::recorder::transport_label;
   use crate::plugins::metrics::DEFAULT_LATENCY_BUCKETS_SEC;
   use crate::plugins::metrics::MetricsBackend;
 
-  /// Register `collector` into `registry`. `AlreadyReg` is logged + ignored
-  /// (idempotent install) so a double-install does not crash the server;
-  /// other errors panic since they indicate a real misconfiguration.
+  /// `AlreadyReg` only warns, so a second install keeps the first metrics; other errors are
+  /// misconfiguration and panic.
   fn register_metric<C: Collector + Clone + 'static>(
     registry: &Registry,
     collector: &C,
@@ -50,35 +47,6 @@ pub mod prometheus_backend {
     }
   }
 
-  /// Derives a low-cardinality `transport` label from a connection signal.
-  ///
-  /// Replaces the per-IP `remote_addr` label which would otherwise produce
-  /// one Prometheus series per client IP.
-  fn transport_label(signal: &Signal) -> &'static str {
-    if signal.metadata.get("protocol").map(String::as_str) == Some("h3") {
-      "h3"
-    } else if signal.metadata.get("tls").map(String::as_str) == Some("true") {
-      "tls"
-    } else if signal.metadata.contains_key("unix_path") {
-      "unix"
-    } else {
-      "tcp"
-    }
-  }
-
-  /// Use the matched route template (`route`) when present; fall back to a
-  /// fixed `"unmatched"` literal otherwise. Using the raw URI path here would
-  /// let any client (e.g. a 404-scanner) produce unbounded distinct label
-  /// values and blow up Prometheus memory.
-  fn route_label(signal: &Signal) -> &str {
-    signal
-      .metadata
-      .get("route")
-      .map_or("unmatched", String::as_str)
-  }
-
-  /// Basic Prometheus metrics backend that tracks HTTP request counts
-  /// and connection counts using labels for method, route, and status.
   pub struct PrometheusMetricsBackend {
     registry: Registry,
     http_requests_total: IntCounterVec,
@@ -94,21 +62,8 @@ pub mod prometheus_backend {
       Self::with_buckets(registry, DEFAULT_LATENCY_BUCKETS_SEC.to_vec())
     }
 
-    /// Builds the backend with a caller-supplied latency bucket schedule.
-    ///
-    /// # Panics
-    ///
-    /// Panics only on impossible-by-construction conditions: every metric is
-    /// built from compile-time-constant `Opts` (deterministic name + label set
-    /// known to satisfy prometheus's identifier rules), and registered against
-    /// a freshly-passed `Registry` where a name collision can only occur if the
-    /// caller has already registered a metric under the reserved `tako_*`
-    /// namespace. We surface those as `.expect(...)` rather than `Result`
-    /// because the call is part of one-shot server startup — fatal here is
-    /// strictly better than masking misconfiguration.
+    /// Panics if registration fails for any reason other than the metric already existing.
     pub fn with_buckets(registry: Registry, buckets: Vec<f64>) -> Self {
-      // Route-template-based labels keep cardinality bounded by route count;
-      // raw path labels would explode under `/users/:id`-style traffic.
       let http_requests_total = IntCounterVec::new(
         Opts::new("tako_http_requests_total", "Total HTTP requests completed"),
         &["method", "route", "status"],
@@ -134,7 +89,6 @@ pub mod prometheus_backend {
       )
       .expect("failed to create http_request_duration metric");
 
-      // `transport` is bounded (tcp/tls/h3/unix); `remote_addr` was unbounded.
       let connections_opened_total = IntCounterVec::new(
         Opts::new("tako_connections_opened_total", "Total connections opened"),
         &["transport"],
@@ -147,16 +101,6 @@ pub mod prometheus_backend {
       )
       .expect("failed to create connections_closed_total metric");
 
-      // PPL-12: `Registry::register` returns `Err(AlreadyReg)` if the same
-      // metric name is already registered. The original code `.unwrap()`d
-      // these, so any user who installed PrometheusMetricsPlugin twice on
-      // the same Registry (e.g. router-level + route-level) crashed the
-      // process on second install. Treat AlreadyReg as a non-fatal warning
-      // — the metrics from the first install remain authoritative; the
-      // current plugin instance's metric handles are orphaned from the
-      // scrape but the server keeps running. Any other registration error
-      // remains a hard panic since it would indicate a tako bug (name
-      // collision with a non-`tako_*` registrant, malformed Opts, etc.).
       register_metric(&registry, &http_requests_total, "http_requests_total");
       register_metric(
         &registry,
@@ -199,9 +143,7 @@ pub mod prometheus_backend {
         .http_requests_total
         .with_label_values(&[method, route, status])
         .inc();
-      // Histogram observation: the `duration_us` metadata is emitted by
-      // upstream signal sites when latency tracking is enabled. Microseconds
-      // are converted to seconds (Prometheus convention) before observation.
+      // `duration_us` is present only when latency tracking is on; Prometheus wants seconds.
       if let Some(d_us) = signal
         .metadata
         .get("duration_us")
@@ -242,17 +184,15 @@ pub mod prometheus_backend {
   }
 }
 
-#[cfg(feature = "metrics-prometheus")]
 #[derive(Clone)]
 pub struct PrometheusMetricsConfig {
-  /// HTTP path where the Prometheus scrape endpoint will be exposed.
+  /// Default: `/metrics`.
   pub endpoint_path: String,
   /// Latency histogram bucket boundaries (seconds). Defaults to
   /// [`DEFAULT_LATENCY_BUCKETS_SEC`].
   pub buckets: Vec<f64>,
 }
 
-#[cfg(feature = "metrics-prometheus")]
 impl Default for PrometheusMetricsConfig {
   fn default() -> Self {
     Self {
@@ -262,9 +202,7 @@ impl Default for PrometheusMetricsConfig {
   }
 }
 
-#[cfg(feature = "metrics-prometheus")]
 impl PrometheusMetricsConfig {
-  /// Replaces the histogram bucket schedule.
   pub fn with_buckets(mut self, buckets: Vec<f64>) -> Self {
     self.buckets = buckets;
     self
@@ -287,17 +225,13 @@ impl PrometheusMetricsConfig {
   }
 }
 
-#[cfg(feature = "metrics-prometheus")]
 async fn prometheus_metrics_handler(State(registry): State<Arc<Registry>>) -> impl Responder {
   let encoder = TextEncoder::new();
   let metric_families = registry.gather();
 
   let mut buf = Vec::new();
   if let Err(e) = encoder.encode(&metric_families, &mut buf) {
-    // PPL-27: surface encode failures as a real 5xx so the scraper's
-    // alerting can fire, instead of returning a 200 body containing the
-    // word "failed". Prometheus scrapers treat 2xx as success regardless
-    // of body, so a 200/body-fail combination was effectively invisible.
+    // A 5xx lets scrapers alert; they treat any 2xx as success whatever the body says.
     tracing::error!("prometheus encode failed: {e}");
     return (
       http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -306,10 +240,7 @@ async fn prometheus_metrics_handler(State(registry): State<Arc<Registry>>) -> im
       .into_response();
   }
 
-  // Prometheus text format is ASCII-only by construction; a non-UTF-8
-  // payload here means the encoder violated its contract. Surface that
-  // as 500 instead of silently serving an empty 200 (which scrapers
-  // would treat as 'all metrics absent', triggering false alerts).
+  // The text format is ASCII, so this is an encoder bug; an empty 200 would read as no metrics.
   match String::from_utf8(buf) {
     Ok(s) => s.into_response(),
     Err(e) => {

@@ -1,17 +1,8 @@
-//! Async-`GraphQL` integration for Tako: extractors, responses, and subscriptions.
+//! `async-graphql` extractors, responders and WebSocket subscriptions.
 //!
-//! - GraphQLRequest / GraphQLBatchRequest extractors
-//! - GraphQLResponse / GraphQLBatchResponse responders
-//! - GraphQLSubscription responder for WebSocket subscriptions
-//! - APQ (Apollo Persisted Queries) and execution-cost limits via submodules
+//! # Examples
 //!
-//! Enable via the `async-graphql` cargo feature.
-//!
-//! # DataLoader integration
-//!
-//! `async_graphql::dataloader::DataLoader` is the canonical way to batch
-//! `Object` field resolvers in N+1 patterns. Tako does not wrap it — instead,
-//! attach the loader to per-request `Data` and pull it from the resolver:
+//! Tako does not wrap `DataLoader`; attach one to each request's `Data` to batch resolvers:
 //!
 //! ```rust,ignore
 //! use std::sync::Arc;
@@ -34,8 +25,6 @@
 //! schema.execute(request).await
 //! ```
 //!
-//! Field resolver:
-//!
 //! ```rust,ignore
 //! use async_graphql::Object;
 //!
@@ -52,12 +41,8 @@
 //!     }
 //! }
 //! ```
-#![cfg(feature = "async-graphql")]
-#![cfg_attr(docsrs, doc(cfg(feature = "async-graphql")))]
 
-/// Apollo Persisted Queries (APQ) flow.
 pub mod apq;
-/// Execution-cost limits (max depth, max complexity).
 pub mod limits;
 
 mod protocol;
@@ -78,8 +63,6 @@ pub use request::MAX_GRAPHQL_BODY_SIZE;
 pub use request::attach_graphql_options;
 pub use request::receive_graphql;
 pub use request::receive_graphql_batch;
-#[allow(deprecated)]
-pub use request::set_global_graphql_options;
 pub use response::GraphQLBatchResponse;
 pub use response::GraphQLResponse;
 #[cfg(all(feature = "ws", not(feature = "compio")))]

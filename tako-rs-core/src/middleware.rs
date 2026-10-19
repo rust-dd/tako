@@ -1,9 +1,4 @@
-//! Middleware system for request and response processing pipelines.
-//!
-//! This module provides the core middleware infrastructure for Tako, allowing you to
-//! compose request processing pipelines. Middleware can modify requests, responses,
-//! or perform side effects like logging, authentication, or rate limiting. The `Next`
-//! struct manages the execution flow through the middleware chain to the final handler.
+//! [`Next`], the rest of a middleware chain, and the [`IntoMiddleware`] conversion.
 //!
 //! # Examples
 //!
@@ -26,11 +21,7 @@ use crate::types::BoxMiddleware;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Trait for converting types into middleware functions.
-///
-/// This trait allows various types to be converted into middleware that can be used
-/// in the Tako middleware pipeline. Middleware functions take a request and the next
-/// middleware in the chain, returning a future that resolves to a response.
+/// Converts a configured value into a middleware closure for `Router::middleware`.
 ///
 /// # Examples
 ///
@@ -66,20 +57,13 @@ pub trait IntoMiddleware {
   + 'static;
 }
 
-/// Represents the next step in the middleware execution chain.
-///
-/// `Next` is passed to middleware functions to allow them to continue
-/// the request processing chain. Calling `next.run(req)` will execute
-/// the remaining middleware and eventually the endpoint handler.
+/// The rest of the chain; `next.run(req)` runs the remaining middleware, then the handler.
 #[doc(alias = "next")]
 pub struct Next {
-  /// Global middlewares to be executed before route-specific ones.
   pub(crate) global_middlewares: Arc<Vec<BoxMiddleware>>,
-  /// Route-specific middlewares executed after global ones.
   pub(crate) route_middlewares: Arc<Vec<BoxMiddleware>>,
-  /// Current position within the middleware chain.
+  /// Position in `global_middlewares` followed by `route_middlewares`.
   pub(crate) index: usize,
-  /// Final endpoint handler to be called after all middlewares.
   pub(crate) endpoint: BoxHandler,
 }
 

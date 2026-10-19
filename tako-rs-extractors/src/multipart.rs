@@ -1,11 +1,5 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
-//! Multipart form data extraction and file upload handling.
-//!
-//! This module provides extractors for parsing `multipart/form-data` request bodies,
-//! commonly used for file uploads and complex form submissions. It supports both
-//! raw multipart access through [`TakoMultipart`](crate::multipart::TakoMultipart) and strongly-typed extraction
-//! through [`TakoTypedMultipart`](crate::multipart::TakoTypedMultipart), with built-in support for file uploads to disk
-//! or memory.
+//! `multipart/form-data` bodies, as raw fields through [`TakoMultipart`] or as a typed struct
+//! through [`TakoTypedMultipart`], with file fields kept in memory or saved to disk.
 //!
 //! # Examples
 //!
@@ -33,6 +27,7 @@ mod error;
 mod extractor;
 mod field;
 mod limits;
+mod stream;
 
 pub use error::MultipartError;
 pub use error::TypedMultipartError;
@@ -44,3 +39,4 @@ pub use field::InMemoryFile;
 pub use field::TempFileCleanup;
 pub use field::UploadedFile;
 pub use limits::MultipartConfig;
+pub use stream::MultipartFields;

@@ -47,7 +47,7 @@ project that uses Tako:
 - Target Tako 2.x. Register routes on a mutable router
   (`let mut router = Router::new(); router.get("/", handler);`) and start
   servers with `Server::builder().build().try_spawn_http(listener, router)?`.
-  Do not use the deprecated `serve_*` functions.
+  There are no `serve_*` free functions.
 - Handlers are async functions. Extractors live in `tako::extractors::*`
   (`Path`, `Query`, `Json`, `State`, `HeaderMap`), and responses implement
   `tako::responder::Responder`, not `IntoResponse`. Only the last handler
