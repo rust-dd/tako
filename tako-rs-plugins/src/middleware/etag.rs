@@ -40,23 +40,37 @@ impl ETag {
     }
   }
 
-  /// Larger bodies of known size pass through; a streamed body that exceeds it becomes a 500.
+  /// Caps hashing at `n` bytes. Larger bodies of known size pass through; over-cap
+  /// streams become a 500. Wildcard conditionals can still return 304.
   pub fn max_bytes(mut self, n: usize) -> Self {
     self.max_bytes = n;
     self
   }
 }
 
-fn weak_match(if_none_match: &str, etag: &str) -> bool {
-  // Both `*` (wildcard) and a comma-separated list are valid.
-  if if_none_match.trim() == "*" {
+fn matches_any(if_none_match: &[HeaderValue]) -> bool {
+  matches!(if_none_match, [value] if value.as_bytes().trim_ascii() == b"*")
+}
+
+fn weak_match(if_none_match: &[HeaderValue], etag: &[u8]) -> bool {
+  if matches_any(if_none_match) {
     return true;
   }
-  if_none_match.split(',').any(|raw| {
-    let raw = raw.trim();
-    let candidate = raw.strip_prefix("W/").unwrap_or(raw);
-    let etag_norm = etag.strip_prefix("W/").unwrap_or(etag);
-    candidate == etag_norm
+  let etag = etag.strip_prefix(b"W/").unwrap_or(etag);
+  if_none_match.iter().any(|value| {
+    let mut quoted = false;
+    value
+      .as_bytes()
+      .split(|&byte| {
+        if byte == b'"' {
+          quoted = !quoted;
+        }
+        byte == b',' && !quoted
+      })
+      .any(|raw| {
+        let raw = raw.trim_ascii();
+        raw.strip_prefix(b"W/").unwrap_or(raw) == etag
+      })
   })
 }
 
@@ -112,9 +126,10 @@ impl IntoMiddleware for ETag {
         let safe = matches!(*req.method(), Method::GET | Method::HEAD);
         let if_none_match = req
           .headers()
-          .get(IF_NONE_MATCH)
-          .and_then(|v| v.to_str().ok())
-          .map(str::to_string);
+          .get_all(IF_NONE_MATCH)
+          .iter()
+          .cloned()
+          .collect::<Vec<_>>();
         let if_modified_since = if req.headers().contains_key(IF_NONE_MATCH) {
           None
         } else {
@@ -141,15 +156,8 @@ impl IntoMiddleware for ETag {
           return build_304(resp.into_parts().0.headers);
         }
 
-        if let Some(existing_etag) = resp
-          .headers()
-          .get(ETAG)
-          .and_then(|v| v.to_str().ok())
-          .map(str::to_string)
-        {
-          if let Some(req_etag) = if_none_match.as_ref()
-            && weak_match(req_etag, &existing_etag)
-          {
+        if let Some(existing_etag) = resp.headers().get(ETAG) {
+          if weak_match(&if_none_match, existing_etag.as_bytes()) {
             return build_304(resp.into_parts().0.headers);
           }
           return resp;
@@ -160,11 +168,19 @@ impl IntoMiddleware for ETag {
         if let Some(n) = body.size_hint().exact()
           && (n as usize) > max_bytes
         {
+          if matches_any(&if_none_match) {
+            return build_304(parts.headers);
+          }
           return http::Response::from_parts(parts, body);
         }
         let limited = http_body_util::Limited::new(body, max_bytes);
         let collected = match limited.collect().await {
           Ok(c) => c.to_bytes(),
+          Err(err)
+            if matches_any(&if_none_match) && err.is::<http_body_util::LengthLimitError>() =>
+          {
+            return build_304(parts.headers);
+          }
           Err(_) => {
             // Partially consumed, so the original body cannot be replayed.
             return http::Response::builder()
@@ -178,9 +194,7 @@ impl IntoMiddleware for ETag {
         if let Ok(v) = HeaderValue::from_str(&etag) {
           resp.headers_mut().insert(ETAG, v);
         }
-        if let Some(req_etag) = if_none_match.as_ref()
-          && weak_match(req_etag, &etag)
-        {
+        if weak_match(&if_none_match, etag.as_bytes()) {
           return build_304(resp.into_parts().0.headers);
         }
         resp

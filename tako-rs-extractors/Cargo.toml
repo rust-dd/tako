@@ -19,6 +19,7 @@ path = "src/lib.rs"
 anyhow = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
+compio = { workspace = true, optional = true }
 cookie = { workspace = true }
 futures-util = { workspace = true }
 garde = { workspace = true, optional = true }
@@ -30,6 +31,7 @@ ipnet = { workspace = true }
 mime = { workspace = true }
 multer = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true, optional = true }
 serde_html_form = { workspace = true }
@@ -47,6 +49,7 @@ validator = { workspace = true, optional = true }
 [features]
 default = []
 ahash = ["tako-rs/ahash", "tako-rs-core/ahash"]
+compio = ["tako-rs/compio", "tako-rs-core/compio", "dep:compio", "dep:send_wrapper"]
 multipart = ["tako-rs/multipart", "dep:multer", "dep:uuid", "dep:serde_bytes"]
 protobuf = ["tako-rs/protobuf", "dep:prost"]
 # Meta-feature enabling both SIMD JSON backends. Prefer the split features

@@ -35,6 +35,20 @@ struct MediaType {
 }
 
 impl Accept {
+  fn from_headers(headers: &http::HeaderMap) -> Self {
+    let mut values = headers
+      .get_all(http::header::ACCEPT)
+      .iter()
+      .filter_map(|value| value.to_str().ok())
+      .peekable();
+    let media_types = if values.peek().is_none() {
+      parse_accept(["*/*"])
+    } else {
+      parse_accept(values)
+    };
+    Self { media_types }
+  }
+
   /// Whether the effective quality of `media_type` is positive and matches the best entry.
   pub fn prefers(&self, media_type: &str) -> bool {
     let quality = self.quality(media_type);
@@ -105,9 +119,27 @@ impl Accept {
   }
 }
 
-fn parse_accept(header: &str) -> Vec<MediaType> {
-  let mut types = header
-    .split(',')
+fn media_ranges(header: &str) -> impl Iterator<Item = &str> {
+  let mut quoted = false;
+  let mut escaped = false;
+  header.split(move |character| {
+    if escaped {
+      escaped = false;
+      return false;
+    }
+    match character {
+      '\\' if quoted => escaped = true,
+      '"' => quoted = !quoted,
+      _ => {}
+    }
+    character == ',' && !quoted
+  })
+}
+
+fn parse_accept<'a>(headers: impl IntoIterator<Item = &'a str>) -> Vec<MediaType> {
+  let mut types = headers
+    .into_iter()
+    .flat_map(media_ranges)
     .filter_map(|part| {
       let media = part.trim().parse::<mime::Mime>().ok()?;
       let mut quality = 1.0f32;
@@ -160,15 +192,7 @@ impl<'a> FromRequestParts<'a> for Accept {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    let accept_header = parts
-      .headers
-      .get(http::header::ACCEPT)
-      .and_then(|v| v.to_str().ok())
-      .unwrap_or("*/*");
-
-    let media_types = parse_accept(accept_header);
-
-    futures_util::future::ready(Ok(Accept { media_types }))
+    futures_util::future::ready(Ok(Self::from_headers(&parts.headers)))
   }
 }
 
@@ -179,14 +203,7 @@ impl<'a> tako_rs_core::extractors::FromRequest<'a> for Accept {
   fn from_request(
     req: &'a mut tako_rs_core::types::Request,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    let header = req
-      .headers()
-      .get(http::header::ACCEPT)
-      .and_then(|value| value.to_str().ok())
-      .unwrap_or("*/*");
-    std::future::ready(Ok(Self {
-      media_types: parse_accept(header),
-    }))
+    std::future::ready(Ok(Self::from_headers(req.headers())))
   }
 }
 
@@ -197,7 +214,7 @@ mod tests {
   #[test]
   fn wildcard_matches_subtype_not_prefix() {
     let a = Accept {
-      media_types: parse_accept("image/*"),
+      media_types: parse_accept(["image/*"]),
     };
     assert!(a.accepts("image/png"));
     assert!(a.accepts("image/svg+xml"));
@@ -207,7 +224,7 @@ mod tests {
 
   #[test]
   fn quality_values_are_clamped() {
-    let parsed = parse_accept("a/a;q=999.0, b/b;q=0.5, c/c;q=NaN, d/d;q=-1.0");
+    let parsed = parse_accept(["a/a;q=999.0, b/b;q=0.5, c/c;q=NaN, d/d;q=-1.0"]);
     let qualities: Vec<f32> = parsed.iter().map(|mt| mt.quality).collect();
     for q in &qualities {
       assert!(*q >= 0.0 && *q <= 1.0, "quality {q} out of range");

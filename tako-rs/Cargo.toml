@@ -49,7 +49,7 @@ http3 = ["tako-rs-server/http3", "tako-rs-streams/http3", "tako-rs-core/http3"]
 webtransport = ["http3", "tako-rs-server/webtransport", "tako-rs-streams/webtransport", "tako-rs-core/webtransport"]
 
 # Compio runtime
-compio = ["tako-rs-core/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio", "tako-rs-server-pt?/compio"]
+compio = ["tako-rs-core/compio", "tako-rs-extractors/compio", "tako-rs-server/compio", "tako-rs-streams/compio", "tako-rs-plugins/compio", "tako-rs-server-pt?/compio"]
 # compio-tls implies `compio`: tako-rs-server's `compio-tls` already
 # pulls in `tako-rs-server/compio`, which turns off the tokio-based `Server` /
 # `ServerBuilder` re-exports. If we didn't also flip `tako-rs/compio`, the

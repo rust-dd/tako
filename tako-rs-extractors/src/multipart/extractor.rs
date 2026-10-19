@@ -7,6 +7,8 @@ use serde_json::Value;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::types::Request;
 
+use super::cleanup::PendingUploads;
+use super::runtime::timeout;
 use crate::multipart::FromMultipartField;
 use crate::multipart::MultipartConfig;
 use crate::multipart::MultipartError;
@@ -120,16 +122,17 @@ where
       let mut multipart =
         Multipart::with_constraints(req.body_mut().into_data_stream(), boundary, constraints);
       let mut map = Map::<String, Value>::new();
+      let mut uploads = PendingUploads::default();
       let mut count: usize = 0;
 
       let field_timeout = cfg.field_chunk_timeout;
       loop {
         let next_field_fut = multipart.next_field();
         let field = match field_timeout {
-          Some(d) => match tokio::time::timeout(d, next_field_fut).await {
+          Some(d) => match timeout(d, next_field_fut).await {
             Ok(Ok(field)) => field,
             Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-            Err(_) => {
+            Err(()) => {
               return Err(TypedMultipartError::FieldError(
                 "multipart slow-read timeout".to_string(),
               ));
@@ -161,11 +164,11 @@ where
           .to_owned();
 
         if field.file_name().is_some() {
-          let file_value: F = match field_timeout {
-            Some(d) => match tokio::time::timeout(d, F::from_field_with(field, &cfg)).await {
+          let mut file_value = match field_timeout {
+            Some(d) => match timeout(d, F::from_field_with(field, &cfg)).await {
               Ok(Ok(v)) => v,
               Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-              Err(_) => {
+              Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
                 ));
@@ -176,16 +179,16 @@ where
               .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
           };
 
-          let json_value = serde_json::to_value(file_value)
+          let json_value = serde_json::to_value(&file_value)
             .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
-
+          uploads.insert(file_value.take_cleanup());
           map.insert(field_name, json_value);
         } else {
           let field_bytes = match field_timeout {
-            Some(d) => match tokio::time::timeout(d, field.bytes()).await {
+            Some(d) => match timeout(d, field.bytes()).await {
               Ok(Ok(b)) => b,
               Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-              Err(_) => {
+              Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
                 ));
@@ -204,7 +207,8 @@ where
         }
       }
 
-      let data: T = serde_json::from_value(Value::Object(map))
+      let data = uploads
+        .deserialize::<T>(Value::Object(map))
         .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
 
       Ok(Self {
@@ -214,3 +218,6 @@ where
     }
   }
 }
+
+#[cfg(test)]
+mod tests;
