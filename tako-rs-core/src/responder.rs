@@ -1,9 +1,4 @@
-//! Response generation utilities and trait implementations for HTTP responses.
-//!
-//! This module provides the core `Responder` trait that enables various types to be
-//! converted into HTTP responses. It includes implementations for common types like
-//! strings, status codes, and custom response types. The trait allows handlers to
-//! return different types that are automatically converted to proper HTTP responses.
+//! The [`Responder`] trait, which turns handler return values into responses.
 //!
 //! # Examples
 //!
@@ -34,18 +29,10 @@ use http_body_util::Full;
 use crate::body::TakoBody;
 use crate::types::Response;
 
-/// A default 404 Not Found response.
-///
-/// Useful as a simple fallback:
-/// `router.fallback(|_| async { NOT_FOUND });`
+/// Plain-text 404 response, e.g. for `router.fallback(|_| async { NOT_FOUND })`.
 pub const NOT_FOUND: (StatusCode, &str) = (StatusCode::NOT_FOUND, "Not Found");
 
-/// Trait for converting types into HTTP responses.
-///
-/// This trait provides a unified interface for converting various types into
-/// `Response<TakoBody>` objects. It enables handlers to return different types
-/// that are automatically converted to proper HTTP responses, making the API
-/// more ergonomic and flexible.
+/// Converts a handler's return value into a response.
 ///
 /// # Examples
 ///
@@ -72,15 +59,8 @@ pub const NOT_FOUND: (StatusCode, &str) = (StatusCode::NOT_FOUND, "Not Found");
 /// ```
 #[doc(alias = "response")]
 pub trait Responder {
-  /// Converts the implementing type into an HTTP response.
   fn into_response(self) -> Response;
 }
-
-/// Alias for [`Responder`] matching the axum-style naming.
-///
-/// Both names refer to the same trait; pick whichever reads better in context.
-/// Existing code using `Responder` continues to compile unchanged.
-pub use Responder as IntoResponse;
 
 impl Responder for Response {
   fn into_response(self) -> Response {
@@ -230,10 +210,6 @@ impl<T: Responder, E: Responder> Responder for Result<T, E> {
     }
   }
 }
-
-/// Compatibility marker; all [`Responder`] types can be returned as errors.
-#[deprecated(note = "Result errors only need to implement Responder")]
-pub trait ResponderError: Responder {}
 
 /// Builds a response on a header map recycled from an earlier request.
 pub(crate) fn new_response(body: TakoBody) -> Response {

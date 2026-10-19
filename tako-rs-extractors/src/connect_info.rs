@@ -1,8 +1,5 @@
-//! `ConnectInfo<T>` extractor — typed access to per-connection transport data.
-//!
-//! `T` may be `SocketAddr` (peer address from any IP transport),
-//! `tako_rs_core::conn_info::ConnInfo` (full transport snapshot), or any other
-//! type that implements [`FromConnInfo`](crate::connect_info::FromConnInfo).
+//! `ConnectInfo<T>`: a typed view of the connection, for `T` = `SocketAddr`, `PeerAddr`,
+//! `ConnInfo`, or any other [`FromConnInfo`] type.
 
 use std::net::SocketAddr;
 
@@ -16,9 +13,9 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Trait derived from `ConnInfo` to produce the `T` exposed by `ConnectInfo<T>`.
+/// A view that `ConnectInfo<T>` can build from the connection's `ConnInfo`.
 pub trait FromConnInfo: Sized {
-  /// Build the typed view from the connection metadata, or `None` if unsupported.
+  /// `None` when the transport cannot supply this view, which rejects the request.
   fn from_conn_info(info: &ConnInfo) -> Option<Self>;
 }
 
@@ -43,10 +40,9 @@ impl FromConnInfo for PeerAddr {
   }
 }
 
-/// Extracts a typed view of the per-connection metadata.
 pub struct ConnectInfo<T>(pub T);
 
-/// Rejection emitted when no `ConnInfo` is on the request, or the conversion fails.
+/// No `ConnInfo` on the request, or the transport cannot supply `T`; responds 500.
 #[derive(Debug)]
 pub struct ConnectInfoMissing;
 

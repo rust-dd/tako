@@ -1,10 +1,4 @@
-//! Path parameter extraction and deserialization for dynamic route segments.
-//!
-//! This module provides extractors for parsing path parameters from dynamic route segments
-//! into strongly-typed Rust structures. It handles parameter extraction from routes like
-//! `/users/{id}` or `/posts/{post_id}/comments/{comment_id}` and automatically deserializes
-//! them using serde. The extractor supports type coercion for common types like integers,
-//! floats, and strings, making it easy to work with typed path parameters in handlers.
+//! The [`Params`] extractor, which deserializes path parameters with serde.
 //!
 //! # Examples
 //!

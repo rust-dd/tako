@@ -1,16 +1,11 @@
-//! Connection-lifecycle signal helpers used by every transport.
-//!
-//! `Router::dispatch` already emits the per-request `REQUEST_STARTED` /
-//! `REQUEST_COMPLETED` signals automatically; these helpers cover the
-//! connection-level events (`SERVER_STARTED`, `SERVER_STOPPED`, `CONNECTION_OPENED`,
-//! `CONNECTION_CLOSED`) that have no natural per-request hook. They keep the
-//! emit boilerplate out of every transport file.
+//! Server and connection lifecycle signals for transports to emit; the router emits the
+//! request signals itself.
 
 use super::arbiter::SignalArbiter;
 use super::signal::Signal;
 use super::signal::ids;
 
-/// Emits the `server.started` signal with `addr` / `transport` / `tls` meta.
+/// Emits `server.started` with `addr`, `transport` and `tls` metadata.
 pub async fn emit_server_started(addr: &str, transport: &str, tls: bool) {
   SignalArbiter::emit_app(
     Signal::with_capacity(ids::SERVER_STARTED, 3)
@@ -21,7 +16,7 @@ pub async fn emit_server_started(addr: &str, transport: &str, tls: bool) {
   .await;
 }
 
-/// Emit after a listener has stopped accepting and its connection tasks have drained.
+/// Emits `server.stopped`; call it once a listener stopped accepting and its connections drained.
 pub async fn emit_server_stopped(addr: &str, transport: &str, tls: bool) {
   SignalArbiter::emit_app(
     Signal::with_capacity(ids::SERVER_STOPPED, 3)
@@ -32,7 +27,7 @@ pub async fn emit_server_stopped(addr: &str, transport: &str, tls: bool) {
   .await;
 }
 
-/// Emits the `connection.opened` signal with `remote_addr` / `tls` / optional `protocol`.
+/// Emits `connection.opened` with `remote_addr`, `tls` and, if known, `protocol` metadata.
 pub async fn emit_connection_opened(remote_addr: &str, tls: bool, protocol: Option<&str>) {
   let mut sig = Signal::with_capacity(ids::CONNECTION_OPENED, 3)
     .meta("remote_addr", remote_addr)
@@ -43,7 +38,7 @@ pub async fn emit_connection_opened(remote_addr: &str, tls: bool, protocol: Opti
   SignalArbiter::emit_app(sig).await;
 }
 
-/// Emits the `connection.closed` signal with `remote_addr` / `tls` / optional `protocol`.
+/// Emits `connection.closed` with `remote_addr`, `tls` and, if known, `protocol` metadata.
 pub async fn emit_connection_closed(remote_addr: &str, tls: bool, protocol: Option<&str>) {
   let mut sig = Signal::with_capacity(ids::CONNECTION_CLOSED, 3)
     .meta("remote_addr", remote_addr)

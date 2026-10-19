@@ -1,48 +1,37 @@
-//! Job and dead-letter task types passed across the queue.
-
 use std::time::Instant;
 
 use super::QueueError;
 
-/// A job passed to a handler function.
-///
-/// Contains the serialized payload and metadata about the job.
+/// A job as its handler receives it, with a JSON payload.
 pub struct Job {
-  /// The raw JSON payload.
   pub(crate) payload: Vec<u8>,
-  /// Job name (the key it was registered under).
+  /// Name the handler was registered under.
   pub name: String,
-  /// Current attempt number (0-based).
+  /// Zero for the first run.
   pub attempt: u32,
-  /// Unique job ID.
   pub id: u64,
 }
 
 impl Job {
-  /// Deserialize the job payload into the expected type.
+  /// Fails with [`QueueError::HandlerError`], so `?` in a handler fails the job.
   pub fn deserialize<T: serde::de::DeserializeOwned>(&self) -> Result<T, QueueError> {
     serde_json::from_slice(&self.payload).map_err(|e| QueueError::HandlerError(e.to_string()))
   }
 
-  /// Access the raw payload bytes.
+  /// The payload's JSON bytes.
   pub fn raw_payload(&self) -> &[u8] {
     &self.payload
   }
 }
 
-/// A failed job stored in the dead letter queue.
+/// A job that exhausted its retries, had no handler, or never ran before shutdown.
 #[derive(Debug, Clone)]
 pub struct DeadJob {
-  /// Unique job ID.
   pub id: u64,
-  /// Job name.
   pub name: String,
-  /// Raw payload.
   pub payload: Vec<u8>,
-  /// Number of attempts made.
   pub attempts: u32,
-  /// The final error message.
   pub error: String,
-  /// When the job was moved to the DLQ.
+  /// When the job entered the dead letter queue.
   pub failed_at: Instant,
 }

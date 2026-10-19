@@ -1,6 +1,4 @@
 //! Hot-path bench: `Json<T>` extraction across the simd/serde split.
-//!
-//! Run with: `cargo bench -p tako-core --bench json_extract`.
 
 use std::hint::black_box;
 

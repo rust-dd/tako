@@ -17,13 +17,14 @@ use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Response;
 
 use super::SseEvent;
+use super::timer::KeepAliveTimer;
 
 const PREFIX: &[u8] = b"data: ";
 const SUFFIX: &[u8] = b"\n\n";
 const PS_LEN: usize = PREFIX.len() + SUFFIX.len();
 const KEEPALIVE_FRAME: &[u8] = b":keepalive\n\n";
 
-/// Server-Sent Events stream wrapper for real-time data broadcasting.
+/// An SSE responder over raw payloads; [`Sse::events`] builds one over structured events.
 #[doc(alias = "sse")]
 #[doc(alias = "eventsource")]
 pub struct Sse<S> {
@@ -35,20 +36,8 @@ impl<S> Sse<S>
 where
   S: Stream<Item = Bytes> + Send + 'static,
 {
-  /// Legacy constructor — wraps each `Bytes` as `data: …\n\n` (W3C minimum).
-  ///
-  /// **⚠️ Security note (STR-5):** this raw-bytes wrapper does NOT sanitize
-  /// embedded `\n` / `\r` / `\r\n` sequences. A message containing
-  /// `\n\nevent:click\n\n` is interpreted by the browser as **two separate
-  /// SSE events** — a synthetic event/field injection if the message comes
-  /// from untrusted input. The structured [`Sse::events`] path is safe
-  /// (every line is rebuilt with strict `data:`/`event:` prefixes and CR is
-  /// stripped). Use `Sse::events` for any message that could carry
-  /// caller-controlled bytes; reserve `Sse::new` for already-encoded raw
-  /// SSE chunks the caller produced.
-  ///
-  /// For richer events (`event:`, `id:`, `retry:`, comments) use
-  /// [`Sse::events`] which accepts a stream of [`SseEvent`].
+  /// Sends each item as `data: <item>\n\n` unescaped, so a newline in untrusted bytes can inject
+  /// events; use [`Sse::events`] for those.
   pub fn new(stream: S) -> Self {
     Self {
       stream,
@@ -58,7 +47,7 @@ where
 }
 
 impl<S> Sse<S> {
-  /// Periodically interleave `:keepalive\n\n` comment frames into the stream.
+  /// Sends a `:keepalive` comment whenever `period` passes without an event.
   pub fn keep_alive(mut self, period: Duration) -> Self {
     self.keepalive = Some(period);
     self
@@ -89,14 +78,14 @@ where
   }
 }
 
-/// Structured SSE responder — accepts a stream of [`SseEvent`].
+/// The responder [`Sse::events`] builds.
 pub struct SseEvents<S> {
   stream: S,
   keepalive: Option<Duration>,
 }
 
 impl<S> Sse<S> {
-  /// Build a structured SSE responder from a stream of [`SseEvent`].
+  /// A responder whose events are encoded with [`SseEvent::encode`].
   pub fn events(stream: S) -> SseEvents<S>
   where
     S: Stream<Item = SseEvent> + Send + 'static,
@@ -109,7 +98,7 @@ impl<S> Sse<S> {
 }
 
 impl<S> SseEvents<S> {
-  /// Periodically interleave `:keepalive\n\n` comment frames into the stream.
+  /// Sends a `:keepalive` comment whenever `period` passes without an event.
   pub fn keep_alive(mut self, period: Duration) -> Self {
     self.keepalive = Some(period);
     self
@@ -148,14 +137,11 @@ fn build_sse_response(body: TakoBody) -> Response {
 }
 
 pin_project! {
-  /// Wraps an inner SSE-frame stream, interleaving `:keepalive\n\n` comments
-  /// every `period` interval. The keepalive timer resets whenever the inner
-  /// stream produces an item.
+  /// The keepalive timer restarts whenever the inner stream yields.
   struct KeepAliveStream<S> {
     #[pin]
     inner: S,
-    #[pin]
-    sleep: tokio::time::Sleep,
+    timer: KeepAliveTimer,
     period: Duration,
     keepalive_frame: Bytes,
     inner_done: bool,
@@ -166,7 +152,7 @@ impl<S> KeepAliveStream<S> {
   fn new(inner: S, period: Duration, keepalive_frame: Bytes) -> Self {
     Self {
       inner,
-      sleep: tokio::time::sleep(period),
+      timer: KeepAliveTimer::new(period),
       period,
       keepalive_frame,
       inner_done: false,
@@ -185,8 +171,7 @@ where
     if !*this.inner_done {
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(item)) => {
-          let deadline = tokio::time::Instant::now() + *this.period;
-          this.sleep.as_mut().reset(deadline);
+          this.timer.reset(*this.period);
           return Poll::Ready(Some(item));
         }
         Poll::Ready(None) => {
@@ -200,10 +185,9 @@ where
       return Poll::Ready(None);
     }
 
-    if this.sleep.as_mut().poll(cx).is_ready() {
+    if this.timer.poll_elapsed(cx).is_ready() {
       let frame = http_body::Frame::data(this.keepalive_frame.clone());
-      let deadline = tokio::time::Instant::now() + *this.period;
-      this.sleep.as_mut().reset(deadline);
+      this.timer.reset(*this.period);
       return Poll::Ready(Some(Ok(frame)));
     }
 
@@ -211,13 +195,8 @@ where
   }
 }
 
-/// `Last-Event-ID` request header helper.
-///
-/// Handlers building an SSE stream can call this to honor client-side
-/// reconnection ranges. Returns the trimmed header value when present and
-/// well-formed UTF-8. Use [`last_event_id_bytes`] when the application
-/// emits non-UTF-8 ids (e.g. binary cursors) so they round-trip through
-/// reconnects intact.
+/// The trimmed `Last-Event-ID` of a reconnecting client; `None` unless it is visible ASCII, which
+/// [`last_event_id_bytes`] does not require.
 pub fn last_event_id(headers: &http::HeaderMap) -> Option<String> {
   headers
     .get("last-event-id")
@@ -225,12 +204,7 @@ pub fn last_event_id(headers: &http::HeaderMap) -> Option<String> {
     .map(|s| s.trim().to_string())
 }
 
-/// Byte-preserving variant of [`last_event_id`].
-///
-/// Returns the raw header bytes (with surrounding ASCII whitespace trimmed)
-/// regardless of UTF-8 validity. Useful when the server emits opaque binary
-/// cursors as `id:` values — the UTF-8-only helper silently drops those on
-/// reconnect, breaking event continuity.
+/// [`last_event_id`] as raw bytes, trimmed of ASCII whitespace.
 pub fn last_event_id_bytes(headers: &http::HeaderMap) -> Option<Vec<u8>> {
   let bytes = headers.get("last-event-id")?.as_bytes();
   let start = bytes.iter().position(|b| !b.is_ascii_whitespace())?;

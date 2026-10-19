@@ -1,7 +1,4 @@
-//! End-to-end test for `router.mount_all()`. Each integration test file
-//! compiles to its own test binary, so the global `TAKO_ROUTES` slice in
-//! this binary contains *only* the routes declared below — that's what
-//! makes asserting the registered set tractable.
+//! Its own test binary, so `TAKO_ROUTES` holds only the routes declared here.
 
 use http::Method;
 use http::StatusCode;
@@ -90,7 +87,5 @@ async fn mount_all_registers_every_attribute_route() {
 #[tokio::test]
 async fn mount_all_returns_self_for_chaining() {
   let mut router = Router::new();
-  // Returning `&mut Self` lets callers chain a fallback / middleware after
-  // the bulk registration in one expression.
   let _: &mut Router = router.mount_all();
 }

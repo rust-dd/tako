@@ -28,7 +28,6 @@ h3-datagram = { workspace = true, optional = true }
 h3-quinn = { workspace = true, optional = true }
 http = { workspace = true }
 http-body = { workspace = true }
-http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true }
 listenfd = { workspace = true, optional = true }
@@ -39,7 +38,6 @@ send_wrapper = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tokio-vsock = { workspace = true, optional = true }
 tracing = { workspace = true }
@@ -77,6 +75,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
+http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
 tako-rs = { workspace = true }

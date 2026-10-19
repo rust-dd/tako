@@ -9,42 +9,9 @@ use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
 
 use super::connection::handle_connection;
-use super::load_certs;
-use super::load_key;
 use crate::ServerConfig;
 use crate::h3_common::config::transport_config_from;
 
-/// Runs the HTTP/3 server loop.
-pub(crate) async fn run(
-  router: Router,
-  addr: &str,
-  certs: Option<&str>,
-  key: Option<&str>,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
-  config: ServerConfig,
-) -> Result<(), BoxError> {
-  #[cfg(feature = "tako-tracing")]
-  tako_rs_core::tracing::init_tracing();
-
-  if rustls::crypto::CryptoProvider::get_default().is_none() {
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-  }
-
-  let certs_vec = load_certs(certs.unwrap_or("cert.pem"))?;
-  let key = load_key(key.unwrap_or("key.pem"))?;
-
-  let mut tls_config = rustls::ServerConfig::builder()
-    .with_no_client_auth()
-    .with_single_cert(certs_vec, key)?;
-
-  // Early data requires replay protection, which this server does not provide.
-  tls_config.max_early_data_size = 0;
-  tls_config.alpn_protocols = vec![b"h3".to_vec()];
-
-  run_with_rustls_config(router, addr, Arc::new(tls_config), signal, config).await
-}
-
-/// Variant of [`run`] that accepts a pre-built `Arc<rustls::ServerConfig>`.
 pub(crate) async fn run_with_rustls_config(
   router: Router,
   addr: &str,
@@ -123,9 +90,8 @@ pub(crate) async fn run_endpoint(
       maybe_conn = endpoint.accept() => {
         let Some(incoming) = maybe_conn else { break };
 
-        // Optional address-validation retry. Defends against UDP source-IP
-        // spoofing amplification by forcing the client through one extra
-        // round-trip with a server-issued retry token.
+        // A retry costs the client a round-trip but proves its address, which stops UDP
+        // amplification from spoofed sources.
         if h3_use_retry && !incoming.remote_address_validated() {
           if let Err(e) = incoming.retry() {
             tracing::debug!("HTTP/3 retry refused: {e}");

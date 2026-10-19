@@ -1,9 +1,4 @@
-//! The [`Route`] struct, its handler/middleware storage, and construction.
-//!
-//! Holds the field layout for a route (path, method, handler, middleware
-//! chain, protocol guard, and feature-gated plugin / signal / `OpenAPI`
-//! state) plus the constructor and the `cloned_with_path` helper used by
-//! the router to re-home routes under a prefix.
+//! The [`Route`] struct and its construction.
 
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -27,43 +22,31 @@ use crate::plugins::TakoPlugin;
 use crate::signals::SignalArbiter;
 use crate::types::BoxMiddleware;
 
-/// HTTP route with path pattern matching and middleware support.
+/// A registered route; chain its methods off the `Arc<Route>` that registration returns.
 #[doc(alias = "route")]
 pub struct Route {
-  /// Original path string used to create this route.
+  /// The full registered path, including any scope or nest prefix.
   pub path: Arc<str>,
   /// Per-thread copies of `path` handed out as `MatchedPath`, so concurrent
   /// requests do not all bump the reference count of one shared allocation.
   matched_paths: ThreadLocal<Arc<str>>,
   pub(crate) parameter_keys: Vec<Arc<str>>,
-  /// HTTP method this route responds to.
   pub method: Method,
-  /// Handler function to execute when route is matched.
-  ///
   pub(crate) handler: BoxHandler,
-  /// Route-specific middleware chain.
-  ///
-  /// Crate-private to protect the `has_middleware` shortcut: every mutation
-  /// must go through [`Route::middleware`] so the atomic flag stays in sync
-  /// with the `ArcSwap` contents. Direct `ArcSwap::store` from outside would
-  /// silently desynchronize the hot-path skip in the router.
+  /// Every change must also set `has_middleware`, which dispatch checks to skip the chain.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
-  /// Fast check: true when route middleware is registered (avoids `ArcSwap` load on hot path).
   pub(crate) has_middleware: AtomicBool,
   /// Whether trailing slash redirection is enabled.
   pub tsr: bool,
-  /// Route-specific plugins.
   #[cfg(feature = "plugins")]
   pub(crate) plugins: RwLock<Vec<Arc<dyn TakoPlugin>>>,
   /// Publishes plugin middleware before concurrent requests can proceed.
   #[cfg(feature = "plugins")]
   pub(crate) plugins_initialized: OnceLock<Result<(), String>>,
-  /// HTTP protocol version guard (set once via [`Route::version`] / `h09`/`h10`/`h11`/`h2`).
+  /// Version guard, set once by [`Route::version`] or its `h*` shorthands.
   pub(crate) http_protocol: OnceLock<http::Version>,
-  /// Route-level signal arbiter.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
-  /// `OpenAPI` metadata for this route.
   #[cfg(any(feature = "utoipa", feature = "vespera"))]
   pub(crate) openapi: RwLock<Option<RouteOpenApi>>,
   /// Route-specific timeout override (set once at registration, lock-free reads).
@@ -76,8 +59,7 @@ pub struct Route {
 }
 
 impl Route {
-  /// Creates a new route with the specified path, method, and handler.
-  pub fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
+  pub(crate) fn new(path: String, method: Method, handler: BoxHandler, tsr: Option<bool>) -> Self {
     Self {
       parameter_keys: parameter_keys(&path),
       path: path.into(),
@@ -109,11 +91,7 @@ impl Route {
     Arc::clone(self.matched_paths.get_or(|| Arc::from(&*self.path)))
   }
 
-  /// Builds a new `Arc<Route>` with the same handler / middlewares / config
-  /// but a different path. Used by [`crate::router::Router::nest`] to register
-  /// a child router's routes under a prefix without mutating the originals.
-  ///
-  /// Plugin instances are shared; an initialized middleware chain is not installed twice.
+  /// Copies the route under `new_path`; plugins are shared and their middleware is not added twice.
   pub(crate) fn cloned_with_path(&self, new_path: String) -> Arc<Route> {
     let cloned = Self {
       parameter_keys: parameter_keys(&new_path),
@@ -138,9 +116,7 @@ impl Route {
         }
         lock
       },
-      // Preserve the source route's signal handlers across `cloned_with_path`
-      // (nest/mount): allocating a fresh `SignalArbiter` here used to silently
-      // drop every handler the caller had registered on the original route.
+      // Shared, so handlers registered on the original route still fire.
       #[cfg(feature = "signals")]
       signals: self.signals.clone(),
       #[cfg(any(feature = "utoipa", feature = "vespera"))]

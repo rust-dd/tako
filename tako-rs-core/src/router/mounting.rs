@@ -6,38 +6,8 @@ use std::sync::atomic::Ordering;
 use super::Router;
 
 impl Router {
-  /// Registers every route declared via the `#[tako::route]` / `#[tako::get]`
-  /// (and friends) attribute macros into this router.
-  ///
-  /// Each macro contributes a thunk into the global [`TAKO_ROUTES`] slice at
-  /// link time; this method walks the slice and invokes each thunk against
-  /// `self`, which calls [`Router::route`] under the hood. Routes are
-  /// registered in the order the linker emits them — typically the order they
-  /// appear within a translation unit, but unspecified across crates. If two
-  /// thunks register the same `(method, path)` pair, the second call will
-  /// panic, matching the behavior of [`Router::route`].
-  ///
-  /// # Why `linkme` and not explicit registration
-  ///
-  /// We keep the `linkme` distributed-slice strategy on purpose. The
-  /// alternative — an explicit `register_routes!(my_crate::routes)` invocation
-  /// per crate — was considered and rejected because:
-  ///
-  /// * Adding a handler would require touching three places (the handler
-  ///   itself, the per-crate registration list, and the call site that
-  ///   imports it) instead of one. The macro authoring story is the main
-  ///   reason teams pick attribute routing in the first place.
-  /// * Cross-crate path collisions panic at startup either way; explicit
-  ///   registration does not buy any extra safety.
-  /// * Link-order non-determinism only matters when two routes share a
-  ///   `(method, path)` pair — that is already a hard failure and a CI test
-  ///   catches it deterministically.
-  /// * Prefix grouping is already covered by [`Router::mount_all_into`], so
-  ///   "I want all my routes under `/api`" does not require explicit
-  ///   registration.
-  ///
-  /// Callers that need stable, deterministic ordering should call
-  /// [`Router::route`] directly.
+  /// Registers every route declared with `#[tako::route]`, `#[tako::get]` and the like, in
+  /// link order (unspecified across crates); panics on a duplicate route like [`Router::route`].
   ///
   /// # Examples
   ///
@@ -57,13 +27,7 @@ impl Router {
     self
   }
 
-  /// Like [`Router::mount_all`] but registers every macro-declared route under
-  /// the given path prefix. The prefix is normalized (trailing `/` stripped),
-  /// then prepended to each registered path. Useful when you want, e.g., all
-  /// `#[get("/users")]` declarations to live under `/api`.
-  ///
-  /// Ordering across crates remains the linker's choice (see
-  /// [`Router::mount_all`] for details).
+  /// [`Router::mount_all`] under `prefix`, minus its trailing `/`.
   ///
   /// # Examples
   ///
@@ -74,8 +38,7 @@ impl Router {
   pub fn mount_all_into(&mut self, prefix: &str) -> &mut Self {
     let saved = self.pending_prefix.take();
     self.pending_prefix = Some(prefix.to_string());
-    // Same panic-restore guard as `scope`: a route conflict from any
-    // registered `#[tako_route]` macro now resets `pending_prefix`.
+    // Restore the prefix even when a duplicate route panics.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
       for register in TAKO_ROUTES {
         register(self);
@@ -88,12 +51,7 @@ impl Router {
     self
   }
 
-  /// Registers a group of routes under a shared path prefix.
-  ///
-  /// The closure receives `self` with the prefix active, so any `route()` /
-  /// `get()` / `post()` etc. calls inside register the routes with the prefix
-  /// prepended. Prefixes nest: a `scope("/v1", |r| r.scope("/users", …))`
-  /// produces routes under `/v1/users`. Cold path; no dispatch impact.
+  /// Registers the routes that `build` adds under `prefix`; nested scopes join their prefixes.
   ///
   /// # Examples
   ///
@@ -127,10 +85,7 @@ impl Router {
       None => prefix.to_string(),
     };
     self.pending_prefix = Some(new_prefix);
-    // Panic-safe restore of `pending_prefix`. A route-conflict panic in the
-    // user-supplied `build` closure used to leave the temporary nested
-    // prefix in place, permanently poisoning subsequent route registrations
-    // on the same builder.
+    // Restore the prefix even when `build` panics, or later routes would inherit it.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build(self)));
     self.pending_prefix = saved;
     if let Err(payload) = result {
@@ -139,27 +94,8 @@ impl Router {
     self
   }
 
-  /// Mounts every route from a child router under the given path prefix.
-  ///
-  /// Unlike [`Router::merge`], `nest` builds **new** `Arc<Route>` instances for
-  /// each child route via `Route::cloned_with_path` — so re-nesting the same
-  /// child cannot double-stack its global middleware onto the same shared
-  /// `Arc<Route>`. The child router's global middleware chain is prepended to
-  /// each newly-registered route's middleware chain (so child globals run
-  /// before child-route middleware at dispatch time).
-  ///
-  /// Caveats:
-  /// - Child state overrides parent state for matching routes; siblings remain isolated.
-  /// - Child plugins, middleware, body limits and timeouts are preserved.
-  /// - The child's fallback / error handlers are **not** inherited.
-  ///
-  /// # Panics
-  ///
-  /// Panics at registration time if mounting the child would conflict with a
-  /// route already present on `self` (same method + same prefixed path).
-  /// Mirrors the behavior of [`Router::route`] — route registration is a
-  /// startup-time operation and conflicts are configuration bugs, not
-  /// runtime conditions.
+  /// Mounts `child`'s routes under `prefix`, keeping its middleware, plugins, state, body limit
+  /// and timeout but not its fallback or error handlers; panics on a conflicting route.
   ///
   /// # Examples
   ///
@@ -245,18 +181,7 @@ impl Router {
     self
   }
 
-  /// Merges another router into this router.
-  ///
-  /// This method combines routes and middleware from another router into the
-  /// current one. Routes are copied over, and the other router's global middleware
-  /// is prepended to each merged route's middleware chain.
-  ///
-  /// # Panics
-  ///
-  /// Panics at registration time if a merged route conflicts with one already
-  /// present on `self` (same method + same path). Mirrors the behavior of
-  /// [`Router::route`] and [`Router::nest`] — merge is a startup-time
-  /// operation and route conflicts are configuration bugs.
+  /// [`Router::nest`] without a prefix.
   ///
   /// # Examples
   ///
@@ -312,12 +237,6 @@ fn combine_prefix_path(prefix: &str, path: &str) -> String {
   }
 }
 
-/// Distributed slice of route registration thunks.
-///
-/// Each `#[tako::route]` / `#[tako::get]` / etc. attribute contributes a
-/// `fn(&mut Router)` closure that calls [`Router::route`] with the
-/// generated `Params::METHOD` / `Params::PATH` and the handler. Iterating
-/// the slice — what [`Router::mount_all`] does — replays every contribution
-/// against the supplied router.
+/// Registrations emitted by the route attribute macros; [`Router::mount_all`] replays them.
 #[linkme::distributed_slice]
 pub static TAKO_ROUTES: [fn(&mut Router)] = [..];

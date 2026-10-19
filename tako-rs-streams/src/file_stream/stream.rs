@@ -1,5 +1,3 @@
-//! File streams and HTTP response conversions.
-
 use std::path::Path;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -22,23 +20,19 @@ use crate::file_io::date::format_http_date;
 use crate::file_io::etag::weak_etag_from_metadata;
 use crate::file_io::range::unsatisfiable;
 
-/// A byte stream with optional download metadata.
-///
-/// Disk-backed streams use bounded chunks on both runtimes. With `compio`,
-/// poll and drop them on the thread that opened the file.
+/// A byte stream response with optional download metadata. With `compio`, poll and drop a
+/// disk-backed stream on the thread that opened the file.
 #[doc(alias = "file_stream")]
 pub struct FileStream<S = FileByteStream> {
-  /// The underlying byte stream.
   pub stream: S,
-  /// Suggested download filename.
+  /// Sent as `Content-Disposition: attachment`.
   pub file_name: Option<String>,
-  /// Full response length, if known.
+  /// Sent as `Content-Length`.
   pub content_size: Option<u64>,
-  /// A fully quoted `ETag`, optionally prefixed with `W/`.
+  /// Quoted, optionally prefixed with `W/`.
   pub etag: Option<String>,
-  /// Last modification timestamp.
   pub last_modified: Option<SystemTime>,
-  /// Content type; defaults to `application/octet-stream`.
+  /// Defaults to `application/octet-stream`.
   pub content_type: Option<String>,
 }
 
@@ -48,7 +42,6 @@ where
   S::Ok: Into<Bytes>,
   S::Error: Into<BoxError>,
 {
-  /// Associate a byte stream with optional filename and length.
   pub fn new(stream: S, file_name: Option<String>, content_size: Option<u64>) -> Self {
     Self {
       stream,
@@ -60,27 +53,24 @@ where
     }
   }
 
-  /// Attach a quoted strong or weak `ETag`.
+  /// `etag` must be quoted, optionally prefixed with `W/`.
   pub fn with_etag(mut self, etag: impl Into<String>) -> Self {
     self.etag = Some(etag.into());
     self
   }
 
-  /// Attach a modification timestamp.
   pub fn with_last_modified(mut self, timestamp: SystemTime) -> Self {
     self.last_modified = Some(timestamp);
     self
   }
 
-  /// Override the response content type.
   pub fn with_content_type(mut self, content_type: impl Into<String>) -> Self {
     self.content_type = Some(content_type.into());
     self
   }
 
-  /// Return a partial response from a stream already positioned and limited to the range.
-  ///
-  /// `start <= end < total_size` is required; invalid bounds return 416.
+  /// A 206 for a stream already positioned at `start` and limited to the range; bounds outside
+  /// `start <= end < total_size` yield 416.
   pub fn into_range_response(self, start: u64, end: u64, total_size: u64) -> Response {
     if start > end || end >= total_size {
       return unsatisfiable(total_size);
@@ -139,7 +129,7 @@ where
 }
 
 impl FileStream<FileByteStream> {
-  /// Open a regular file without buffering its contents.
+  /// Streams a regular file with a weak `ETag` and a content type guessed from its extension.
   pub async fn from_path(path: impl AsRef<Path>) -> Result<Self> {
     let file = OpenFile::open(path.as_ref()).await?;
     let size = file.size;
@@ -162,9 +152,8 @@ impl FileStream<FileByteStream> {
     })
   }
 
-  /// Open and stream the inclusive range. `u64::MAX` means through EOF.
-  ///
-  /// An end of zero means the first byte, not an open-ended range.
+  /// Streams the inclusive range `start..=end`, where an `end` past EOF, such as `u64::MAX`,
+  /// means through EOF; an unsatisfiable range yields 416.
   pub async fn try_range_response(
     path: impl AsRef<Path>,
     start: u64,

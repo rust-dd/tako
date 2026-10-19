@@ -24,9 +24,6 @@ http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
 httpdate = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-mime = { workspace = true }
 mime_guess = { workspace = true }
 percent-encoding = { workspace = true }
 pin-project-lite = { workspace = true }

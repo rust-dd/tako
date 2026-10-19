@@ -39,7 +39,7 @@ fn messages(frame: &Frame<Bytes>) -> Vec<i64> {
   let mut values = Vec::new();
   while !data.is_empty() {
     let end = 5 + u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
-    values.push(grpc_decode::<Number>(&data[..end]).unwrap().0.value);
+    values.push(grpc_decode::<Number>(&data[..end]).unwrap().value);
     data = &data[end..];
   }
   values

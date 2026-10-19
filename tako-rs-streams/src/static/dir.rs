@@ -4,10 +4,8 @@ use std::sync::Arc;
 
 use http::HeaderValue;
 
-/// Static directory with streaming, cache validators, single byte ranges, and SPA fallback.
-///
-/// Dotfiles are denied by default. Keep the served tree read-only to untrusted
-/// processes: canonical path checks cannot prevent concurrent filesystem replacement.
+/// Dotfiles are denied by default. Keep the tree read-only to untrusted processes: the canonical
+/// path check cannot stop a concurrent swap of a path component.
 #[derive(Clone)]
 #[doc(alias = "static")]
 #[doc(alias = "serve_dir")]
@@ -34,21 +32,18 @@ pub struct PrecompressedPolicy {
 }
 
 impl PrecompressedPolicy {
-  /// Enable Brotli and gzip.
   pub const fn both() -> Self {
     Self {
       brotli: true,
       gzip: true,
     }
   }
-  /// Enable Brotli.
   pub const fn brotli_only() -> Self {
     Self {
       brotli: true,
       gzip: false,
     }
   }
-  /// Enable gzip.
   pub const fn gzip_only() -> Self {
     Self {
       brotli: false,
@@ -57,14 +52,12 @@ impl PrecompressedPolicy {
   }
 }
 
-/// Configure a static directory.
 #[must_use]
 pub struct ServeDirBuilder {
   config: DirectoryConfig,
 }
 
 impl ServeDirBuilder {
-  /// Set the root directory.
   pub fn new(base: impl Into<PathBuf>) -> Self {
     Self {
       config: DirectoryConfig {
@@ -78,15 +71,14 @@ impl ServeDirBuilder {
     }
   }
 
-  /// Serve this trusted file for missing paths. It may be outside the root.
-  ///
-  /// Invalid traversal and denied dotfile requests never use the fallback.
+  /// Served for missing paths, even from outside the root; rejected traversal and dotfile
+  /// requests never get it.
   pub fn fallback(mut self, path: impl Into<PathBuf>) -> Self {
     self.config.fallback = Some(path.into());
     self
   }
 
-  /// Replace the index filename priority list.
+  /// Defaults to `index.html`, then `index.htm`.
   pub fn index_files<I, S>(mut self, names: I) -> Self
   where
     I: IntoIterator<Item = S>,
@@ -96,7 +88,6 @@ impl ServeDirBuilder {
     self
   }
 
-  /// Enable precompressed sidecar negotiation.
   pub fn precompressed(mut self, policy: PrecompressedPolicy) -> Self {
     self.config.precompressed = policy;
     self
@@ -114,7 +105,7 @@ impl ServeDirBuilder {
     self
   }
 
-  /// Finish configuration. Filesystem work happens on a blocking worker per request.
+  /// Filesystem work happens per request, on a blocking thread.
   pub fn build(self) -> ServeDir {
     ServeDir {
       config: Arc::new(self.config),
@@ -123,7 +114,6 @@ impl ServeDirBuilder {
 }
 
 impl ServeDir {
-  /// Configure a static directory.
   pub fn builder(base: impl Into<PathBuf>) -> ServeDirBuilder {
     ServeDirBuilder::new(base)
   }

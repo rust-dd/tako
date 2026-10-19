@@ -6,7 +6,7 @@ async fn body_limit_within_limit() {
 
   let mut router = Router::new();
   router.route(Method::POST, "/upload", |_req: Request| async { "ok" });
-  router.middleware(BodyLimit::new_with_dynamic(1024, |_| 1024).into_middleware());
+  router.middleware(BodyLimit::new(1024).into_middleware());
 
   let req = make_req_with_body(Method::POST, "/upload", "small body");
   let resp = router.dispatch(req).await;
@@ -19,7 +19,7 @@ async fn body_limit_content_length_reject() {
 
   let mut router = Router::new();
   router.route(Method::POST, "/upload", |_req: Request| async { "ok" });
-  router.middleware(BodyLimit::new_with_dynamic(10, |_| 10).into_middleware());
+  router.middleware(BodyLimit::new(10).into_middleware());
 
   let mut req = make_req_with_body(Method::POST, "/upload", "this body is too large");
   req
@@ -48,7 +48,7 @@ async fn body_limit_runtime_reject() {
         .unwrap(),
     }
   });
-  router.middleware(BodyLimit::new_with_dynamic(5, |_| 5).into_middleware());
+  router.middleware(BodyLimit::new(5).into_middleware());
 
   let req = make_req_with_body(Method::POST, "/upload", "too large");
   let resp = router.dispatch(req).await;

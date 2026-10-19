@@ -1,45 +1,10 @@
-//! Hyper-on-compio glue that bridges hyper's `Send`-bounded HTTP/2 surface to
-//! the single-threaded compio runtime via `send_wrapper`. Shared by the TLS
-//! (ALPN `h2`) and cleartext h2c servers.
-//!
-//! # `send_wrapper` invariant — hard contract
-//!
-//! Hyper's HTTP/2 server builder requires `Send` on the response future and
-//! the executor it hands work to. The compio runtime is **single-threaded
-//! per core**: every future created by `compio::runtime::spawn` is `!Send`
-//! and is polled exclusively on the runtime thread that produced it.
-//!
-//! * `ServiceSendWrapper` wraps the per-connection hyper service and its
-//!   response future in `SendWrapper`, satisfying hyper's bound at the type
-//!   level.
-//! * `CompioH2Executor` re-`spawn`s those `Send`-claimed futures back onto
-//!   the same compio runtime thread.
-//! * `CompioH2Timer` wraps `compio::time::sleep` similarly so HTTP/2
-//!   keep-alive timers can be handed to hyper.
-//!
-//! **The soundness of this pattern depends on the wrapped values never
-//! crossing a thread boundary at runtime.** That holds because:
-//!
-//! 1. The compio runtime is per-thread — futures are pinned to the thread
-//!    that called `spawn`, and there is no cross-thread work-stealing.
-//! 2. `SendWrapper<T>` panics on drop or deref from any thread other than
-//!    the one that constructed it, so an accidental cross-thread move
-//!    becomes a loud panic instead of UB.
-//! 3. We never construct a `SendWrapper` outside of a compio runtime task,
-//!    and we never hand the wrapper to a multi-threaded tokio runtime.
-//!
-//! The `Send` claim made by `SendWrapper<T>` is therefore **per-runtime, not
-//! global**. Anyone moving these types out of the compio path (e.g. mixing
-//! a tokio executor in front of `ServiceSendWrapper`) breaks the invariant.
+//! Runs hyper's `Send`-bound HTTP/2 server on compio. `SendWrapper` is sound here only because
+//! compio never moves a task off its thread, and it panics instead of racing if one is moved.
 
 use hyper::server::conn::http2;
 use send_wrapper::SendWrapper;
 
-/// Wraps a hyper `Service` so its response future type is `Send` via `SendWrapper`.
-///
-/// This is safe because compio is single-threaded — futures never cross thread
-/// boundaries. The `Send` bound is purely a compile-time requirement from hyper's
-/// HTTP/2 executor trait, not an actual thread-safety need.
+/// Makes a service and its response future `Send` for hyper's HTTP/2 executor bound.
 pub(crate) struct ServiceSendWrapper<T>(SendWrapper<T>);
 
 impl<T> ServiceSendWrapper<T> {
@@ -61,11 +26,7 @@ where
   }
 }
 
-/// A hyper executor for compio that accepts `!Send` futures.
-///
-/// Unlike `cyper_core::CompioExecutor` which requires `F: Send`, this executor
-/// accepts any `F: 'static` — but we only use it with `SendWrapper`-wrapped
-/// futures, so the `Send` bound is satisfied through the wrapper.
+/// Spawns hyper's HTTP/2 tasks, made `Send` by [`ServiceSendWrapper`], on the current thread.
 #[derive(Debug, Clone)]
 pub(crate) struct CompioH2Executor;
 
@@ -77,28 +38,12 @@ impl<F: std::future::Future<Output = ()> + Send + 'static> hyper::rt::Executor<F
   }
 }
 
-/// A hyper `Timer` implementation backed by `compio::time`.
-///
-/// Required for HTTP/2 keep-alive pings, stream timeouts, etc.
-/// Wraps compio's `!Send` sleep futures in `SendWrapper` to satisfy hyper's bounds.
+/// `compio::time` timer for HTTP/2 keep-alive pings and timeouts.
 #[derive(Debug, Clone)]
 pub(crate) struct CompioH2Timer;
 
-/// A sleep future that wraps a compio sleep so hyper can hand it across its
-/// `Send + Sync` API surface.
-///
-/// The inner `compio::time::sleep` resolves to `compio_runtime::runtime::time::TimerFuture`,
-/// which the upstream crate **explicitly** marks as `!Send + !Sync` (an
-/// `assert_not_impl!` in `compio-runtime`): both `poll` and `Drop` reach into
-/// the per-thread `Runtime::with_current(...)`, so off-thread access would
-/// either panic or corrupt the timer wheel. A bare `unsafe impl Send/Sync`
-/// would therefore be unsound — it claims a contract the wrapped future
-/// actively rejects.
-///
-/// `SendWrapper` upholds the contract at runtime: it panics on any deref or
-/// drop from a thread other than the one that constructed it, so an
-/// accidental cross-thread move becomes a loud panic instead of latent UB.
-/// Same pattern as `ServiceSendWrapper` above and `cyper-core::CompioTimer`.
+/// compio's timer future is `!Send + !Sync` because it reaches into the thread's runtime, so it
+/// goes through `SendWrapper` rather than an `unsafe impl`.
 struct CompioSleep(SendWrapper<std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>>);
 
 impl std::future::Future for CompioSleep {
@@ -108,8 +53,6 @@ impl std::future::Future for CompioSleep {
     mut self: std::pin::Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
-    // SendWrapper's `DerefMut` panics off-thread — the runtime guard for
-    // the `Send + Sync` claim. Same thread → cheap atomic load.
     self.0.as_mut().poll(cx)
   }
 }

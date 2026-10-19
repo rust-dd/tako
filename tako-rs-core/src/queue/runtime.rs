@@ -1,5 +1,3 @@
-//! Queue runtime: builder and lifecycle handles.
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -32,54 +30,33 @@ pub(crate) type BoxHandler =
   Arc<dyn Fn(Job) -> Pin<Box<dyn Future<Output = Result<(), QueueError>> + Send>> + Send + Sync>;
 
 pub(crate) struct QueueInner {
-  /// Pending jobs waiting to be processed.
   pub(crate) pending: Mutex<PendingQueue>,
-  /// Registered job handlers by name.
   pub(crate) handlers: SccHashMap<String, BoxHandler>,
-  /// Dead letter queue.
-  ///
-  /// Stored as `Vec<Arc<DeadJob>>` so the [`Queue::dead_letters_arc`]
-  /// snapshot only clones the outer `Vec` plus cheap atomic-refcount bumps
-  /// per entry, rather than deep-copying every `payload` / `name` / `error`
-  /// string. The owned [`Queue::dead_letters`] accessor still pays the deep
-  /// clone for API compatibility.
+  /// `Arc` entries let [`Queue::dead_letters`] snapshot without copying payloads.
   pub(crate) dead_letters: Mutex<Vec<Arc<DeadJob>>>,
-  /// Notify workers when new jobs arrive.
   pub(crate) notify: Notify,
-  /// Monotonically increasing job ID counter.
   pub(crate) next_id: AtomicU64,
-  /// Number of worker tasks.
   pub(crate) num_workers: usize,
-  /// Retry policy.
   pub(crate) retry_policy: RetryPolicy,
-  /// Whether the queue has been shut down.
   pub(crate) shutdown: AtomicBool,
-  /// Track in-flight jobs for graceful shutdown.
   pub(crate) inflight: AtomicU64,
-  /// Notify when inflight reaches 0.
+  /// Notified when the last in-flight job finishes after shutdown.
   pub(crate) drain_notify: Notify,
 }
 
-/// An in-memory background job queue.
-///
-/// Create via [`Queue::builder()`] or [`Queue::new()`].
-/// Register handlers with [`register()`](Queue::register), then push jobs
-/// with [`push()`](Queue::push) or [`push_delayed()`](Queue::push_delayed).
-///
-/// The queue must be started with [`start()`](Queue::start) to spawn
-/// background worker tasks that process jobs.
+/// In-memory background job queue; clones share it, and jobs run only after
+/// [`start`](Queue::start).
 #[derive(Clone)]
 pub struct Queue {
   pub(crate) inner: Arc<QueueInner>,
 }
 
 impl Queue {
-  /// Create a queue with default settings (4 workers, no retries).
+  /// A queue with 4 workers and no retries.
   pub fn new() -> Self {
     Self::builder().build()
   }
 
-  /// Create a builder for customizing the queue.
   pub fn builder() -> QueueBuilder {
     QueueBuilder {
       workers: 4,
@@ -87,10 +64,7 @@ impl Queue {
     }
   }
 
-  /// Register a named job handler.
-  ///
-  /// The handler receives a [`Job`] and returns `Result<(), QueueError>`.
-  /// Registering the same name again replaces its previous handler.
+  /// Registers the handler for jobs named `name`, replacing any previous one.
   ///
   /// # Examples
   ///
@@ -111,12 +85,10 @@ impl Queue {
     self.inner.handlers.upsert_sync(name, handler);
   }
 
-  /// Push a job for immediate execution.
-  ///
-  /// The payload is serialized to JSON. Returns the job ID.
+  /// Queues a job with `payload` serialized to JSON and returns its id.
   #[allow(
     clippy::unused_async_trait_impl,
-    reason = "Keep the public async API and defer enqueueing until the future is polled"
+    reason = "public async API that enqueues when polled"
   )]
   pub async fn push(
     &self,
@@ -126,12 +98,10 @@ impl Queue {
     self.push_inner(name.into(), payload, None)
   }
 
-  /// Push a job for delayed execution.
-  ///
-  /// The job will not be picked up by a worker until `delay` has elapsed.
+  /// Like [`push`](Self::push), but no worker picks the job up before `delay` elapses.
   #[allow(
     clippy::unused_async_trait_impl,
-    reason = "Keep the public async API and calculate the delay when the future is polled"
+    reason = "public async API that starts the delay when polled"
   )]
   pub async fn push_delayed(
     &self,
@@ -142,15 +112,11 @@ impl Queue {
     self.push_inner(name.into(), payload, Some(Instant::now() + delay))
   }
 
-  /// Push with a dedup key — the job is queued at most once concurrently.
-  ///
-  /// If a job with the same `dedup_key` is currently in `pending`, this is a
-  /// no-op and the existing id is returned. Useful for idempotent triggers
-  /// (e.g. flush a cache only once per minute regardless of how many requests
-  /// arrived). The dedup window ends when the job is picked up.
+  /// Like [`push`](Self::push), but while a job with `dedup_key` waits to be picked up it
+  /// returns that job's id instead of queueing another.
   #[allow(
     clippy::unused_async_trait_impl,
-    reason = "Keep the public async API and defer deduplication until the future is polled"
+    reason = "public async API that deduplicates when polled"
   )]
   pub async fn push_dedup(
     &self,
@@ -245,33 +211,20 @@ impl Queue {
     Ok(id)
   }
 
-  /// Start background worker tasks.
-  ///
-  /// This spawns `workers` number of tokio tasks that process jobs from the queue.
-  /// Must be called once before pushing jobs.
-  #[cfg(not(feature = "compio"))]
+  /// Spawns the worker tasks on the current runtime; call it once.
   pub fn start(&self) {
     for _ in 0..self.inner.num_workers {
       let inner = self.inner.clone();
-      tokio::spawn(async move { worker_loop(inner).await });
+      #[cfg(not(feature = "compio"))]
+      tokio::spawn(worker_loop(inner));
+      #[cfg(feature = "compio")]
+      compio::runtime::spawn(worker_loop(inner)).detach();
     }
     tracing::debug!("Queue started with {} workers", self.inner.num_workers);
   }
 
-  /// Start background worker tasks (compio runtime).
-  #[cfg(feature = "compio")]
-  pub fn start(&self) {
-    for _ in 0..self.inner.num_workers {
-      let inner = self.inner.clone();
-      compio::runtime::spawn(async move { worker_loop(inner).await }).detach();
-    }
-    tracing::debug!("Queue started with {} workers", self.inner.num_workers);
-  }
-
-  /// Gracefully shut down the queue.
-  ///
-  /// Stops accepting new jobs and waits for in-flight jobs to complete
-  /// (up to the given timeout).
+  /// Stops accepting jobs and waits up to `timeout` for running ones; workers move the jobs
+  /// that never started to the dead letter queue.
   pub async fn shutdown(&self, timeout: Duration) {
     // Serialize the flag change with concurrent enqueueing.
     {
@@ -296,48 +249,24 @@ impl Queue {
     tracing::debug!("Queue shut down");
   }
 
-  /// Returns a snapshot of jobs in the dead letter queue.
-  ///
-  /// Allocates a new `Vec<DeadJob>` and deep-clones every entry. For
-  /// monitoring code that just iterates entries read-only, prefer
-  /// [`Self::dead_letters_arc`] (atomic refcount per entry, no payload
-  /// copies) or [`Self::dead_letter_count`] (no allocation at all).
-  pub fn dead_letters(&self) -> Vec<DeadJob> {
-    self
-      .inner
-      .dead_letters
-      .lock()
-      .iter()
-      .map(|j| (**j).clone())
-      .collect()
-  }
-
-  /// Returns a cheap snapshot of the dead letter queue.
-  ///
-  /// Each entry is shared via `Arc` rather than deep-cloned, so this is
-  /// suitable for emitting from metrics endpoints or hot paths. Returned
-  /// `Arc<DeadJob>` handles remain valid even if [`Self::clear_dead_letters`]
-  /// is called concurrently.
-  pub fn dead_letters_arc(&self) -> Vec<Arc<DeadJob>> {
+  /// Snapshot of the dead letter queue that shares each entry.
+  pub fn dead_letters(&self) -> Vec<Arc<DeadJob>> {
     self.inner.dead_letters.lock().clone()
   }
 
-  /// Returns the number of jobs currently in the dead letter queue.
   pub fn dead_letter_count(&self) -> usize {
     self.inner.dead_letters.lock().len()
   }
 
-  /// Clear all dead letters.
   pub fn clear_dead_letters(&self) {
     self.inner.dead_letters.lock().clear();
   }
 
-  /// Returns the number of pending jobs.
+  /// Jobs waiting to run, delayed ones included.
   pub fn pending_count(&self) -> usize {
     self.inner.pending.lock().len()
   }
 
-  /// Returns the number of currently in-flight jobs.
   pub fn inflight_count(&self) -> u64 {
     self.inner.inflight.load(Ordering::SeqCst)
   }

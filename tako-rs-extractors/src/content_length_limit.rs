@@ -1,16 +1,4 @@
-//! `ContentLengthLimit<T, N>` extractor — bounded body extractor wrapper.
-//!
-//! Performs two layers of defense against payload-bomb DoS:
-//!
-//! 1. **Header check** — if `Content-Length` is present and exceeds `N`, the
-//!    request is rejected with `413 Payload Too Large` before any body bytes
-//!    are read.
-//! 2. **Streaming cap** — the request body is wrapped in
-//!    `http_body_util::Limited<…, N>` so the inner extractor cannot read more
-//!    than `N` bytes even when the Content-Length header is missing, lying,
-//!    or the transfer is chunked. This blocks the classic
-//!    "Content-Length: 0 / Transfer-Encoding: chunked / send forever" attack
-//!    that the previous header-only check missed.
+//! `ContentLengthLimit<T, N>`, a body-size bound around another extractor.
 
 use http::StatusCode;
 use http_body_util::Limited;
@@ -20,22 +8,19 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Wraps another extractor and rejects with 413 when `Content-Length` exceeds `N`.
+/// Rejects a declared `Content-Length` above `N` with 413 before reading, then runs `T` on a
+/// body capped at `N` bytes, which also bounds chunked bodies and a lying header.
 pub struct ContentLengthLimit<T, const N: u64>(pub T);
 
-/// Rejection variants for `ContentLengthLimit`.
+/// Rejection of [`ContentLengthLimit`].
 #[derive(Debug)]
 pub enum ContentLengthLimitError<E> {
-  /// Declared `Content-Length` exceeds the limit.
   TooLarge {
-    /// Declared length from the header.
     declared: u64,
-    /// Configured limit.
     limit: u64,
   },
-  /// `Content-Length` was present but failed to parse.
+  /// The `Content-Length` header is not a number; responds 400.
   Malformed,
-  /// Inner extractor produced an error.
   Inner(E),
 }
 
@@ -58,27 +43,19 @@ where
   }
 }
 
-fn check_limit(headers: &http::HeaderMap, limit: u64) -> Result<(), ContentLengthLimitErrorRaw> {
+fn check_limit<E>(headers: &http::HeaderMap, limit: u64) -> Result<(), ContentLengthLimitError<E>> {
   let Some(raw) = headers.get(http::header::CONTENT_LENGTH) else {
-    // No Content-Length header — leave it to the inner extractor / body limit
-    // middleware to enforce streaming caps.
     return Ok(());
   };
   let declared: u64 = raw
     .to_str()
     .ok()
     .and_then(|s| s.trim().parse().ok())
-    .ok_or(ContentLengthLimitErrorRaw::Malformed)?;
+    .ok_or(ContentLengthLimitError::Malformed)?;
   if declared > limit {
-    return Err(ContentLengthLimitErrorRaw::TooLarge { declared, limit });
+    return Err(ContentLengthLimitError::TooLarge { declared, limit });
   }
   Ok(())
-}
-
-#[derive(Debug)]
-enum ContentLengthLimitErrorRaw {
-  TooLarge { declared: u64, limit: u64 },
-  Malformed,
 }
 
 impl<'a, T, const N: u64> FromRequest<'a> for ContentLengthLimit<T, N>
@@ -92,25 +69,14 @@ where
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
     async move {
-      match check_limit(req.headers(), N) {
-        Ok(()) => {
-          // Wrap the body in `Limited` so the inner extractor cannot read more
-          // than N bytes even if Content-Length was missing/false or the
-          // transfer is chunked.
-          let limit = usize::try_from(N).unwrap_or(usize::MAX);
-          let body = std::mem::take(req.body_mut());
-          *req.body_mut() = TakoBody::new(Limited::new(body, limit));
-
-          match T::from_request(req).await {
-            Ok(v) => Ok(ContentLengthLimit(v)),
-            Err(e) => Err(ContentLengthLimitError::Inner(e)),
-          }
-        }
-        Err(ContentLengthLimitErrorRaw::TooLarge { declared, limit }) => {
-          Err(ContentLengthLimitError::TooLarge { declared, limit })
-        }
-        Err(ContentLengthLimitErrorRaw::Malformed) => Err(ContentLengthLimitError::Malformed),
-      }
+      check_limit::<T::Error>(req.headers(), N)?;
+      let limit = usize::try_from(N).unwrap_or(usize::MAX);
+      let body = std::mem::take(req.body_mut());
+      *req.body_mut() = TakoBody::new(Limited::new(body, limit));
+      T::from_request(req)
+        .await
+        .map(ContentLengthLimit)
+        .map_err(ContentLengthLimitError::Inner)
     }
   }
 }

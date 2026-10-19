@@ -156,8 +156,5 @@ let dynamic = BodyLimit::with_dynamic_limit(|req| {
 }).into_middleware();
 ```
 
-`new_with_dynamic(static_limit, closure)` combines a static cap with a dynamic
-override.
-
 See the [middleware model](/docs/middleware) for chain ordering — register
 body limit and security headers on the outside of the chain.

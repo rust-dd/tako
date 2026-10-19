@@ -1,8 +1,4 @@
-//! `GraphQL`-over-WebSocket subscription responder that performs the HTTP
-//! upgrade handshake and drives async-graphql's WebSocket state machine.
-
 use std::future::Future;
-use std::str::FromStr;
 use std::time::Duration;
 
 use async_graphql::Data;
@@ -10,7 +6,6 @@ use async_graphql::Executor;
 use async_graphql::Result as GqlResult;
 use async_graphql::http::DefaultOnConnInitType;
 use async_graphql::http::DefaultOnPingType;
-use async_graphql::http::WebSocketProtocols;
 use async_graphql::http::default_on_connection_init;
 use async_graphql::http::default_on_ping;
 use http::HeaderValue;
@@ -25,9 +20,9 @@ use crate::types::Request;
 use crate::types::Response;
 use crate::ws;
 
-/// `GraphQL` WebSocket subscription responder (`GraphQL` over WebSocket).
+/// Upgrades the request and serves `GraphQL` subscriptions over the negotiated subprotocol.
 ///
-/// Usage in a handler:
+/// # Examples
 ///
 /// ```ignore
 /// let schema = Schema::build(QueryRoot, MutationRoot, SubscriptionRoot).finish();
@@ -36,7 +31,6 @@ use crate::ws;
 ///     async move { GraphQLSubscription::new(req, schema) }
 /// });
 /// ```
-#[cfg(not(feature = "compio"))]
 pub struct GraphQLSubscription<E, OnConnInit = DefaultOnConnInitType, OnPing = DefaultOnPingType>
 where
   E: Executor,
@@ -49,7 +43,6 @@ where
   keepalive_timeout: Option<Duration>,
 }
 
-#[cfg(not(feature = "compio"))]
 impl<E> GraphQLSubscription<E, DefaultOnConnInitType, DefaultOnPingType>
 where
   E: Executor,
@@ -66,7 +59,6 @@ where
   }
 }
 
-#[cfg(not(feature = "compio"))]
 impl<E, OnConnInit, OnPing> GraphQLSubscription<E, OnConnInit, OnPing>
 where
   E: Executor,
@@ -112,7 +104,6 @@ where
   }
 }
 
-#[cfg(not(feature = "compio"))]
 impl<E, OnConnInit, OnConnInitFut, OnPing, OnPingFut> Responder
   for GraphQLSubscription<E, OnConnInit, OnPing>
 where
@@ -127,22 +118,9 @@ where
       Ok(accept) => accept,
       Err(status) => return ws::rejection(status),
     };
-    let Some(protocol) = self
-      .request
-      .headers()
-      .get(header::SEC_WEBSOCKET_PROTOCOL)
-      .and_then(|value| value.to_str().ok())
-      .and_then(|offered| {
-        offered
-          .split(',')
-          .find_map(|name| WebSocketProtocols::from_str(name.trim()).ok())
-      })
-    else {
-      return (
-        StatusCode::BAD_REQUEST,
-        "Missing or invalid Sec-WebSocket-Protocol",
-      )
-        .into_response();
+    let protocol = match super::protocol::negotiate(self.request.headers()) {
+      Ok(super::GraphQLProtocol(protocol)) => protocol,
+      Err(rejection) => return rejection.into_response(),
     };
     let response = http::Response::builder()
       .status(StatusCode::SWITCHING_PROTOCOLS)

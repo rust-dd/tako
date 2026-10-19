@@ -37,10 +37,8 @@ struct Config {
   same_site: SameSite,
 }
 
-/// Session middleware using memory by default or a supplied asynchronous backend.
-///
-/// Shared backends use Unix timestamps for the absolute lifetime; replica clocks
-/// should be synchronized. Backend failures return 503 without exposing their details.
+/// Backend failures answer 503 without details. Shared backends compare Unix timestamps for
+/// the absolute lifetime, so keep replica clocks in sync.
 pub struct SessionMiddleware<S = MemorySessionStore> {
   config: Config,
   store: Arc<S>,
@@ -92,7 +90,6 @@ impl<S: SessionStore> SessionMiddleware<S> {
     self.config.ttl.idle_secs = seconds;
     self
   }
-  /// Set the full expiration policy.
   pub fn ttl(mut self, ttl: SessionTtl) -> Self {
     self.config.ttl = ttl;
     self
@@ -102,7 +99,6 @@ impl<S: SessionStore> SessionMiddleware<S> {
     self.config.path = path.into();
     self
   }
-  /// Optional cookie domain.
   pub fn domain(mut self, domain: &str) -> Self {
     self.config.domain = Some(domain.into());
     self

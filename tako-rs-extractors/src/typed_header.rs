@@ -1,12 +1,4 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "typed-header")))]
-
-//! `TypedHeader<H>` extractor — axum parity built on the `headers` crate.
-//!
-//! Decodes a single HTTP header into a strongly-typed value via the
-//! `headers::Header` trait, returning a 400 `Responder` rejection on missing
-//! or malformed input.
-//!
-//! Enable with the `typed-header` cargo feature.
+//! `TypedHeader<H>`: one header decoded through `headers::Header`; missing or malformed is 400.
 //!
 //! # Examples
 //!
@@ -18,9 +10,6 @@
 //!   format!("ua = {ua}")
 //! }
 //! ```
-//!
-//! Optional headers can be obtained via `Option<TypedHeader<H>>` because
-//! `Option<E>` is supported by the handler machinery.
 
 use http::StatusCode;
 use http::request::Parts;
@@ -30,24 +19,13 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// A strongly-typed header extractor.
-///
-/// `H` must implement `headers::Header` (e.g. `headers::UserAgent`,
-/// `headers::ContentType`, `headers::Authorization<Bearer>`).
 pub struct TypedHeader<H>(pub H);
 
-/// Rejection produced when `TypedHeader<H>` cannot extract its value.
+/// Rejection of [`TypedHeader`], carrying the header name.
 #[derive(Debug)]
 pub enum TypedHeaderRejection {
-  /// Header was absent from the request.
   Missing(&'static str),
-  /// Header was present but failed to decode into `H`.
-  Invalid {
-    /// Header name.
-    name: &'static str,
-    /// Underlying decode error message.
-    error: String,
-  },
+  Invalid { name: &'static str, error: String },
 }
 
 impl Responder for TypedHeaderRejection {
@@ -72,22 +50,13 @@ where
   H: headers::Header,
 {
   let name = H::name().as_str();
-  let mut iter = headers.get_all(H::name()).iter();
-  if iter.size_hint().1 == Some(0) && headers.get(H::name()).is_none() {
-    return Err(TypedHeaderRejection::Missing(static_name::<H>(name)));
+  if !headers.contains_key(H::name()) {
+    return Err(TypedHeaderRejection::Missing(name));
   }
-  H::decode(&mut iter).map_err(|e| TypedHeaderRejection::Invalid {
-    name: static_name::<H>(name),
+  H::decode(&mut headers.get_all(H::name()).iter()).map_err(|e| TypedHeaderRejection::Invalid {
+    name,
     error: e.to_string(),
   })
-}
-
-// `headers::Header::name()` returns a `&'static HeaderName`, but we want a
-// `&'static str` for the rejection message. Both representations live for
-// 'static, so a transmute-free path through `.as_str()` is sufficient — the
-// indirection here just narrows the type.
-fn static_name<H: headers::Header>(_runtime: &str) -> &'static str {
-  H::name().as_str()
 }
 
 impl<'a, H> FromRequest<'a> for TypedHeader<H>

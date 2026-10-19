@@ -1,20 +1,5 @@
-//! Circuit-breaker middleware.
-//!
-//! Implements a classic three-state circuit (closed → open → half-open) keyed
-//! by route template (or by a caller-defined key function). When the failure
-//! ratio over the configured rolling window exceeds the trip threshold, the
-//! breaker opens and short-circuits subsequent requests with `503 Service
-//! Unavailable` until `cool_down` elapses, after which a single probe is
-//! permitted (half-open). One success closes the breaker; one failure opens
-//! it again.
-//!
-//! "Failure" defaults to a 5xx response, but callers can supply a custom
-//! classifier (e.g. include 408 / 429 / network errors thrown as 502).
-//!
-//! The rolling window is approximated with a single moving counter pair
-//! (success / failure) reset on cool-down. This keeps the hot path lock-free
-//! and is sufficient for breaker semantics — full sliding-window precision
-//! would require a per-bucket histogram and is deliberately out of scope.
+//! Per-route circuit breaker: opens when the failure ratio over a tumbling window trips the
+//! threshold, then admits one half-open probe after the cool-down.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -41,15 +26,8 @@ const STATE_CLOSED: u8 = 0;
 const STATE_OPEN: u8 = 1;
 const STATE_HALF_OPEN: u8 = 2;
 
-/// RAII releaser for the half-open `probe_in_flight` slot.
-///
-/// The slot must be returned to `0` on **every** exit path, including
-/// panic unwind and future-cancellation (e.g. when this breaker is wrapped
-/// by `Timeout` and the deadline drops the inner future before it
-/// resolves). The previous implementation released the slot with a plain
-/// `store(0)` after `next.run(req).await`, so a cancel mid-await left the
-/// slot stuck at `1` forever — the breaker permanently saw an in-flight
-/// probe and rejected every subsequent request on that key with 503.
+/// Frees the half-open probe slot on every exit, including panic and cancellation by an
+/// outer `Timeout`; a leaked slot would reject the key forever.
 struct ProbeSlotGuard<'a>(&'a AtomicU8);
 
 impl Drop for ProbeSlotGuard<'_> {
@@ -63,13 +41,8 @@ struct State {
   state: AtomicU8,
   successes: AtomicU64,
   failures: AtomicU64,
-  /// Instant (as Duration since `Self::start`) when the breaker opened.
   opened_at: Mutex<Option<Instant>>,
-  /// Whether a half-open probe is currently in flight (one at a time).
   probe_in_flight: AtomicU8,
-  /// Start of the current accounting window. Counts reset to zero each
-  /// time the window rolls over so a long-running closed breaker doesn't
-  /// dilute its failure ratio with months-old data.
   window_start: Mutex<Option<Instant>>,
 }
 
@@ -80,9 +53,7 @@ impl State {
     *self.window_start.lock() = Some(Instant::now());
   }
 
-  /// Tumbling-window roll-over. Called before each accounting update in the
-  /// closed/half-open paths so the failure ratio observes only the most
-  /// recent `window_duration` of traffic.
+  /// Tumbling window, so the failure ratio reflects only recent traffic.
   fn maybe_roll_window(&self, window_duration: Duration) {
     let now = Instant::now();
     let mut start_guard = self.window_start.lock();
@@ -102,26 +73,15 @@ impl State {
 type KeyFn = Arc<dyn Fn(&Request) -> String + Send + Sync + 'static>;
 type Classifier = Arc<dyn Fn(&Response) -> bool + Send + Sync + 'static>;
 
-/// Circuit-breaker middleware.
 pub struct CircuitBreaker {
-  /// Minimum number of requests in the window before the breaker can trip.
   min_requests: u64,
-  /// Failure ratio (0.0–1.0) at or above which the breaker opens.
   failure_ratio: f32,
-  /// How long to stay open before allowing a half-open probe.
   cool_down: Duration,
-  /// Status returned while the breaker is open.
   open_status: StatusCode,
-  /// `Retry-After` header value (seconds) appended on rejection.
   retry_after_secs: u32,
-  /// Length of the tumbling failure-ratio window. Counters reset on each
-  /// roll-over so a closed breaker doesn't dilute its ratio with old data.
   window: Duration,
-  /// Keys requests for separate breakers.
   key_fn: KeyFn,
-  /// Decides whether a response counts as a failure.
   classifier: Classifier,
-  /// Per-key state.
   states: Arc<SccHashMap<String, Arc<State>>>,
 }
 
@@ -132,8 +92,7 @@ impl Default for CircuitBreaker {
 }
 
 impl CircuitBreaker {
-  /// Creates a breaker with sensible defaults: trip at 50% failures over the
-  /// last 20 requests (within a 60s window), cool down for 30s.
+  /// Trips at a 50% failure ratio once 20 requests land in a 60s window; stays open for 30s.
   pub fn new() -> Self {
     Self {
       min_requests: 20,
@@ -142,14 +101,7 @@ impl CircuitBreaker {
       open_status: StatusCode::SERVICE_UNAVAILABLE,
       retry_after_secs: 30,
       window: Duration::from_secs(60),
-      // Default keying is by route **template** (e.g. `/users/{id}`), not
-      // raw path (`/users/42`). Templated keys bound the breaker map's
-      // cardinality at the number of registered routes — keying by raw
-      // path lets an unauthenticated client insert one `Arc<State>` per
-      // distinct `/a1`, `/a2`, ... and exhaust memory.
-      // Falls back to a single constant for requests dispatched outside
-      // the router (extremely unusual — only when this middleware is
-      // wired up without a matching route).
+      // Route templates, not raw paths, so clients cannot grow the map with distinct paths.
       key_fn: Arc::new(|req: &Request| {
         req
           .extensions()
@@ -161,43 +113,43 @@ impl CircuitBreaker {
     }
   }
 
-  /// Sets the tumbling window length over which failures are counted.
+  /// Clamped to at least one second.
   pub fn window(mut self, d: Duration) -> Self {
     self.window = d.max(Duration::from_secs(1));
     self
   }
 
-  /// Sets the minimum sample size before the breaker can open.
+  /// Requests needed in the window before the breaker can open; at least 1.
   pub fn min_requests(mut self, n: u64) -> Self {
     self.min_requests = n.max(1);
     self
   }
 
-  /// Sets the failure ratio (0.0–1.0) that trips the breaker.
+  /// Clamped to 0.0–1.0; a failure ratio at or above it trips the breaker.
   pub fn failure_ratio(mut self, ratio: f32) -> Self {
     self.failure_ratio = ratio.clamp(0.0, 1.0);
     self
   }
 
-  /// Sets the cool-down duration the breaker stays open.
+  /// How long the breaker stays open before a half-open probe.
   pub fn cool_down(mut self, d: Duration) -> Self {
     self.cool_down = d;
     self
   }
 
-  /// Sets the response status returned when the breaker is open.
+  /// Defaults to 503.
   pub fn open_status(mut self, status: StatusCode) -> Self {
     self.open_status = status;
     self
   }
 
-  /// Sets the `Retry-After` header value emitted on rejection.
+  /// `Retry-After` sent with rejections; defaults to 30.
   pub fn retry_after_secs(mut self, secs: u32) -> Self {
     self.retry_after_secs = secs;
     self
   }
 
-  /// Plug a custom key function (e.g. per-tenant or per-IP breakers).
+  /// One breaker per distinct key, never evicted, so keep the key space bounded.
   pub fn key_fn<F>(mut self, f: F) -> Self
   where
     F: Fn(&Request) -> String + Send + Sync + 'static,
@@ -206,7 +158,7 @@ impl CircuitBreaker {
     self
   }
 
-  /// Plug a custom failure classifier.
+  /// Decides which responses count as failures; defaults to 5xx.
   pub fn classifier<F>(mut self, f: F) -> Self
   where
     F: Fn(&Response) -> bool + Send + Sync + 'static,
@@ -280,11 +232,7 @@ impl IntoMiddleware for CircuitBreaker {
           }
         }
 
-        // Half-open: allow exactly one probe at a time. The slot is held
-        // by `ProbeSlotGuard`, whose `Drop` impl releases it on every exit
-        // — normal return, panic, or future cancellation by a wrapping
-        // Timeout. The previous `store(0)` after the await leaked the
-        // slot on cancel and stranded the breaker in half-open forever.
+        // Half-open admits one probe at a time.
         let cur = state.state.load(Ordering::Acquire);
         let _probe_guard = if cur == STATE_HALF_OPEN {
           if state
@@ -302,11 +250,6 @@ impl IntoMiddleware for CircuitBreaker {
         let resp = next.run(req).await;
         let failed = (classifier)(&resp);
 
-        // Tumbling window: zero the counters when the current window has
-        // elapsed so a long-running closed breaker compares the failure
-        // ratio against recent traffic, not against accumulated history.
-        // The roll-over only fires in the closed/half-open accounting
-        // branches — open-state never updates these counters.
         state.maybe_roll_window(window);
 
         if failed {

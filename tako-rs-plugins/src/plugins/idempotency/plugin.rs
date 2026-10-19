@@ -32,10 +32,8 @@ use crate::stores::StoreResult;
 use crate::stores::memory::MemoryIdempotencyStore;
 use crate::stores::runtime;
 
-/// Cache idempotent operations through an atomic lease backend.
-///
-/// Unknown-length, oversized, and trailer-bearing responses pass through without
-/// caching. Set the backend lease TTL above the maximum handler duration.
+/// Unknown-length, oversized and trailer-bearing responses pass through uncached. Keep the
+/// backend lease TTL above the longest handler run.
 #[derive(Clone)]
 #[doc(alias = "idempotency")]
 pub struct IdempotencyPlugin {
@@ -43,6 +41,7 @@ pub struct IdempotencyPlugin {
   pub(crate) store: Arc<dyn IdempotencyStore>,
   janitor_started: Arc<AtomicBool>,
 }
+
 impl IdempotencyPlugin {
   pub fn builder() -> IdempotencyBuilder {
     IdempotencyBuilder::new()
@@ -55,12 +54,13 @@ impl IdempotencyPlugin {
     }
   }
 }
+
 impl TakoPlugin for IdempotencyPlugin {
   fn name(&self) -> &'static str {
     "IdempotencyPlugin"
   }
   fn setup(&self, router: &Router) -> Result<()> {
-    let cfg = self.cfg.clone();
+    let cfg = Arc::new(self.cfg.clone());
     let store = self.store.clone();
     router.middleware(move |request, next| {
       let cfg = cfg.clone();

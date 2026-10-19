@@ -1,14 +1,5 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-//! Cross-Origin Resource Sharing (CORS) plugin for handling cross-origin HTTP requests.
-//!
-//! This module provides comprehensive CORS support for Tako web applications, enabling
-//! secure cross-origin resource sharing between different domains. The plugin handles
-//! preflight OPTIONS requests, validates origins against configured policies, and adds
-//! appropriate CORS headers to responses. It supports configurable origins, methods,
-//! headers, credentials, and cache control for flexible cross-origin access policies.
-//!
-//! The CORS plugin can be applied at both router-level (all routes) and route-level
-//! (specific routes), allowing fine-grained control over CORS policies.
+//! CORS: answers preflight requests and adds CORS headers for allowed origins, on the whole
+//! router or a single route.
 //!
 //! # Examples
 //!

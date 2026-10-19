@@ -43,8 +43,7 @@ impl Parse for ShortcutArgs {
   }
 }
 
-/// After the path literal there can optionally be `, name = "Foo"`. Returns
-/// `Ok(None)` if the comma/keyword is absent, `Err` only on a malformed key.
+/// The optional `, name = "Foo"` after the path; a trailing comma alone is accepted.
 fn parse_optional_name(input: ParseStream) -> syn::Result<Option<Ident>> {
   if input.is_empty() {
     return Ok(None);
@@ -69,20 +68,10 @@ pub(crate) struct PathParam {
   pub(crate) ty: Type,
 }
 
-/// Parses path placeholders. Two syntaxes are accepted:
-/// - typed: `{id: u64}` — emits a field on the generated `*Params` struct
-/// - untyped: `{id}` — matchit/axum-style; passes through untouched and does
-///   not contribute to the `*Params` struct
-///
-/// Returns the matchit-friendly stripped path (every placeholder reduced to
-/// `{name}`) plus the list of typed `(name, type)` pairs only.
+/// Reduces every placeholder to `{name}` for matchit and returns the typed `{name: Type}` ones;
+/// an untyped `{name}` adds no field.
 pub(crate) fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
-  // Route paths are ASCII per RFC 3986 (`reserved` + `unreserved` are both
-  // ASCII subsets). Reject anything else up front rather than mojibake the
-  // byte stream into the stripped output: previously a multi-byte UTF-8
-  // char like `é` (`0xC3 0xA9`) was pushed as two distinct `char` values,
-  // both Latin-1 codepoints, breaking exact-path matching against the
-  // matchit-compiled route.
+  // RFC 3986 paths are ASCII, and the byte loop below would split multi-byte characters.
   if !path.is_ascii() {
     return Err(syn::Error::new(
       span,
@@ -96,9 +85,6 @@ pub(crate) fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<Pat
   while i < bytes.len() {
     let c = bytes[i];
     if c == b'}' {
-      // Stray `}` without a preceding `{` is a path-syntax mistake. Reject
-      // explicitly so the error surfaces at macro-expansion time rather
-      // than as a downstream matchit mismatch.
       return Err(syn::Error::new(
         span,
         "unexpected '}' in path (no matching '{')",

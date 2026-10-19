@@ -1,8 +1,5 @@
-//! Header extraction from HTTP requests.
-//!
-//! This module provides the [`HeaderMap`](crate::header_map::HeaderMap) extractor for accessing HTTP headers from
-//! incoming requests. It wraps a reference to the headers, allowing efficient access
-//! to header values without copying the underlying data.
+//! An owned copy of the request headers; `HeaderMapBorrowed` in `zero_copy_extractors`
+//! borrows them instead.
 //!
 //! # Examples
 //!
@@ -31,11 +28,7 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::types::Request;
 
-/// Header map extractor that provides access to HTTP request headers.
-///
-/// This extractor wraps a reference to the headers of a request, providing
-/// efficient access to header values without copying the underlying data.
-/// It can be used to inspect, validate, or extract information from HTTP headers.
+/// The request headers, cloned.
 ///
 /// # Examples
 ///

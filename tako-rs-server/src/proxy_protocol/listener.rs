@@ -1,4 +1,4 @@
-//! HTTP listener/acceptor that parses PROXY protocol headers per connection.
+//! Tokio HTTP/1 accept loop that reads a PROXY protocol header before each connection.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -19,80 +19,10 @@ use super::apply_to_request;
 use super::read_proxy_protocol;
 use crate::ServerConfig;
 
-/// Build an RFC 7239 `Forwarded` header value from the PROXY-protocol-supplied
-/// peer address. IPv6 addresses get bracketed per the RFC's `node` ABNF.
-/// Starts an HTTP server that parses PROXY protocol headers on each connection.
-///
-/// The real client address from the PROXY header is inserted into request
-/// extensions as `SocketAddr` (overriding the TCP peer address). The raw
-/// `ProxyHeader` is also available via `req.extensions().get::<ProxyHeader>()`.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_http_with_proxy_protocol(listener: tokio::net::TcpListener, router: Router) {
-  if let Err(e) = run_proxy_http(
-    listener,
-    router,
-    None::<std::future::Pending<()>>,
-    ServerConfig::default(),
-  )
-  .await
-  {
-    tracing::error!("PROXY protocol HTTP server error: {e}");
-  }
-}
-
-/// Starts an HTTP server with PROXY protocol support and graceful shutdown.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_http_with_proxy_protocol_and_shutdown(
-  listener: tokio::net::TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-) {
-  if let Err(e) = run_proxy_http(listener, router, Some(signal), ServerConfig::default()).await {
-    tracing::error!("PROXY protocol HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_http_with_proxy_protocol`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_http_with_proxy_protocol_and_config(
-  listener: tokio::net::TcpListener,
-  router: Router,
-  config: ServerConfig,
-) {
-  if let Err(e) = run_proxy_http(listener, router, None::<std::future::Pending<()>>, config).await {
-    tracing::error!("PROXY protocol HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_http_with_proxy_protocol_and_shutdown`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_http_with_proxy_protocol_shutdown_and_config(
-  listener: tokio::net::TcpListener,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-  config: ServerConfig,
-) {
-  if let Err(e) = run_proxy_http(listener, router, Some(signal), config).await {
-    tracing::error!("PROXY protocol HTTP server error: {e}");
-  }
-}
-
 pub(crate) async fn run_proxy_http(
   listener: tokio::net::TcpListener,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   let router = Arc::new(router);
@@ -124,13 +54,11 @@ pub(crate) async fn run_proxy_http(
   let proxy_read_timeout = config.proxy_read_timeout;
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
-  if let Some(s) = signal {
-    let cancel_for_signal = cancel.clone();
-    signal_tasks.spawn(async move {
-      s.await;
-      cancel_for_signal.cancel();
-    });
-  }
+  let cancel_for_signal = cancel.clone();
+  signal_tasks.spawn(async move {
+    signal.await;
+    cancel_for_signal.cancel();
+  });
 
   loop {
     tokio::select! {

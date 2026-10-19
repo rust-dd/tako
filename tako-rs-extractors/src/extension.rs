@@ -1,8 +1,4 @@
-//! `Extension<T>` extractor — axum parity for request-scoped values.
-//!
-//! Pulls a clone of `T` out of `request.extensions()`. Middleware that wants
-//! to expose typed data to a handler can `req.extensions_mut().insert(value)`
-//! and the handler reaches it via `Extension<MyType>`.
+//! `Extension<T>`: a clone of the `T` that middleware put into the request extensions.
 //!
 //! # Examples
 //!
@@ -24,23 +20,15 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Extracts a clone of a typed extension value.
 pub struct Extension<T>(pub T);
 
-/// Rejection when no value of type `T` is present in extensions.
-///
-/// The carried `&'static str` comes from [`std::any::type_name`], which
-/// includes the full module path (e.g.
-/// `my_crate::config::MyConfig`). [`Self::short_name`] returns just the
-/// final segment for log/UI display.
+/// No `T` in the extensions. Holds the full [`std::any::type_name`]; the 500 response names
+/// only [`Self::short_name`].
 #[derive(Debug)]
 pub struct MissingExtension(pub &'static str);
 
 impl MissingExtension {
-  /// Trims the module-path prefix from the type name so the rejection is
-  /// easier to read at a glance. `"my_crate::config::MyConfig"` becomes
-  /// `"MyConfig"`. Generic arguments are preserved (the split is on the
-  /// last `::` that precedes any `<`).
+  /// The type name without its module path; generic arguments keep theirs.
   pub fn short_name(&self) -> &'static str {
     let s: &'static str = self.0;
     let cutoff = s.find('<').unwrap_or(s.len());
@@ -53,8 +41,7 @@ impl MissingExtension {
 
 impl Responder for MissingExtension {
   fn into_response(self) -> tako_rs_core::types::Response {
-    // Use the short name on the wire — the fully-qualified path is internal
-    // detail that leaks crate structure and is hard to read in logs.
+    // The full path would leak crate structure to clients.
     let short = self.short_name();
     (
       StatusCode::INTERNAL_SERVER_ERROR,

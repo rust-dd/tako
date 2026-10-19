@@ -1,9 +1,5 @@
-//! The server side of one WebTransport session on an h3 connection.
-//!
-//! Adapted from `h3-webtransport` 0.1.2 (<https://github.com/hyperium/h3>,
-//! MIT License, Copyright (c) 2020 h3 authors). Unlike upstream, it hands the
-//! CONNECT stream back to the caller, which reads the client's close and
-//! sends its own.
+//! Server side of one WebTransport session, adapted from `h3-webtransport` 0.1.2 (MIT License,
+//! Copyright (c) 2020 h3 authors), but handing the CONNECT stream back to the caller.
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -116,9 +112,8 @@ impl Driver {
     self.conn.lock().unwrap_or_else(PoisonError::into_inner)
   }
 
-  /// Waits for the next bidirectional WebTransport stream; `None` once the
-  /// connection closes. HTTP/3 requests that arrive meanwhile go to
-  /// `on_request`.
+  /// Waits for the next bidirectional WebTransport stream; `None` once the connection closes.
+  /// HTTP/3 requests that arrive meanwhile go to `on_request`.
   pub(super) async fn accept_bi(
     &self,
     mut on_request: impl FnMut(Request<()>, ServerStream),

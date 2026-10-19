@@ -9,21 +9,20 @@ use tako_rs_core::types::Response;
 use crate::file_io::OpenFile;
 use crate::file_io::response;
 
-/// A single streaming file responder with cache and byte-range support.
+/// One file with cache validators and byte ranges, served whatever the request path.
 #[doc(alias = "serve_file")]
 pub struct ServeFile {
   path: PathBuf,
   cache_control: Option<HeaderValue>,
 }
 
-/// Configure a single file responder.
 #[must_use]
 pub struct ServeFileBuilder {
   file: ServeFile,
 }
 
 impl ServeFileBuilder {
-  /// Set the trusted file path.
+  /// The path is used as is, without traversal checks.
   pub fn new(path: impl Into<PathBuf>) -> Self {
     Self {
       file: ServeFile {
@@ -39,21 +38,17 @@ impl ServeFileBuilder {
     self
   }
 
-  /// Finish configuration.
   pub fn build(self) -> ServeFile {
     self.file
   }
 }
 
 impl ServeFile {
-  /// Configure a single file responder.
   pub fn builder(path: impl Into<PathBuf>) -> ServeFileBuilder {
     ServeFileBuilder::new(path)
   }
 
-  /// Serve the configured file for GET/HEAD, irrespective of the request URI.
-  ///
-  /// Mount on a specific route; use [`ServeDir`](super::ServeDir) for path-aware serving.
+  /// Serves GET and HEAD and answers other methods with 405.
   pub async fn handle(&self, request: Request) -> Response {
     let (parts, _) = request.into_parts();
     if let Some(response) = response::method_error(&parts) {

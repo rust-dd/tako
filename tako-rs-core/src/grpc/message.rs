@@ -1,6 +1,3 @@
-//! Unary gRPC request extractor (`GrpcRequest`) and response responder
-//! (`GrpcResponse`) over a single length-prefixed protobuf frame.
-
 use std::convert::Infallible;
 
 use bytes::Bytes;
@@ -20,12 +17,8 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// gRPC request extractor.
-///
-/// Extracts and decodes a gRPC-framed protobuf message from the request body.
-/// Validates that the content-type is `application/grpc`.
+/// Unary request: the first message of an `application/grpc` body.
 pub struct GrpcRequest<T: Message + Default> {
-  /// The decoded protobuf message.
   pub message: T,
 }
 
@@ -62,20 +55,14 @@ pub(crate) fn is_grpc_content_type(req: &Request) -> bool {
     .is_some_and(|ct| ct.starts_with("application/grpc"))
 }
 
-/// gRPC response wrapper.
-///
-/// Encodes a protobuf message with gRPC framing and sets appropriate headers.
+/// Unary reply: one message with `grpc-status` in trailers, or a trailers-only error.
 pub struct GrpcResponse<T: Message> {
-  /// The response message (None for error-only responses).
   message: Option<T>,
-  /// gRPC status code.
   status: GrpcStatusCode,
-  /// Optional error message.
   error_message: Option<String>,
 }
 
 impl<T: Message> GrpcResponse<T> {
-  /// Creates a successful gRPC response with the given message.
   pub fn ok(message: T) -> Self {
     Self {
       message: Some(message),
@@ -84,7 +71,6 @@ impl<T: Message> GrpcResponse<T> {
     }
   }
 
-  /// Creates an error gRPC response with the given status and message.
   pub fn error(status: GrpcStatusCode, message: impl Into<String>) -> Self {
     Self {
       message: None,

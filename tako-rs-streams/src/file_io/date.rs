@@ -1,5 +1,3 @@
-//! HTTP-date conversion shared by file responders.
-
 use std::time::Duration;
 use std::time::UNIX_EPOCH;
 

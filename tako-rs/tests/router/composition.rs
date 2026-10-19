@@ -17,15 +17,12 @@ async fn nest_mounts_child_under_prefix() {
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "created");
 
-  // Original (unprefixed) child path is not registered on the root.
   let resp = root.dispatch(make_req(Method::GET, "/users")).await;
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn nest_does_not_double_stack_middleware_on_re_nest() {
-  // Re-using the same child router across two nest calls must not stack the
-  // child's global middleware twice on the same Arc<Route> (the bug Router::merge has).
   let counter = Arc::new(Mutex::new(0u32));
   let counter_mw = counter.clone();
 
@@ -40,9 +37,7 @@ async fn nest_does_not_double_stack_middleware_on_re_nest() {
   });
 
   let mut root = Router::new();
-  // Nest the same logical child twice under different prefixes — middleware
-  // must only fire once per request, not twice.
-  // Build a second child with the same shape because Router is move-only.
+  // Router is move-only, so a second child of the same shape stands in for nesting one twice.
   let mut child2 = Router::new();
   child2.get("/ping", |_req: Request| async { "pong" });
   let counter_mw2 = counter.clone();
@@ -73,9 +68,6 @@ async fn nest_does_not_double_stack_middleware_on_re_nest() {
 
 #[tokio::test]
 async fn with_state_isolates_two_routers_in_same_process() {
-  // Each router holds its own `String` state, distinct from the other and
-  // from any process-global value. The previous global-only `set_state` API
-  // could not express this without newtype wrappers.
   use tako::extractors::state::State;
 
   async fn echo_state(State(s): State<String>) -> impl tako::responder::Responder {
@@ -107,12 +99,8 @@ async fn read_global(
 }
 
 #[tokio::test]
-async fn with_state_falls_back_to_global_when_unset_per_router() {
-  // A router that never called `with_state::<T>` should still see the global
-  // value installed via `set_state` — backward-compat guarantee.
-  use tako::state::set_state;
-
-  set_state(GlobalOnly("global"));
+async fn state_falls_back_to_the_process_global_value() {
+  tako::state::get_or_init_state(|| GlobalOnly("global"));
 
   let mut router = Router::new();
   router.get("/g", read_global);

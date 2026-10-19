@@ -9,8 +9,6 @@ use crate::cookie_signed::CookieSignedError;
 use crate::cookie_signed::KeyRing;
 
 impl CookieSigned {
-  /// Extracts signed cookies from a request, preferring a [`KeyRing`] over a
-  /// single [`Key`] when both are present in extensions.
   fn extract_from_request(req: &Request) -> Result<Self, CookieSignedError> {
     if let Some(ring) = req.extensions().get::<KeyRing>().cloned() {
       return Ok(Self::from_headers_with_ring(req.headers(), ring));
@@ -23,7 +21,6 @@ impl CookieSigned {
     Ok(Self::from_headers(req.headers(), key))
   }
 
-  /// Same as [`Self::extract_from_request`] but for `Parts`.
   fn extract_from_parts(parts: &Parts) -> Result<Self, CookieSignedError> {
     if let Some(ring) = parts.extensions.get::<KeyRing>().cloned() {
       return Ok(Self::from_headers_with_ring(&parts.headers, ring));

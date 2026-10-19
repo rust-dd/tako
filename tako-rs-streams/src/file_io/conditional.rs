@@ -1,5 +1,3 @@
-//! Preconditions for an existing selected representation.
-
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -13,11 +11,8 @@ use tako_rs_core::types::Response;
 use super::date::format_http_date;
 use super::date::parse_http_date;
 
-/// Evaluate GET/HEAD preconditions for an existing representation.
-///
-/// Returns 412 for a failed write validator, 304 for a cache hit, or `None`
-/// to proceed. `ETag` values must be quoted, optionally prefixed with `W/`.
-/// For other methods, use [`evaluate_conditional_for_method`].
+/// GET preconditions: 412 when `If-Match` or `If-Unmodified-Since` fails, 304 on a cache hit,
+/// else `None`. `etag` must be quoted, optionally prefixed with `W/`.
 pub fn evaluate_conditional(
   headers: &HeaderMap,
   etag: Option<&str>,
@@ -26,9 +21,8 @@ pub fn evaluate_conditional(
   evaluate_conditional_for_method(&Method::GET, headers, etag, modified)
 }
 
-/// Evaluate preconditions for an existing representation using the request method.
-///
-/// A matching `If-None-Match` returns 304 for GET/HEAD and 412 otherwise.
+/// [`evaluate_conditional`] for any method; a matching `If-None-Match` is 304 on GET and HEAD,
+/// 412 otherwise.
 pub fn evaluate_conditional_for_method(
   method: &Method,
   headers: &HeaderMap,

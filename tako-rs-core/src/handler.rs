@@ -1,11 +1,6 @@
 #![allow(non_snake_case)]
 
-//! Request handler traits and implementations for type-safe HTTP processing.
-//!
-//! This module provides the core handler abstraction for Tako applications. Handlers are
-//! asynchronous functions that process HTTP requests and produce responses. The `Handler`
-//! trait enables type-safe request processing with automatic response conversion, while
-//! `BoxHandler` provides type erasure for dynamic handler storage and composition.
+//! The [`Handler`] trait, implemented for async functions of up to 12 extractors.
 //!
 //! # Examples
 //!
@@ -42,12 +37,7 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Trait for asynchronous HTTP request handlers.
-///
-/// The `Handler` trait represents functions that process HTTP requests and produce responses.
-/// It is automatically implemented for async functions and closures that take a `Request`
-/// and return any type implementing `Responder`. This enables flexible handler composition
-/// and type-safe response generation throughout the framework.
+/// Implemented for async functions and closures whose arguments are all extractors.
 ///
 /// # Examples
 ///
@@ -83,30 +73,19 @@ pub trait Handler<T>: Send + Sync + 'static {
   /// Framework entries the handler's extractors read.
   const ENTRIES: Entries = Entries::ALL;
 
-  /// Calls the handler with the given request.
-  ///
-  /// Returns an unboxed future; `BoxHandler` erases its type, without a heap
-  /// allocation when the future is small.
+  /// Returns an unboxed future; `BoxHandler` erases its type without boxing small futures.
   fn call(self, req: Request) -> impl Future<Output = Response> + Send + 'static;
 }
 
-/// Type-erased handler wrapper for dynamic storage and composition.
-///
-/// Handlers can now be written with or without extractor parameters, similar to Axum.
-/// For example: `async fn handler() -> impl Responder`, `async fn handler(Json<T>) -> _`,
-/// or `async fn handler(Path(p): Path<Params>, Query(q): Query<Search>) -> _`.
+/// A type-erased [`Handler`], cheap to clone.
 #[derive(Clone)]
 pub struct BoxHandler {
-  /// The inner function that processes requests and produces responses.
   inner: Arc<dyn Fn(Request) -> HandlerFuture + Send + Sync>,
   entries: Entries,
 }
 
 impl BoxHandler {
-  /// Creates a new boxed handler from any handler implementation.
-  ///
-  /// This is the single type-erasure point: `Handler::call` returns an unboxed
-  /// future, which [`HandlerFuture`] stores inline or boxes.
+  /// The one type-erasure point; [`HandlerFuture`] keeps small futures inline, boxing the rest.
   pub(crate) fn new<H, T>(h: H) -> Self
   where
     H: Handler<T> + Clone,
@@ -124,7 +103,6 @@ impl BoxHandler {
     self.entries
   }
 
-  /// Calls the boxed handler with the provided request.
   pub(crate) fn call(&self, req: Request) -> HandlerFuture {
     (self.inner)(req)
   }

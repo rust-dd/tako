@@ -1,10 +1,5 @@
-//! Static file serving utilities for web applications.
-//!
-//! `ServeDir` serves files from a directory tree with index resolution,
-//! precompressed-asset preference (`*.br` / `*.gz`), an SPA fallback rewrite,
-//! and a canonicalize + prefix-check guard against path traversal.
-//!
-//! `ServeFile` serves a single file.
+//! `ServeDir` for a directory tree, with index files, `.br`/`.gz` sidecars, an SPA fallback and
+//! traversal checks, and `ServeFile` for one file.
 
 mod dir;
 mod file;

@@ -1,9 +1,5 @@
-//! Basic HTTP authentication middleware for securing web application endpoints.
-//!
-//! This module provides middleware for implementing RFC 7617 Basic HTTP Authentication.
-//! It supports both static user credentials and dynamic verification functions, allowing
-//! flexible authentication strategies. The middleware validates credentials from the
-//! Authorization header with a static credential set or a boolean verification callback.
+//! RFC 7617 Basic authentication against static credentials (compared in constant time)
+//! and/or a verify callback.
 //!
 //! # Examples
 //!
@@ -36,6 +32,7 @@ use base64::Engine;
 use http::HeaderValue;
 use http::StatusCode;
 use http::header;
+use subtle::Choice;
 use subtle::ConstantTimeEq;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::IntoMiddleware;
@@ -48,28 +45,23 @@ use tako_rs_core::types::Response;
 /// Custom verification closure for [`BasicAuth`].
 pub type BasicAuthVerifyFn = Arc<dyn Fn(&str, &str) -> bool + Send + Sync + 'static>;
 
-/// HTTP Basic authentication with static credentials or a boolean verifier.
+/// Credentials pass when a static pair matches or the verify callback accepts them.
 ///
 /// ```rust
 /// use tako::middleware::basic_auth::BasicAuth;
 /// let auth = BasicAuth::with_verify(|user, password| user == "admin" && password == "secret");
 /// ```
 pub struct BasicAuth {
-  /// Static user credentials map (username -> password).
   users: Option<Arc<HashMap<String, String, BuildHasher>>>,
-  /// Custom verification function for dynamic authentication.
   verify: Option<BasicAuthVerifyFn>,
-  /// Authentication realm for WWW-Authenticate header.
   realm: &'static str,
 }
 
 impl BasicAuth {
-  /// Creates authentication middleware with a single static user credential.
   pub fn single(user: impl Into<String>, pass: impl Into<String>) -> Self {
     Self::multiple(std::iter::once((user, pass)))
   }
 
-  /// Creates authentication middleware with multiple static user credentials.
   pub fn multiple<I, T, P>(pairs: I) -> Self
   where
     I: IntoIterator<Item = (T, P)>,
@@ -88,7 +80,6 @@ impl BasicAuth {
     }
   }
 
-  /// Creates authentication middleware with a custom verification function.
   pub fn with_verify<F>(cb: F) -> Self
   where
     F: Fn(&str, &str) -> bool + Send + Sync + 'static,
@@ -100,7 +91,6 @@ impl BasicAuth {
     }
   }
 
-  /// Creates authentication middleware with both static credentials and custom verification.
   pub fn users_with_verify<I, S, F>(pairs: I, cb: F) -> Self
   where
     I: IntoIterator<Item = (S, S)>,
@@ -119,7 +109,7 @@ impl BasicAuth {
     }
   }
 
-  /// Sets the authentication realm for the WWW-Authenticate header.
+  /// Defaults to `Restricted`; a realm that is not a valid header value is omitted.
   pub fn realm(mut self, r: &'static str) -> Self {
     self.realm = r;
     self
@@ -127,7 +117,6 @@ impl BasicAuth {
 }
 
 impl IntoMiddleware for BasicAuth {
-  /// Converts the authentication configuration into middleware.
   fn into_middleware(
     self,
   ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
@@ -138,12 +127,7 @@ impl IntoMiddleware for BasicAuth {
     let users = self.users;
     let verify = self.verify;
     let realm = self.realm;
-    // `HeaderValue::from_str` rejects non-visible-ASCII bytes and
-    // embedded `"` characters; a developer who hands us a realm with
-    // such bytes would otherwise panic the middleware setup (cold but
-    // user-controlled value). Strip the realm if it cannot be encoded
-    // and fall back to a bare `Basic` challenge — RFC 7617 §2.1 makes
-    // the realm parameter optional.
+    // RFC 7617 §2.1 makes the realm optional, so an unencodable one falls back to `Basic`.
     let www_authenticate = HeaderValue::from_str(&format!("Basic realm=\"{realm}\""))
       .unwrap_or_else(|_| HeaderValue::from_static("Basic"));
 
@@ -153,8 +137,7 @@ impl IntoMiddleware for BasicAuth {
       let www_authenticate = www_authenticate.clone();
 
       Box::pin(async move {
-        // Extract Basic credentials from Authorization header. RFC 7235
-        // §2.1 makes the auth-scheme token case-insensitive.
+        // RFC 7235 §2.1: the auth-scheme token is case-insensitive.
         let creds = req
           .headers()
           .get(header::AUTHORIZATION)
@@ -184,24 +167,19 @@ impl IntoMiddleware for BasicAuth {
               return res;
             };
 
-            // Check static user credentials first. Scan every entry and
-            // constant-time-compare both the username and the password so
-            // that neither (a) the time-to-401 leaks whether the username
-            // exists, nor (b) the password compare itself short-circuits on
-            // first-byte mismatch.
-            let mut authed = false;
+            // Scan every entry and compare both fields so the time to 401 leaks neither
+            // whether the user exists nor a matching password prefix.
+            let mut authed = Choice::from(0u8);
             if let Some(map) = users.as_ref() {
               for (known_user, known_pw) in map.iter() {
-                let user_match = constant_time_eq(known_user.as_bytes(), u.as_bytes());
-                let pw_match = constant_time_eq(known_pw.as_bytes(), p.as_bytes());
-                authed |= user_match & pw_match;
+                authed |= known_user.as_bytes().ct_eq(u.as_bytes())
+                  & known_pw.as_bytes().ct_eq(p.as_bytes());
               }
             }
-            if authed {
+            if bool::from(authed) {
               return next.run(req).await.into_response();
             }
 
-            // Use custom verification function if available
             if let Some(cb) = &verify
               && cb(u, p)
             {
@@ -218,7 +196,6 @@ impl IntoMiddleware for BasicAuth {
           }
         }
 
-        // Return 401 Unauthorized for invalid credentials
         let mut res = Response::new(TakoBody::empty());
         *res.status_mut() = StatusCode::UNAUTHORIZED;
         res
@@ -228,14 +205,4 @@ impl IntoMiddleware for BasicAuth {
       })
     }
   }
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-  // Length mismatch must short-circuit because `ct_eq` requires equal-length
-  // slices. Leaking the length of credentials is mild — actual entropy comes
-  // from value, not byte-count.
-  if a.len() != b.len() {
-    return false;
-  }
-  a.ct_eq(b).into()
 }

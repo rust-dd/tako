@@ -1,5 +1,3 @@
-//! Batteries-included multi-algorithm verifier built on `jwt-simple`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -8,7 +6,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tako_rs_core::types::BuildHasher;
 
-/// Multi-algorithm JWT verification key wrapper.
+#[derive(Clone)]
 pub enum AnyVerifyKey {
   HS256(Arc<HS256Key>),
   HS384(Arc<HS384Key>),
@@ -74,32 +72,8 @@ impl AnyVerifyKey {
   }
 }
 
-impl Clone for AnyVerifyKey {
-  fn clone(&self) -> Self {
-    match self {
-      Self::HS256(k) => Self::HS256(Arc::clone(k)),
-      Self::HS384(k) => Self::HS384(Arc::clone(k)),
-      Self::HS512(k) => Self::HS512(Arc::clone(k)),
-      Self::Blake2b(k) => Self::Blake2b(Arc::clone(k)),
-      Self::RS256(k) => Self::RS256(Arc::clone(k)),
-      Self::RS384(k) => Self::RS384(Arc::clone(k)),
-      Self::RS512(k) => Self::RS512(Arc::clone(k)),
-      Self::PS256(k) => Self::PS256(Arc::clone(k)),
-      Self::PS384(k) => Self::PS384(Arc::clone(k)),
-      Self::PS512(k) => Self::PS512(Arc::clone(k)),
-      Self::ES256(k) => Self::ES256(Arc::clone(k)),
-      Self::ES256K(k) => Self::ES256K(Arc::clone(k)),
-      Self::ES384(k) => Self::ES384(Arc::clone(k)),
-      Self::EdDSA(k) => Self::EdDSA(Arc::clone(k)),
-    }
-  }
-}
-
-/// Multi-algorithm verifier with per-`kid` rotation.
-///
-/// `keys` carries algorithm-keyed defaults; `keys_by_kid` adds an optional
-/// kid-keyed lookup that wins when the JWT header carries `kid`. Updating
-/// the kid map at runtime rotates without restarting.
+/// Selects the key by a known header `kid`, else by algorithm; [`Self::rotate_key`] swaps kid
+/// keys at runtime without a restart.
 pub struct MultiKeyVerifier<C> {
   allowed_algorithms: Arc<std::collections::HashSet<&'static str>>,
   keys_by_alg: HashMap<&'static str, AnyVerifyKey, BuildHasher>,
@@ -121,7 +95,6 @@ impl<C> Clone for MultiKeyVerifier<C> {
 }
 
 impl<C> MultiKeyVerifier<C> {
-  /// Builds a verifier with algorithm-only key selection.
   pub fn new(keys: HashMap<&'static str, AnyVerifyKey, BuildHasher>) -> Self {
     Self {
       allowed_algorithms: Arc::new(keys.keys().copied().collect()),
@@ -138,20 +111,38 @@ impl<C> MultiKeyVerifier<C> {
     self
   }
 
-  /// Adds / replaces the rotation key for `kid`.
+  /// Adds or replaces the key for `kid`.
   pub fn rotate_key(&self, kid: impl Into<String>, key: AnyVerifyKey) {
     self.keys_by_kid.write().insert(kid.into(), key);
   }
 
-  /// Removes the rotation key for `kid`.
   pub fn revoke_kid(&self, kid: &str) {
     self.keys_by_kid.write().remove(kid);
   }
 
-  /// Sets per-claim verification constraints.
   pub fn constraints(mut self, c: super::VerifyConstraints) -> Self {
     self.constraints = Arc::new(c);
     self
+  }
+
+  fn options(&self) -> VerificationOptions {
+    let mut opts = VerificationOptions {
+      time_tolerance: Some(::jwt_simple::prelude::Duration::from_secs(
+        self.constraints.leeway_secs,
+      )),
+      ..Default::default()
+    };
+    if let Some(iss) = &self.constraints.issuer {
+      let mut set = std::collections::HashSet::new();
+      set.insert(iss.clone());
+      opts.allowed_issuers = Some(set);
+    }
+    if let Some(aud) = &self.constraints.audience {
+      let mut set = std::collections::HashSet::new();
+      set.insert(aud.clone());
+      opts.allowed_audiences = Some(set);
+    }
+    opts
   }
 }
 
@@ -184,25 +175,8 @@ where
         .ok_or_else(|| format!("Algorithm {alg} not allowed"))?,
     };
 
-    let mut opts = VerificationOptions {
-      time_tolerance: Some(::jwt_simple::prelude::Duration::from_secs(
-        self.constraints.leeway_secs,
-      )),
-      ..Default::default()
-    };
-    if let Some(iss) = &self.constraints.issuer {
-      let mut set = std::collections::HashSet::new();
-      set.insert(iss.clone());
-      opts.allowed_issuers = Some(set);
-    }
-    if let Some(aud) = &self.constraints.audience {
-      let mut set = std::collections::HashSet::new();
-      set.insert(aud.clone());
-      opts.allowed_audiences = Some(set);
-    }
-
     key
-      .verify_token::<C>(token, opts)
+      .verify_token::<C>(token, self.options())
       .map_err(|e| e.to_string())
   }
 
@@ -218,12 +192,9 @@ where
       if algorithm != key.algorithm || !self.allowed_algorithms.contains(algorithm) {
         return Err("algorithm not allowed".into());
       }
-      let key = super::provider_key::decode(algorithm, &key.bytes)?;
-      let mut keys = HashMap::with_hasher(BuildHasher::default());
-      let algorithm = key.alg_id();
-      keys.insert(algorithm, key);
-      let verifier = Self::new(keys).constraints((*self.constraints).clone());
-      verifier.verify(token)
+      super::provider_key::decode(algorithm, &key.bytes)?
+        .verify_token::<C>(token, self.options())
+        .map_err(|error| error.to_string())
     })())
   }
 

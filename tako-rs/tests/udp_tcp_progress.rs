@@ -1,5 +1,3 @@
-//! Integration tests for UDP server, TCP server, and upload progress middleware.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -30,7 +28,6 @@ fn progress_state_percent_complete() {
 fn progress_state_percent_zero_total() {
   use tako::middleware::upload_progress::ProgressState;
 
-  // Edge case: 0/0 should return 100%
   let state = ProgressState {
     bytes_read: 0,
     total_bytes: Some(0),
@@ -89,7 +86,6 @@ async fn upload_progress_callback_fires() {
   let resp = router.dispatch(req).await;
   assert_eq!(resp.status(), 200);
 
-  // Callback should have been called with the total bytes
   assert_eq!(callback_bytes.load(Ordering::Relaxed), payload.len() as u64);
 }
 
@@ -178,7 +174,6 @@ async fn upload_progress_percent_via_tracker() {
 
   let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
   let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-  // All bytes are consumed by the time handler runs, so should be 100%
   assert_eq!(body_str, "100");
 }
 
@@ -220,16 +215,12 @@ async fn upload_progress_min_notify_interval() {
 
   let _resp = router.dispatch(req).await;
 
-  // With a single frame body well below the interval, at most 1 callback
-  // (the final notification fires if bytes != last_notified_at)
+  // Below the interval only the final notification may fire.
   let count = call_count.load(Ordering::Relaxed);
   assert!(count <= 1, "expected at most 1 callback, got {count}");
 }
 
-// The compio variants of `serve_tcp_with_shutdown` / `serve_udp_with_shutdown`
-// expose `compio::net::{TcpStream,UdpSocket}` which are `!Send`, and
-// `tokio::spawn` requires `Send`. Gate the raw-TCP/UDP server tests off when
-// the compio feature is active.
+// Under compio these servers hand out `!Send` compio sockets, which `tokio::spawn` rejects.
 #[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn tcp_echo_server() {
@@ -239,7 +230,7 @@ async fn tcp_echo_server() {
 
   let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
-  // Find a free port
+  // Finds a free port, then frees it for the server, which binds by address.
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let port = listener.local_addr().unwrap().port();
   drop(listener);
@@ -266,10 +257,8 @@ async fn tcp_echo_server() {
     .unwrap();
   });
 
-  // Wait for server to start
   tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-  // Connect and send data
   let mut client = tokio::net::TcpStream::connect(&addr).await.unwrap();
   client.write_all(b"hello tcp").await.unwrap();
 
@@ -277,7 +266,6 @@ async fn tcp_echo_server() {
   let n = client.read(&mut buf).await.unwrap();
   assert_eq!(&buf[..n], b"hello tcp");
 
-  // Shutdown
   tx.send(()).unwrap();
   server.await.unwrap();
 }
@@ -319,7 +307,6 @@ async fn tcp_server_multiple_connections() {
 
   tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-  // Spawn multiple concurrent clients
   let mut handles = Vec::new();
   for i in 0..5u8 {
     let addr = addr.clone();
@@ -342,9 +329,6 @@ async fn tcp_server_multiple_connections() {
   server.await.unwrap();
 }
 
-// UDP server uses `compio::net::UdpSocket` under the `compio` feature, which
-// is `!Send` and incompatible with `tokio::spawn`. Gate the UDP tests off
-// when compio is enabled — they only exercise the tokio implementation.
 #[cfg(not(feature = "compio"))]
 #[cfg(feature = "udp")]
 #[tokio::test]
@@ -353,7 +337,6 @@ async fn udp_echo_server() {
 
   let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
-  // Find a free port
   let sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
   let port = sock.local_addr().unwrap().port();
   drop(sock);
@@ -379,7 +362,6 @@ async fn udp_echo_server() {
 
   tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-  // Send datagram
   let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
   client.send_to(b"hello udp", &addr).await.unwrap();
 
@@ -387,7 +369,6 @@ async fn udp_echo_server() {
   let (n, _) = client.recv_from(&mut buf).await.unwrap();
   assert_eq!(&buf[..n], b"hello udp");
 
-  // Shutdown
   tx.send(()).unwrap();
   server.await.unwrap();
 }
@@ -412,7 +393,6 @@ async fn udp_multiple_datagrams() {
       &addr_clone,
       |data, peer, socket| {
         Box::pin(async move {
-          // Echo with prefix
           let mut response = b"echo:".to_vec();
           response.extend_from_slice(&data);
           let _ = socket.send_to(&response, peer).await;

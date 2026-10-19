@@ -1,15 +1,5 @@
-//! Per-router typed state container.
-//!
-//! Each [`crate::router::Router`] owns one [`RouterState`](crate::router_state::RouterState) (an `Arc<…>`
-//! internally). Values inserted via [`crate::router::Router::with_state`] live
-//! on the router instance — multiple `Router`s in the same process can hold
-//! distinct state values for the same `T`, which the historical process-wide
-//! [`crate::state::set_state`] cannot do.
-//!
-//! The `State` extractor (from `tako-extractors`) reads from the request-scoped
-//! `Arc<RouterState>` first (inserted by [`crate::router::Router::dispatch`])
-//! and falls back to [`crate::state::get_state`] if the per-router slot is
-//! empty. Existing code that uses the global store keeps working unchanged.
+//! Per-router typed state; `State<T>` reads it before falling back to the process-global
+//! [`get_state`](crate::state::get_state).
 
 use std::any::Any;
 use std::any::TypeId;
@@ -19,7 +9,11 @@ use scc::HashMap as SccHashMap;
 
 use crate::extractors::Entries;
 
-/// Type-keyed bag of values, lock-free for both reads and writes.
+/// The URI at the first router entry, preserved when middleware or a nested dispatch rewrites it.
+#[derive(Debug, Clone)]
+pub struct OriginalUriMarker(pub http::Uri);
+
+/// Values keyed by type; a nested route's state also searches the states it was layered on.
 #[derive(Default)]
 pub struct RouterState {
   inner: SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>,
@@ -33,7 +27,6 @@ impl std::fmt::Debug for RouterState {
 }
 
 impl RouterState {
-  /// Construct an empty state container.
   #[must_use]
   pub fn new() -> Self {
     Self::default()
@@ -51,7 +44,7 @@ impl RouterState {
     self.inner.upsert_sync(TypeId::of::<T>(), Arc::new(value));
   }
 
-  /// Retrieve the value associated with `T`, if any.
+  /// Returns the `T`, looking through the layered states when this one has none.
   pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
     self
       .inner
@@ -60,7 +53,6 @@ impl RouterState {
       .or_else(|| self.parents.iter().find_map(|parent| parent.get::<T>()))
   }
 
-  /// `true` when no values are stored.
   pub fn is_empty(&self) -> bool {
     self.inner.is_empty() && self.parents.iter().all(|parent| parent.is_empty())
   }
@@ -82,23 +74,11 @@ impl RouterState {
   }
 }
 
-/// Routing-time path template attached to the request.
-///
-/// `Router::dispatch` inserts a `MatchedPath` into request extensions before
-/// running middleware and the handler so that metrics, logs, and extractors
-/// can label by the route template (e.g. `/users/{id}`) rather than the
-/// concrete URI (`/users/42`).
-///
-/// This is also the public extractor type — `tako-extractors` re-exports it
-/// from this module so the extension key and the user-facing extractor share
-/// one canonical type. Previously the extractor was a separate newtype with
-/// the same name, which made it easy to insert the wrong type into request
-/// extensions and have lookups silently miss.
+/// The matched route template, such as `/users/{id}`, as a request extension and extractor.
 #[derive(Debug, Clone)]
 pub struct MatchedPath(pub Arc<str>);
 
 impl MatchedPath {
-  /// Borrow the matched path template.
   #[inline]
   pub fn as_str(&self) -> &str {
     &self.0

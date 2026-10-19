@@ -1,11 +1,4 @@
-//! `OpenAPI` UI helpers for serving interactive API documentation.
-//!
-//! This module provides responders for serving popular `OpenAPI` UI interfaces:
-//! - **Swagger UI**: The classic `OpenAPI` documentation interface
-//! - **Scalar**: A modern, beautiful API documentation UI
-//! - **`RapiDoc`**: A feature-rich API documentation viewer
-//!
-//! All UIs are served via CDN, requiring no additional dependencies.
+//! Responders for Swagger UI, Scalar, `RapiDoc` and `Redoc` pages, which load the UI from a CDN.
 //!
 //! # Examples
 //!

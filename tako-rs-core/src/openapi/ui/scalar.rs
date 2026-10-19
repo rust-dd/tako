@@ -1,11 +1,9 @@
-//! Scalar responder for serving a modern, beautiful API documentation UI.
-
 use crate::body::TakoBody;
 use crate::openapi::ui::escape::html_escape;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// Scalar responder that serves a modern, beautiful API documentation UI.
+/// Serves the Scalar API reference for the spec at `spec_url`.
 ///
 /// # Examples
 ///
@@ -50,7 +48,6 @@ impl ScalarTheme {
 }
 
 impl Scalar {
-  /// Creates a new Scalar UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -59,13 +56,12 @@ impl Scalar {
     }
   }
 
-  /// Sets the page title.
+  /// Page title, `API Documentation` by default.
   pub fn title(mut self, title: impl Into<String>) -> Self {
     self.title = title.into();
     self
   }
 
-  /// Sets the Scalar theme.
   pub fn theme(mut self, theme: ScalarTheme) -> Self {
     self.theme = theme;
     self
@@ -74,9 +70,6 @@ impl Scalar {
 
 impl Responder for Scalar {
   fn into_response(self) -> Response {
-    // `title` is HTML text; `spec_url` is interpolated into an HTML attribute
-    // (`data-url="..."`) and needs HTML attribute escaping. `theme` comes
-    // from a closed enum's `as_str()` so it is statically known-safe.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">

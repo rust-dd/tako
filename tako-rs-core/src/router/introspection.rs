@@ -7,19 +7,8 @@ use super::Router;
 use crate::route::Route;
 
 impl Router {
-  /// Returns every route currently registered on this router.
-  ///
-  /// Routes come back grouped by HTTP method in the standard GET, POST, PUT,
-  /// DELETE, PATCH, HEAD, OPTIONS, CONNECT, TRACE order, and within a method in
-  /// registration order. Each path is the final registered path, so any prefix
-  /// applied by [`Router::scope`] or [`Router::nest`] is already baked in — the
-  /// returned set cannot drift from what the router actually dispatches, which
-  /// is the whole point of asking the router instead of tracking routes
-  /// separately.
-  ///
-  /// This is a cold-path accessor for startup-time inspection — route
-  /// listings, reserved-namespace checks, generated documentation — not for the
-  /// dispatch hot path.
+  /// Every registered route with its final, prefixed path: grouped by method (GET, POST, …
+  /// first), then in registration order. Allocates, so keep it off the hot path.
   ///
   /// # Examples
   ///

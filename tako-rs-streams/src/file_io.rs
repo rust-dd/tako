@@ -13,9 +13,7 @@ pub(crate) mod etag;
 pub(crate) mod range;
 pub(crate) mod response;
 
-/// A bounded byte stream read from an open file.
-///
-/// With `compio`, poll and drop the stream on the thread that opened it.
+/// Bounded chunks of an open file; with `compio`, poll and drop it on the thread that opened it.
 pub type FileByteStream = BoxStream<'static, io::Result<Bytes>>;
 
 /// Files up to this size are read by the blocking call that opens them.

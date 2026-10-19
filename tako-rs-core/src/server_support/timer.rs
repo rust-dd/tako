@@ -12,20 +12,14 @@ use std::time::Instant;
 use hyper::rt::Sleep;
 use hyper::rt::Timer;
 
-/// hyper timer that reuses one Tokio sleep for the lifetime of a connection.
-///
-/// hyper drops its header-read sleep after every request head and asks for a
-/// new one when the next head starts. A fresh Tokio sleep per request costs a
-/// timer registration and removal, both under the time driver's global lock,
-/// which caps a busy multi-threaded runtime. Parking the dropped sleep keeps it
-/// registered, and moving it to the next, later deadline is a lock-free update.
+/// hyper timer reusing one Tokio sleep per connection: a fresh sleep per request head costs a
+/// registration and removal under the time driver's global lock.
 #[derive(Default)]
 pub struct ConnectionTimer {
   slot: Arc<SleepSlot>,
 }
 
 impl ConnectionTimer {
-  /// Creates a timer for one connection.
   #[must_use]
   pub fn new() -> Self {
     Self::default()

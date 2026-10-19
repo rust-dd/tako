@@ -41,8 +41,8 @@ and SSE. Only the raw QUIC session helper behind `webtransport` is Tokio-only. S
 Use `Server::builder()` on Tokio or `CompioServer::builder()` on Compio.
 The `try_spawn_*` methods validate configuration before returning a handle;
 `handle.result().await` reports asynchronous startup and serving errors.
-`shutdown(timeout).await` stops acceptance and bounds the drain. The HTTP
-`serve_*` helpers are deprecated; raw socket and per-thread helpers remain.
+`shutdown(timeout).await` stops acceptance and bounds the drain. Raw socket
+and per-thread servers keep their own helper functions.
 
 ```rust
 use std::time::Duration;

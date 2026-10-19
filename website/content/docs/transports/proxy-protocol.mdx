@@ -177,8 +177,7 @@ async fn main() -> std::io::Result<()> {
 Pass a `ServerConfig` to the builder with `.config(…)` for connection caps,
 keep-alive, header and drain timeouts, and the PROXY read timeout — all sourced
 from one struct, as with every other transport. The returned `ServerHandle` drives
-graceful shutdown. The older `serve_http_with_proxy_protocol*` free functions are
-deprecated and Tokio-only.
+graceful shutdown.
 
 ## Testing
 

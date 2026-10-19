@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 #![cfg_attr(feature = "compio", allow(unused_imports))]
 
 use std::sync::Arc;
@@ -79,11 +78,9 @@ async fn tsr_redirect() {
   let mut router = Router::new();
   router.route_with_tsr(Method::GET, "/api", |_req: Request| async { "API" });
 
-  // Exact match
   let resp = router.dispatch(make_req(Method::GET, "/api")).await;
   assert_eq!(resp.status(), StatusCode::OK);
 
-  // Trailing slash → 307 redirect
   let resp = router.dispatch(make_req(Method::GET, "/api/")).await;
   assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
   assert_eq!(resp.headers().get("location").unwrap(), "/api");

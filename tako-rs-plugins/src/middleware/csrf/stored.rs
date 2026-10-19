@@ -13,11 +13,12 @@ use tako_rs_core::types::Response;
 use super::config::Csrf;
 use super::cookie::strip_csrf_seed_cookie;
 use super::token::build_cookie;
-use super::token::extract_cookie;
 use super::token::is_unsafe_method;
-use super::token::origin_allowed;
+use super::token::origin_trusted;
+use super::token::path_is_exempt;
 use crate::middleware::session::SameSite;
 use crate::middleware::session::Session;
+use crate::middleware::session::extract_cookie_value;
 use crate::stores::CsrfTokenStore;
 use crate::stores::StoreResult;
 use crate::stores::runtime;
@@ -77,16 +78,13 @@ impl StoredCsrf {
         session.set(&self.identity_key, &identity);
         identity
       });
-    let exempt = self
-      .exempt_paths
-      .iter()
-      .any(|path| request.uri().path().starts_with(path));
+    let exempt = path_is_exempt(request.uri().path(), &self.exempt_paths);
     if is_unsafe_method(request.method()) && !exempt {
       let candidate = request
         .headers()
         .get(self.header_name.as_str())
         .and_then(|value| value.to_str().ok());
-      let cookie = extract_cookie(&request, &self.cookie_name);
+      let cookie = extract_cookie_value(&request, &self.cookie_name);
       let verified = if let Some(candidate) =
         candidate.filter(|candidate| !candidate.is_empty() && Some(*candidate) == cookie)
       {
@@ -97,14 +95,7 @@ impl StoredCsrf {
       } else {
         false
       };
-      let trusted = [header::ORIGIN, header::REFERER].iter().any(|name| {
-        request
-          .headers()
-          .get(name)
-          .and_then(|value| value.to_str().ok())
-          .is_some_and(|origin| origin_allowed(origin, &self.origins))
-      });
-      if !verified && !trusted {
+      if !verified && !origin_trusted(&request, &self.origins) {
         return Ok((StatusCode::FORBIDDEN, "CSRF token invalid").into_response());
       }
     }

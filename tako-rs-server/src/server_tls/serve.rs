@@ -27,7 +27,7 @@ use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 
 use crate::ServerConfig;
 
-/// Variant of [`run`](super::run) that accepts a pre-built `Arc<rustls::ServerConfig>`.
+/// Serves TLS HTTP with a prebuilt rustls config; a given `signal` starts the drain.
 pub async fn run_with_config(
   listener: TcpListener,
   router: Router,

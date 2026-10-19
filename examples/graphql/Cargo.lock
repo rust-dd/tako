@@ -250,17 +250,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "chacha20"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.1",
- "rand_core 0.10.1",
-]
-
-[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,7 +289,7 @@ dependencies = [
  "aes-gcm",
  "base64",
  "hmac 0.12.1",
- "rand 0.8.5",
+ "rand",
  "sha2 0.10.9",
  "subtle",
  "time",
@@ -338,7 +327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
- "rand_core 0.6.4",
+ "rand_core",
  "typenum",
 ]
 
@@ -437,12 +426,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "data-encoding"
-version = "2.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "deranged"
@@ -688,7 +671,6 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
- "rand_core 0.10.1",
  "wasip2",
  "wasip3",
 ]
@@ -1379,18 +1361,7 @@ checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
  "rand_chacha",
- "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand"
-version = "0.10.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
-dependencies = [
- "chacha20",
- "getrandom 0.4.2",
- "rand_core 0.10.1",
+ "rand_core",
 ]
 
 [[package]]
@@ -1400,7 +1371,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core 0.6.4",
+ "rand_core",
 ]
 
 [[package]]
@@ -1411,12 +1382,6 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.17",
 ]
-
-[[package]]
-name = "rand_core"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "redox_syscall"
@@ -1526,16 +1491,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
-dependencies = [
- "serde",
- "serde_core",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1602,17 +1557,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest 0.10.7",
-]
-
-[[package]]
-name = "sha1"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.1",
- "digest 0.11.3",
 ]
 
 [[package]]
@@ -1765,14 +1709,12 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
- "cookie",
  "envy",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
  "hyper",
- "hyper-util",
  "linkme",
  "matchit",
  "mime",
@@ -1781,20 +1723,14 @@ dependencies = [
  "pin-project-lite",
  "scc",
  "serde",
- "serde_bytes",
  "serde_json",
- "serde_urlencoded",
- "sha1 0.10.6",
+ "sha1",
  "sha2 0.11.0",
  "smallvec",
  "thread_local",
  "tokio",
- "tokio-stream",
- "tokio-tungstenite",
- "tokio-util",
  "tracing",
  "url",
- "urlencoding",
 ]
 
 [[package]]
@@ -1802,31 +1738,22 @@ name = "tako-rs-extractors"
 version = "2.4.2"
 dependencies = [
  "anyhow",
- "async-trait",
  "base64",
  "bytes",
  "cookie",
  "futures-util",
  "hkdf",
  "http",
- "http-body",
  "http-body-util",
  "ipnet",
  "mime",
- "mime_guess",
- "parking_lot",
  "serde",
- "serde_bytes",
  "serde_html_form",
  "serde_json",
  "serde_urlencoded",
- "sha1 0.10.6",
  "sha2 0.11.0",
- "smallvec",
  "tako-rs-core",
  "tokio",
- "tracing",
- "url",
  "urlencoding",
 ]
 
@@ -1847,29 +1774,23 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
- "cookie",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
  "httpdate",
- "mime",
  "parking_lot",
  "pin-project-lite",
  "scc",
  "serde",
  "serde_json",
- "sha1 0.10.6",
  "sha2 0.11.0",
- "smallvec",
  "subtle",
  "tako-rs-core",
  "tako-rs-extractors",
  "tokio",
- "tokio-stream",
  "tracing",
  "url",
- "urlencoding",
  "uuid",
 ]
 
@@ -1883,13 +1804,11 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
- "http-body-util",
  "hyper",
  "hyper-util",
  "pin-project-lite",
  "tako-rs-core",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "tracing",
 ]
@@ -1899,26 +1818,19 @@ name = "tako-rs-streams"
 version = "2.4.2"
 dependencies = [
  "anyhow",
- "base64",
  "bytes",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
  "httpdate",
- "hyper",
- "hyper-util",
- "mime",
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
- "sha1 0.10.6",
  "tako-rs-core",
  "tokio",
- "tokio-tungstenite",
  "tokio-util",
  "tracing",
- "url",
 ]
 
 [[package]]
@@ -2033,29 +1945,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-stream"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
-dependencies = [
- "futures-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
-name = "tokio-tungstenite"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
-dependencies = [
- "futures-util",
- "log",
- "tokio",
- "tungstenite",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2128,22 +2017,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
-dependencies = [
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.10.3",
- "sha1 0.11.0",
- "thiserror",
 ]
 
 [[package]]

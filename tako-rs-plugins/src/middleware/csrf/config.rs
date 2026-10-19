@@ -1,8 +1,5 @@
-//! CSRF middleware configuration and builder methods.
-
 use crate::middleware::session::SameSite;
 
-/// CSRF middleware configuration.
 pub struct Csrf {
   pub(crate) cookie_name: String,
   pub(crate) header_name: String,
@@ -24,7 +21,7 @@ impl Default for Csrf {
 }
 
 impl Csrf {
-  /// Creates a CSRF middleware with the secure defaults.
+  /// Defaults: `Secure`, `SameSite=Strict`, tokens bound to the session.
   pub fn new() -> Self {
     Self {
       cookie_name: "csrf_token".to_string(),
@@ -60,19 +57,20 @@ impl Csrf {
     self
   }
 
-  /// CSRF cookie name. Default: `"csrf_token"`.
+  /// Defaults to `csrf_token`.
   pub fn cookie_name(mut self, name: &str) -> Self {
     self.cookie_name = name.to_string();
     self
   }
 
-  /// Header name expected to carry the token. Default: `"x-csrf-token"`.
+  /// Defaults to `x-csrf-token`.
   pub fn header_name(mut self, name: &str) -> Self {
     self.header_name = name.to_string();
     self
   }
 
-  /// Adds a path prefix that should bypass CSRF entirely (e.g. webhooks).
+  /// Exempts a path and its descendants at `/` boundaries, e.g. `/webhook`.
+  /// Trailing slashes are ignored.
   pub fn exempt(mut self, path: &str) -> Self {
     self.exempt_paths.push(path.to_string());
     self
@@ -84,7 +82,7 @@ impl Csrf {
     self
   }
 
-  /// Override the `SameSite` attribute on the CSRF cookie.
+  /// Defaults to `Strict`.
   pub fn same_site(mut self, ss: SameSite) -> Self {
     self.same_site = ss;
     self
@@ -104,7 +102,7 @@ impl Csrf {
     self
   }
 
-  /// Session key used to persist the token.
+  /// Defaults to `__csrf`.
   pub fn session_key(mut self, k: &str) -> Self {
     self.session_key = k.to_string();
     self

@@ -1,16 +1,5 @@
-//! Multi-tenant middleware: extracts a tenant identifier from the request
-//! and exposes it to handlers via the [`Tenant`] extension.
-//!
-//! Strategies:
-//!
-//! - `Header(name)` — read a fixed header value (default: `X-Tenant-ID`).
-//! - `Subdomain` — peel the leading label off the `Host` header
-//!   (`acme.example.com` → `acme`).
-//! - `PathPrefix(pos)` — pick a positional path segment (`/t/{id}/...`).
-//! - `Custom(fn)` — handler-supplied closure for hybrid extraction.
-//!
-//! When extraction fails, the middleware optionally rejects with `400 Bad
-//! Request`. Otherwise the extension is simply absent.
+//! Extracts a validated tenant id into the [`Tenant`] extension; with `require(true)`, requests
+//! without one get 400.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -28,30 +17,25 @@ use tako_rs_core::types::Response;
 #[derive(Debug, Clone)]
 pub struct Tenant(pub String);
 
-/// Tenant extraction strategy.
 #[derive(Clone)]
-pub enum TenantStrategy {
-  /// Read a fixed header.
+enum TenantStrategy {
   Header(HeaderName),
-  /// First label of the `Host` header.
   Subdomain,
   /// Zero-based path segment index (e.g. `1` selects `acme` in `/t/acme/...`).
   PathPrefix(usize),
-  /// Caller-defined closure.
   Custom(TenantCustomFn),
 }
 
 /// Closure that extracts a tenant identifier from the request.
 pub type TenantCustomFn = Arc<dyn Fn(&Request) -> Option<String> + Send + Sync + 'static>;
 
-/// Multi-tenant middleware.
 pub struct TenantMiddleware {
   strategy: TenantStrategy,
   required: bool,
 }
 
 impl TenantMiddleware {
-  /// Header-based extraction (default header name is `X-Tenant-ID`).
+  /// The value is trimmed; an empty one counts as missing.
   pub fn from_header(name: HeaderName) -> Self {
     Self {
       strategy: TenantStrategy::Header(name),
@@ -59,7 +43,7 @@ impl TenantMiddleware {
     }
   }
 
-  /// Subdomain-based extraction.
+  /// The first `Host` label, lowercased; a host with a single label yields none.
   pub fn from_subdomain() -> Self {
     Self {
       strategy: TenantStrategy::Subdomain,
@@ -67,7 +51,7 @@ impl TenantMiddleware {
     }
   }
 
-  /// Path-segment-based extraction.
+  /// Zero-based index over the non-empty path segments.
   pub fn from_path_segment(index: usize) -> Self {
     Self {
       strategy: TenantStrategy::PathPrefix(index),
@@ -75,7 +59,6 @@ impl TenantMiddleware {
     }
   }
 
-  /// Custom closure-based extraction.
   pub fn custom<F>(f: F) -> Self
   where
     F: Fn(&Request) -> Option<String> + Send + Sync + 'static,
@@ -94,11 +77,10 @@ impl TenantMiddleware {
 }
 
 fn extract_subdomain(host: &str) -> Option<String> {
-  // Drop port if present (`acme.example.com:8080`).
   let host = host.split(':').next().unwrap_or(host);
   let mut labels = host.split('.');
   let first = labels.next()?;
-  // Need at least one further label so we don't return the whole apex domain.
+  // A lone label is the whole host, not a subdomain.
   labels.next()?;
   if first.is_empty() {
     return None;
@@ -114,13 +96,8 @@ fn extract_path_segment(path: &str, index: usize) -> Option<String> {
     .map(str::to_string)
 }
 
-/// Restrictive tenant-id charset. Tenant identifiers commonly flow into file
-/// paths, database keys, log labels and metrics labels; any segment that can
-/// be confused with `..`, contain a `/`, or smuggle whitespace would let a
-/// client cross those boundaries.
-///
-/// Allowed: ASCII alphanumerics plus `_-.` (with `.` rejected as the whole
-/// value to keep `.` and `..` out). Max length: 64 bytes.
+/// At most 64 bytes of ASCII alphanumerics and `_-.`, never `.` or `..`: tenant ids flow into
+/// file paths, database keys and metric labels.
 fn is_valid_tenant_id(id: &str) -> bool {
   const MAX_LEN: usize = 64;
   if id.is_empty() || id.len() > MAX_LEN {

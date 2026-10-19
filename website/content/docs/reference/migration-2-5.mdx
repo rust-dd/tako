@@ -11,10 +11,10 @@ runtime: both
 # Migrating to 2.5
 
 Tako 2.5.0 ships its own WebSocket engine and drops `tokio-tungstenite`,
-`tungstenite` and `compio-ws`. WebSocket handlers need code changes; nothing
-else does. The engine and its API are the same on Tokio and Compio. See the
-[release notes](https://github.com/rust-dd/tako/releases/tag/v2.5.0) for the
-complete list.
+`tungstenite` and `compio-ws`, and it removes every API deprecated since 2.1.
+WebSocket handlers, deprecated APIs and code that accesses the raw multipart
+stream need the changes below. The WebSocket engine and its API are the same on
+Tokio and Compio.
 
 ## Replace `TakoWs` with `WebSocketUpgrade`
 
@@ -139,6 +139,97 @@ tako-rs = { version = "2.5", default-features = false, features = ["compio", "ws
 ```
 
 Compio's own `ws` feature is no longer needed.
+
+## Removed deprecated APIs
+
+Every item below was deprecated in 2.1 or earlier and is now gone:
+
+| Removed | Use instead |
+|---|---|
+| `serve`, `serve_with_shutdown`, `serve_with_config`, `serve_with_shutdown_and_config`, and the same four for `h2c`, `tls`, `h3`, `unix_http`, `vsock_http` and `http_with_proxy_protocol` | `Server::builder()` or `CompioServer::builder()`, `.config(..)`, then a `spawn_*` or `try_spawn_*` method |
+| `tako::state::set_state` | `Router::with_state`, or `get_or_init_state` for process-global values; it keeps the first value, where `set_state` replaced it |
+| `Router::state` | `Router::with_state` |
+| `ResponderError` | Nothing: any `Responder` can be the error type of a handler's `Result` |
+| `set_global_graphql_options` | `attach_graphql_options` on each request, or `GraphQLOptions` stored with `Router::with_state` or `get_or_init_state` |
+
+Before (2.4):
+
+```rust
+tako::serve_with_config(listener, router, config).await;
+```
+
+After (2.5):
+
+```rust
+let handle = tako::Server::builder()
+  .config(config)
+  .build()
+  .try_spawn_http(listener, router)?;
+handle.result().await?;
+```
+
+The returned `ServerHandle` takes over the `*_with_shutdown` variants:
+`handle.shutdown(timeout)` stops the server, and `handle.shutdown_on_signal()`
+waits for Ctrl-C or SIGTERM first. A `MultipartConfig` stored with
+`Router::with_state` now configures the multipart extractors, including the disk
+spill of `BufferedUploadedFile`, so code that called `set_state(MultipartConfig { .. })`
+can move to the router. The typed extractor calls the new
+`FromMultipartField::from_field_with`, which hands a custom field type the resolved
+config and defaults to `from_field`.
+
+## Other removed public items
+
+These were never produced, did nothing, or duplicated another API:
+
+| Removed | Use instead |
+|---|---|
+| `responder::IntoResponse` | `Responder` |
+| `signals::app_events()` | `signals::app_signals()` |
+| `signals::ids::RPC_ERROR` | An id of your own; tako never emitted it |
+| `Queue::dead_letters_arc()` | `Queue::dead_letters()`, which now returns `Vec<Arc<DeadJob>>` |
+| The `bool` returned by `grpc::grpc_decode` | `grpc_decode` returns the message |
+| `Router::compact_routes` | Nothing: it had nothing to remove |
+| `ConnInfo::local`, `Transport::Tcp` | Nothing: neither was ever set |
+| `BodyLimit::new_with_dynamic(limit, f)` | `BodyLimit::with_dynamic_limit(f)`; `limit` never applied |
+| `middleware::timeout` on Compio | `Route::timeout`; the middleware never ran there |
+| `KeyExpansionConfig::key_length` and `with_key_length` | Nothing: derived keys are always 64 bytes |
+| `CookieSigned::verify` | `CookieSigned::contains` |
+| `serve_per_thread_compio`, `spawn_per_thread_compio` | `serve_per_thread`, `spawn_per_thread`, which run Compio workers under `compio` |
+| `server_tls::run` and `server_tls_compio::run` | `Server::builder().tls(TlsCert::pem_paths(..))` |
+| `load_certs` and `load_key` under `server_tls`, `server_tls_compio` and `server_h3` | `tako::tls::load_certs` and `tako::tls::load_key` |
+| `tako::server_compio`, `tako::server_h2c`, `tako::server_vsock` | The server builders; the modules held no public items |
+| `compression::CompressionResponse` | Nothing: no API returned it |
+| `server_udp::UdpHandler`, `webtransport::WebTransportHandler` | Nothing: no API took them |
+| `FromRequest` for `&mut Request` | A `Request` argument; the impl could not be a handler argument |
+| `Route::new` | Nothing: it needed a crate-private handler type |
+| `PerThreadShutdown::new` and its `Default` | The handle that `spawn_per_thread` returns |
+| The public field `GrpcBidi::_phantom` | Nothing; it is private |
+| `json_schema::ValidateTarget`, `tenant::TenantStrategy` | `JsonSchema::for_request` and `for_response`, and the `TenantMiddleware` constructors |
+
+Error variants that no code path returned are gone too, so a `match` arm that
+names one no longer compiles and can be deleted: `MissingContentType` of
+`JsonError`, `ProtobufError` and `SimdJsonError`; `ParseError` of `FormError`
+and `QueryError`; `IpAddrError::{InvalidIpFormat, HeaderParseError}`;
+`MultipartError::InvalidContentType`;
+`TypedMultipartError::{InvalidContentType, IoError}`;
+`CookiePrivateError::{InvalidKey, DecryptionFailed, InvalidCookieFormat}`;
+`CookieSignedError::{InvalidKey, VerificationFailed, InvalidCookieFormat, InvalidSignature}`;
+`CookieKeyExpansionError::{InvalidMasterKey, UnsupportedAlgorithm, InvalidKeyLength}`;
+`GraphQLError::{MissingQuery, InvalidJson}`; and `QueueError::UnknownJob`.
+
+`ClientAuth`, `ReloadableResolver`, `H3Congestion`, `build_rustls_server_config`
+and the `tls` module are now re-exported from `tako`, so the types that
+`TlsCert` and `ServerConfig` take can be named without depending on
+`tako-rs-server`.
+
+## Multipart limits
+
+Untyped multipart extraction now enforces `MultipartConfig::max_parts` and
+`allowed_content_types` while fields are read. Both `TakoMultipart.0` and
+`TakoMultipart::into_inner()` expose `MultipartFields` instead of raw
+`multer::Multipart`; `next_field()` returns `MultipartError` and reports limit
+violations as `TooManyParts` or `DisallowedContentType`. Code that names the
+raw stream or error type must use these wrapper types.
 
 ## Performance changes
 

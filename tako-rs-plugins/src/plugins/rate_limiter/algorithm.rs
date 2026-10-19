@@ -1,7 +1,3 @@
-//! Quota state and the rate-limiting algorithm: per-key bucket, token-bucket
-//! and GCRA evaluation, IETF `RateLimit-*` headers, key extraction, and the
-//! per-request middleware handler.
-
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -21,7 +17,6 @@ use super::config::UnkeyedBehavior;
 use super::key::BucketKey;
 use super::key::default_key;
 
-#[derive(Clone)]
 pub(crate) struct Bucket {
   available: f64,
   pub(crate) last_refill: Instant,
@@ -37,26 +32,20 @@ struct Outcome {
 
 fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
   let cap = f64::from(cfg.max_requests);
+  // Positive: `RateLimiterBuilder::build` rejects a zero rate or interval.
+  let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
+  let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+  bucket.last_refill = now;
   match cfg.algorithm {
     Algorithm::TokenBucket => {
-      let dt = now
-        .duration_since(bucket.last_refill)
-        .as_secs_f64()
-        .max(0.0);
-      let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
-      bucket.available = (bucket.available + dt * rate_per_sec).min(cap);
-      bucket.last_refill = now;
+      bucket.available = (bucket.available + elapsed * rate_per_sec).min(cap);
       let allowed = bucket.available >= 1.0;
       if allowed {
         bucket.available -= 1.0;
       }
       let remaining = bucket.available.max(0.0).floor() as u32;
       let needed = (1.0 - bucket.available).max(0.0);
-      let reset_secs = if rate_per_sec > 0.0 {
-        (needed / rate_per_sec).ceil() as u64
-      } else {
-        0
-      };
+      let reset_secs = (needed / rate_per_sec).ceil() as u64;
       let retry_after_secs = if allowed { 0 } else { reset_secs.max(1) };
       Outcome {
         limit: cfg.max_requests,
@@ -68,19 +57,9 @@ fn evaluate(cfg: &Config, bucket: &mut Bucket, now: Instant) -> Outcome {
     }
     Algorithm::Gcra => {
       // GCRA stores time debt in seconds, rather than the token bucket's token count.
-      let rate_per_sec = f64::from(cfg.refill_rate) / (cfg.refill_interval_ms as f64 / 1_000.0);
-      let increment = if rate_per_sec > 0.0 {
-        1.0 / rate_per_sec
-      } else {
-        f64::INFINITY
-      };
+      let increment = 1.0 / rate_per_sec;
       let burst_tolerance = cap * increment;
-      let elapsed = now
-        .duration_since(bucket.last_refill)
-        .as_secs_f64()
-        .max(0.0);
       bucket.available = (bucket.available - elapsed).max(0.0);
-      bucket.last_refill = now;
       let allowed = bucket.available + increment <= burst_tolerance;
       if allowed {
         bucket.available += increment;

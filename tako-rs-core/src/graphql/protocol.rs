@@ -1,9 +1,7 @@
-//! WebSocket subprotocol negotiation for `GraphQL` subscriptions:
-//! the [`GraphQLProtocol`] extractor and its rejection type.
-
 use std::str::FromStr;
 
 use async_graphql::http::WebSocketProtocols;
+use http::HeaderMap;
 use http::StatusCode;
 use http::header;
 
@@ -13,7 +11,7 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Extracted WebSocket protocol for `GraphQL` subscriptions.
+/// The first `GraphQL` subprotocol the client offers in `Sec-WebSocket-Protocol`.
 pub struct GraphQLProtocol(pub WebSocketProtocols);
 
 #[derive(Debug)]
@@ -29,25 +27,26 @@ impl Responder for GraphQLProtocolRejection {
   }
 }
 
+pub(super) fn negotiate(headers: &HeaderMap) -> Result<GraphQLProtocol, GraphQLProtocolRejection> {
+  headers
+    .get(header::SEC_WEBSOCKET_PROTOCOL)
+    .and_then(|v| v.to_str().ok())
+    .and_then(|protocols| {
+      protocols
+        .split(',')
+        .find_map(|p| WebSocketProtocols::from_str(p.trim()).ok())
+    })
+    .map(GraphQLProtocol)
+    .ok_or(GraphQLProtocolRejection)
+}
+
 impl<'a> FromRequestParts<'a> for GraphQLProtocol {
   type Error = GraphQLProtocolRejection;
 
   fn from_request_parts(
     parts: &'a mut http::request::Parts,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(
-      parts
-        .headers
-        .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|protocols| {
-          protocols
-            .split(',')
-            .find_map(|p| WebSocketProtocols::from_str(p.trim()).ok())
-        })
-        .map(GraphQLProtocol)
-        .ok_or(GraphQLProtocolRejection),
-    )
+    futures_util::future::ready(negotiate(&parts.headers))
   }
 }
 
@@ -57,18 +56,6 @@ impl<'a> FromRequest<'a> for GraphQLProtocol {
   fn from_request(
     req: &'a mut Request,
   ) -> impl core::future::Future<Output = core::result::Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(
-      req
-        .headers()
-        .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|protocols| {
-          protocols
-            .split(',')
-            .find_map(|p| WebSocketProtocols::from_str(p.trim()).ok())
-        })
-        .map(GraphQLProtocol)
-        .ok_or(GraphQLProtocolRejection),
-    )
+    futures_util::future::ready(negotiate(req.headers()))
   }
 }

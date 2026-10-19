@@ -24,7 +24,6 @@ use crate::config::PerThreadConfig;
 use crate::listener::bind_reuseport;
 use crate::shutdown::PerThreadShutdown;
 
-#[cfg_attr(not(feature = "affinity"), allow(unused_variables))]
 pub(crate) fn worker_main(
   worker_id: usize,
   addr: SocketAddr,

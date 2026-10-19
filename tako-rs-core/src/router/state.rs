@@ -11,49 +11,8 @@ use crate::signals::Signal;
 use crate::signals::SignalArbiter;
 
 impl Router {
-  /// Adds a value to the global type-based state accessible by all handlers.
-  ///
-  /// Global state allows sharing data across different routes and middleware.
-  /// Values are stored by their concrete type and retrieved via the
-  /// `State` extractor (from `tako-extractors`) or with
-  /// [`crate::state::get_state`].
-  ///
-  /// # Examples
-  ///
-  /// ```rust
-  /// use tako::router::Router;
-  ///
-  /// #[derive(Clone)]
-  /// struct AppConfig { database_url: String, api_key: String }
-  ///
-  /// let mut router = Router::new();
-  /// router.with_state(AppConfig {
-  ///     database_url: "postgresql://localhost/mydb".to_string(),
-  ///     api_key: "secret-key".to_string(),
-  /// });
-  /// // You can also store simple types by type:
-  /// router.with_state::<String>("1.0.0".to_string());
-  /// ```
-  #[deprecated(note = "use Router::with_state for instance-local state")]
-  #[allow(deprecated)]
-  pub fn state<T: Clone + Send + Sync + 'static>(&mut self, value: T) {
-    crate::state::set_state(value);
-  }
-
-  /// Inserts a value into this router's instance-local typed state.
-  ///
-  /// Unlike [`Router::state`] (which writes the process-global registry and
-  /// therefore allows only one value per `T` per process), `with_state` is
-  /// per-router — multiple routers can hold distinct `T`s without collisions.
-  ///
-  /// The `State` extractor (from `tako-extractors`) reads the per-router
-  /// store first and falls back to the global store if no per-router value
-  /// exists, so existing code that uses `set_state` / `Router::state`
-  /// continues to work unchanged.
-  ///
-  /// Hot-path cost is one `Arc` clone per request *only when* at least one
-  /// `with_state` call has happened on this router; an `AtomicBool::Acquire`
-  /// fast-path skips it for routers that don't use instance-local state.
+  /// Stores `value` as this router's `T`, replacing an earlier one; `State<T>` reads it
+  /// before falling back to the process-global [`get_state`](crate::state::get_state).
   ///
   /// # Examples
   ///
@@ -72,14 +31,14 @@ impl Router {
     self
   }
 
-  /// Returns the per-router typed state (shared `Arc`).
+  /// The state that [`Router::with_state`] writes to.
   #[inline]
   pub fn router_state(&self) -> &Arc<RouterState> {
     &self.router_state
   }
 
   #[cfg(feature = "signals")]
-  /// Returns a reference to the signal arbiter.
+  /// This router's arbiter; request start and completion signals are emitted on it.
   pub fn signals(&self) -> &SignalArbiter {
     &self.signals
   }

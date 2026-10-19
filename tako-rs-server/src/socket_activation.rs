@@ -1,13 +1,5 @@
-#![cfg(feature = "socket-activation")]
-#![cfg_attr(docsrs, doc(cfg(feature = "socket-activation")))]
-
-//! systemd / s6 / catflap socket activation.
-//!
-//! When this process is launched by an init system (systemd, s6, runit) using
-//! socket activation, the listening sockets are inherited via the `LISTEN_FDS`
-//! and `LISTEN_PID` environment variables. This module wraps the [`listenfd`]
-//! crate and converts the inherited file descriptors into the tokio types the
-//! Tako transports expect.
+//! Listening sockets inherited through systemd, s6 or catflap socket activation (`LISTEN_FDS`),
+//! as Tokio types; indexes follow the order the unit file declares them in.
 //!
 //! # Example (systemd)
 //!
@@ -26,15 +18,10 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! Multiple inherited sockets (e.g. one TCP for HTTP, one Unix for IPC) are
-//! addressed by index in the order they were declared in the unit file.
 
 use std::io;
 
-/// Wrapper around [`listenfd::ListenFd`] that returns tokio listener types
-/// directly so the inherited sockets plug into the existing `Server::spawn_*`
-/// methods without conversion ceremony.
+/// Inherited sockets, returned as the Tokio types the `Server::spawn_*` methods take.
 pub struct ListenFds(listenfd::ListenFd);
 
 impl std::fmt::Debug for ListenFds {
@@ -46,29 +33,26 @@ impl std::fmt::Debug for ListenFds {
 }
 
 impl ListenFds {
-  /// Read `LISTEN_FDS` / `LISTEN_PID` (or s6 / catflap equivalents) from the
-  /// environment.
+  /// Reads `LISTEN_FDS` and `LISTEN_PID`, or the s6 and catflap equivalents.
   #[must_use]
   pub fn from_env() -> Self {
     Self(listenfd::ListenFd::from_env())
   }
 
-  /// Number of inherited file descriptors detected.
+  /// Number of inherited file descriptors.
   #[must_use]
   pub fn len(&self) -> usize {
     self.0.len()
   }
 
-  /// True if no inherited descriptors are available.
+  /// True when no descriptor was inherited.
   #[must_use]
   pub fn is_empty(&self) -> bool {
     self.0.len() == 0
   }
 
-  /// Take the inherited TCP listener at `index` and convert it to a
-  /// `tokio::net::TcpListener`. Returns `Ok(None)` when no socket is at the
-  /// index or the FD is not a TCP listener; returns `Err` if the conversion
-  /// fails.
+  /// Takes the TCP listener at `index`: `Ok(None)` when nothing is left there, an error when it
+  /// holds another kind of socket.
   pub fn tcp_listener(&mut self, index: usize) -> io::Result<Option<tokio::net::TcpListener>> {
     let Some(std_listener) = self.0.take_tcp_listener(index)? else {
       return Ok(None);
@@ -77,8 +61,8 @@ impl ListenFds {
     Ok(Some(tokio::net::TcpListener::from_std(std_listener)?))
   }
 
-  /// Take the inherited Unix listener at `index` and convert it to a
-  /// `tokio::net::UnixListener`. Linux-only.
+  /// Takes the Unix listener at `index`: `Ok(None)` when nothing is left there, an error when it
+  /// holds another kind of socket.
   #[cfg(unix)]
   pub fn unix_listener(&mut self, index: usize) -> io::Result<Option<tokio::net::UnixListener>> {
     let Some(std_listener) = self.0.take_unix_listener(index)? else {
@@ -88,9 +72,8 @@ impl ListenFds {
     Ok(Some(tokio::net::UnixListener::from_std(std_listener)?))
   }
 
-  /// Take the inherited UDP socket at `index` and convert it to a
-  /// `tokio::net::UdpSocket`. Useful for HTTP/3 / QUIC endpoints supplied by
-  /// systemd's `ListenDatagram=`.
+  /// Takes the UDP socket at `index`, e.g. from systemd's `ListenDatagram=`: `Ok(None)` when
+  /// nothing is left there, an error when it holds another kind of socket.
   pub fn udp_socket(&mut self, index: usize) -> io::Result<Option<tokio::net::UdpSocket>> {
     let Some(std_socket) = self.0.take_udp_socket(index)? else {
       return Ok(None);

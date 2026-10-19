@@ -60,7 +60,7 @@ impl Listener for compio::net::TcpListener {
 pub(crate) async fn accept_loop<L>(
   listener: L,
   router: Router,
-  signal: Option<impl Future<Output = ()>>,
+  signal: impl Future<Output = ()>,
   config: ServerConfig,
   protocol: Protocol,
 ) -> Result<(), BoxError>
@@ -98,18 +98,11 @@ where
   let mut accept_backoff = config.accept_backoff;
 
   let cancel = CancellationToken::new();
-  let signal = signal.map(|s| Box::pin(s));
-  let mut signal_fused = std::pin::pin!(async {
-    if let Some(s) = signal {
-      s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  });
+  let mut signal = std::pin::pin!(signal);
 
   loop {
     let accept = std::pin::pin!(listener.next_connection());
-    match futures_util::future::select(accept, signal_fused.as_mut()).await {
+    match futures_util::future::select(accept, signal.as_mut()).await {
       Either::Left((result, _)) => {
         let (stream, peer) = match result {
           Ok(v) => {
@@ -121,7 +114,7 @@ where
             let d = accept_backoff.current_and_grow();
 
             let sleep = std::pin::pin!(compio::time::sleep(d));
-            match futures_util::future::select(sleep, signal_fused.as_mut()).await {
+            match futures_util::future::select(sleep, signal.as_mut()).await {
               Either::Left(((), _)) => continue,
               Either::Right(_) => break,
             }
@@ -130,7 +123,7 @@ where
 
         let permit = if let Some(sem) = max_conn_semaphore.as_ref() {
           let acquire = std::pin::pin!(sem.clone().acquire_owned());
-          match futures_util::future::select(acquire, signal_fused.as_mut()).await {
+          match futures_util::future::select(acquire, signal.as_mut()).await {
             Either::Left((Ok(p), _)) => Some(p),
             Either::Left((Err(_), _)) => continue,
             Either::Right(_) => break,

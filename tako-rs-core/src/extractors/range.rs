@@ -1,16 +1,4 @@
-//! HTTP Range header extraction for partial content requests.
-//!
-//! Parses RFC 9110 §14.2 `bytes=` Range headers into strongly-typed specs.
-//! Three forms are supported per RFC:
-//!
-//! - `bytes=START-END` — inclusive byte range.
-//! - `bytes=START-` — open-ended ("from START to end of representation").
-//! - `bytes=-LENGTH` — suffix ("last LENGTH bytes").
-//!
-//! Multi-range requests (`bytes=0-100,200-300`) parse into the full
-//! [`Range::specs`](struct.Range.html#structfield.specs) list; responders that
-//! only support a single range can call
-//! [`Range::single`](struct.Range.html#method.single) to fetch the first spec.
+//! RFC 9110 `bytes=` [`Range`] header parsing; extract it as `Option<Range>`.
 
 use http::HeaderMap;
 use http::StatusCode;
@@ -34,9 +22,7 @@ pub enum RangeSpec {
 }
 
 impl RangeSpec {
-  /// Resolve a spec against the total representation length, returning the
-  /// concrete inclusive `[start, end]` byte range or `None` if unsatisfiable
-  /// (e.g. start >= total, or suffix length 0).
+  /// The inclusive `(start, end)` byte range within `total_size`, or `None` if unsatisfiable.
   pub fn resolve(self, total_size: u64) -> Option<(u64, u64)> {
     if total_size == 0 {
       return None;
@@ -66,7 +52,7 @@ impl RangeSpec {
   }
 }
 
-/// Extracted byte range(s) for HTTP partial content requests.
+/// A parsed `Range` header.
 #[derive(Debug, Clone)]
 #[doc(alias = "range")]
 pub struct Range {
@@ -76,17 +62,14 @@ pub struct Range {
 }
 
 impl Range {
-  /// Convenience accessor for callers that only support single-range
-  /// responses — returns the first spec, or `None` if the public `specs`
-  /// vector has been mutated to empty. (Successful parse always yields at
-  /// least one spec; see [`Range::from_headers`].)
+  /// The first spec, for responders that serve a single range.
   #[must_use]
   pub fn single(&self) -> Option<RangeSpec> {
     self.specs.first().copied()
   }
 }
 
-/// Error type for Range header extraction and parsing.
+/// Why the `Range` header was rejected; both cases answer 416.
 #[derive(Debug)]
 pub enum RangeError {
   /// Range header format is invalid (not `bytes=...` or contains a
@@ -124,12 +107,10 @@ fn parse_one(raw: &str) -> Result<RangeSpec, RangeError> {
   match (start_str.is_empty(), end_str.is_empty()) {
     (true, true) => Err(RangeError::InvalidFormat),
     (true, false) => {
-      // `-LENGTH` — suffix range.
       let length = end_str.parse::<u64>().map_err(|_| RangeError::ParseError)?;
       Ok(RangeSpec::Suffix { length })
     }
     (false, true) => {
-      // `START-` — open-ended.
       let start = start_str
         .parse::<u64>()
         .map_err(|_| RangeError::ParseError)?;
@@ -148,19 +129,12 @@ fn parse_one(raw: &str) -> Result<RangeSpec, RangeError> {
   }
 }
 
-/// Maximum number of byte-range specs accepted from a single Range header.
-///
-/// RFC 9110 §14.2 explicitly permits a server to reject requests "containing
-/// many small ranges" — the cap caps amplification on a single header parse
-/// (each spec walks the response body) without affecting realistic clients.
+/// Most specs accepted in one header, bounding the work per request as RFC 9110 §14.2 allows.
 pub const MAX_RANGE_SPECS: usize = 100;
 
 impl Range {
-  /// Parses the Range header value in `bytes=start-end[,start-end...]` form.
-  ///
-  /// Rejects headers with more than [`MAX_RANGE_SPECS`] entries with
-  /// [`RangeError::InvalidFormat`] (RFC 9110 §14.2 permits server-side
-  /// rejection of pathological multi-range requests).
+  /// Parses `bytes=start-end[,start-end...]`, or returns `Ok(None)` without a header; more
+  /// than [`MAX_RANGE_SPECS`] specs is [`RangeError::InvalidFormat`].
   pub fn from_headers(headers: &HeaderMap) -> Result<Option<Self>, RangeError> {
     let value = match headers.get("range") {
       Some(v) => v.to_str().map_err(|_| RangeError::InvalidFormat)?,

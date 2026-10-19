@@ -1,13 +1,5 @@
 #![cfg(feature = "zstd")]
 
-//! Zstandard compression streaming utilities for high-performance HTTP response compression.
-//!
-//! This module provides streaming Zstandard (zstd) compression for HTTP response bodies,
-//! offering excellent compression ratios with fast decompression speeds. Zstandard is
-//! particularly well-suited for modern web applications that require both high compression
-//! efficiency and low latency. The streaming implementation enables memory-efficient
-//! compression of large responses without buffering entire content in memory.
-//!
 //! # Examples
 //!
 //! ```rust
@@ -45,7 +37,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
 use zstd::stream::Encoder;
 
-/// Compresses an HTTP body stream using Zstandard compression algorithm.
+/// Flushes after every input chunk, trading compression ratio for latency.
 pub fn stream_zstd<B>(body: B, level: i32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
@@ -56,26 +48,20 @@ where
 }
 
 pin_project! {
-    /// Streaming Zstandard compressor that wraps an inner data stream.
     pub struct ZstdStream<S> {
         #[pin] inner: S,
+        // Taken at EOF, since `finish` consumes it.
         encoder: Option<Encoder<'static, Vec<u8>>>,
-        // Bytes already produced by `encoder.finish()` once the upstream
-        // closed — held separately because the encoder is consumed at that
-        // point.
         tail: Vec<u8>,
-        done: bool,
     }
 }
 
 impl<S> ZstdStream<S> {
-  /// Creates a new Zstandard compression stream with the specified compression level.
   fn new(stream: S, level: i32) -> Self {
     Self {
       inner: stream,
       encoder: Some(Encoder::new(Vec::new(), level).expect("zstd encoder")),
       tail: Vec::new(),
-      done: false,
     }
   }
 }
@@ -86,30 +72,24 @@ where
 {
   type Item = Result<Bytes, BoxError>;
 
-  /// Polls the stream for the next compressed data chunk.
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     let mut this = self.project();
 
     loop {
-      if let Some(enc) = this.encoder.as_mut() {
-        if !enc.get_ref().is_empty() {
-          let chunk = std::mem::take(enc.get_mut());
-          return Poll::Ready(Some(Ok(Bytes::from(chunk))));
+      let Some(enc) = this.encoder.as_mut() else {
+        if this.tail.is_empty() {
+          return Poll::Ready(None);
         }
-      } else if !this.tail.is_empty() {
-        let chunk = std::mem::take(this.tail);
+        return Poll::Ready(Some(Ok(Bytes::from(std::mem::take(this.tail)))));
+      };
+      if !enc.get_ref().is_empty() {
+        let chunk = std::mem::take(enc.get_mut());
         return Poll::Ready(Some(Ok(Bytes::from(chunk))));
-      }
-
-      if *this.done && this.encoder.is_none() {
-        return Poll::Ready(None);
       }
 
       match this.inner.as_mut().poll_next(cx) {
         Poll::Ready(Some(Ok(data))) => {
-          if let Some(enc) = this.encoder.as_mut()
-            && let Err(e) = enc.write_all(&data).and_then(|()| enc.flush())
-          {
+          if let Err(e) = enc.write_all(&data).and_then(|()| enc.flush()) {
             return Poll::Ready(Some(Err(e.into())));
           }
         }
@@ -117,19 +97,12 @@ where
           return Poll::Ready(Some(Err(e)));
         }
         Poll::Ready(None) => {
-          *this.done = true;
           if let Some(enc) = this.encoder.take() {
             match enc.finish() {
-              Ok(vec) => {
-                *this.tail = vec;
-                continue;
-              }
-              Err(e) => {
-                return Poll::Ready(Some(Err(e.into())));
-              }
+              Ok(vec) => *this.tail = vec,
+              Err(e) => return Poll::Ready(Some(Err(e.into()))),
             }
           }
-          return Poll::Ready(None);
         }
         Poll::Pending => {
           return Poll::Pending;

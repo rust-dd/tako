@@ -1,9 +1,4 @@
-//! HTTP request routing and dispatch functionality.
-//!
-//! This module provides the core `Router` struct that manages HTTP routes, middleware chains,
-//! and request dispatching. The router supports dynamic path parameters, middleware composition,
-//! plugin integration, and global state management. It handles matching incoming requests to
-//! registered routes and executing the appropriate handlers through middleware pipelines.
+//! The [`Router`], which matches requests to routes and runs them through middleware.
 //!
 //! # Examples
 //!

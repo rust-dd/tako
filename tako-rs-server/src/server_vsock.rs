@@ -1,33 +1,4 @@
-#![cfg(all(target_os = "linux", feature = "vsock"))]
-#![cfg_attr(docsrs, doc(cfg(all(target_os = "linux", feature = "vsock"))))]
-
-//! Linux vsock (VM ⇄ host) HTTP server.
-//!
-//! `vsock` provides a socket family for communication between a guest VM and
-//! its host without going through the network stack. The address pair is
-//! `(CID, port)` where the well-known CIDs are exposed as
-//! [`tokio_vsock::VMADDR_CID_HOST`] (host side) and
-//! [`tokio_vsock::VMADDR_CID_ANY`] (bind to any guest interface).
-//!
-//! Common deployments:
-//! - **Confidential VM enclave** exposing an internal management API to the
-//!   host without exposing it to the network.
-//! - **Host-side agent** receiving telemetry from per-VM agents over a single
-//!   well-known port.
-//!
-//! # Example
-//!
-//! ```rust,no_run
-//! # #[cfg(all(target_os = "linux", feature = "vsock"))]
-//! # async fn _ex() {
-//! use tako_rs_server::server_vsock::serve_vsock_http;
-//! use tako_rs_core::router::Router;
-//! use tokio_vsock::VMADDR_CID_ANY;
-//!
-//! let router = Router::new();
-//! serve_vsock_http(VMADDR_CID_ANY, 5005, router).await;
-//! # }
-//! ```
+//! Linux vsock HTTP/1 accept loop, for guest VM and host traffic that bypasses the network stack.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -47,99 +18,16 @@ use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tokio_vsock::VsockAddr;
 use tokio_vsock::VsockListener;
 
 use crate::ServerConfig;
-
-/// Starts an HTTP server bound to a vsock `(cid, port)` pair.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_vsock_http(cid: u32, port: u32, router: Router) {
-  if let Err(e) = run(
-    cid,
-    port,
-    router,
-    None::<std::future::Pending<()>>,
-    ServerConfig::default(),
-  )
-  .await
-  {
-    tracing::error!("vsock HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_vsock_http`] with graceful shutdown.
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_vsock_http_with_shutdown(
-  cid: u32,
-  port: u32,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-) {
-  if let Err(e) = run(cid, port, router, Some(signal), ServerConfig::default()).await {
-    tracing::error!("vsock HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_vsock_http`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_vsock_http_with_config(
-  cid: u32,
-  port: u32,
-  router: Router,
-  config: ServerConfig,
-) {
-  if let Err(e) = run(cid, port, router, None::<std::future::Pending<()>>, config).await {
-    tracing::error!("vsock HTTP server error: {e}");
-  }
-}
-
-/// Like [`serve_vsock_http_with_shutdown`] with caller-supplied [`ServerConfig`].
-#[deprecated(
-  since = "2.1.0",
-  note = "use Server::builder() or CompioServer::builder() and a try_spawn_* method"
-)]
-pub async fn serve_vsock_http_with_shutdown_and_config(
-  cid: u32,
-  port: u32,
-  router: Router,
-  signal: impl Future<Output = ()> + Send + 'static,
-  config: ServerConfig,
-) {
-  if let Err(e) = run(cid, port, router, Some(signal), config).await {
-    tracing::error!("vsock HTTP server error: {e}");
-  }
-}
-
-pub(crate) async fn run(
-  cid: u32,
-  port: u32,
-  router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
-  config: ServerConfig,
-) -> Result<(), BoxError> {
-  #[cfg(feature = "tako-tracing")]
-  tako_rs_core::tracing::init_tracing();
-
-  let listener = VsockListener::bind(VsockAddr::new(cid, port))?;
-  run_listener(listener, cid, port, router, signal, config).await
-}
 
 pub(crate) async fn run_listener(
   listener: VsockListener,
   cid: u32,
   port: u32,
   router: Router,
-  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   let router = Arc::new(router);
@@ -161,13 +49,11 @@ pub(crate) async fn run_listener(
   let keep_alive = config.keep_alive;
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
-  if let Some(s) = signal {
-    let cancel_for_signal = cancel.clone();
-    signal_tasks.spawn(async move {
-      s.await;
-      cancel_for_signal.cancel();
-    });
-  }
+  let cancel_for_signal = cancel.clone();
+  signal_tasks.spawn(async move {
+    signal.await;
+    cancel_for_signal.cancel();
+  });
 
   loop {
     tokio::select! {
@@ -207,7 +93,6 @@ pub(crate) async fn run_listener(
             async move {
               let conn_info = ConnInfo {
                 peer: PeerAddr::Other(peer_label.clone()),
-                local: None,
                 transport: Transport::Http1,
                 tls: None,
               };

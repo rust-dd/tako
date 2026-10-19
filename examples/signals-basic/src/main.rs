@@ -3,7 +3,7 @@ use tako::Method;
 use tako::responder::Responder;
 use tako::router::Router;
 use tako::signals::Signal;
-use tako::signals::app_events;
+use tako::signals::app_signals;
 use tako::signals::ids;
 use tako::types::Request;
 use tokio::net::TcpListener;
@@ -13,7 +13,7 @@ async fn hello(_: Request) -> impl Responder {
 }
 
 fn init_signals() {
-  let arbiter = app_events();
+  let arbiter = app_signals();
 
   // Simple callback-style handler for server start
   arbiter.on(ids::SERVER_STARTED, |signal: Signal| async move {

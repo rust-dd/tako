@@ -1,27 +1,19 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-//! Streaming and upgrade transports for the Tako framework.
-//!
-//! WebSocket, Server-Sent Events, file streaming, static file serving, and
-//! WebTransport implementations. Re-exported under the original `tako::*` paths
-//! via the umbrella crate.
+//! SSE, file streaming, static files and raw QUIC sessions, re-exported under `tako::*`.
 
 mod file_io;
 
-/// Server-Sent Events (SSE) support for real-time communication.
 #[cfg(feature = "sse")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sse")))]
 pub mod sse;
 
-/// File streaming utilities for serving files.
 #[cfg(feature = "file-stream")]
 #[cfg_attr(docsrs, doc(cfg(feature = "file-stream")))]
 pub mod file_stream;
 
-/// Static file serving utilities.
 pub mod r#static;
 
-/// WebTransport server support over QUIC.
 #[cfg(all(feature = "webtransport", not(feature = "compio")))]
 #[cfg_attr(docsrs, doc(cfg(feature = "webtransport")))]
 pub mod webtransport;

@@ -20,12 +20,7 @@ use crate::router_state::RouterState;
 use crate::signals::SignalArbiter;
 use crate::types::BoxMiddleware;
 
-/// HTTP router for managing routes, middleware, and request dispatching.
-///
-/// The `Router` is the central component for routing HTTP requests to appropriate
-/// handlers. It supports dynamic path parameters, middleware chains, plugin integration,
-/// and global state management. Routes are matched based on HTTP method and path pattern,
-/// with support for trailing slash redirection and parameter extraction.
+/// Matches requests by method and path, then runs them through middleware to a handler.
 ///
 /// # Examples
 ///
@@ -47,55 +42,35 @@ use crate::types::BoxMiddleware;
 /// ```
 #[doc(alias = "router")]
 pub struct Router {
-  /// Map of registered routes keyed by method (O(1) array lookup).
   pub(crate) inner: MethodMap<matchit::Router<Arc<Route>>>,
-  /// An easy-to-iterate index of the same routes so we can access the `Arc<Route>` values.
-  ///
-  /// Holds `Weak<Route>` (not `Arc`) so an external holder of an `Arc<Route>`
-  /// returned from [`Router::route`] can release it without keeping the router
-  /// graph alive past its useful lifetime. All current code paths that store a
-  /// `Weak` here also store the matching `Arc` in `inner`, so upgrades always
-  /// succeed today; [`Router::compact_routes`] sweeps dangling weaks lazily so
-  /// any future API that removes from `inner` does not cause this index to
-  /// grow without bound.
+  /// Routes in registration order for introspection; each one is also held by `inner`.
   pub(crate) routes: MethodMap<Vec<Weak<Route>>>,
-  /// Optional path prefix prepended to every `route()` call while it is set.
-  /// Used by [`Router::mount_all_into`] and [`Router::scope`] (see v2 roadmap).
-  /// Only consulted at registration time — zero cost on the dispatch hot path.
+  /// Prefix that [`Router::scope`] and [`Router::mount_all_into`] add while they run.
   pub(crate) pending_prefix: Option<String>,
   pub(crate) nested_routers: Vec<Arc<Router>>,
-  /// Global middleware chain applied to all routes.
   pub(crate) middlewares: ArcSwap<Vec<BoxMiddleware>>,
-  /// Fast check: true when global middleware is registered (avoids `ArcSwap` load on hot path).
+  /// Lets dispatch skip the `ArcSwap` load while no global middleware is registered.
   pub(crate) has_global_middleware: AtomicBool,
-  /// Optional fallback handler executed when no route matches.
   pub(crate) fallback: Option<BoxHandler>,
-  /// Registered plugins for extending functionality.
   #[cfg(feature = "plugins")]
   pub(crate) plugins: Vec<Box<dyn TakoPlugin>>,
   /// Publishes plugin initialization before concurrent callers can proceed.
   #[cfg(feature = "plugins")]
   pub(crate) plugins_initialized: OnceLock<Result<(), String>>,
-  /// Signal arbiter for in-process event emission and handling.
   #[cfg(feature = "signals")]
   pub(crate) signals: SignalArbiter,
-  /// Default timeout for all routes.
   pub(crate) timeout: Option<Duration>,
   pub(crate) timeout_status: http::StatusCode,
   pub(crate) body_limit: Option<crate::extractors::body::BodyLimit>,
-  /// Fallback handler executed when a request times out.
   pub(crate) timeout_fallback: Option<BoxHandler>,
-  /// Global error handler for 5xx responses.
+  /// Runs on 5xx responses.
   pub(crate) error_handler: Option<ErrorHandler>,
   pub(crate) error_handler_with_parts: Option<super::ErrorHandlerWithParts>,
-  /// Global error handler for 4xx responses (opt-in; runs after dispatch).
+  /// Runs on 4xx responses.
   pub(crate) client_error_handler: Option<ErrorHandler>,
-  /// Per-router typed state populated via [`Router::with_state`].
-  /// `Arc` is shared with every dispatched request via the request extension
-  /// so the `State<T>` extractor can read instance-local values.
+  /// Shared with each request as an extension so `State<T>` can read it.
   pub(crate) router_state: Arc<RouterState>,
-  /// Fast-path flag: when `false`, dispatch skips the per-request Arc clone +
-  /// extension insert that wires `router_state` into requests.
+  /// Lets dispatch skip attaching `router_state` until [`Router::with_state`] is called.
   pub(crate) has_router_state: AtomicBool,
 }
 
@@ -107,7 +82,6 @@ impl Default for Router {
 }
 
 impl Router {
-  /// Creates a new, empty router.
   #[must_use]
   pub fn new() -> Self {
     let router = Self {
@@ -137,10 +111,7 @@ impl Router {
 
     #[cfg(feature = "signals")]
     {
-      // Atomic first-write: under concurrent `Router::new` calls the
-      // previous `get_state.is_none() → set_state` pair was TOCTOU and let
-      // two threads each install their own arbiter. `get_or_init_state`
-      // resolves both to the same `Arc<SignalArbiter>`.
+      // The first router's arbiter is the global one `State<SignalArbiter>` falls back to.
       let arbiter_clone = router.signals.clone();
       let _ = crate::state::get_or_init_state::<SignalArbiter, _>(move || arbiter_clone);
     }

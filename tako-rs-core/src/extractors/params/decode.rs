@@ -7,8 +7,6 @@ use serde::de::{self};
 
 use super::error::PathParamsDeError;
 
-/// Deserializer for a single string value that attempts numeric coercion
-/// only when the visitor requests a numeric type.
 pub(crate) struct ValueDeserializer<'de>(pub(crate) &'de str);
 
 impl<'de> Deserializer<'de> for ValueDeserializer<'de> {

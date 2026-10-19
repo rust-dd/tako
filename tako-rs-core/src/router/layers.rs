@@ -13,10 +13,7 @@ use crate::types::BoxMiddleware;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Type alias for a global error handler function.
-///
-/// Called when a response has a server error status (5xx). Receives the original
-/// response and can transform it (e.g., to return JSON errors instead of plain text).
+/// Response rewriter set by [`Router::error_handler`] and [`Router::client_error_handler`].
 pub type ErrorHandler = Arc<dyn Fn(Response) -> Response + Send + Sync + 'static>;
 
 /// Error formatter with access to request metadata, invoked for 4xx and 5xx.
@@ -46,7 +43,7 @@ impl Router {
     self
   }
 
-  /// Sets the response status used when a handler exceeds its timeout.
+  /// Status for timed-out requests when no [`Router::timeout_fallback`] is set (default: 504).
   pub fn timeout_status(&mut self, status: http::StatusCode) -> &mut Self {
     self.timeout_status = status;
     self
@@ -63,14 +60,8 @@ impl Router {
     self
   }
 
-  /// Adds global middleware to the router.
-  ///
-  /// The shared receiver allows plugins to register middleware during setup.
-  /// Use [`Router::layer`] to chain this with mutable builder methods.
-  ///
-  /// Global middleware is executed for all routes in the order it was added,
-  /// before any route-specific middleware. Middleware can modify requests,
-  /// generate responses, or perform side effects like logging or authentication.
+  /// Adds middleware that runs, in registration order, before every route's own middleware.
+  /// Takes `&self` so plugins can register it during setup; [`Router::layer`] chains instead.
   ///
   /// # Examples
   ///
@@ -108,9 +99,7 @@ impl Router {
       Box::pin(async move { fut.await.into_response() })
     });
 
-    // RCU-style append: rebuild the Vec atomically against concurrent pushers.
-    // ArcSwap retries the closure on CAS conflict, so concurrent middleware
-    // registrations cannot lose entries.
+    // `rcu` retries on a concurrent update, so no registration is lost.
     self.middlewares.rcu(move |current| {
       let mut next = Vec::with_capacity(current.len() + 1);
       next.extend(current.iter().cloned());
@@ -121,10 +110,7 @@ impl Router {
     self
   }
 
-  /// Sets a fallback handler that will be executed when no route matches.
-  ///
-  /// The fallback runs after global middlewares and can be used to implement
-  /// custom 404 pages, catch-all logic, or method-independent handlers.
+  /// Handles requests whose path matches no route, behind the global middleware.
   ///
   /// # Examples
   ///
@@ -143,15 +129,11 @@ impl Router {
     Fut: std::future::Future<Output = R> + Send + 'static,
     R: Responder + Send + 'static,
   {
-    // Use the Request-arg handler impl to box the fallback
     self.fallback = Some(BoxHandler::new::<F, (Request,)>(handler));
     self
   }
 
-  /// Sets a fallback handler that supports extractors (like `Path`, `Query`, etc.).
-  ///
-  /// Use this when your fallback needs to parse request data via extractors. If you
-  /// only need access to the raw `Request`, prefer `fallback` for simpler type inference.
+  /// [`Router::fallback`] for handlers that take extractors; `fallback` infers types more easily.
   ///
   /// # Examples
   ///
@@ -176,11 +158,8 @@ impl Router {
     self
   }
 
-  /// Sets a default timeout for all routes.
-  ///
-  /// This timeout can be overridden on individual routes using `Route::timeout`.
-  /// When a request exceeds the timeout duration, the timeout fallback handler
-  /// is invoked (if configured) or a 504 Gateway Timeout response is returned.
+  /// Timeout for routes without their own [`Route::timeout`](crate::route::Route::timeout);
+  /// late requests get the [`Router::timeout_fallback`] or [`Router::timeout_status`].
   ///
   /// # Examples
   ///
@@ -196,9 +175,7 @@ impl Router {
     self
   }
 
-  /// Sets a fallback handler that will be executed when a request times out.
-  ///
-  /// If no timeout fallback is set, a default 504 Gateway Timeout response is returned.
+  /// Answers timed-out requests; the handler gets a copy of the request without its body.
   ///
   /// # Examples
   ///
@@ -224,10 +201,7 @@ impl Router {
     self
   }
 
-  /// Sets a global error handler for 5xx responses.
-  ///
-  /// The error handler receives any response with a server error status and can
-  /// transform it (e.g., to return JSON-formatted errors instead of plain text).
+  /// Rewrites every 5xx response, for example into JSON.
   ///
   /// # Examples
   ///
@@ -256,11 +230,7 @@ impl Router {
     self
   }
 
-  /// Sets a global error handler for 4xx responses.
-  ///
-  /// Mirrors [`Router::error_handler`] but fires for client errors. Useful for
-  /// converting bare 404 / 405 / 422 responses into structured error documents
-  /// (e.g. via [`crate::problem::default_problem_responder`]).
+  /// Rewrites every 4xx response, as [`Router::error_handler`] does for 5xx.
   pub fn client_error_handler(
     &mut self,
     handler: impl Fn(Response) -> Response + Send + Sync + 'static,
@@ -269,9 +239,8 @@ impl Router {
     self
   }
 
-  /// Convenience: install [`crate::problem::default_problem_responder`] for
-  /// both 4xx and 5xx so unhandled errors always render as
-  /// `application/problem+json`.
+  /// Installs [`default_problem_responder`](crate::problem::default_problem_responder) as both
+  /// the 4xx and the 5xx handler.
   pub fn use_problem_json(&mut self) -> &mut Self {
     let h: ErrorHandler = Arc::new(crate::problem::default_problem_responder);
     self.error_handler = Some(h.clone());

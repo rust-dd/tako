@@ -1,9 +1,5 @@
-//! Synchronous route matching that starts plain handlers without the full
-//! dispatch pipeline.
-//!
-//! The entry helpers also rewrite the per-request entries in place, so a request
-//! built on a recycled extension map reuses its allocations and never sees the
-//! entries of the request that used the map before.
+//! Starts plain routes' handlers without the full pipeline; entries on a recycled extension
+//! map are rewritten in place, so no request sees those of the request before it.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -25,8 +21,7 @@ use crate::router_state::RouterState;
 use crate::types::Request;
 
 /// How [`Router::begin`] handled a request.
-// Built and matched on the stack right away; boxing the request would cost an
-// allocation on every full-pipeline request.
+// Matched at once on the stack; boxing would allocate on every full-pipeline request.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Dispatch {
   /// The matched route's handler is running; the future yields its response.
@@ -37,12 +32,8 @@ pub(crate) enum Dispatch {
 }
 
 impl Router {
-  /// Matches `req` and starts the handler right away when neither the router
-  /// nor the route adds middleware, timeouts, guards, signals, or error hooks.
-  ///
-  /// `peer` is set by HTTP/1 TCP servers, which leave the connection entries
-  /// to the router; a plain route then gets only the entries its handler's
-  /// extractors list.
+  /// Starts the handler at once when no middleware, timeout, guard, signal or error hook
+  /// applies; with `peer` set, a plain route gets only the entries its extractors list.
   pub(crate) fn begin(&self, req: Request, peer: Option<SocketAddr>) -> Dispatch {
     if req.method() == Method::HEAD || !self.serves_plain_routes() {
       return Dispatch::Full(with_conn(req, peer));
@@ -67,6 +58,9 @@ impl Router {
       set_params(&mut parts.extensions, route, &matched.params);
       set_matched_path(&mut parts.extensions, route);
       self.set_route_entries(&mut parts.extensions, Some(route));
+      parts
+        .extensions
+        .get_or_insert_with(|| crate::router_state::OriginalUriMarker(parts.uri.clone()));
     } else if needs != Entries::NONE {
       self.attach_listed(&mut parts.extensions, route, &matched.params, peer, needs);
     }
@@ -158,9 +152,8 @@ impl Router {
         .is_none()
   }
 
-  /// Sets the state and body-limit entries for `route`, or for an unmatched
-  /// request when `route` is `None`. Router state is never left over from a
-  /// recycled map, since recycling drops it.
+  /// Sets the state and body-limit entries for `route`, or for an unmatched request;
+  /// a recycled map never carries router state, since recycling drops it.
   pub(super) fn set_route_entries(&self, extensions: &mut Extensions, route: Option<&Route>) {
     if let Some(state) = self.state_for(route) {
       set_state(extensions, state);

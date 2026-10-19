@@ -1,7 +1,4 @@
-//! UDP datagram server for handling raw UDP packets.
-//!
-//! Provides a simple UDP server that receives datagrams and dispatches them
-//! through a user-defined handler function. Supports both tokio and compio runtimes.
+//! Raw UDP servers that hand each datagram to a handler, on Tokio or compio.
 //!
 //! # Examples
 //!
@@ -31,28 +28,7 @@ use futures_util::FutureExt;
 #[cfg(feature = "compio")]
 use futures_util::StreamExt;
 
-/// Handler function type for UDP datagrams.
-///
-/// Receives the raw bytes, the sender's address, and a reference to the socket
-/// for sending responses.
-#[cfg(not(feature = "compio"))]
-pub type UdpHandler = Arc<
-  dyn Fn(Vec<u8>, SocketAddr, Arc<tokio::net::UdpSocket>) -> Pin<Box<dyn Future<Output = ()> + Send>>
-    + Send
-    + Sync,
->;
-
-#[cfg(feature = "compio")]
-pub type UdpHandler = Arc<
-  dyn Fn(Vec<u8>, SocketAddr, Arc<compio::net::UdpSocket>) -> Pin<Box<dyn Future<Output = ()>>>
-    + Send
-    + Sync,
->;
-
-/// Starts a UDP server that listens on the given address.
-///
-/// The handler is called for each received datagram with the raw bytes,
-/// the sender's address, and a reference to the socket.
+/// Runs `handler` for every datagram until a receive error, which it returns.
 ///
 /// # Examples
 ///
@@ -104,9 +80,7 @@ where
   }
 }
 
-/// Starts a UDP server with a shutdown signal.
-///
-/// The server stops accepting new datagrams when the shutdown signal completes.
+/// Stops receiving once `signal` resolves and gives running handlers up to 30 seconds.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_udp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
 where
@@ -189,7 +163,7 @@ where
   Ok(())
 }
 
-/// Starts a UDP server (compio runtime).
+/// Runs `handler` for every datagram until a receive error, which it returns.
 #[cfg(feature = "compio")]
 pub async fn serve_udp<F>(addr: &str, handler: F) -> std::io::Result<()>
 where
@@ -228,7 +202,7 @@ where
   }
 }
 
-/// Starts a UDP server with a shutdown signal (compio runtime).
+/// Stops receiving once `signal` resolves and gives running handlers up to 30 seconds.
 #[cfg(feature = "compio")]
 pub async fn serve_udp_with_shutdown<F, S>(addr: &str, handler: F, signal: S) -> std::io::Result<()>
 where

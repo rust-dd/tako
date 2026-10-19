@@ -7,12 +7,8 @@ use tako_rs_core::types::BoxError;
 
 use crate::h3_common::sessions::Sessions;
 
-/// Handles a single HTTP/3 connection.
-///
-/// Races `accept()` against the per-connection shutdown notify; on shutdown,
-/// emits a GOAWAY frame via `h3_conn.shutdown(0)` and waits up to `goaway_grace`
-/// for any already-spawned request handlers to finish before returning. An
-/// accepted WebTransport session takes the connection over until it ends.
+/// Serves one connection until the peer closes it or shutdown sends GOAWAY, then gives requests
+/// `goaway_grace` to finish; an accepted WebTransport session takes the connection over.
 pub(crate) async fn handle_connection(
   conn: quinn::Connection,
   router: Arc<Router>,
@@ -54,10 +50,8 @@ pub(crate) async fn handle_connection(
       session = sessions.recv() => break Some(session),
       _ = request_tasks.join_next(), if !request_tasks.is_empty() => {}
       () = shutdown.cancelled() => {
-        // Send GOAWAY(0): the peer must not start any new request, but we
-        // continue draining streams already in flight on this connection.
-        // `CancellationToken::cancelled()` is sticky — connections that
-        // handshake AFTER the server-level signal also observe the trigger.
+        // GOAWAY(0) stops new requests while in-flight streams drain below; the token is sticky,
+        // so connections accepted after shutdown began land here too.
         if let Err(e) = h3_conn.shutdown(0).await {
           tracing::debug!("HTTP/3 GOAWAY error: {e}");
         }
@@ -72,7 +66,6 @@ pub(crate) async fn handle_connection(
       .await;
   }
 
-  // Drain in-flight request handlers within the per-connection grace.
   let drain_deadline = tokio::time::Instant::now() + goaway_grace;
   let drain = tokio::time::timeout_at(drain_deadline, async {
     while request_tasks.join_next().await.is_some() {}

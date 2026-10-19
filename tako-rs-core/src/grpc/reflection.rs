@@ -1,23 +1,12 @@
-//! `grpc.reflection.v1.ServerReflection` scaffolding.
-//!
-//! Provides a [`ReflectionRegistry`](crate::grpc::reflection::ReflectionRegistry) that callers populate with the
-//! `FileDescriptorProto` blobs they want to expose; the registry answers
-//! `list_services`, `file_by_filename`, and `file_containing_symbol` queries.
-//!
-//! ⚠️ **Status:** the encoder/decoder for `ServerReflectionRequest` /
-//! `ServerReflectionResponse` is intentionally minimal — it covers the three
-//! query kinds above and leaves the others (`file_containing_extension`,
-//! `all_extension_numbers_of_type`) to follow-up work. Generated proto code
-//! requires a build script, which would force every consumer to run
-//! `protoc`; the scaffold here lets you ship reflection from a hand-rolled
-//! descriptor or a pre-baked `.pb` blob in the meantime.
+//! Descriptor registry for `grpc.reflection.v1`: answers `list_services`, `file_by_filename`
+//! and `file_containing_symbol`, while the RPC itself is up to you.
 
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use scc::HashMap as SccHashMap;
 
-/// Reflection registry — populated at startup and consulted by the reflection RPC.
+/// Services and file descriptors to expose; clones share one registry.
 #[derive(Clone, Default)]
 pub struct ReflectionRegistry {
   services: Arc<RwLock<Vec<String>>>,
@@ -26,47 +15,34 @@ pub struct ReflectionRegistry {
 }
 
 impl ReflectionRegistry {
-  /// Empty registry.
   pub fn new() -> Self {
     Self::default()
   }
 
-  /// Register a fully-qualified service name (e.g. `helloworld.Greeter`).
+  /// Registers a fully-qualified service name such as `helloworld.Greeter`.
   pub fn add_service(&self, name: impl Into<String>) {
     self.services.write().push(name.into());
   }
 
-  /// Register a file descriptor under its source filename.
-  ///
-  /// Re-registering the same filename replaces the prior descriptor (e.g. a
-  /// binary-rebuild that rewrites a `.pb` blob in place).
+  /// Registers a serialized `FileDescriptorProto`, replacing one under the same filename.
   pub fn add_file(&self, filename: impl Into<String>, descriptor: Vec<u8>) {
-    // `upsert_sync` so re-registration of an already-known filename
-    // actually swaps the descriptor — `insert_sync` would silently keep
-    // the stale blob.
     self.files.upsert_sync(filename.into(), descriptor);
   }
 
-  /// Map a fully-qualified symbol (`pkg.Service.Method`) to the file that defines it.
-  ///
-  /// Re-mapping an existing symbol replaces the prior filename (e.g. after a
-  /// method moves between files).
+  /// Maps a symbol such as `pkg.Service.Method` to its file, replacing an earlier mapping.
   pub fn map_symbol(&self, symbol: impl Into<String>, filename: impl Into<String>) {
-    // See `add_file`: `upsert_sync` so re-mappings take effect.
     self.symbols.upsert_sync(symbol.into(), filename.into());
   }
 
-  /// Snapshot of registered service names.
   pub fn list_services(&self) -> Vec<String> {
     self.services.read().clone()
   }
 
-  /// Look up the descriptor blob for a filename.
   pub fn file_by_filename(&self, filename: &str) -> Option<Vec<u8>> {
     self.files.get_sync(filename).map(|e| e.get().clone())
   }
 
-  /// Resolve a file descriptor by symbol (if registered via `map_symbol`).
+  /// Resolves the file a symbol was mapped to with [`map_symbol`](Self::map_symbol).
   pub fn file_containing_symbol(&self, symbol: &str) -> Option<Vec<u8>> {
     let entry = self.symbols.get_sync(symbol)?;
     let filename = entry.get().clone();
@@ -75,8 +51,7 @@ impl ReflectionRegistry {
   }
 }
 
-/// Marker placed in router state so plugin/middleware code can discover the
-/// active reflection registry.
+/// Router-state wrapper that lets plugin or middleware code find the active registry.
 pub struct ReflectionState {
   pub registry: ReflectionRegistry,
 }

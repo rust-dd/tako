@@ -24,9 +24,7 @@ use crate::h3_common::config::transport_config_from;
 use crate::h3_common::sessions::Accepted;
 use crate::h3_common::sessions::Sessions;
 
-/// Binds a QUIC endpoint for HTTP/3 on `addr`.
-///
-/// Must run inside a compio runtime, which drives the endpoint.
+/// Binds a QUIC endpoint for HTTP/3 on `addr`; must run inside the compio runtime that drives it.
 pub(crate) fn bind_endpoint(
   addr: &str,
   tls_config: &rustls::ServerConfig,
@@ -53,7 +51,7 @@ pub(crate) fn bind_endpoint(
 pub(crate) async fn run_endpoint(
   endpoint: Endpoint,
   router: Router,
-  signal: Option<impl Future<Output = ()>>,
+  signal: impl Future<Output = ()>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   #[cfg(feature = "tako-tracing")]
@@ -78,24 +76,15 @@ pub(crate) async fn run_endpoint(
     .max_connections
     .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
   let conn_shutdown = CancellationToken::new();
-
-  let signal = signal.map(|s| Box::pin(s));
-  let mut signal_fused = std::pin::pin!(async {
-    if let Some(s) = signal {
-      s.await;
-    } else {
-      std::future::pending::<()>().await;
-    }
-  });
+  let mut signal = std::pin::pin!(signal);
 
   loop {
     let accept = std::pin::pin!(endpoint.wait_incoming());
-    match futures_util::future::select(accept, signal_fused.as_mut()).await {
+    match futures_util::future::select(accept, signal.as_mut()).await {
       Either::Left((None, _)) => break,
       Either::Left((Some(incoming), _)) => {
-        // Optional address-validation retry. Defends against UDP source-IP
-        // spoofing amplification by forcing the client through one extra
-        // round-trip with a server-issued retry token.
+        // A retry costs the client a round-trip but proves its address, which stops UDP
+        // amplification from spoofed sources.
         if h3_use_retry && !incoming.remote_address_validated() {
           if let Err(e) = incoming.retry() {
             tracing::debug!("HTTP/3 retry refused: {e}");
@@ -105,7 +94,7 @@ pub(crate) async fn run_endpoint(
 
         let permit = if let Some(sem) = max_conn_semaphore.as_ref() {
           let acquire = std::pin::pin!(sem.clone().acquire_owned());
-          match futures_util::future::select(acquire, signal_fused.as_mut()).await {
+          match futures_util::future::select(acquire, signal.as_mut()).await {
             Either::Left((Ok(p), _)) => Some(p),
             Either::Left((Err(_), _)) => continue,
             Either::Right(_) => break,
@@ -174,9 +163,8 @@ pub(crate) async fn run_endpoint(
   Ok(())
 }
 
-/// Serves one HTTP/3 connection until the peer closes it or shutdown sends a
-/// GOAWAY, then gives in-flight requests up to `goaway_grace` to finish. An
-/// accepted WebTransport session takes the connection over until it ends.
+/// Serves one connection until the peer closes it or shutdown sends GOAWAY, then gives requests
+/// `goaway_grace` to finish; an accepted WebTransport session takes the connection over.
 async fn handle_connection(
   conn: Connection,
   router: Arc<Router>,

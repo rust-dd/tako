@@ -1,23 +1,7 @@
-//! `OpenAPI` documentation generation integrations.
+//! `OpenAPI` route metadata plus two spec backends: `utoipa` (derive macros, recommended) and
+//! `vespera` (a spec built at runtime, also from the routes' metadata).
 //!
-//! Tako ships two integration backends; pick exactly one per project:
-//!
-//! - **`utoipa` — primary, recommended**. Compile-time `OpenAPI` generation via
-//!   derive macros, mature ecosystem, broad community use. Enable with the
-//!   `utoipa` cargo feature.
-//! - **`vespera` — legacy / advanced**. Hand-rolled `OpenAPI` 3.1 builder plus
-//!   route discovery. Kept opt-in for users who need the runtime spec model
-//!   that `utoipa` does not provide. Enable with the `vespera` feature.
-//!
-//! Both backends share the same [`RouteOpenApi`](crate::openapi::RouteOpenApi) metadata attached on the
-//! `Router::route(...)` builder via `summary` / `description` / `tag` /
-//! `response`. The `OpenAPI` documents themselves are produced by whichever
-//! backend the application enables; do not enable both unless you are
-//! intentionally cross-validating the output.
-//!
-//! # Route-Level Integration
-//!
-//! Both integrations support route-level `OpenAPI` metadata:
+//! # Examples
 //!
 //! ```rust,ignore
 //! use tako::{router::Router, Method};
@@ -30,10 +14,6 @@
 //!     .response(200, "Successful response")
 //!     .response(404, "User not found");
 //! ```
-//!
-//! # Examples
-//!
-//! ## Using utoipa
 //!
 //! ```rust,ignore
 //! use tako::openapi::utoipa::{OpenApi, OpenApiJson, ToSchema};
@@ -53,8 +33,6 @@
 //! }
 //! ```
 //!
-//! ## Using vespera
-//!
 //! ```rust,ignore
 //! use tako::openapi::vespera::{OpenApi, Info, VesperaOpenApiJson};
 //!
@@ -73,46 +51,30 @@
 
 use std::collections::BTreeMap;
 
-/// `OpenAPI` metadata that can be attached to a route.
-///
-/// This struct stores operation-level `OpenAPI` information that can be
-/// used to generate `OpenAPI` specifications from Tako routes.
+/// `OpenAPI` operation metadata of one route.
 #[derive(Clone, Debug, Default)]
 pub struct RouteOpenApi {
-  /// Unique identifier for the operation.
   pub operation_id: Option<String>,
-  /// Short summary of the operation.
   pub summary: Option<String>,
-  /// Detailed description of the operation.
   pub description: Option<String>,
-  /// Tags for grouping operations.
   pub tags: Vec<String>,
-  /// Whether the operation is deprecated.
   pub deprecated: bool,
-  /// Response descriptions keyed by status code.
+  /// Response description per status code.
   pub responses: BTreeMap<u16, String>,
-  /// Parameter descriptions.
   pub parameters: Vec<OpenApiParameter>,
-  /// Request body description.
   pub request_body: Option<OpenApiRequestBody>,
-  /// Security requirements.
+  /// Names of the security schemes the operation requires.
   pub security: Vec<String>,
 }
 
-/// `OpenAPI` parameter definition.
 #[derive(Clone, Debug, Default)]
 pub struct OpenApiParameter {
-  /// Parameter name.
   pub name: String,
-  /// Parameter location (query, header, path, cookie).
   pub location: ParameterLocation,
-  /// Parameter description.
   pub description: Option<String>,
-  /// Whether the parameter is required.
   pub required: bool,
 }
 
-/// Location of an `OpenAPI` parameter.
 #[derive(Clone, Debug, Default)]
 pub enum ParameterLocation {
   #[default]
@@ -122,27 +84,21 @@ pub enum ParameterLocation {
   Cookie,
 }
 
-/// `OpenAPI` request body definition.
 #[derive(Clone, Debug, Default)]
 pub struct OpenApiRequestBody {
-  /// Description of the request body.
   pub description: Option<String>,
-  /// Whether the request body is required.
   pub required: bool,
-  /// Content type (e.g., "application/json").
+  /// Media type such as `application/json`.
   pub content_type: String,
-  /// Schema properties for the request body (name, type, description).
+  /// Top-level properties of the body's object schema.
   pub schema_properties: Vec<RequestBodyProperty>,
 }
 
-/// A property definition for request body schema.
 #[derive(Clone, Debug, Default)]
 pub struct RequestBodyProperty {
-  /// Property name.
   pub name: String,
-  /// Property type (e.g., "string", "integer", "boolean").
+  /// JSON Schema type such as `string`, `integer` or `boolean`.
   pub property_type: String,
-  /// Property description.
   pub description: Option<String>,
 }
 
@@ -154,5 +110,4 @@ pub mod utoipa;
 #[cfg_attr(docsrs, doc(cfg(feature = "vespera")))]
 pub mod vespera;
 
-/// `OpenAPI` UI helpers (Swagger UI, Scalar, `RapiDoc`, `Redoc`).
 pub mod ui;

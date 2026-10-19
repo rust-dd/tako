@@ -209,14 +209,14 @@ file again on graceful shutdown so the next run can re-bind.
 Each function has `…_with_shutdown` and `…_with_shutdown_and_drain` variants that
 take a shutdown-signal future. On signal the listener stops accepting and in-flight
 work is drained, with a default 30-second bound you can override on the
-`_and_drain` form. For HTTP-over-unix, `serve_unix_http_with_config` accepts a
+`_and_drain` form. For HTTP-over-unix, the builder's `spawn_unix_http` takes its
 [`ServerConfig`](/docs/concepts/runtimes) for connection caps and timeouts.
 
 ## HTTP alternatives
 
 If you want HTTP rather than a raw protocol, you usually do not need these: plain
 HTTP is covered in [HTTP/1.1 & HTTP/2](/docs/transports/http), and the
-builder's `spawn_unix_http` mirrors `serve_unix_http`. Reach for the raw listeners
+builder's `spawn_unix_http` serves HTTP over a Unix socket. Reach for the raw listeners
 only when you control both ends of a non-HTTP protocol.
 
 ## Examples

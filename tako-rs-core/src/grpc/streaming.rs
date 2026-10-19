@@ -1,6 +1,3 @@
-//! Streaming gRPC: the server-streaming responder, the client-streaming
-//! extractor, and the bidirectional extractor that pairs the two.
-//!
 //! A reply starts as soon as the handler returns, while the request body is
 //! still open, so a bidirectional handler reads and writes concurrently.
 
@@ -31,23 +28,16 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Server-streaming gRPC response.
-///
-/// Sends each `Ok` item as a length-prefixed message; items that are ready
-/// together share one DATA frame. The call ends with
-/// `grpc-status: 0` when the stream finishes, with the status of the first
-/// `Err` item (later items are dropped), or with `DeadlineExceeded` once the
-/// optional deadline passes. A client that cancels drops the stream.
+/// Server-streaming reply. The call ends with `grpc-status: 0`, the first `Err` item's
+/// status (later items are dropped), or `DeadlineExceeded` once the deadline passes.
 pub struct GrpcServerStream<S, T>
 where
   S: Stream<Item = Result<T, GrpcStatus>> + Send + 'static,
   T: Message + Send + 'static,
 {
-  /// Messages to send; the first `Err` ends the call with its status.
   pub stream: S,
-  /// Server metadata sent as response headers (initial metadata).
+  /// Sent as response headers.
   pub initial_metadata: HeaderMap,
-  /// Ends the call with `DeadlineExceeded` once reached.
   pub deadline: Option<GrpcDeadline>,
 }
 
@@ -69,8 +59,8 @@ where
     self
   }
 
-  /// Ends the call with `DeadlineExceeded` at `deadline`, typically the
-  /// client's `grpc-timeout` taken as an `Option<GrpcDeadline>` extractor.
+  /// Ends the call with `DeadlineExceeded` at `deadline`, typically the client's
+  /// `grpc-timeout` taken as an `Option<GrpcDeadline>` extractor.
   pub fn with_deadline(mut self, deadline: impl Into<Option<GrpcDeadline>>) -> Self {
     self.deadline = deadline.into();
     self
@@ -95,13 +85,11 @@ where
   }
 }
 
-/// Messages that are ready together share one DATA frame up to this size, as
-/// in tonic. A frame per tiny message wastes framing overhead, and `h2`
-/// clients close the connection when too many small frames wait unread.
+/// Ready messages share one DATA frame up to this size, as in tonic: `h2` clients close the
+/// connection when too many small frames wait unread.
 pub(super) const BATCH_LIMIT: usize = 32 * 1024;
 
-/// Response body of a [`GrpcServerStream`]: DATA frames carrying the
-/// messages, then exactly one trailers frame carrying `grpc-status`.
+/// DATA frames carrying the messages, then exactly one trailers frame with `grpc-status`.
 struct GrpcStreamBody<S> {
   /// `None` once the call has ended.
   stream: Option<Pin<Box<S>>>,
@@ -171,12 +159,8 @@ where
   }
 }
 
-/// Client-streaming gRPC extractor.
-///
-/// Yields the request's messages as they arrive. The stream ends after the
-/// first error; a request that stops inside a message yields
-/// [`GrpcError::InvalidFrame`]. Each message is capped at
-/// [`MAX_GRPC_MESSAGE_SIZE`](super::MAX_GRPC_MESSAGE_SIZE).
+/// Client-streaming request: yields messages as they arrive, each at most
+/// [`MAX_GRPC_MESSAGE_SIZE`](super::MAX_GRPC_MESSAGE_SIZE), and ends after the first error.
 pub struct GrpcClientStream<T: Message + Default + Send + 'static> {
   pub stream: Pin<Box<dyn Stream<Item = Result<T, GrpcError>> + Send>>,
 }
@@ -205,18 +189,15 @@ impl<T: Message + Default + Send + 'static> Stream for GrpcClientStream<T> {
   }
 }
 
-/// Bidirectional gRPC extractor.
-///
-/// Reads `Req` messages like a [`GrpcClientStream`] and names the `Resp`
-/// type of the reply, so [`respond`](Self::respond) can build the
-/// [`GrpcServerStream`] with full type inference.
+/// Bidirectional call: reads `Req` like a [`GrpcClientStream`] and fixes the `Resp` type,
+/// so [`respond`](Self::respond) infers the reply stream.
 pub struct GrpcBidi<Req, Resp>
 where
   Req: Message + Default + Send + 'static,
   Resp: Message + Send + 'static,
 {
   pub inbound: GrpcClientStream<Req>,
-  pub _phantom: PhantomData<Resp>,
+  _phantom: PhantomData<Resp>,
 }
 
 impl<Req, Resp> GrpcBidi<Req, Resp>

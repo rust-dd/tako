@@ -7,17 +7,15 @@ use serde_json::Value;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::types::Request;
 
+use super::cleanup::PendingUploads;
+use super::runtime::timeout;
 use crate::multipart::FromMultipartField;
 use crate::multipart::MultipartConfig;
 use crate::multipart::MultipartError;
+use crate::multipart::MultipartFields;
 use crate::multipart::TypedMultipartError;
 
-/// Wrapper around `multer::Multipart` to provide additional functionality.
-///
-/// This wrapper provides a unified interface for processing multipart form data
-/// while maintaining compatibility with the underlying `multer` crate. It can be
-/// used for manual processing of multipart fields when more control is needed
-/// than the typed multipart extractor provides.
+/// A field stream enforcing [`MultipartConfig`]'s size, part-count, and content-type limits.
 ///
 /// # Examples
 ///
@@ -45,12 +43,11 @@ use crate::multipart::TypedMultipartError;
 /// }
 /// ```
 #[doc(alias = "multipart")]
-pub struct TakoMultipart<'a>(pub Multipart<'a>);
+pub struct TakoMultipart<'a>(pub MultipartFields<'a>);
 
 impl<'a> TakoMultipart<'a> {
-  /// Consumes the wrapper and returns the inner `Multipart` instance.
   #[inline]
-  pub fn into_inner(self) -> Multipart<'a> {
+  pub fn into_inner(self) -> MultipartFields<'a> {
     self.0
   }
 }
@@ -82,29 +79,18 @@ impl<'a> TakoMultipart<'a> {
     let cfg = MultipartConfig::lookup(req.extensions());
     let constraints = cfg.to_constraints();
     let body_stream = req.body_mut().into_data_stream();
-    Ok(TakoMultipart(Multipart::with_constraints(
-      body_stream,
-      boundary,
-      constraints,
+    Ok(TakoMultipart(MultipartFields::new(
+      Multipart::with_constraints(body_stream, boundary, constraints),
+      cfg,
     )))
   }
 }
 
-/// Represents a strongly-typed multipart request.
-///
-/// This struct allows deserialization of multipart form data into a strongly-typed
-/// structure, combining both file and text fields. It provides automatic handling
-/// of different field types and deserializes the entire form into a single data structure.
-///
-/// # Type Parameters
-///
-/// * `T` - The target type to deserialize form data into
-/// * `F` - The type used for file fields (must implement `FromMultipartField`)
+/// A multipart body deserialized into `T`: text fields become strings and file fields are
+/// read as `F`. Enforces every [`MultipartConfig`] limit.
 #[doc(alias = "typed_multipart")]
 pub struct TakoTypedMultipart<'a, T, F> {
-  /// Deserialized data from the multipart request.
   pub data: T,
-  /// Marker for the field type (used for type inference).
   _marker: core::marker::PhantomData<&'a F>,
 }
 
@@ -136,16 +122,17 @@ where
       let mut multipart =
         Multipart::with_constraints(req.body_mut().into_data_stream(), boundary, constraints);
       let mut map = Map::<String, Value>::new();
+      let mut uploads = PendingUploads::default();
       let mut count: usize = 0;
 
       let field_timeout = cfg.field_chunk_timeout;
       loop {
         let next_field_fut = multipart.next_field();
         let field = match field_timeout {
-          Some(d) => match tokio::time::timeout(d, next_field_fut).await {
+          Some(d) => match timeout(d, next_field_fut).await {
             Ok(Ok(field)) => field,
             Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-            Err(_) => {
+            Err(()) => {
               return Err(TypedMultipartError::FieldError(
                 "multipart slow-read timeout".to_string(),
               ));
@@ -177,31 +164,31 @@ where
           .to_owned();
 
         if field.file_name().is_some() {
-          let file_value: F = match field_timeout {
-            Some(d) => match tokio::time::timeout(d, F::from_field(field)).await {
+          let mut file_value = match field_timeout {
+            Some(d) => match timeout(d, F::from_field_with(field, &cfg)).await {
               Ok(Ok(v)) => v,
               Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-              Err(_) => {
+              Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
                 ));
               }
             },
-            None => F::from_field(field)
+            None => F::from_field_with(field, &cfg)
               .await
               .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
           };
 
-          let json_value = serde_json::to_value(file_value)
+          let json_value = serde_json::to_value(&file_value)
             .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
-
+          uploads.insert(file_value.take_cleanup());
           map.insert(field_name, json_value);
         } else {
           let field_bytes = match field_timeout {
-            Some(d) => match tokio::time::timeout(d, field.bytes()).await {
+            Some(d) => match timeout(d, field.bytes()).await {
               Ok(Ok(b)) => b,
               Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
-              Err(_) => {
+              Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
                 ));
@@ -220,7 +207,8 @@ where
         }
       }
 
-      let data: T = serde_json::from_value(Value::Object(map))
+      let data = uploads
+        .deserialize::<T>(Value::Object(map))
         .map_err(|e| TypedMultipartError::DeserializationError(e.to_string()))?;
 
       Ok(Self {
@@ -230,3 +218,6 @@ where
     }
   }
 }
+
+#[cfg(test)]
+mod tests;

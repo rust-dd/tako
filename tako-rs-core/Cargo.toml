@@ -21,99 +21,66 @@ anyhow = { workspace = true }
 arc-swap = { workspace = true }
 async-graphql = { workspace = true, optional = true }
 async-trait = { workspace = true }
-base64 = { workspace = true }
-brotli = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
 bytes = { workspace = true }
 chrono = { workspace = true, optional = true }
 compio = { workspace = true, optional = true }
-cookie = { workspace = true }
 cron = { workspace = true, optional = true }
-cyper-core = { workspace = true, optional = true }
 envy = { workspace = true }
-flate2 = { workspace = true, optional = true }
 futures-util = { workspace = true }
-h3 = { workspace = true, optional = true }
-h3-quinn = { workspace = true, optional = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
-hyper-util = { workspace = true }
 linkme = { workspace = true }
 matchit = { workspace = true }
 mime = { workspace = true }
 mime_guess = { workspace = true }
-multer = { workspace = true, optional = true }
-opentelemetry = { workspace = true, optional = true }
-opentelemetry-otlp = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
-prometheus = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
-quinn = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 scc = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_bytes = { workspace = true }
 serde_json = { workspace = true }
-serde_urlencoded = { workspace = true }
-sha1 = { workspace = true }
-sha2 = { workspace = true }
-simd-json = { workspace = true, optional = true }
+sha1 = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 smallvec = { workspace = true }
 sonic-rs = { workspace = true, optional = true }
 thread_local = { workspace = true }
 tokio = { workspace = true }
-tokio-rustls = { workspace = true, optional = true }
-tokio-stream = { workspace = true }
-tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }
-url = { workspace = true }
-urlencoding = { workspace = true }
+url = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
-uuid = { workspace = true, optional = true }
 vespera_core = { workspace = true, optional = true }
-zstd = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "freebsd")'.dependencies]
-jwt-simple = { workspace = true, features = ["pure-rust"], optional = true, default-features = false }
-
-[target.'cfg(not(target_os = "freebsd"))'.dependencies]
-jwt-simple = { workspace = true, optional = true, features = ["default"] }
 
 [features]
-async-graphql = ["tako-rs/async-graphql", "dep:async-graphql"]
-compio = ["tako-rs/compio", "dep:compio", "dep:cyper-core", "dep:send_wrapper"]
+async-graphql = ["tako-rs/async-graphql", "dep:async-graphql", "dep:sha2"]
+compio = ["tako-rs/compio", "dep:compio", "dep:send_wrapper"]
 compio-tls = ["tako-rs/compio-tls", "compio", "tls", "dep:rustls"]
-metrics-prometheus = ["tako-rs/metrics-prometheus", "dep:prometheus", "plugins", "signals"]
-metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "plugins", "signals"]
+metrics-prometheus = ["tako-rs/metrics-prometheus", "plugins", "signals"]
+metrics-opentelemetry = ["tako-rs/metrics-opentelemetry", "plugins", "signals"]
 graphiql = ["tako-rs/graphiql", "dep:async-graphql", "async-graphql/graphiql"]
 default = []
-ws = ["tako-rs/ws", "futures-util/sink", "hyper/http1", "hyper/server"]
+ws = ["tako-rs/ws", "dep:base64", "dep:sha1", "dep:url", "futures-util/sink", "hyper/http1", "hyper/server"]
 file-stream = ["tako-rs/file-stream"]
-http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2"]
+http2 = ["tako-rs/http2", "hyper/http2"]
 jemalloc = ["tako-rs/jemalloc"]
-multipart = ["tako-rs/multipart", "dep:multer", "dep:uuid"]
-plugins = ["tako-rs/plugins", "dep:brotli", "dep:flate2"]
+multipart = ["tako-rs/multipart"]
+plugins = ["tako-rs/plugins"]
 protobuf = ["tako-rs/protobuf", "dep:prost"]
 signals = ["tako-rs/signals"]
-# `simd` is a meta-feature enabling both SIMD JSON backends. Prefer the
-# split features below when you only need one backend — they shrink the
-# binary by skipping the unused SIMD parser.
+# Both SIMD JSON backends; the split features below skip the unused parser.
 simd = ["tako-rs/simd", "simd-sonic", "simd-json-impl"]
-# Enables the `sonic-rs` backend used by the built-in `Json<T>` extractor's
-# SIMD fast path. (Without this, `Json<T>` falls back to `serde_json`.)
+# The `sonic-rs` fast path of `Json<T>`, which otherwise uses `serde_json`.
 simd-sonic = ["tako-rs/simd-sonic", "dep:sonic-rs"]
-# Enables the `simd-json` backend used by the optional `SimdJson<T>` extractor
-# re-exported from `tako-extractors`.
-simd-json-impl = ["tako-rs/simd-json-impl", "dep:simd-json"]
-tls = ["tako-rs/tls", "dep:tokio-rustls", "dep:rustls"]
-grpc = ["tako-rs/grpc", "protobuf"]
+simd-json-impl = ["tako-rs/simd-json-impl"]
+tls = ["tako-rs/tls", "dep:rustls"]
+grpc = ["tako-rs/grpc", "protobuf", "dep:base64"]
 queue-cron = ["tako-rs/queue-cron", "dep:cron", "dep:chrono"]
-http3 = ["tako-rs/http3", "dep:h3", "dep:h3-quinn", "dep:quinn", "dep:rustls"]
+http3 = ["tako-rs/http3", "dep:rustls"]
 webtransport = ["tako-rs/webtransport", "http3"]
 ahash = ["tako-rs/ahash", "dep:ahash"]
 tako-tracing = ["tako-rs/tako-tracing", "dep:tracing-subscriber"]
@@ -121,8 +88,8 @@ utoipa = ["tako-rs/utoipa", "dep:utoipa"]
 utoipa-yaml = ["tako-rs/utoipa-yaml", "utoipa", "utoipa/yaml"]
 vespera = ["tako-rs/vespera", "dep:vespera_core"]
 zero-copy-extractors = ["tako-rs/zero-copy-extractors"]
-jwt-simple = ["tako-rs/jwt-simple", "dep:jwt-simple"]
-zstd = ["tako-rs/zstd", "dep:zstd", "plugins"]
+jwt-simple = ["tako-rs/jwt-simple"]
+zstd = ["tako-rs/zstd", "plugins"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -130,6 +97,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dev-dependencies]
 criterion = { workspace = true }
+hyper-util = { workspace = true }
 tako-rs = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 

@@ -18,9 +18,8 @@ use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::types::BoxError;
 
-/// `Send` on Tokio, whose work-stealing runtime may move request tasks between
-/// workers; no bound on compio, whose single-threaded runtime keeps every task
-/// on the thread that spawned it.
+/// `Send` on Tokio, whose work-stealing runtime moves tasks between workers; no bound on compio,
+/// which keeps every task on the thread that spawned it.
 #[cfg(not(feature = "compio"))]
 pub(crate) trait RuntimeSend: Send {}
 #[cfg(not(feature = "compio"))]
@@ -61,7 +60,6 @@ where
   body
 }
 
-/// Handles a single HTTP/3 request.
 pub(crate) async fn handle_request<S>(
   req: Request<()>,
   stream: RequestStream<S, Bytes>,

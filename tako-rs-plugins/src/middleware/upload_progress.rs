@@ -1,8 +1,5 @@
-//! Upload progress tracking middleware.
-//!
-//! Wraps the request body to track upload progress and report it via a callback
-//! or through request extensions. Handlers can access the progress tracker to
-//! monitor bytes received.
+//! Counts request body bytes as they stream, without buffering, through a [`ProgressTracker`]
+//! extension and an optional callback.
 //!
 //! # Examples
 //!
@@ -34,7 +31,6 @@ use bytes::Bytes;
 use http_body::Body;
 use http_body::Frame;
 use http_body::SizeHint;
-use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::IntoMiddleware;
@@ -43,17 +39,15 @@ use tako_rs_core::types::BoxError;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Upload progress state accessible during and after upload.
 #[derive(Debug, Clone)]
 pub struct ProgressState {
-  /// Number of bytes read so far.
   pub bytes_read: u64,
-  /// Total expected bytes (from Content-Length), if known.
+  /// From `Content-Length`, when present.
   pub total_bytes: Option<u64>,
 }
 
 impl ProgressState {
-  /// Returns the upload percentage (0-100), if total is known.
+  /// Capped at 100; `None` without `Content-Length`.
   pub fn percent(&self) -> Option<u8> {
     self.total_bytes.map(|total| {
       if total == 0 {
@@ -65,9 +59,7 @@ impl ProgressState {
   }
 }
 
-/// Shared progress tracker inserted into request extensions.
-///
-/// Handlers can access this to check current upload progress.
+/// Inserted into request extensions; reads the live byte count.
 #[derive(Clone)]
 pub struct ProgressTracker {
   bytes_read: Arc<AtomicU64>,
@@ -75,7 +67,6 @@ pub struct ProgressTracker {
 }
 
 impl ProgressTracker {
-  /// Returns the current progress state.
   pub fn state(&self) -> ProgressState {
     ProgressState {
       bytes_read: self.bytes_read.load(Ordering::Relaxed),
@@ -83,24 +74,19 @@ impl ProgressTracker {
     }
   }
 
-  /// Returns the number of bytes read so far.
   pub fn bytes_read(&self) -> u64 {
     self.bytes_read.load(Ordering::Relaxed)
   }
 
-  /// Returns the total expected bytes, if known.
   pub fn total_bytes(&self) -> Option<u64> {
     self.total_bytes
   }
 
-  /// Returns the upload percentage (0-100), if total is known.
   pub fn percent(&self) -> Option<u8> {
     self.state().percent()
   }
 }
 
-/// Upload progress middleware configuration.
-///
 /// # Examples
 ///
 /// ```rust
@@ -131,7 +117,6 @@ impl Default for UploadProgress {
 }
 
 impl UploadProgress {
-  /// Creates a new upload progress middleware.
   pub fn new() -> Self {
     Self {
       callback: None,
@@ -139,7 +124,7 @@ impl UploadProgress {
     }
   }
 
-  /// Sets a callback that is called as bytes are received.
+  /// Runs inline while the body is polled, so it must not block; a final call fires at its end.
   pub fn on_progress<F>(mut self, f: F) -> Self
   where
     F: Fn(ProgressState) + Send + Sync + 'static,
@@ -148,10 +133,7 @@ impl UploadProgress {
     self
   }
 
-  /// Sets the minimum byte interval between progress notifications.
-  ///
-  /// This prevents the callback from being called too frequently for
-  /// large uploads. Default is 0 (notify on every chunk).
+  /// Minimum bytes between callbacks; 0, the default, notifies on every chunk.
   pub fn min_notify_interval_bytes(mut self, bytes: u64) -> Self {
     self.min_notify_interval = bytes;
     self
@@ -159,11 +141,6 @@ impl UploadProgress {
 }
 
 pin_project! {
-  /// Body wrapper that tracks bytes read frame-by-frame without buffering.
-  ///
-  /// Increments the shared counter as each data frame flows through and fires
-  /// the optional callback when the configured byte interval is exceeded. Errors
-  /// and end-of-stream are forwarded transparently.
   struct ProgressBody<B> {
     #[pin]
     inner: B,
@@ -172,7 +149,7 @@ pin_project! {
     last_notified_at: u64,
     min_interval: u64,
     callback: Option<Arc<dyn Fn(ProgressState) + Send + Sync + 'static>>,
-    final_notified: Arc<Mutex<bool>>,
+    final_notified: bool,
   }
 }
 
@@ -208,22 +185,15 @@ where
       }
       Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.into()))),
       Poll::Ready(None) => {
-        // Fire a final callback exactly once when the body ends, so callers see
-        // the closing total even if the last interval did not trigger a notify.
-        // Empty uploads (CL=0) used to slip through here because
-        // `bytes_read == last_notified_at == 0` skipped the call. Fire it
-        // unconditionally on EOF so callers always observe a terminal event.
-        if let Some(cb) = this.callback.as_ref() {
-          let mut guard = this.final_notified.lock();
-          if !*guard {
-            *guard = true;
-            let final_read = this.bytes_read.load(Ordering::Relaxed);
-            cb(ProgressState {
-              bytes_read: final_read,
-              total_bytes: *this.total_bytes,
-            });
-            *this.last_notified_at = final_read;
-          }
+        // Once, even for empty uploads, so callers always see the final total.
+        if let Some(cb) = this.callback.as_ref()
+          && !*this.final_notified
+        {
+          *this.final_notified = true;
+          cb(ProgressState {
+            bytes_read: this.bytes_read.load(Ordering::Relaxed),
+            total_bytes: *this.total_bytes,
+          });
         }
         Poll::Ready(None)
       }
@@ -255,7 +225,6 @@ impl IntoMiddleware for UploadProgress {
       let callback = callback.clone();
 
       Box::pin(async move {
-        // Extract total from Content-Length header
         let total_bytes = req
           .headers()
           .get(http::header::CONTENT_LENGTH)
@@ -264,14 +233,12 @@ impl IntoMiddleware for UploadProgress {
 
         let bytes_read = Arc::new(AtomicU64::new(0));
 
-        // Insert tracker into extensions for handler access
         let tracker = ProgressTracker {
           bytes_read: Arc::clone(&bytes_read),
           total_bytes,
         };
         req.extensions_mut().insert(tracker);
 
-        // Wrap the body in a streaming progress tracker — no buffering.
         let (parts, body) = req.into_parts();
         let progress_body = ProgressBody {
           inner: body,
@@ -280,7 +247,7 @@ impl IntoMiddleware for UploadProgress {
           last_notified_at: 0,
           min_interval,
           callback,
-          final_notified: Arc::new(Mutex::new(false)),
+          final_notified: false,
         };
         let req = http::Request::from_parts(parts, TakoBody::new(progress_body));
 

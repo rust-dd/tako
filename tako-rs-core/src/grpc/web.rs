@@ -1,19 +1,5 @@
-//! gRPC-Web bridge — converts `application/grpc-web+proto` /
-//! `application/grpc-web-text` framing to canonical `application/grpc` and
-//! back, so browsers reaching a Tako gRPC route can talk to it directly.
-//!
-//! ⚠️ **Status:** the framing translation is provided as a free function so
-//! it can be used inside a custom middleware. A full middleware adapter
-//! (request-side decoder + response-side encoder + trailer-as-header
-//! envelope) lives in the dev branch as a follow-up to keep this module
-//! focused on the byte-level shape.
-//!
-//! gRPC-Web framing differs from canonical gRPC in two places:
-//!
-//! 1. **Wire content-type** — `application/grpc-web+proto` (binary) or
-//!    `application/grpc-web-text` (base64-of-binary).
-//! 2. **Trailers** — sent inline as a final `0x80`-flagged frame whose body
-//!    is `key: value\r\n` lines, instead of HTTP/2 trailers.
+//! gRPC-Web framing helpers for a custom middleware: the `-text` flavor is base64 on the
+//! wire, and trailers travel as a final `0x80`-flagged frame instead of HTTP trailers.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -21,31 +7,19 @@ use bytes::Bytes;
 use bytes::BytesMut;
 use http::HeaderMap;
 
-/// Identify gRPC-Web requests (binary or text variant).
-///
-/// Matches both `application/grpc-web[+proto|+json|…]` and
-/// `application/grpc-web-text[…]`. To distinguish the two, use
-/// [`is_grpc_web_text`] — it is a strict subset: every content-type for
-/// which `is_grpc_web_text` returns `true` also satisfies `is_grpc_web`.
+/// Matches every gRPC-Web content type, the `-text` ones included.
 pub fn is_grpc_web(content_type: &str) -> bool {
   let ct = content_type.to_ascii_lowercase();
   ct.starts_with("application/grpc-web")
 }
 
-/// Detects the text (base64) flavor of gRPC-Web.
-///
-/// Implication: `is_grpc_web_text(ct) ⇒ is_grpc_web(ct)`. Callers that
-/// need only "any gRPC-Web variant" should prefer [`is_grpc_web`]; the
-/// text check is needed when picking the base64 decoder path.
+/// Matches the base64 `-text` flavor.
 pub fn is_grpc_web_text(content_type: &str) -> bool {
   let ct = content_type.to_ascii_lowercase();
   ct.starts_with("application/grpc-web-text")
 }
 
-/// Decode a gRPC-Web message body to canonical gRPC framing.
-///
-/// For `*-text` messages this base64-decodes the body first; for binary
-/// messages the buffer is passed through unchanged.
+/// Base64-decodes a `-text` body; a binary body is copied through.
 pub fn decode_request_body(content_type: &str, body: &[u8]) -> Result<Bytes, String> {
   if is_grpc_web_text(content_type) {
     let decoded = STANDARD
@@ -57,36 +31,23 @@ pub fn decode_request_body(content_type: &str, body: &[u8]) -> Result<Bytes, Str
   }
 }
 
-/// Encode a trailer header map as the gRPC-Web `0x80`-flagged trailer frame.
-///
-/// Format: `[flag: u8][len: u32 BE][headers...]`, where `headers` is
-/// `key: value\r\n`-encoded.
-///
-/// Per gRPC PROTOCOL-HTTP2 metadata mapping: ASCII-Value keys carry
-/// ASCII directly; `-bin`-suffixed keys carry binary values that are
-/// base64-encoded on the wire. Previously this function silently
-/// dropped any header whose value failed `to_str()` (i.e. all `*-bin`
-/// metadata), so binary trailers vanished across the gRPC-Web bridge.
+/// Encodes trailers as the final `0x80`-flagged frame; `-bin` values are base64-encoded,
+/// and other values that are not ASCII are dropped.
 pub fn encode_trailer_frame(trailers: &HeaderMap) -> Bytes {
   let mut payload = String::new();
   for (k, v) in trailers {
     let key_str = k.as_str();
     if key_str.ends_with("-bin") {
-      // Binary trailer: base64-encode raw bytes per gRPC spec.
       payload.push_str(key_str);
       payload.push_str(": ");
       payload.push_str(&STANDARD.encode(v.as_bytes()));
       payload.push_str("\r\n");
     } else if let Ok(s) = v.to_str() {
-      // ASCII trailer: pass through.
       payload.push_str(key_str);
       payload.push_str(": ");
       payload.push_str(s);
       payload.push_str("\r\n");
     }
-    // else: non-`-bin` key with non-ASCII value is a malformed gRPC trailer
-    // (caller bug). Drop silently — same behavior as before, plus a more
-    // narrow surface.
   }
   let payload = payload.into_bytes();
   assert!(
@@ -100,7 +61,7 @@ pub fn encode_trailer_frame(trailers: &HeaderMap) -> Bytes {
   frame.freeze()
 }
 
-/// Wrap a binary gRPC-Web body for the `*-text` flavor (base64 over the wire).
+/// Base64-encodes `body` for the `-text` flavor; a binary body passes through.
 pub fn encode_response_body(content_type: &str, body: Bytes) -> Bytes {
   if is_grpc_web_text(content_type) {
     let s = STANDARD.encode(body);

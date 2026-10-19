@@ -1,19 +1,15 @@
-//! Runtime-agnostic parts of Unix socket binding: abstract-namespace
-//! detection and the checks that decide whether an existing path may be
-//! replaced. The Tokio and Compio listeners add their own connect probe.
+//! Runtime-agnostic Unix socket binding checks; the Tokio and compio listeners add their own
+//! connect probe.
 
 use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-/// How long a stale-socket probe waits for a previous owner to accept.
-///
-/// A short deadline stops a malicious or stuck peer from holding the bind
-/// forever.
+/// How long a stale-socket probe waits for a previous owner to accept; short, so a stuck peer
+/// cannot hold up the bind.
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_millis(50);
 
-/// Returns true if `path`'s string form starts with `@`, marking it as a
-/// Linux abstract-namespace socket.
+/// An `@` prefix marks a Linux abstract-namespace socket.
 #[inline]
 pub(crate) fn is_abstract_path(path: &Path) -> bool {
   path.to_str().is_some_and(|s| s.starts_with('@'))
@@ -41,14 +37,8 @@ pub(crate) fn bind_abstract(path: &Path) -> io::Result<std::os::unix::net::UnixL
   }
 }
 
-/// Reports whether `path` holds a socket file that may be stale.
-///
-/// **Symlink safety**: `symlink_metadata` + `FileTypeExt::is_socket` make
-/// sure the path is itself an `AF_UNIX` socket file before anyone touches it.
-/// If the path is a regular file, a directory, or a symlink to something else
-/// (e.g. `/etc/passwd`), this returns an error instead of letting the caller
-/// `remove_file` it — replacing the socket path with a symlink is otherwise a
-/// textbook escalation trap.
+/// Reports whether `path` holds a socket file; any other file, symlinks included, is an error so
+/// the caller never removes it.
 pub(crate) fn existing_socket(path: &Path) -> io::Result<bool> {
   use std::os::unix::fs::FileTypeExt;
 
@@ -77,13 +67,8 @@ pub(crate) fn in_use(path: &Path) -> io::Error {
   )
 }
 
-/// Unlinks a stale socket file.
-///
-/// **Concurrency**: a sibling process may remove the same stale file in
-/// parallel. The kernel's `bind(2)` is the authoritative race-resolver — it
-/// rejects the second binder with `EADDRINUSE` — so a `remove_file` that loses
-/// that race (`NotFound`) counts as success. For stronger guarantees use an
-/// out-of-band lock (supervisor sequencing, advisory file lock).
+/// Unlinks a stale socket file. Losing the race to another remover counts as success, since
+/// `bind(2)` still rejects the second binder.
 pub(crate) fn remove_stale(path: &Path) -> io::Result<()> {
   match std::fs::remove_file(path) {
     Ok(()) => Ok(()),

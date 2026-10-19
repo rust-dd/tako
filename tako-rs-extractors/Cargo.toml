@@ -16,47 +16,41 @@ name = "tako_rs_extractors"
 path = "src/lib.rs"
 
 [dependencies]
-ahash = { workspace = true, optional = true }
 anyhow = { workspace = true }
-async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
+compio = { workspace = true, optional = true }
 cookie = { workspace = true }
 futures-util = { workspace = true }
 garde = { workspace = true, optional = true }
 headers = { workspace = true, optional = true }
 hkdf = { workspace = true }
 http = { workspace = true }
-http-body = { workspace = true }
 http-body-util = { workspace = true }
 ipnet = { workspace = true }
 mime = { workspace = true }
-mime_guess = { workspace = true }
 multer = { workspace = true, optional = true }
-parking_lot = { workspace = true }
 prost = { workspace = true, optional = true }
+send_wrapper = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_bytes = { workspace = true }
+serde_bytes = { workspace = true, optional = true }
 serde_html_form = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
-sha1 = { workspace = true }
 sha2 = { workspace = true }
 simd-json = { workspace = true, optional = true }
-smallvec = { workspace = true }
 sonic-rs = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
-url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true, optional = true }
 validator = { workspace = true, optional = true }
 
 [features]
 default = []
-ahash = ["tako-rs/ahash", "dep:ahash", "tako-rs-core/ahash"]
-multipart = ["tako-rs/multipart", "dep:multer", "dep:uuid"]
+ahash = ["tako-rs/ahash", "tako-rs-core/ahash"]
+compio = ["tako-rs/compio", "tako-rs-core/compio", "dep:compio", "dep:send_wrapper"]
+multipart = ["tako-rs/multipart", "dep:multer", "dep:uuid", "dep:serde_bytes"]
 protobuf = ["tako-rs/protobuf", "dep:prost"]
 # Meta-feature enabling both SIMD JSON backends. Prefer the split features
 # below when you only need one backend.

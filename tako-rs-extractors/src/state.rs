@@ -1,6 +1,5 @@
-//! Typed state extraction from the router, with a legacy global fallback.
-//!
-//! Store per-router values with `Router::with_state`.
+//! `State<T>`: the router's `T` from `Router::with_state`, else the process-global `T` from
+//! `get_or_init_state`.
 //!
 //! # Examples
 //!
@@ -28,7 +27,7 @@ use tako_rs_core::router_state::RouterState;
 use tako_rs_core::state::get_state;
 use tako_rs_core::types::Request;
 
-/// Extractor for accessing a value stored in Tako's global state by type.
+/// Rejects with 500 when neither the router nor the process holds a `T`.
 pub struct State<T>(pub Arc<T>);
 
 impl<T> Clone for State<T> {
@@ -50,8 +49,6 @@ impl Responder for MissingState {
   }
 }
 
-/// Reads `T` from the per-router typed state first (when the router was set
-/// up via `Router::with_state`), falling back to the process-global registry.
 fn lookup<T: Send + Sync + 'static>(extensions: &http::Extensions) -> Option<Arc<T>> {
   if let Some(rs) = extensions.get::<Arc<RouterState>>()
     && let Some(arc) = rs.get::<T>()

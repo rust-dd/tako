@@ -19,13 +19,13 @@ that matter.
 use tako::Method;
 use tako::responder::Responder;
 use tako::router::Router;
-use tako::signals::{Signal, app_events, ids};
+use tako::signals::{Signal, app_signals, ids};
 use tako::types::Request;
 
 async fn hello(_: Request) -> impl Responder { "hi" }
 
 fn install_listeners() {
-  let arbiter = app_events();
+  let arbiter = app_signals();
 
   // One-shot callback when the server starts up.
   arbiter.on(ids::SERVER_STARTED, |sig: Signal| async move {
@@ -56,8 +56,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`app_events()` and `app_signals()` return the same process-wide arbiter.
-Delivery follows the owning scope:
+`app_signals()` returns the process-wide arbiter. Delivery follows the owning scope:
 
 | Event | Recipients |
 |---|---|
@@ -110,8 +109,6 @@ via the `RpcError` enum.
 ## Forwarding events
 
 Register a callback or exporter on an arbiter to forward selected events.
-The hidden experimental `signals::bus` types are not wired into routing and do
-not provide automatic cluster fan-out.
 
 See:
 

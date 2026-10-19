@@ -1,21 +1,5 @@
-//! JWT (JSON Web Token) authentication middleware.
-//!
-//! Trait-based: implement [`JwtVerifier`] with your preferred JWT library
-//! and pass it to [`JwtAuth`]. Enable the `jwt-simple` cargo feature for the
-//! batteries-included verifier built on top of `jwt-simple` — it supports
-//! HMAC, RSA, RSA-PSS, ECDSA, `EdDSA` and `BLAKE2b`.
-//!
-//! - **JWKS rotation** via [`stores::JwksProvider`](crate::stores::JwksProvider).
-//!   Attach a provider with `JwtAuth::store`. The bundled `MultiKeyVerifier`
-//!   supports raw MAC keys and DER public keys; its algorithm allow-list also
-//!   applies to provider keys. An empty provider result uses static keys.
-//! - **Configurable issuer / audience / leeway** through
-//!   [`VerifyConstraints`]. Applied uniformly across every algorithm.
-//! - **Revocation list** via the [`RevocationList`] trait — simple in-memory
-//!   `HashSet<String>` of revoked `jti` values is provided.
-//! - **Optional remote introspection** via [`IntrospectionFn`] — the
-//!   middleware calls back on every request when configured, which is the
-//!   correct hook for opaque tokens or tenant-scoped revocation.
+//! JWT authentication over a pluggable [`JwtVerifier`] (the `jwt-simple` feature bundles one),
+//! with JWKS rotation, issuer/audience constraints, revocation and remote introspection.
 
 #[cfg(feature = "jwt-simple")]
 mod jwt_simple;

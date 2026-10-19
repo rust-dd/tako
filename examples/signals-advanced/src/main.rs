@@ -9,7 +9,7 @@ use tako::router::Router;
 use tako::signals::Signal;
 use tako::signals::SignalArbiter;
 use tako::signals::SignalPayload;
-use tako::signals::app_events;
+use tako::signals::app_signals;
 use tako::signals::ids;
 use tako::types::BuildHasher;
 use tokio::net::TcpListener;
@@ -117,7 +117,7 @@ async fn route_with_signals(State(arbiter): State<SignalArbiter>) -> impl Respon
 }
 
 fn init_app_signals() {
-  let arbiter = app_events();
+  let arbiter = app_signals();
 
   // Configure broadcast capacity
   SignalArbiter::set_global_broadcast_capacity(128);
@@ -139,11 +139,6 @@ fn init_app_signals() {
   // Simple handler for completed requests
   arbiter.on(ids::REQUEST_COMPLETED, |signal: Signal| async move {
     println!("[advanced][handler] {} -> {:?}", signal.id, signal.metadata);
-  });
-
-  // RPC error events
-  arbiter.on(ids::RPC_ERROR, |signal: Signal| async move {
-    println!("[advanced][rpc_error] {:?}", signal.metadata);
   });
 
   // Prefix subscription for all request.* signals

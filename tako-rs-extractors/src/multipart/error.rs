@@ -1,32 +1,27 @@
 use http::StatusCode;
 use tako_rs_core::responder::Responder;
 
-/// Error type for multipart extraction.
+/// Rejection of [`TakoMultipart`](crate::multipart::TakoMultipart).
 #[derive(Debug)]
 pub enum MultipartError {
-  /// Content-Type header is missing from the request.
   MissingContentType,
-  /// Content-Type header is not multipart/form-data.
-  InvalidContentType,
-  /// Content-Type header contains invalid UTF-8 sequences.
+  /// The `Content-Type` header is not visible ASCII.
   InvalidUtf8,
-  /// Failed to parse boundary from Content-Type header.
+  /// The `Content-Type` is not `multipart/form-data` or lacks a boundary.
   BoundaryParseError(String),
-  /// A part's content-type is not in the configured allow-list.
-  DisallowedContentType(String),
+  /// A field failed to parse or exceeded a size limit.
+  FieldError(multer::Error),
   /// The configured `max_parts` count was exceeded.
   TooManyParts,
+  /// A part's content type is not in the configured allow-list.
+  DisallowedContentType(String),
 }
 
 impl Responder for MultipartError {
-  /// Converts the error into an HTTP response.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       MultipartError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
-      }
-      MultipartError::InvalidContentType => {
-        (StatusCode::BAD_REQUEST, "Invalid Content-Type header").into_response()
       }
       MultipartError::InvalidUtf8 => (
         StatusCode::BAD_REQUEST,
@@ -38,9 +33,9 @@ impl Responder for MultipartError {
         format!("Not multipart/form-data or boundary missing: {err}"),
       )
         .into_response(),
-      MultipartError::DisallowedContentType(ct) => (
-        StatusCode::UNSUPPORTED_MEDIA_TYPE,
-        format!("part content-type not allowed: {ct}"),
+      MultipartError::FieldError(err) => (
+        StatusCode::BAD_REQUEST,
+        format!("Field processing error: {err}"),
       )
         .into_response(),
       MultipartError::TooManyParts => (
@@ -48,42 +43,62 @@ impl Responder for MultipartError {
         "too many multipart parts in request",
       )
         .into_response(),
+      MultipartError::DisallowedContentType(ct) => (
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        format!("part content-type not allowed: {ct}"),
+      )
+        .into_response(),
     }
   }
 }
 
-/// Error type for typed multipart extraction.
+impl std::fmt::Display for MultipartError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingContentType => f.write_str("missing Content-Type header"),
+      Self::InvalidUtf8 => f.write_str("invalid Content-Type header encoding"),
+      Self::BoundaryParseError(error) => write!(f, "invalid multipart boundary: {error}"),
+      Self::FieldError(error) => write!(f, "multipart field error: {error}"),
+      Self::TooManyParts => f.write_str("too many multipart parts in request"),
+      Self::DisallowedContentType(content_type) => {
+        write!(f, "part content-type not allowed: {content_type}")
+      }
+    }
+  }
+}
+
+impl std::error::Error for MultipartError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    match self {
+      Self::FieldError(error) => Some(error),
+      _ => None,
+    }
+  }
+}
+
+/// Rejection of [`TakoTypedMultipart`](crate::multipart::TakoTypedMultipart).
 #[derive(Debug)]
 pub enum TypedMultipartError {
-  /// Content-Type header is missing from the request.
   MissingContentType,
-  /// Content-Type header is not multipart/form-data.
-  InvalidContentType,
-  /// Content-Type header contains invalid UTF-8 sequences.
+  /// The `Content-Type` header is not visible ASCII, or a text field is not UTF-8.
   InvalidUtf8,
-  /// Failed to parse boundary from Content-Type header.
+  /// The `Content-Type` is not `multipart/form-data` or lacks a boundary.
   BoundaryParseError(String),
-  /// Error processing a multipart field.
+  /// A field failed to parse, exceeded a size limit, or timed out.
   FieldError(String),
-  /// Failed to deserialize form data into the target type.
+  /// The collected fields do not deserialize into the target type.
   DeserializationError(String),
-  /// I/O error occurred during processing.
-  IoError(String),
-  /// A part's content-type is not in the configured allow-list.
+  /// A part's content type is not in the configured allow-list.
   DisallowedContentType(String),
   /// The configured `max_parts` count was exceeded.
   TooManyParts,
 }
 
 impl Responder for TypedMultipartError {
-  /// Converts the error into an HTTP response.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       TypedMultipartError::MissingContentType => {
         (StatusCode::BAD_REQUEST, "Missing Content-Type header").into_response()
-      }
-      TypedMultipartError::InvalidContentType => {
-        (StatusCode::BAD_REQUEST, "Invalid Content-Type header").into_response()
       }
       TypedMultipartError::InvalidUtf8 => (
         StatusCode::BAD_REQUEST,
@@ -103,11 +118,6 @@ impl Responder for TypedMultipartError {
       TypedMultipartError::DeserializationError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Deserialization error: {err}"),
-      )
-        .into_response(),
-      TypedMultipartError::IoError(err) => (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        format!("IO error: {err}"),
       )
         .into_response(),
       TypedMultipartError::DisallowedContentType(ct) => (

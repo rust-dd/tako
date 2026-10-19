@@ -1,6 +1,3 @@
-//! `GraphQL` response responders: single and batch JSON responders that
-//! serialize an `async_graphql` response into an `application/json` body.
-
 use async_graphql::BatchResponse as GqlBatchResponse;
 use http::HeaderValue;
 use http::StatusCode;
@@ -10,7 +7,7 @@ use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// Single `GraphQL` response wrapper.
+/// Sends an `async_graphql::Response` as an `application/json` body.
 pub struct GraphQLResponse(pub async_graphql::Response);
 
 impl From<async_graphql::Response> for GraphQLResponse {
@@ -35,7 +32,7 @@ impl Responder for GraphQLResponse {
   }
 }
 
-/// Batch `GraphQL` response wrapper.
+/// Sends an `async_graphql::BatchResponse` as an `application/json` body.
 pub struct GraphQLBatchResponse(pub GqlBatchResponse);
 
 impl From<GqlBatchResponse> for GraphQLBatchResponse {

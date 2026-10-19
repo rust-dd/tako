@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "compio", allow(unused_imports))]
+#![cfg(not(feature = "compio"))]
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
@@ -10,10 +10,6 @@ use tako::queue::Queue;
 use tako::queue::QueueError;
 use tako::queue::RetryPolicy;
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn push_and_process_job() {
   let counter = Arc::new(AtomicU32::new(0));
@@ -39,10 +35,6 @@ async fn push_and_process_job() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn job_deserializes_payload() {
   let received = Arc::new(tokio::sync::Mutex::new(String::new()));
@@ -66,10 +58,6 @@ async fn job_deserializes_payload() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn job_returns_unique_id() {
   let queue = Queue::new();
@@ -88,14 +76,9 @@ async fn job_returns_unique_id() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn unknown_job_goes_to_dlq() {
   let queue = Queue::new();
-  // No handler registered
   queue.start();
 
   queue.push("nonexistent", &42).await.unwrap();
@@ -109,10 +92,6 @@ async fn unknown_job_goes_to_dlq() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn failed_job_no_retry_goes_to_dlq() {
   let queue = Queue::new(); // default: no retries
@@ -134,10 +113,6 @@ async fn failed_job_no_retry_goes_to_dlq() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn retry_policy_fixed() {
   let attempts = Arc::new(AtomicU32::new(0));
@@ -164,18 +139,12 @@ async fn retry_policy_fixed() {
   queue.push("flaky", &()).await.unwrap();
   tokio::time::sleep(Duration::from_millis(500)).await;
 
-  // 3 total attempts: 0, 1 (retry), 2 (retry, succeeds)
   assert_eq!(attempts.load(Ordering::SeqCst), 3);
-  // Should NOT be in DLQ since it eventually succeeded
   assert!(queue.dead_letters().is_empty());
 
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn retry_policy_exhausted_goes_to_dlq() {
   let attempts = Arc::new(AtomicU32::new(0));
@@ -198,7 +167,6 @@ async fn retry_policy_exhausted_goes_to_dlq() {
   queue.push("always_fail", &()).await.unwrap();
   tokio::time::sleep(Duration::from_millis(500)).await;
 
-  // 3 total attempts: initial + 2 retries
   assert_eq!(attempts.load(Ordering::SeqCst), 3);
   let dlq = queue.dead_letters();
   assert_eq!(dlq.len(), 1);
@@ -207,10 +175,6 @@ async fn retry_policy_exhausted_goes_to_dlq() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn delayed_job() {
   let executed_at = Arc::new(tokio::sync::Mutex::new(None));
@@ -232,11 +196,9 @@ async fn delayed_job() {
     .await
     .unwrap();
 
-  // Should NOT have executed yet
   tokio::time::sleep(Duration::from_millis(50)).await;
   assert!(executed_at.lock().await.is_none());
 
-  // Wait for delay to pass
   tokio::time::sleep(Duration::from_millis(300)).await;
   let at = executed_at.lock().await.unwrap();
   assert!(at.duration_since(pushed_at) >= Duration::from_millis(200));
@@ -244,10 +206,6 @@ async fn delayed_job() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn pending_and_inflight_count() {
   let barrier = Arc::new(tokio::sync::Barrier::new(2));
@@ -266,10 +224,8 @@ async fn pending_and_inflight_count() {
   queue.push("slow", &()).await.unwrap();
   tokio::time::sleep(Duration::from_millis(50)).await;
 
-  // Job should be inflight now
   assert_eq!(queue.inflight_count(), 1);
 
-  // Release the job
   barrier.wait().await;
   tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -277,10 +233,6 @@ async fn pending_and_inflight_count() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn clear_dead_letters() {
   let queue = Queue::new();
@@ -299,10 +251,6 @@ async fn clear_dead_letters() {
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn shutdown_rejects_new_jobs() {
   let queue = Queue::new();
@@ -316,10 +264,6 @@ async fn shutdown_rejects_new_jobs() {
   assert!(matches!(result.unwrap_err(), QueueError::Shutdown));
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn multiple_workers_process_concurrently() {
   let counter = Arc::new(AtomicU32::new(0));
@@ -333,7 +277,6 @@ async fn multiple_workers_process_concurrently() {
     let m = m.clone();
     async move {
       let current = c.fetch_add(1, Ordering::SeqCst) + 1;
-      // Track max concurrency
       m.fetch_max(current, Ordering::SeqCst);
       tokio::time::sleep(Duration::from_millis(100)).await;
       c.fetch_sub(1, Ordering::SeqCst);
@@ -342,23 +285,17 @@ async fn multiple_workers_process_concurrently() {
   });
   queue.start();
 
-  // Push 8 jobs
   for _ in 0..8 {
     queue.push("concurrent", &()).await.unwrap();
   }
 
   tokio::time::sleep(Duration::from_millis(500)).await;
 
-  // With 4 workers, we should see >1 concurrent execution
   assert!(max_concurrent.load(Ordering::SeqCst) > 1);
 
   queue.shutdown(Duration::from_secs(1)).await;
 }
 
-// The queue subsystem hard-codes tokio (`tokio::time::sleep` in
-// `worker_loop`, `tokio::spawn` in `start`). `compio::test` cannot drive
-// those, so gate the suite to the tokio-flavored build.
-#[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn exponential_backoff_retry() {
   let attempts = Arc::new(AtomicU32::new(0));

@@ -1,10 +1,8 @@
-//! Production-readiness configuration shared by every Tako server transport.
+//! Limits and timeouts shared by every server transport.
 
 use std::time::Duration;
 
-/// Selectable QUIC congestion controller. Mirrors the controllers shipped by
-/// `quinn::congestion`. Exposed here so HTTP/3 deployments can pick a profile
-/// without depending on quinn directly from the application crate.
+/// QUIC congestion controller for HTTP/3, from `quinn::congestion` without a quinn dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum H3Congestion {
   /// CUBIC — quinn's default and the most widely deployed.
@@ -12,26 +10,17 @@ pub enum H3Congestion {
   Cubic,
   /// `NewReno` — older, conservative.
   NewReno,
-  /// BBR — Google's bandwidth-delay-product controller; useful on
-  /// high-bandwidth, lossy links.
+  /// BBR — bandwidth-delay-product based; suits high-bandwidth, lossy links.
   Bbr,
 }
 
-/// Production-readiness knobs shared by every Tako server transport.
-///
-/// `Default` mirrors the historical hardcoded values (30 s drain, 30 s header
-/// read, 100 H2 streams, …) so existing call sites keep their behavior. Pass
-/// a populated `ServerConfig` to `*_with_config` entry points to override
-/// individual knobs.
+/// Limits and timeouts shared by every transport; pass it to the server builder's `config`.
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
-  /// Maximum time the coordinator waits for in-flight connections to finish
-  /// after a shutdown signal. After this elapses, remaining tasks are aborted.
+  /// How long shutdown waits for in-flight connections before aborting them, 30 s by default.
   pub drain_timeout: Duration,
-  /// How long a connection may go without sending a complete request head.
-  ///
-  /// On plain HTTP/1 the deadline is checked every half deadline, so an idle
-  /// connection closes after 1 to 1.5 times this value. `None` disables it.
+  /// How long a connection may go without a complete request head (30 s; `None` disables it).
+  /// Plain HTTP/1 checks every half deadline, so an idle connection closes after 1-1.5x this.
   pub header_read_timeout: Option<Duration>,
   /// HTTP/1 keep-alive (default `true`).
   pub keep_alive: bool,
@@ -52,38 +41,28 @@ pub struct ServerConfig {
   /// HTTP/3 cap on concurrent client-initiated unidirectional streams. Maps to
   /// `quinn::TransportConfig::max_concurrent_uni_streams`.
   pub h3_max_concurrent_uni_streams: u32,
-  /// HTTP/3 idle-timeout (no QUIC packets in either direction). `None` lets
-  /// quinn pick its default; `Some(d)` caps the connection lifetime.
+  /// HTTP/3 idle timeout without QUIC packets in either direction; `None` keeps quinn's default.
   pub h3_max_idle_timeout: Option<Duration>,
-  /// HTTP/3 congestion controller selection.
+  /// HTTP/3 congestion controller, CUBIC by default.
   pub h3_congestion: H3Congestion,
-  /// Enable QUIC datagrams (RFC 9221) on HTTP/3 connections. Always on with
-  /// the `webtransport` feature, whose sessions require them.
+  /// QUIC datagrams (RFC 9221) on HTTP/3 connections; always on with `webtransport`, whose
+  /// sessions require them.
   pub h3_enable_datagrams: bool,
-  /// Issue a QUIC Retry packet for each new connection whose source address
-  /// has not been validated. Mitigates UDP source-address-spoofing
-  /// amplification attacks at the cost of one extra round-trip per new client.
+  /// Sends a QUIC Retry to every unvalidated client address, which stops spoofed-source
+  /// amplification at the cost of one round-trip per new client.
   pub h3_use_retry: bool,
-  /// Per-connection grace given to in-flight HTTP/3 streams to finish after
-  /// the per-connection GOAWAY.
-  ///
-  /// The effective grace at runtime is `min(h3_goaway_grace, drain_timeout)`
-  /// — the server clamps this so a long per-connection grace cannot push the
-  /// total shutdown past the global drain budget. Configuring
-  /// `h3_goaway_grace` larger than `drain_timeout` is therefore a no-op
-  /// beyond the global ceiling.
+  /// How long in-flight HTTP/3 streams may finish after a connection's GOAWAY; capped at
+  /// `drain_timeout`.
   pub h3_goaway_grace: Duration,
-  /// Optional ceiling on concurrent in-flight connections. Enforced via a
-  /// semaphore in the accept loop; `None` disables. An upgraded connection,
-  /// such as a WebSocket, counts until its socket closes.
+  /// Cap on concurrent connections, `None` for none; an upgraded connection such as a WebSocket
+  /// counts until its socket closes.
   pub max_connections: Option<usize>,
-  /// Read deadline applied before the PROXY protocol header is parsed.
+  /// Read deadline applied before the PROXY protocol header is parsed, 10 s by default.
   pub proxy_read_timeout: Duration,
-  /// Maximum time the TLS acceptor waits for the client to complete its
-  /// handshake. A slow / stalled handshake holds a `max_connections` permit
-  /// open indefinitely otherwise — TLS slowloris. Default 10 seconds.
+  /// Deadline for the client's TLS handshake, 10 s by default, so a stalled one (TLS slowloris)
+  /// cannot hold a `max_connections` slot.
   pub tls_handshake_timeout: Duration,
-  /// Backoff schedule for `accept()` errors (typically EMFILE/ENFILE).
+  /// Backoff schedule for `accept()` errors such as EMFILE.
   pub accept_backoff: AcceptBackoff,
 }
 
@@ -113,13 +92,8 @@ impl Default for ServerConfig {
   }
 }
 
-/// Exponential backoff state for `listener.accept()` retry loops.
-///
-/// Accept errors (typically `EMFILE`/`ENFILE` when the process has run out of
-/// file descriptors, or transient `ConnectionAborted` under load) are not fatal
-/// to the listener. Servers should log, sleep, and re-poll. Use [`AcceptBackoff`]
-/// to keep the sleep schedule consistent across transports without duplicating
-/// the constants in every `serve_*` implementation.
+/// Exponential backoff for accept loops, whose errors (e.g. `EMFILE`) are transient rather than
+/// fatal to the listener.
 #[derive(Debug, Clone, Copy)]
 pub struct AcceptBackoff {
   current: Duration,
@@ -133,7 +107,7 @@ impl Default for AcceptBackoff {
 }
 
 impl AcceptBackoff {
-  /// Construct with the default 5 ms → 1 s schedule.
+  /// Starts at 5 ms and doubles up to 1 s.
   #[must_use]
   pub const fn new() -> Self {
     Self {
@@ -142,23 +116,20 @@ impl AcceptBackoff {
     }
   }
 
-  /// Reset the schedule after a successful accept.
+  /// Resets the schedule after a successful accept.
   #[inline]
   pub fn reset(&mut self) {
     self.current = Duration::from_millis(5);
   }
 
-  /// Sleep for the current backoff and double it (capped at `max`).
-  /// Use the tokio `sleep` so this is cooperative on the runtime that runs
-  /// the accept loop.
+  /// Sleeps for the current backoff on Tokio's timer and doubles it up to the cap.
   pub async fn sleep_and_grow(&mut self) {
     let d = self.current_and_grow();
     tokio::time::sleep(d).await;
   }
 
-  /// Returns the current backoff duration and doubles the internal counter
-  /// (capped at `max`). Use this when you need to drive the sleep with a
-  /// non-tokio timer (e.g. `compio::time::sleep`).
+  /// Returns the current backoff and doubles it up to the cap, for loops that sleep on another
+  /// timer such as `compio::time::sleep`.
   pub fn current_and_grow(&mut self) -> Duration {
     let d = self.current;
     self.current = (self.current * 2).min(self.max);

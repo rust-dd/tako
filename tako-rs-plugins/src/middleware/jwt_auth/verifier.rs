@@ -1,15 +1,11 @@
-//! JWT verification contract and constraint configuration.
-
 use std::fmt;
 
-/// Trait for verifying JWT tokens.
 pub trait JwtVerifier: Send + Sync + Clone + 'static {
   /// Decoded claims inserted into request extensions.
   type Claims: Send + Sync + Clone + 'static;
-  /// Verification error.
   type Error: fmt::Display;
 
-  /// Verifies a raw JWT token string.
+  /// `token` comes without the `Bearer ` prefix.
   fn verify(&self, token: &str) -> Result<Self::Claims, Self::Error>;
 
   /// Verify against a provider-supplied key, including an explicit algorithm allow-list.
@@ -49,9 +45,7 @@ pub trait JwtVerifier: Send + Sync + Clone + 'static {
   }
 }
 
-/// Reported by [`JwtVerifier::validate_constraints`] when the verifier cannot
-/// (or won't) enforce the requested `VerifyConstraints`. The middleware
-/// surfaces this as 401 Unauthorized — fail-closed by design.
+/// The verifier cannot enforce the requested [`VerifyConstraints`]; the middleware answers 401.
 #[derive(Debug, Clone)]
 pub struct ConstraintsNotSupported {
   /// Diagnostic logged when verification is rejected.

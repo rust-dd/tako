@@ -1,9 +1,5 @@
-//! Private cookie extraction and management for HTTP requests.
-//!
-//! This module provides the [`CookiePrivate`](crate::cookie_private::CookiePrivate) extractor that manages encrypted cookies
-//! using a master key. Private cookies are encrypted to ensure that cookie values
-//! cannot be read or tampered with by clients, providing a secure way to store
-//! sensitive data in client-side cookies.
+//! Encrypted cookies that clients can neither read nor alter. The extractor takes a
+//! `KeyRing`, or else a `cookie::Key`, from the request extensions.
 //!
 //! # Examples
 //!
@@ -11,7 +7,7 @@
 //! use tako::extractors::cookie_private::CookiePrivate;
 //! use cookie::{Cookie, Key};
 //!
-//! async fn handle_private_cookies(mut private: CookiePrivate) {
+//! async fn handle_private_cookies(mut private: CookiePrivate) -> CookiePrivate {
 //!     // Add an encrypted cookie
 //!     private.add(Cookie::new("user_id", "12345"));
 //!
@@ -24,6 +20,7 @@
 //!     if private.contains("session_token") {
 //!         println!("Valid session found");
 //!     }
+//!     private
 //! }
 //! ```
 
@@ -37,16 +34,10 @@ use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
+use tako_rs_core::types::Response;
 
-/// A wrapper that provides methods for managing encrypted cookies in HTTP requests and responses.
-///
-/// Private cookies are encrypted using a master key, ensuring that cookie
-/// values cannot be read or tampered with by clients. This provides a secure
-/// way to store sensitive information in cookies while maintaining compatibility
-/// with standard HTTP cookie mechanisms.
-///
-/// The extractor automatically decrypts cookies when retrieving them and encrypts
-/// cookies when adding them to the jar.
+/// A cookie jar that encrypts on write and decrypts on read. Return it, or use
+/// [`Self::with_response`], to send its changes as `Set-Cookie` headers.
 ///
 /// # Examples
 ///
@@ -71,21 +62,14 @@ pub struct CookiePrivate {
   ring: Option<crate::cookie_signed::KeyRing>,
 }
 
-/// Error type for private cookie extraction.
+/// Rejection of [`CookiePrivate`].
 #[derive(Debug)]
 pub enum CookiePrivateError {
-  /// Private cookie master key not found in request extensions.
+  /// Neither a `KeyRing` nor a `Key` is in the request extensions; responds 500.
   MissingKey,
-  /// Invalid private cookie master key.
-  InvalidKey,
-  /// Failed to decrypt private cookie with the specified error message.
-  DecryptionFailed(String),
-  /// Invalid cookie format in request.
-  InvalidCookieFormat,
 }
 
 impl Responder for CookiePrivateError {
-  /// Converts the error into an HTTP response.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       CookiePrivateError::MissingKey => (
@@ -93,25 +77,11 @@ impl Responder for CookiePrivateError {
         "Private cookie master key not found in request extensions",
       )
         .into_response(),
-      CookiePrivateError::InvalidKey => (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Invalid private cookie master key",
-      )
-        .into_response(),
-      CookiePrivateError::DecryptionFailed(err) => (
-        StatusCode::BAD_REQUEST,
-        format!("Failed to decrypt private cookie: {err}"),
-      )
-        .into_response(),
-      CookiePrivateError::InvalidCookieFormat => {
-        (StatusCode::BAD_REQUEST, "Invalid cookie format in request").into_response()
-      }
     }
   }
 }
 
 impl CookiePrivate {
-  /// Creates a new `CookiePrivate` instance with the given master key.
   pub fn new(key: Key) -> Self {
     Self {
       jar: CookieJar::new(),
@@ -120,7 +90,7 @@ impl CookiePrivate {
     }
   }
 
-  /// Creates a new `CookiePrivate` driven by a key ring (rotation-aware).
+  /// Encrypts with the ring's active key; reads also try its previous keys.
   pub fn with_ring(ring: crate::cookie_signed::KeyRing) -> Self {
     let key = ring.active().clone();
     Self {
@@ -130,7 +100,7 @@ impl CookiePrivate {
     }
   }
 
-  /// Creates a `CookiePrivate` instance from HTTP headers and a master key.
+  /// Reads the cookies of every `Cookie` header.
   pub fn from_headers(headers: &HeaderMap, key: Key) -> Self {
     let mut jar = CookieJar::new();
     crate::cookie_jar::fill_jar_from_header(&mut jar, headers);
@@ -142,19 +112,16 @@ impl CookiePrivate {
     }
   }
 
-  /// Creates a `CookiePrivate` instance from HTTP headers and a key ring.
   pub fn from_headers_with_ring(headers: &HeaderMap, ring: crate::cookie_signed::KeyRing) -> Self {
     let mut p = Self::from_headers(headers, ring.active().clone());
     p.ring = Some(ring);
     p
   }
 
-  /// Adds a private cookie to the jar.
   pub fn add(&mut self, cookie: Cookie<'static>) {
     self.jar.private_mut(&self.key).add(cookie);
   }
 
-  /// Removes a private cookie from the jar by its name.
   pub fn remove(&mut self, name: &str) {
     self
       .jar
@@ -162,10 +129,7 @@ impl CookiePrivate {
       .remove(Cookie::from(name.to_owned()));
   }
 
-  /// Retrieves and decrypts a private cookie from the jar by its name.
-  ///
-  /// When a [`crate::cookie_signed::KeyRing`] is configured, every previous
-  /// key is tried after the active key fails (rotation-aware decrypt).
+  /// Decrypts `name` with the active key, then with each previous key of the ring.
   pub fn get(&self, name: &str) -> Option<Cookie<'static>> {
     if let Some(c) = self.jar.private(&self.key).get(name) {
       return Some(c);
@@ -180,7 +144,7 @@ impl CookiePrivate {
     None
   }
 
-  /// Retrieves a private cookie, returning the kid that admitted it (if any).
+  /// [`Self::get`] plus the id of the key that decrypted it, `default` without a ring.
   pub fn get_with_kid(&self, name: &str) -> Option<(Cookie<'static>, String)> {
     if let Some(c) = self.jar.private(&self.key).get(name) {
       let kid = self
@@ -199,33 +163,35 @@ impl CookiePrivate {
     None
   }
 
-  /// Gets the value of a private cookie after decryption.
   pub fn get_value(&self, name: &str) -> Option<String> {
     self.get(name).map(|cookie| cookie.value().to_string())
   }
 
-  /// Checks if a private cookie with the given name exists and can be decrypted.
+  /// Whether `name` exists and decrypts.
   pub fn contains(&self, name: &str) -> bool {
     self.get(name).is_some()
   }
 
-  /// Gets the inner `CookieJar` for advanced operations.
+  /// The underlying jar, which holds the encrypted values.
   pub fn inner(&self) -> &CookieJar {
     &self.jar
   }
 
-  /// Gets a mutable reference to the inner `CookieJar` for advanced operations.
   pub fn inner_mut(&mut self) -> &mut CookieJar {
     &mut self.jar
   }
 
-  /// Gets the key used for private cookie operations.
+  /// The active key.
   pub fn key(&self) -> &Key {
     &self.key
   }
 
-  /// Extracts private cookies from a request, preferring a `KeyRing` over a
-  /// single `Key` when both are present in extensions.
+  /// Appends encrypted additions and removals to a response as `Set-Cookie` headers.
+  /// Invalid cookie names or attributes produce a 500 response; values are encrypted first.
+  pub fn with_response(self, response: impl Responder) -> Response {
+    crate::cookie_jar::append_delta(&self.jar, response.into_response())
+  }
+
   fn extract_from_request(req: &Request) -> Result<Self, CookiePrivateError> {
     if let Some(ring) = req
       .extensions()
@@ -243,7 +209,6 @@ impl CookiePrivate {
     Ok(Self::from_headers(req.headers(), key))
   }
 
-  /// Same as [`Self::extract_from_request`] but for `Parts`.
   fn extract_from_parts(parts: &Parts) -> Result<Self, CookiePrivateError> {
     if let Some(ring) = parts
       .extensions
@@ -259,6 +224,12 @@ impl CookiePrivate {
       .clone();
 
     Ok(Self::from_headers(&parts.headers, key))
+  }
+}
+
+impl Responder for CookiePrivate {
+  fn into_response(self) -> Response {
+    self.with_response(())
   }
 }
 

@@ -17,11 +17,7 @@ pub enum ProxyTransport {
   Unknown,
 }
 
-/// Raw PROXY v2 TLV (Type-Length-Value) field.
-///
-/// Most known TLV types (`authority`, `aws_vpc_endpoint_id`, `tls_*`) are also
-/// surfaced as dedicated fields on [`ProxyHeader`]; `tlvs` keeps the unparsed
-/// list so callers can extract custom or future-defined types.
+/// Raw PROXY v2 TLV, kept for custom types; known ones also fill typed [`ProxyHeader`] fields.
 #[derive(Debug, Clone)]
 pub struct ProxyTlv {
   /// `PP2_TYPE_*` identifier byte.
@@ -49,14 +45,10 @@ pub struct ProxyTlsInfo {
   pub key_alg: Option<String>,
 }
 
-// Cap the advertised address length so an attacker can't pre-allocate
-// 64 KiB per connection just by sending two unfavourable bytes. The
-// PROXY v2 spec's typed payload for IPv6+UNIX maxes out far below this:
-// IPv4(12) + IPv6(36) + UNIX(216) + a reasonable TLV stack (~256). 536
-// bytes is generous; legitimate proxies should never exceed it.
+// Stops a peer from making each connection allocate 64 KiB; the largest address block (UNIX, 216
+// bytes) plus a generous TLV stack stays below it.
 pub(crate) const MAX_PROXY_ADDR_LEN: usize = 536;
 
-// PP2 TLV type identifiers (per HAProxy spec).
 const PP2_TYPE_ALPN: u8 = 0x01;
 const PP2_TYPE_AUTHORITY: u8 = 0x02;
 pub(crate) const PP2_TYPE_CRC32C: u8 = 0x03;
@@ -71,12 +63,8 @@ const PP2_SUBTYPE_SSL_KEY_ALG: u8 = 0x25;
 const PP2_TYPE_NETNS: u8 = 0x30;
 const PP2_TYPE_AWS_VPC_ENDPOINT_ID: u8 = 0xEA;
 
-/// Parsed PROXY protocol header.
-///
-/// Contains the real client address (source) and the proxy/server address
-/// (destination) extracted from the PROXY protocol header. PROXY v2 TLVs
-/// (authority, AWS VPC endpoint ID, TLS info, …) are surfaced both as raw
-/// [`ProxyTlv`]s and as typed fields where they map cleanly.
+/// Parsed PROXY protocol header: the real client (`source`), the address it connected to, and the
+/// v2 TLVs as typed fields where they map cleanly.
 #[derive(Debug, Clone)]
 pub struct ProxyHeader {
   /// Protocol version (v1 text or v2 binary).
@@ -101,14 +89,10 @@ pub struct ProxyHeader {
   pub tls: Option<ProxyTlsInfo>,
   /// Unique connection identifier (`PP2` type 0x05).
   pub unique_id: Option<Vec<u8>>,
-  /// Raw TLV list — kept for forward-compatibility / custom types.
+  /// Every TLV, including types without a typed field.
   pub tlvs: Vec<ProxyTlv>,
-  /// PROXY v2 CRC32C verification result.
-  ///
-  /// `Some(true)` if a `PP2_TYPE_CRC32C` TLV was present and the recomputed
-  /// CRC32C of the full PROXY v2 header (with the CRC value zeroed) matched.
-  /// `Some(false)` if it was present but mismatched. `None` if the TLV was
-  /// absent (CRC32C is optional in the spec) or if the header is v1.
+  /// Whether the optional `PP2_TYPE_CRC32C` checksum matched; `None` without one and for v1. A
+  /// mismatch is logged but does not reject the header.
   pub crc32c_verified: Option<bool>,
 }
 
@@ -155,9 +139,7 @@ pub(crate) fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
       }
       PP2_TYPE_UNIQUE_ID => header.unique_id = Some(value.to_vec()),
       PP2_TYPE_SSL => {
-        // PP2_TYPE_SSL container layout: 1 byte client flags, 4 bytes verify
-        // (BE), then nested sub-TLVs.
-        #[allow(clippy::collapsible_match)]
+        // 1 byte of client flags, a 4-byte big-endian verify result, then sub-TLVs.
         if value.len() >= 5 {
           let mut tls = ProxyTlsInfo {
             client_flags: value[0],
@@ -195,8 +177,7 @@ pub(crate) fn apply_tlvs(header: &mut ProxyHeader, mut buf: &[u8]) {
           header.tls = Some(tls);
         }
       }
-      // CRC32C is verified out-of-band by `verify_v2_crc32c` before TLV
-      // expansion; NOOP / NETNS have no semantic meaning to surface.
+      // `verify_v2_crc32c` already checked the CRC; NOOP and NETNS carry nothing to surface.
       PP2_TYPE_CRC32C | PP2_TYPE_NOOP | PP2_TYPE_NETNS => {}
       _ => {}
     }

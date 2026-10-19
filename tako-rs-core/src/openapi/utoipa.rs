@@ -1,11 +1,5 @@
-//! Utoipa `OpenAPI` integration for Tako.
-//!
-//! This module provides integration with the utoipa crate for generating
-//! `OpenAPI` documentation from Tako routes and handlers.
-//!
-//! Enable via the `utoipa` cargo feature.
-#![cfg(feature = "utoipa")]
-#![cfg_attr(docsrs, doc(cfg(feature = "utoipa")))]
+//! `utoipa` integration: derive the spec with `#[derive(OpenApi)]` and serve it with
+//! [`OpenApiJson`].
 
 use http::StatusCode;
 pub use utoipa::Modify;
@@ -18,7 +12,7 @@ use crate::body::TakoBody;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// Serves the `OpenAPI` JSON specification.
+/// Serves the spec as JSON.
 ///
 /// # Examples
 ///
@@ -51,9 +45,7 @@ impl Responder for OpenApiJson {
   }
 }
 
-/// Serves the `OpenAPI` YAML specification.
-///
-/// Requires the `utoipa-yaml` feature to be enabled.
+/// Serves the spec as YAML; needs the `utoipa-yaml` feature.
 #[cfg(feature = "utoipa-yaml")]
 pub struct OpenApiYaml(pub openapi::OpenApi);
 

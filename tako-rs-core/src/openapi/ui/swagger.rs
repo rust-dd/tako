@@ -1,12 +1,10 @@
-//! Swagger UI responder for serving the classic `OpenAPI` documentation interface.
-
 use crate::body::TakoBody;
 use crate::openapi::ui::escape::html_escape;
 use crate::openapi::ui::escape::js_string;
 use crate::responder::Responder;
 use crate::types::Response;
 
-/// Swagger UI responder that serves the classic `OpenAPI` documentation interface.
+/// Serves Swagger UI for the spec at `spec_url`.
 ///
 /// # Examples
 ///
@@ -24,7 +22,6 @@ pub struct SwaggerUi {
 }
 
 impl SwaggerUi {
-  /// Creates a new Swagger UI pointing to the given `OpenAPI` spec URL.
   pub fn new(spec_url: impl Into<String>) -> Self {
     Self {
       spec_url: spec_url.into(),
@@ -32,7 +29,7 @@ impl SwaggerUi {
     }
   }
 
-  /// Sets the page title.
+  /// Page title, `API Documentation` by default.
   pub fn title(mut self, title: impl Into<String>) -> Self {
     self.title = title.into();
     self
@@ -41,9 +38,7 @@ impl SwaggerUi {
 
 impl Responder for SwaggerUi {
   fn into_response(self) -> Response {
-    // Escape user-controlled strings per context: `title` is HTML text;
-    // `spec_url` is interpolated inside a `<script>` JS string where HTML
-    // entities are NOT decoded — use a JSON-shaped JS string literal.
+    // `spec_url` lands in a script, where HTML entities are not decoded.
     let html = format!(
       r#"<!DOCTYPE html>
 <html lang="en">

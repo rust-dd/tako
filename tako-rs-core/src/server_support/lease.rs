@@ -1,5 +1,3 @@
-//! An IO wrapper that keeps a connection's lease alive with its socket.
-
 use std::io;
 use std::pin::Pin;
 use std::task::Context;
@@ -11,11 +9,8 @@ use tokio::io::AsyncWrite;
 use tokio::io::ReadBuf;
 
 pin_project! {
-  /// A connection's IO together with what it holds for its whole life, such as
-  /// a `max_connections` permit.
-  ///
-  /// The lease travels with the IO through an HTTP upgrade, so an upgraded
-  /// connection stays counted until its socket closes.
+  /// A connection's IO plus what it holds for its whole life, such as a `max_connections`
+  /// permit; the lease survives an HTTP upgrade, so upgraded sockets stay counted.
   pub struct Leased<S, L> {
     #[pin]
     io: S,

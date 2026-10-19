@@ -1,11 +1,4 @@
-//! Accept-Language header parsing and locale preference extraction for internationalization.
-//!
-//! This module provides extractors for parsing HTTP Accept-Language headers to determine
-//! client language preferences. It supports quality values (q-values) as defined in RFC 7231
-//! and automatically sorts preferences by quality and order. The extractors enable easy
-//! internationalization by providing structured access to client language preferences
-//! with proper fallback handling.
-//!
+//! `Accept-Language` parsing with RFC 7231 quality values.
 
 use http::StatusCode;
 use http::request::Parts;
@@ -15,39 +8,33 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Language preference with quality value from Accept-Language header.
-///
-/// Represents a single language preference as specified in RFC 7231, including
-/// the language tag and its associated quality value. Quality values range from
-/// 0.0 to 1.0, with 1.0 being the default when no quality is specified.
+/// One `Accept-Language` entry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LanguagePreference {
-  /// Language tag (e.g., "en-US", "fr", "zh-CN") following RFC 5646.
+  /// The language tag as the client sent it, such as `en-US`.
   pub language: String,
-  /// Quality value from 0.0 to 1.0 indicating preference strength (default: 1.0).
+  /// In 0.0..=1.0; 1.0 when the entry has no `q`.
   pub quality: f32,
 }
 
-/// Accept-Language header extractor for determining client language preferences.
+/// The parsed `Accept-Language` header; a missing or malformed header rejects with 400.
 #[derive(Debug, Clone)]
 pub struct AcceptLanguage {
-  /// Language preferences sorted by quality (highest first), then by order.
+  /// Highest quality first; equal qualities keep header order.
   pub languages: Vec<LanguagePreference>,
 }
 
-/// Error types for Accept-Language header extraction and parsing.
+/// Rejection of [`AcceptLanguage`].
 #[derive(Debug)]
 pub enum AcceptLanguageError {
-  /// Accept-Language header is missing from the request.
   MissingHeader,
-  /// Accept-Language header contains invalid UTF-8 or cannot be parsed as text.
+  /// The header value is not visible ASCII.
   InvalidHeader,
-  /// Failed to parse header value (contains specific error details).
+  /// A `q` value is not a number in 0.0..=1.0.
   ParseError(String),
 }
 
 impl Responder for AcceptLanguageError {
-  /// Converts Accept-Language errors into appropriate HTTP error responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     match self {
       AcceptLanguageError::MissingHeader => {
@@ -66,29 +53,28 @@ impl Responder for AcceptLanguageError {
 }
 
 impl AcceptLanguage {
-  /// Creates a new empty `AcceptLanguage` with no preferences.
+  /// An empty preference list.
   pub fn new() -> Self {
     Self {
       languages: Vec::new(),
     }
   }
 
-  /// Returns the most preferred language based on quality values and order.
+  /// The highest-quality language; ties go to the earliest.
   pub fn preferred(&self) -> Option<&LanguagePreference> {
     self.languages.first()
   }
 
-  /// Returns all language preferences in order of preference.
+  /// All preferences, best first.
   pub fn preferences(&self) -> &[LanguagePreference] {
     &self.languages
   }
 
-  /// Verifies if a specific language is accepted by the client.
+  /// Whether `language` is listed, compared exactly; an entry with `q=0` still counts.
   pub fn accepts(&self, language: &str) -> bool {
     self.languages.iter().any(|pref| pref.language == language)
   }
 
-  /// Parses Accept-Language preferences from HTTP headers.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, AcceptLanguageError> {
     let header_value = headers
       .get("Accept-Language")
@@ -101,7 +87,7 @@ impl AcceptLanguage {
     Self::parse_accept_language(header_str)
   }
 
-  /// Converts an Accept-Language header value into structured preferences.
+  /// Parses a header value; a `q` outside 0.0..=1.0 is an error.
   pub fn parse_accept_language(header_value: &str) -> Result<Self, AcceptLanguageError> {
     let mut languages = Vec::new();
 
@@ -135,7 +121,7 @@ impl AcceptLanguage {
       }
     }
 
-    // Sort by quality (highest first), then by order of appearance for equal qualities
+    // Stable, so equal qualities keep header order.
     languages.sort_by(|a, b| {
       b.quality
         .partial_cmp(&a.quality)
@@ -147,7 +133,6 @@ impl AcceptLanguage {
 }
 
 impl Default for AcceptLanguage {
-  /// Initializes an `AcceptLanguage` instance with no preferences.
   fn default() -> Self {
     Self::new()
   }

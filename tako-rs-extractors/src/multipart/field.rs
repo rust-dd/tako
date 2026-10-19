@@ -2,17 +2,13 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde::Serialize;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use uuid::Uuid;
 
+pub use super::cleanup::TempFileCleanup;
+use super::runtime;
+use super::writer::UploadWriter;
 use crate::multipart::MultipartConfig;
 
-/// Trait for types that can be constructed from a multipart field.
-///
-/// This trait allows custom types to define how they should be created from
-/// individual multipart fields, enabling flexible handling of different field
-/// types including files and text data.
+/// A type built from one multipart file field.
 ///
 /// # Examples
 ///
@@ -39,133 +35,119 @@ use crate::multipart::MultipartConfig;
 /// }
 /// ```
 pub trait FromMultipartField: Serialize + Sized {
-  /// Constructs an instance of the type from a `multer::Field`.
+  /// An error rejects the request with 400.
   fn from_field(
     field: multer::Field<'_>,
   ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send;
-}
 
-/// RAII cleanup for a temp file produced by the multipart upload pipeline.
-///
-/// When this guard drops with a `Some(path)`, the file at that path is best-effort
-/// unlinked. Default is `None` (no cleanup) so that values obtained via
-/// `Deserialize` do not delete arbitrary paths supplied by an attacker.
-#[derive(Default)]
-pub struct TempFileCleanup {
-  path: Option<PathBuf>,
-}
-
-impl TempFileCleanup {
-  fn for_path(path: PathBuf) -> Self {
-    Self { path: Some(path) }
+  /// What the typed extractor calls, with the request's resolved config; defaults to `from_field`.
+  fn from_field_with(
+    field: multer::Field<'_>,
+    _config: &MultipartConfig,
+  ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send {
+    Self::from_field(field)
   }
 
-  /// Disarm the cleanup — the temp file will not be removed on Drop.
-  /// Use this when the caller has moved or persisted the file elsewhere.
-  pub fn disarm(&mut self) {
-    self.path = None;
+  /// Transfers a temp-file guard through typed deserialization. Custom wrappers around
+  /// [`UploadedFile`] should delegate to the wrapped file; other types can use the default.
+  fn take_cleanup(&mut self) -> TempFileCleanup {
+    TempFileCleanup::default()
   }
 }
 
-impl Drop for TempFileCleanup {
-  fn drop(&mut self) {
-    if let Some(p) = self.path.take() {
-      let _ = std::fs::remove_file(&p);
-    }
-  }
-}
-
-impl std::fmt::Debug for TempFileCleanup {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("TempFileCleanup")
-      .field("armed", &self.path.is_some())
-      .finish()
-  }
-}
-
-fn fresh_upload_temp_path() -> PathBuf {
-  // UUID-only basename: the client-supplied filename is preserved in
-  // `UploadedFile.file_name` but MUST NOT influence the on-disk path
-  // (`..` segments would otherwise enable path traversal).
-  std::env::temp_dir().join(format!("upload-{}", Uuid::new_v4()))
-}
-
-/// Represents a file uploaded to the server and saved to disk.
-///
-/// The on-disk temp file is auto-removed when the `UploadedFile` is dropped
-/// (RAII). Call [`UploadedFile::persist`] or [`UploadedFile::disarm_cleanup`]
-/// before drop if you want to keep the file.
-#[derive(Debug, Serialize, Deserialize)]
+/// A file field streamed to a temp file, deleted on drop unless [`UploadedFile::persist`] or
+/// [`UploadedFile::disarm_cleanup`] runs first.
+#[derive(Debug, Serialize)]
 pub struct UploadedFile {
-  /// Original file name provided by the client, if any.
+  /// The client-supplied name; it never influences `path`.
   pub file_name: Option<String>,
-  /// MIME type of the uploaded file, if provided.
+  /// The content type the client declared for the part.
   pub content_type: Option<String>,
-  /// Path to the saved file on disk.
+  /// The temp file.
   pub path: PathBuf,
-  /// Size of the uploaded file in bytes.
+  /// Bytes written to `path`.
   pub size: u64,
-  #[serde(skip, default)]
+  #[serde(skip)]
   cleanup: TempFileCleanup,
 }
 
+impl<'de> Deserialize<'de> for UploadedFile {
+  fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(rename = "UploadedFile")]
+    struct Metadata {
+      file_name: Option<String>,
+      content_type: Option<String>,
+      path: PathBuf,
+      size: u64,
+    }
+
+    let metadata = Metadata::deserialize(deserializer)?;
+    Ok(Self {
+      cleanup: TempFileCleanup::claim(&metadata.path),
+      file_name: metadata.file_name,
+      content_type: metadata.content_type,
+      path: metadata.path,
+      size: metadata.size,
+    })
+  }
+}
+
 impl UploadedFile {
-  /// Disarm the RAII cleanup. The temp file will remain on disk after drop.
-  /// Use this when you have already moved the file elsewhere.
+  /// Keeps the temp file on drop, for when the caller already moved it.
   pub fn disarm_cleanup(&mut self) {
     self.cleanup.disarm();
   }
 
-  /// Persist the temp file by renaming it to `dest`. On success the cleanup
-  /// is disarmed and `self.path` is updated to `dest`.
+  /// Renames the temp file to `dest`; on success `path` becomes `dest` and the cleanup is disarmed.
   pub async fn persist(&mut self, dest: PathBuf) -> std::io::Result<()> {
-    tokio::fs::rename(&self.path, &dest).await?;
-    self.path = dest;
+    let source = self.path.clone();
+    self.path = runtime::blocking(move || {
+      std::fs::rename(source, &dest)?;
+      Ok(dest)
+    })
+    .await?;
     self.cleanup.disarm();
     Ok(())
   }
 }
 
 impl FromMultipartField for UploadedFile {
-  /// Creates an `UploadedFile` instance from a multipart field.
+  fn take_cleanup(&mut self) -> TempFileCleanup {
+    std::mem::take(&mut self.cleanup)
+  }
+
   async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
     let original = field.file_name().map(std::borrow::ToOwned::to_owned);
     let content_type = field.content_type().map(std::string::ToString::to_string);
-    let tmp_path = fresh_upload_temp_path();
-    // Register cleanup BEFORE opening the file so an error mid-write still
-    // removes the partial file on early return.
-    let cleanup = TempFileCleanup::for_path(tmp_path.clone());
-    let mut outfile = File::create(&tmp_path).await?;
-    let mut bytes_written: u64 = 0;
+    let mut outfile = UploadWriter::create().await?;
     while let Some(chunk) = field.chunk().await? {
-      outfile.write_all(&chunk).await?;
-      bytes_written += chunk.len() as u64;
+      outfile = outfile.write(chunk).await?;
     }
-    outfile.flush().await?;
+    let (path, size, cleanup) = outfile.finish().await?;
     Ok(UploadedFile {
       file_name: original,
       content_type,
-      path: tmp_path,
-      size: bytes_written,
+      path,
+      size,
       cleanup,
     })
   }
 }
 
-/// Represents a file uploaded to the server and stored in memory.
+/// A file field held in memory.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InMemoryFile {
-  /// Original file name provided by the client, if any.
+  /// The client-supplied name.
   pub file_name: Option<String>,
-  /// MIME type of the uploaded file, if provided.
+  /// The content type the client declared for the part.
   pub content_type: Option<String>,
-  /// File content stored as a byte array.
+  /// The field's bytes.
   #[serde(with = "serde_bytes")]
   pub data: Vec<u8>,
 }
 
 impl FromMultipartField for InMemoryFile {
-  /// Creates an `InMemoryFile` instance from a multipart field.
   async fn from_field(field: multer::Field<'_>) -> anyhow::Result<Self> {
     let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);
     let content_type = field.content_type().map(std::string::ToString::to_string);
@@ -179,72 +161,81 @@ impl FromMultipartField for InMemoryFile {
   }
 }
 
-/// File upload that keeps small payloads in memory and spills large ones to
-/// disk. The threshold comes from the active [`MultipartConfig`](crate::multipart::MultipartConfig); without one
-/// it always keeps the file in memory.
+/// A file field kept in memory, or spilled to disk past the config's `disk_spill_threshold`;
+/// called directly through `from_field`, it reads the process-global [`MultipartConfig`].
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum BufferedUploadedFile {
-  /// Payload stayed in memory.
   Memory(InMemoryFile),
-  /// Payload was streamed to disk because it exceeded the threshold.
   Disk(UploadedFile),
 }
 
 impl FromMultipartField for BufferedUploadedFile {
-  async fn from_field(mut field: multer::Field<'_>) -> anyhow::Result<Self> {
-    let cfg = tako_rs_core::state::get_state::<MultipartConfig>().map(|a| a.as_ref().clone());
-    let threshold = cfg.as_ref().and_then(|c| c.disk_spill_threshold);
-
-    let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);
-    let content_type = field.content_type().map(std::string::ToString::to_string);
-
-    let mut buffer: Vec<u8> = Vec::new();
-    let mut spilled: Option<(PathBuf, File, TempFileCleanup)> = None;
-    let mut bytes_written: u64 = 0;
-
-    while let Some(chunk) = field.chunk().await? {
-      if let Some((_, ref mut f, _)) = spilled {
-        f.write_all(&chunk).await?;
-      } else {
-        // Try-reserve: a hostile client could send a series of small chunks
-        // whose cumulative size eventually exceeds available memory.
-        // `extend_from_slice` would abort the process on alloc failure;
-        // `try_reserve` lets us bail out with a normal error and a 4xx-style
-        // response from the caller.
-        buffer
-          .try_reserve(chunk.len())
-          .map_err(|e| anyhow::anyhow!("multipart buffer alloc failed: {e}"))?;
-        buffer.extend_from_slice(&chunk);
-        if let Some(t) = threshold
-          && (buffer.len() as u64) > t
-        {
-          let path = fresh_upload_temp_path();
-          let cleanup = TempFileCleanup::for_path(path.clone());
-          let mut f = File::create(&path).await?;
-          f.write_all(&buffer).await?;
-          spilled = Some((path, f, cleanup));
-          buffer.clear();
-        }
-      }
-      bytes_written += chunk.len() as u64;
+  fn take_cleanup(&mut self) -> TempFileCleanup {
+    match self {
+      Self::Memory(_) => TempFileCleanup::default(),
+      Self::Disk(file) => file.take_cleanup(),
     }
+  }
 
-    if let Some((path, mut f, cleanup)) = spilled {
-      f.flush().await?;
-      Ok(BufferedUploadedFile::Disk(UploadedFile {
-        file_name,
-        content_type,
-        path,
-        size: bytes_written,
-        cleanup,
-      }))
+  fn from_field(
+    field: multer::Field<'_>,
+  ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send {
+    let threshold =
+      tako_rs_core::state::get_state::<MultipartConfig>().and_then(|cfg| cfg.disk_spill_threshold);
+    buffer_or_spill(field, threshold)
+  }
+
+  fn from_field_with(
+    field: multer::Field<'_>,
+    config: &MultipartConfig,
+  ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send {
+    buffer_or_spill(field, config.disk_spill_threshold)
+  }
+}
+
+async fn buffer_or_spill(
+  mut field: multer::Field<'_>,
+  threshold: Option<u64>,
+) -> anyhow::Result<BufferedUploadedFile> {
+  let file_name = field.file_name().map(std::borrow::ToOwned::to_owned);
+  let content_type = field.content_type().map(std::string::ToString::to_string);
+
+  let mut buffer = Vec::new();
+  let mut spilled = None::<UploadWriter>;
+
+  while let Some(chunk) = field.chunk().await? {
+    if let Some(file) = spilled.take() {
+      spilled = Some(file.write(chunk).await?);
     } else {
-      Ok(BufferedUploadedFile::Memory(InMemoryFile {
-        file_name,
-        content_type,
-        data: buffer,
-      }))
+      // An allocation failure becomes an error instead of aborting the process.
+      buffer
+        .try_reserve(chunk.len())
+        .map_err(|e| anyhow::anyhow!("multipart buffer alloc failed: {e}"))?;
+      buffer.extend_from_slice(&chunk);
+      if let Some(t) = threshold
+        && (buffer.len() as u64) > t
+      {
+        let file = UploadWriter::create().await?;
+        spilled = Some(file.write(std::mem::take(&mut buffer).into()).await?);
+      }
     }
+  }
+
+  if let Some(file) = spilled {
+    let (path, size, cleanup) = file.finish().await?;
+    Ok(BufferedUploadedFile::Disk(UploadedFile {
+      file_name,
+      content_type,
+      path,
+      size,
+      cleanup,
+    }))
+  } else {
+    Ok(BufferedUploadedFile::Memory(InMemoryFile {
+      file_name,
+      content_type,
+      data: buffer,
+    }))
   }
 }

@@ -1,33 +1,26 @@
 use std::time::Duration;
 
-/// Configuration for [`serve_per_thread`](crate::serve_per_thread) (and the `compio` variant when enabled).
+/// Configuration for [`serve_per_thread`](crate::serve_per_thread) and
+/// [`spawn_per_thread`](crate::spawn_per_thread).
 #[derive(Debug, Clone)]
 pub struct PerThreadConfig {
   /// Number of worker threads. Defaults to the number of logical CPUs.
   pub workers: usize,
-  /// Pin each worker to a CPU core; needs the `affinity` feature.
-  ///
-  /// Off by default: a pinned worker cannot move off a core that another
-  /// process keeps busy, and every process pins from core 0. Turn it on for a
-  /// server that has the machine to itself.
+  /// Pins worker N to core N (`affinity` feature). Off by default, since a pinned worker cannot
+  /// leave a core another pinning process keeps busy; use it when the server owns the machine.
   pub pin_to_core: bool,
   /// `SO_REUSEPORT` listen backlog.
   pub backlog: i32,
-  /// Maximum time the coordinator waits for in-flight requests after shutdown.
-  /// Workers are dropped after this elapses.
+  /// How long each worker waits for in-flight connections after shutdown before dropping them.
   pub drain_timeout: Duration,
-  /// How long a connection may go without sending a complete request head.
-  ///
-  /// Checked every half deadline, so an idle connection closes after 1 to 1.5
-  /// times this value. `None` disables it.
+  /// How long a connection may go without a complete request head; `None` disables it. Checked
+  /// every half deadline, so an idle connection closes after 1 to 1.5 times this.
   pub header_read_timeout: Option<Duration>,
-  /// Maximum concurrent connections per worker. `None` leaves it unlimited.
-  /// An upgraded connection, such as a WebSocket, counts until its socket closes.
+  /// Concurrent connections per worker, `None` for no cap; an upgraded connection such as a
+  /// WebSocket counts until its socket closes.
   pub max_connections: Option<usize>,
-  /// Hands each accepted connection to the worker with the fewest live
-  /// connections when the accepting worker is ahead. Evens out the hash-based
-  /// `SO_REUSEPORT` spread and keeps every worker busy where the kernel sends
-  /// all connections to one listener. Applies to Tokio workers.
+  /// Tokio workers hand a connection to the least busy worker when they are ahead, evening out
+  /// `SO_REUSEPORT`, which on some kernels sends every connection to one listener. On by default.
   pub balance_connections: bool,
 }
 

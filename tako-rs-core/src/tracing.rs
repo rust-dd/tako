@@ -1,9 +1,4 @@
-//! Distributed tracing integration for observability and debugging.
-//!
-//! This module provides tracing setup and configuration for Tako applications using the
-//! `tracing` ecosystem. It configures structured logging with file names, line numbers,
-//! log levels, and span events. The tracing system helps with debugging, monitoring,
-//! and understanding application behavior in development and production environments.
+//! A `tracing-subscriber` formatter with source locations, installed by [`init_tracing`].
 
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
@@ -50,16 +45,13 @@ fn decode_level(value: u8) -> LevelFilter {
   }
 }
 
+/// Sets the level [`init_tracing`] installs (default: DEBUG); it has no effect afterwards.
 pub fn set_tracing_level(level_filter: LevelFilter) {
   TRACING_LEVEL.store(encode_level(level_filter), Ordering::Relaxed);
 }
 
-/// Initializes the global tracing subscriber with formatted output.
-///
-/// Idempotent: calling more than once (e.g. when several `serve_*` entry
-/// points run in the same process) is a no-op after the first install. This
-/// avoids the `SetGlobalDefaultError` panic the previous unconditional
-/// `init()` produced under the `Server::builder` integration tests.
+/// Installs the formatting subscriber as the global default; does nothing on later calls or
+/// when another subscriber is already installed.
 pub fn init_tracing() {
   use std::sync::Once;
   static INIT: Once = Once::new();

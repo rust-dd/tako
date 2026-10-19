@@ -15,10 +15,7 @@ use tako_rs_core::conn_info::UnixPeerAddr;
 use crate::server_compio::unix::bind_listener;
 use crate::server_compio::unix::peer_addr;
 
-/// Starts a raw Unix domain socket server (compio runtime).
-///
-/// Each accepted connection is dispatched to the handler with the stream
-/// and the peer's address.
+/// Runs `handler` for every accepted connection until an accept error, which it returns.
 pub async fn serve_unix<F>(path: impl AsRef<Path>, handler: F) -> std::io::Result<()>
 where
   F: Fn(compio::net::UnixStream, UnixPeerAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
@@ -50,12 +47,8 @@ where
   }
 }
 
-/// Starts a raw Unix domain socket server with a shutdown signal (compio
-/// runtime).
-///
-/// The server stops accepting new connections when the shutdown signal
-/// completes. In-flight connections are drained with a 30 second timeout. Use
-/// [`serve_unix_with_shutdown_and_drain`] to override this bound.
+/// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
+/// [`serve_unix_with_shutdown_and_drain`] for another bound.
 pub async fn serve_unix_with_shutdown<F, S>(
   path: impl AsRef<Path>,
   handler: F,
@@ -71,7 +64,7 @@ where
   serve_unix_with_shutdown_and_drain(path, handler, signal, Duration::from_secs(30)).await
 }
 
-/// Same as [`serve_unix_with_shutdown`] but with an explicit drain timeout.
+/// Like [`serve_unix_with_shutdown`] with an explicit drain timeout.
 pub async fn serve_unix_with_shutdown_and_drain<F, S>(
   path: impl AsRef<Path>,
   handler: F,

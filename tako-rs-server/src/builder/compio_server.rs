@@ -18,8 +18,6 @@ use crate::ServerConfig;
 #[derive(Debug, Default, Clone)]
 pub struct CompioServerBuilder {
   config: ServerConfig,
-  // Mirrors the gating on `CompioServer.tls` — only available when TLS or
-  // HTTP/3 is on so plain compio builds stay warning-clean.
   #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
 }
@@ -50,16 +48,11 @@ impl CompioServerBuilder {
   }
 }
 
-/// Compio-runtime server entry point. Construct with [`CompioServer::builder`].
-///
-/// Mirrors the tokio `Server` API but drives the compio runtime —
-/// `io_uring` on Linux, IOCP on Windows, kqueue on macOS — under the hood.
+/// Compio-runtime server (`io_uring` on Linux, IOCP on Windows, kqueue on macOS) with the
+/// Tokio `Server` API. Construct with [`CompioServer::builder`].
 #[derive(Debug, Clone)]
 pub struct CompioServer {
   config: ServerConfig,
-  // Only consumed by the TLS and HTTP/3 impl blocks below. Marking the field
-  // `cfg`-gated on the features instead of `#[allow(dead_code)]` keeps the
-  // struct layout minimal in plain compio builds.
   #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
 }
@@ -95,7 +88,7 @@ impl CompioServer {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::run(listener, router, Some(signal), self.config.clone()),
+      crate::server_compio::run(listener, router, signal, self.config.clone()),
     );
     Ok(handle)
   }
@@ -120,7 +113,7 @@ impl CompioServer {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::run_h2c(listener, router, Some(signal), self.config.clone()),
+      crate::server_compio::run_h2c(listener, router, signal, self.config.clone()),
     );
     Ok(handle)
   }
@@ -149,13 +142,12 @@ impl CompioServer {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::run_proxy_protocol(listener, router, Some(signal), self.config.clone()),
+      crate::server_compio::run_proxy_protocol(listener, router, signal, self.config.clone()),
     );
     Ok(handle)
   }
 
-  /// Spawns HTTP/1 on a Unix domain socket; bind failures are returned by
-  /// `result()`.
+  /// Spawns HTTP/1 on a Unix domain socket; bind failures are returned by `result()`.
   #[cfg(unix)]
   pub fn spawn_unix_http(&self, path: impl Into<PathBuf>, router: Router) -> ServerHandle {
     let path = path.into();
@@ -163,7 +155,7 @@ impl CompioServer {
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done_compio(&handle, async move {
       let listener = crate::server_compio::unix::UnixSocketListener::bind(path).await?;
-      crate::server_compio::run_unix(listener, router, Some(signal), config).await
+      crate::server_compio::run_unix(listener, router, signal, config).await
     });
     handle
   }
@@ -182,7 +174,7 @@ impl CompioServer {
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done_compio(
       &handle,
-      crate::server_compio::run_unix(listener, router, Some(signal), config),
+      crate::server_compio::run_unix(listener, router, signal, config),
     );
     Ok(handle)
   }
@@ -222,6 +214,7 @@ impl CompioServer {
     );
     Ok(handle)
   }
+
   /// Spawns HTTP/3 over QUIC; startup failures are returned by `result()`.
   #[cfg(feature = "http3")]
   pub fn spawn_h3(&self, addr: impl Into<String>, router: Router) -> ServerHandle {
@@ -248,7 +241,7 @@ impl CompioServer {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(endpoint.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::h3::run_endpoint(endpoint, router, Some(signal), self.config.clone()),
+      crate::server_compio::h3::run_endpoint(endpoint, router, signal, self.config.clone()),
     );
     Ok(handle)
   }

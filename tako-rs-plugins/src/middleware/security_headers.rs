@@ -1,27 +1,5 @@
-//! Security headers middleware.
-//!
-//! Emits a curated set of HTTP response headers that close the most common
-//! injection / framing / cross-origin gaps. Defaults match modern browser
-//! advice (OWASP Secure Headers Project, web.dev / MDN guidance):
-//!
-//! - `X-Content-Type-Options: nosniff`
-//! - `X-Frame-Options: DENY`
-//! - `Referrer-Policy: strict-origin-when-cross-origin`
-//! - `Strict-Transport-Security` (opt-in via [`SecurityHeaders::hsts`])
-//! - `Content-Security-Policy` (opt-in via [`SecurityHeaders::csp`] /
-//!   [`SecurityHeaders::csp_with_nonce`])
-//! - `Cross-Origin-Opener-Policy: same-origin` (opt-in)
-//! - `Cross-Origin-Embedder-Policy: require-corp` (opt-in)
-//! - `Cross-Origin-Resource-Policy: same-origin` (opt-in)
-//! - `Permissions-Policy` (opt-in)
-//!
-//! `X-XSS-Protection` is intentionally **not** emitted — modern browsers
-//! ignore the header and OWASP recommends removing it. CSP is the
-//! authoritative replacement.
-//!
-//! Per-request CSP nonces are exposed as a [`CspNonce`] extension so handlers
-//! can interpolate them into inline `<script>` / `<style>` blocks. The header
-//! emitted to the client substitutes the nonce into a template string.
+//! `nosniff`, `X-Frame-Options: DENY` and a strict referrer policy by default; HSTS, CSP and
+//! cross-origin policies are opt-in. `X-XSS-Protection` is omitted: browsers ignore it.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -33,10 +11,8 @@ use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
 
-/// Per-request CSP nonce inserted into request extensions when
-/// [`SecurityHeaders::csp_with_nonce`] is configured.
-///
-/// Handlers can substitute the value into inline scripts:
+/// Per-request nonce inserted into request extensions by [`SecurityHeaders::csp_with_nonce`]
+/// and [`SecurityHeaders::csp_report_only`].
 ///
 /// ```rust,ignore
 /// let nonce = req.extensions().get::<CspNonce>().expect("CSP middleware mounted").0.clone();
@@ -48,10 +24,10 @@ pub struct CspNonce(pub String);
 #[derive(Clone)]
 enum CspMode {
   Static(HeaderValue),
-  WithNonce { template: String, header: bool },
+  WithNonce { template: String, report_only: bool },
 }
 
-/// Security headers middleware configuration.
+/// Methods taking `&'static str` panic when the value is not a valid header value.
 pub struct SecurityHeaders {
   frame_options: HeaderValue,
   hsts: bool,
@@ -73,7 +49,6 @@ impl Default for SecurityHeaders {
 }
 
 impl SecurityHeaders {
-  /// Creates a `SecurityHeaders` middleware with sensible defaults.
   pub fn new() -> Self {
     Self {
       frame_options: HeaderValue::from_static("DENY"),
@@ -90,38 +65,38 @@ impl SecurityHeaders {
     }
   }
 
-  /// Sets the `X-Frame-Options` value (e.g. `"DENY"`, `"SAMEORIGIN"`).
+  /// Defaults to `DENY`.
   pub fn frame_options(mut self, value: &'static str) -> Self {
     self.frame_options = HeaderValue::from_static(value);
     self
   }
 
-  /// Enables / disables `Strict-Transport-Security`.
+  /// Off by default; once on, `includeSubDomains` is sent unless disabled.
   pub fn hsts(mut self, enable: bool) -> Self {
     self.hsts = enable;
     self
   }
 
-  /// Sets the HSTS `max-age`. Default: 1 year.
+  /// Seconds; defaults to one year.
   pub fn hsts_max_age(mut self, seconds: u64) -> Self {
     self.hsts_max_age = seconds;
     self
   }
 
-  /// Toggles `includeSubDomains` on HSTS. Default: true.
+  /// Defaults to true.
   pub fn hsts_include_subdomains(mut self, on: bool) -> Self {
     self.hsts_include_subdomains = on;
     self
   }
 
-  /// Toggles `preload` on HSTS. Default: false. Submission to the HSTS
-  /// preload list requires `max-age >= 31536000` and `includeSubDomains`.
+  /// Defaults to false. The preload list requires `max-age >= 31536000` and
+  /// `includeSubDomains`.
   pub fn hsts_preload(mut self, on: bool) -> Self {
     self.hsts_preload = on;
     self
   }
 
-  /// Sets the `Referrer-Policy` value.
+  /// Defaults to `strict-origin-when-cross-origin`.
   pub fn referrer_policy(mut self, value: &'static str) -> Self {
     self.referrer_policy = HeaderValue::from_static(value);
     self
@@ -133,14 +108,12 @@ impl SecurityHeaders {
     self
   }
 
-  /// Emits a per-request CSP with a fresh nonce. The template must contain
-  /// the literal substring `{nonce}`, which is replaced before emission. The
-  /// generated nonce is also inserted into request extensions as
-  /// [`CspNonce`].
+  /// Replaces `{nonce}` in `template` with a fresh nonce per request, also exposed as
+  /// [`CspNonce`]; a result that is not a valid header value is not sent.
   pub fn csp_with_nonce(mut self, template: impl Into<String>) -> Self {
     self.csp = Some(CspMode::WithNonce {
       template: template.into(),
-      header: false,
+      report_only: false,
     });
     self
   }
@@ -149,30 +122,26 @@ impl SecurityHeaders {
   pub fn csp_report_only(mut self, template: impl Into<String>) -> Self {
     self.csp = Some(CspMode::WithNonce {
       template: template.into(),
-      header: true,
+      report_only: true,
     });
     self
   }
 
-  /// Sets `Cross-Origin-Opener-Policy`.
   pub fn coop(mut self, value: &'static str) -> Self {
     self.coop = Some(HeaderValue::from_static(value));
     self
   }
 
-  /// Sets `Cross-Origin-Embedder-Policy`.
   pub fn coep(mut self, value: &'static str) -> Self {
     self.coep = Some(HeaderValue::from_static(value));
     self
   }
 
-  /// Sets `Cross-Origin-Resource-Policy`.
   pub fn corp(mut self, value: &'static str) -> Self {
     self.corp = Some(HeaderValue::from_static(value));
     self
   }
 
-  /// Sets `Permissions-Policy`.
   pub fn permissions_policy(mut self, value: &'static str) -> Self {
     self.permissions_policy = Some(HeaderValue::from_static(value));
     self
@@ -180,8 +149,7 @@ impl SecurityHeaders {
 }
 
 fn rand_nonce() -> String {
-  // 18 random bytes → 24-char base64. UUID v4 covers 16 random bytes; pad
-  // with the second half of a fresh UUID for the remaining 2.
+  // 18 bytes encode to 24 base64 chars; UUID v4 fixes 6 bits, leaving 138 random ones.
   use base64::Engine;
 
   let u1 = uuid::Uuid::new_v4().into_bytes();
@@ -231,16 +199,20 @@ impl IntoMiddleware for SecurityHeaders {
       let permissions_policy = permissions_policy.clone();
 
       Box::pin(async move {
-        // Generate the per-request nonce up front so the handler can read it
-        // back from request extensions before the response is built.
+        // Before `next`, so the handler can read the nonce from request extensions.
         let prepared_csp: Option<(HeaderValue, bool)> = match csp.as_ref() {
           None => None,
           Some(CspMode::Static(v)) => Some((v.clone(), false)),
-          Some(CspMode::WithNonce { template, header }) => {
+          Some(CspMode::WithNonce {
+            template,
+            report_only,
+          }) => {
             let nonce = rand_nonce();
             let value = template.replace("{nonce}", &nonce);
             req.extensions_mut().insert(CspNonce(nonce));
-            HeaderValue::from_str(&value).ok().map(|hv| (hv, *header))
+            HeaderValue::from_str(&value)
+              .ok()
+              .map(|hv| (hv, *report_only))
           }
         };
 

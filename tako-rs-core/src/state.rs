@@ -1,14 +1,10 @@
-//! Global application state management and dependency injection (type-based).
-//!
-//! This module provides a thread-safe global state store for sharing data across your
-//! application. Values are stored by their concrete type (not by string keys) and can be
-//! retrieved with type safety. The store uses `Arc` and `Any` for type erasure and shared
-//! ownership of values that implement `Send + Sync + 'static`.
+//! Process-global state with one slot per type; prefer
+//! [`Router::with_state`](crate::router::Router::with_state) for router-scoped values.
 //!
 //! # Examples
 //!
 //! ```rust
-//! use tako::state::{set_state, get_state};
+//! use tako::state::{get_or_init_state, get_state};
 //!
 //! #[derive(Clone, Debug, PartialEq)]
 //! struct DatabaseConfig {
@@ -21,7 +17,7 @@
 //!     url: "postgresql://localhost/mydb".to_string(),
 //!     max_connections: 10,
 //! };
-//! set_state(config.clone());
+//! get_or_init_state(|| config.clone());
 //!
 //! // Retrieve configuration by type
 //! let retrieved: Option<std::sync::Arc<DatabaseConfig>> = get_state::<DatabaseConfig>();
@@ -35,55 +31,20 @@ use std::sync::LazyLock;
 
 use scc::HashMap as SccHashMap;
 
-/// Global state storage using thread-safe concurrent hash map.
-///
-/// This static variable holds the global application state, allowing values to be
-/// shared across different parts of the application. Values are stored as type-erased
-/// `Arc<dyn Any + Send + Sync>` to enable storage of arbitrary types while maintaining
-/// thread safety.
-pub(crate) static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
+/// Holds an `Arc<T>` under `TypeId::of::<T>()` for every stored `T`.
+static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
   LazyLock::new(SccHashMap::new);
 
-/// Stores a value in the global state, keyed by its concrete type `T`.
-///
-/// The value is wrapped in an `Arc` and can later be retrieved with [`get_state::<T>`].
-/// Storing again for the same type replaces the previous value.
+/// Returns the process-global value stored for `T`, if any.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use tako::state::set_state;
-///
-/// // Store a string by type
-/// set_state::<String>("My Application".to_string());
-///
-/// // Store a numeric value
-/// set_state::<u32>(1000);
-///
-/// // Store a custom struct
-/// #[derive(Clone)]
-/// struct Config { debug: bool, timeout: u64 }
-///
-/// let config = Config { debug: true, timeout: 30 };
-/// set_state(config);
-/// ```
-#[deprecated(note = "use Router::with_state for instance-local state")]
-pub fn set_state<T: Send + Sync + 'static>(value: T) {
-  GLOBAL_STATE.upsert_sync(TypeId::of::<T>(), Arc::new(value));
-}
-
-/// Retrieves a value from the global state by its concrete type `T`.
-///
-/// Returns `Some(Arc<T>)` if a value was previously stored for `T`, or `None` otherwise.
-///
-/// # Examples
-///
-/// ```rust
-/// use tako::state::{set_state, get_state};
+/// use tako::state::{get_or_init_state, get_state};
 /// use std::sync::Arc;
 ///
 /// // Store and retrieve a string
-/// set_state::<String>("Hello, World!".to_string());
+/// get_or_init_state(|| "Hello, World!".to_string());
 /// let message: Option<Arc<String>> = get_state::<String>();
 /// assert_eq!(message.as_ref().map(|s| s.as_str()), Some("Hello, World!"));
 ///
@@ -101,14 +62,9 @@ pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
     .and_then(|v| v.downcast::<T>().ok())
 }
 
-/// Atomically initialises the global slot for `T` if and only if it is
-/// empty, evaluating `init` exactly once across concurrent callers. Returns
-/// the resulting `Arc<T>` (either the pre-existing one or the freshly
-/// inserted one).
+/// Returns the global `T`, first storing `init()` if the slot is empty.
 ///
-/// This is the right primitive for "first one wins" cross-thread setup; the
-/// pattern `if get_state::<T>().is_none() { set_state(...) }` is TOCTOU
-/// across `Router::new` calls and can write twice on the racing thread.
+/// `init` runs at most once, even under concurrent callers, which all get the same `Arc`.
 pub fn get_or_init_state<T, F>(init: F) -> Arc<T>
 where
   T: Send + Sync + 'static,

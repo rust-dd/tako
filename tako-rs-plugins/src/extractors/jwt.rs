@@ -1,12 +1,5 @@
-//! Verified JWT claims extractor.
-//!
-//! Pairs with [`crate::middleware::jwt_auth::JwtAuth<V>`]: when the middleware
-//! runs successfully, it inserts the decoded `V::Claims` into request
-//! extensions. `JwtClaimsVerified<C>` extracts that value, returning a clear
-//! 401 rejection if the middleware did not run (a typical wiring mistake).
-//!
-//! For unauthenticated decoding (no signature check) prefer
-//! `tako_rs_extractors::jwt::JwtClaimsUnverified<T>`.
+//! Claims verified by [`JwtAuth`](crate::middleware::jwt_auth::JwtAuth); extraction fails with
+//! 401 when that middleware did not run.
 
 use http::StatusCode;
 use http::request::Parts;
@@ -15,9 +8,7 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Verified JWT claims placed into request extensions by [`crate::middleware::jwt_auth::JwtAuth`].
-///
-/// `C` must be the verifier's `Claims` type (not the raw JWT payload).
+/// `C` must be the verifier's `Claims` type, not the raw JWT payload.
 pub struct JwtClaimsVerified<C>(pub C);
 
 /// Rejection when the auth middleware did not run for this request.

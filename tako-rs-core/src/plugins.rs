@@ -1,14 +1,4 @@
-#![cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
-//! Plugin system for extending framework functionality with composable modules.
-//!
-//! This module provides the core plugin infrastructure for Tako, allowing developers
-//! to extend the framework with reusable components. Plugins can add middleware,
-//! modify routing behavior, or integrate external services. The `TakoPlugin` trait
-//! defines the interface all plugins must implement for registration and setup.
-//!
-//! Plugins can be applied at two levels:
-//! - **Router-level**: Applied globally to all routes using `router.plugin()`
-//! - **Route-level**: Applied to specific routes using `route.plugin()`
+//! The [`TakoPlugin`] trait, for features set up once on a router or on a single route.
 //!
 //! # Examples
 //!
@@ -51,15 +41,7 @@ use anyhow::Result;
 
 use crate::router::Router;
 
-/// Trait for implementing Tako framework plugins.
-///
-/// Plugins extend the framework's functionality by implementing this trait. They can
-/// add middleware, modify routing behavior, register handlers, or integrate external
-/// services. All plugins must be thread-safe and have a static lifetime.
-///
-/// Plugins can be applied at both router and route levels:
-/// - **Router-level**: Use `router.plugin()` to apply globally
-/// - **Route-level**: Use `route.plugin()` to apply to specific routes
+/// A reusable feature, such as CORS, that registers its middleware in `setup`.
 ///
 /// # Examples
 ///
@@ -102,9 +84,9 @@ use crate::router::Router;
 /// route.plugin(CachePlugin { ttl_seconds: 600 });
 /// ```
 pub trait TakoPlugin: Send + Sync + 'static {
-  /// Returns the unique name identifier for this plugin.
+  /// Identifies the plugin in setup error messages.
   fn name(&self) -> &'static str;
 
-  /// Configures and initializes the plugin with the given router.
+  /// Runs once; a route plugin gets a scratch router whose middleware moves to the route.
   fn setup(&self, router: &Router) -> Result<()>;
 }

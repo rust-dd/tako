@@ -25,11 +25,8 @@ pub(crate) fn line_complete(line: &[u8]) -> std::io::Result<bool> {
   Ok(false)
 }
 
-/// Parse a complete PROXY protocol v1 line.
-///
-/// Format: `PROXY TCP4|TCP6|UNKNOWN <src> <dst> <srcport> <dstport>\r\n`
+/// Parses `PROXY TCP4|TCP6|UNKNOWN <src> <dst> <srcport> <dstport>\r\n`.
 pub(crate) fn parse_v1(line: &[u8]) -> std::io::Result<ProxyHeader> {
-  // Parse: "PROXY TCP4 src dst srcport dstport\r\n"
   let text = std::str::from_utf8(line).map_err(|_| {
     std::io::Error::new(
       std::io::ErrorKind::InvalidData,
@@ -81,9 +78,6 @@ pub(crate) fn parse_v1(line: &[u8]) -> std::io::Result<ProxyHeader> {
         )
       })?;
 
-      // PROXY v1 only carries TCP4/TCP6 in this arm — `Udp` was dead
-      // code (the pattern already restricted `proto` to "TCP*"). UDP is
-      // a PROXY v2 concept; keep `Tcp` hard-coded for the v1 path.
       let mut header = ProxyHeader::empty(ProxyVersion::V1, ProxyTransport::Tcp);
       header.source = Some(SocketAddr::new(src_ip, src_port));
       header.destination = Some(SocketAddr::new(dst_ip, dst_port));

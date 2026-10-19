@@ -12,8 +12,6 @@ use syn::parse_macro_input;
 use crate::parse::ShortcutArgs;
 use crate::parse::parse_path;
 
-/// `snake_case` → `PascalCase`. `get_user` → `GetUser`. ASCII only, which is
-/// fine for Rust identifiers.
 fn pascal_case(s: &str) -> String {
   let mut out = String::with_capacity(s.len());
   let mut next_upper = true;
@@ -30,12 +28,7 @@ fn pascal_case(s: &str) -> String {
   out
 }
 
-/// Shared expansion: given a method ident, a path literal, an optional struct
-/// name override, and the handler fn, produce the generated tokens.
-///
-/// Only emits the `*Params` struct when the path contains at least one typed
-/// placeholder (`{id: u64}`). Pure-static or untyped-only paths skip the
-/// struct entirely and just register the route.
+/// Emits the params struct only for typed placeholders or an explicit `name`.
 pub(crate) fn expand_route(
   method: Ident,
   path: LitStr,
@@ -50,11 +43,7 @@ pub(crate) fn expand_route(
   };
 
   let fn_name = &func.sig.ident;
-  // Append a short fingerprint of (method + path) so two handlers that
-  // happen to share the same function identifier — common when several
-  // modules each define an `fn handler` — generate distinct linkme
-  // registrars. Without the suffix the second module's static silently
-  // overwrote the first at link time.
+  // A method and path hash keeps registrars distinct when modules reuse a handler name.
   let registrar_suffix = {
     let key = format!("{method}_{path_str}");
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a 64-bit offset basis
@@ -71,11 +60,8 @@ pub(crate) fn expand_route(
     span = fn_name.span()
   );
 
-  // No typed placeholders.
   if params.is_empty() {
-    // Explicit `name = "..."` keeps emitting a unit marker struct so callers
-    // can still reference `Name::METHOD` / `Name::PATH`. Without an override
-    // we skip the struct entirely.
+    // An explicit `name` still gets a unit struct carrying `METHOD` and `PATH`.
     if let Some(struct_name) = name_override {
       let expanded: TokenStream2 = quote! {
         pub struct #struct_name;
@@ -131,8 +117,7 @@ pub(crate) fn expand_route(
     }
 
     impl ::tako::extractors::typed_params::TypedParamsStruct for #struct_name {
-      // `FromStr::Err` is uninhabited for types like `String`, which makes the
-      // `map_err` closure below dead code.
+      // `FromStr::Err` is uninhabited for `String`, making the `map_err` closure unreachable.
       #[allow(unreachable_code)]
       fn from_path_params(
         __pp: &::tako::extractors::params::PathParams,
@@ -172,7 +157,6 @@ pub(crate) fn expand_route(
   expanded.into()
 }
 
-/// Common driver for the method shortcuts (`#[get]`, `#[post]`, ...).
 pub(crate) fn shortcut(
   method_name: &'static str,
   attr: TokenStream,

@@ -1,7 +1,3 @@
-//! `grpc-timeout` deadline propagation: parsing the header's unit-suffixed
-//! duration, stashing the resulting [`GrpcDeadline`] in request extensions,
-//! extracting it in handlers, and the timer that ends a streaming reply.
-
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -18,11 +14,8 @@ use crate::extractors::FromRequest;
 use crate::extractors::FromRequestParts;
 use crate::types::Request;
 
-/// gRPC deadline propagated from the `grpc-timeout` request header.
-///
-/// Extract it as `Option<GrpcDeadline>` in a handler, then pass it to
-/// [`GrpcServerStream::with_deadline`](super::GrpcServerStream::with_deadline)
-/// or bound unary work with [`remaining`](Self::remaining).
+/// The client's `grpc-timeout` as an instant; extract it as `Option<GrpcDeadline>` and pass it
+/// to [`GrpcServerStream::with_deadline`](super::GrpcServerStream::with_deadline).
 #[derive(Debug, Clone, Copy)]
 pub struct GrpcDeadline(pub Instant);
 
@@ -33,9 +26,8 @@ impl GrpcDeadline {
   }
 }
 
-/// Parse the `grpc-timeout` header value (e.g. `"100m"`, `"5S"`, `"1H"`).
-///
-/// Accepts one to eight ASCII digits followed by a supported unit.
+/// Parses a `grpc-timeout` value: one to eight digits and a unit `n`, `u`, `m`, `S`, `M` or
+/// `H`, e.g. `"100m"`.
 pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   let value = value.trim();
   if !(2..=9).contains(&value.len()) || !value.is_ascii() {
@@ -58,15 +50,8 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   Some(dur)
 }
 
-/// Extract the deadline (if any) from a request's `grpc-timeout` header.
-///
-/// Inserts a [`GrpcDeadline`] into request extensions when present so handlers
-/// and middleware can honor the cancellation contract.
-///
-/// Uses `Instant::checked_add` so an attacker-supplied near-`u64::MAX`-second
-/// `grpc-timeout` (e.g. `"18446744073709551615S"`) cannot panic the server on
-/// overflow — instead the header is treated as if absent, matching the
-/// no-deadline default.
+/// Reads `grpc-timeout` into a [`GrpcDeadline`] stored in the request extensions; a timeout
+/// that overflows `Instant` counts as absent.
 pub fn read_grpc_deadline(req: &mut Request) -> Option<GrpcDeadline> {
   let deadline = deadline_from(req.headers(), req.extensions())?;
   req.extensions_mut().insert(deadline);
@@ -107,9 +92,8 @@ impl<'a> FromRequest<'a> for Option<GrpcDeadline> {
 #[cfg(not(feature = "compio"))]
 type Sleep = Pin<Box<tokio::time::Sleep>>;
 
-/// Compio timers are `!Send`, while response bodies must be `Send`. The timer
-/// is created and polled by the connection task that drives the body, which
-/// never leaves its runtime thread.
+/// Compio timers are `!Send` but bodies must be `Send`; the connection task that polls the
+/// body never leaves its runtime thread.
 #[cfg(feature = "compio")]
 type Sleep = send_wrapper::SendWrapper<Pin<Box<dyn Future<Output = ()>>>>;
 

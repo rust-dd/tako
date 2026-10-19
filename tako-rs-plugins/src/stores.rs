@@ -1,8 +1,5 @@
-//! Async backends for stateful middleware.
-//!
-//! Builders accept these traits through `.store(...)`; memory implementations
-//! are available under [`crate::stores::memory`]. Remote stores must implement atomic quota
-//! consumption and idempotency leases in the shared backend itself.
+//! Async backends that stateful middleware accept through `.store(...)`. Remote stores must make
+//! quota consumption and idempotency leases atomic in the shared backend itself.
 
 use std::time::Duration;
 
@@ -56,11 +53,8 @@ pub enum IdempotencyBegin {
   Existing(IdempotencyEntry),
 }
 
-/// Distributed idempotency leases and cached responses.
-///
-/// Lease expiry must exceed the application's maximum handler duration.
-/// Completion/removal must compare the lease token atomically, so an expired
-/// owner cannot overwrite or delete a newer request's result.
+/// Lease expiry must exceed the longest handler run, and completion or removal must compare the
+/// lease token atomically so an expired owner cannot clobber a newer request's result.
 #[async_trait]
 pub trait IdempotencyStore: Send + Sync + 'static {
   async fn get(&self, key: &str) -> StoreResult<Option<IdempotencyEntry>>;
@@ -119,10 +113,8 @@ pub struct VerificationKey {
   pub bytes: Vec<u8>,
 }
 
-/// Candidate verification keys for a JWT `kid`.
-///
-/// Key encoding is defined by the verifier. An empty list uses its configured
-/// static keys; provider errors and failed candidate signatures fail closed.
+/// Candidate keys for a JWT `kid`, encoded as the verifier expects. An empty list falls back to
+/// the verifier's static keys; provider errors and failed signatures fail closed.
 #[async_trait]
 pub trait JwksProvider: Send + Sync + 'static {
   async fn keys_for(&self, kid: &str) -> StoreResult<Vec<VerificationKey>>;

@@ -1,5 +1,3 @@
-//! Background worker loop that drains pending jobs and applies retry/DLQ policy.
-
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;

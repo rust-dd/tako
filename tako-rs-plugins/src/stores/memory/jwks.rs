@@ -6,6 +6,7 @@ use scc::HashMap as SccHashMap;
 use crate::stores::JwksProvider;
 use crate::stores::StoreResult;
 use crate::stores::VerificationKey;
+
 /// Static-snapshot JWKS provider.
 #[derive(Default, Clone)]
 pub struct StaticJwksProvider {

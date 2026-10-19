@@ -1,9 +1,4 @@
-//! Raw request body access for HTTP requests.
-//!
-//! This module provides the [`Bytes`](crate::bytes::Bytes) extractor for accessing the raw HTTP request body
-//! as a `hyper::body::Incoming` stream. This is useful when you need low-level access
-//! to the request body stream for custom processing, streaming, or when working directly
-//! with hyper's body types.
+//! Borrowed access to the unbuffered request body.
 //!
 //! # Examples
 //!
@@ -28,16 +23,8 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::types::Request;
 
-/// Raw request body extractor that provides access to the underlying body stream.
-///
-/// This extractor wraps a reference to the raw request body implementing `http_body::Body`,
-/// allowing direct access to the request body without buffering.
-///
-/// **Naming note**: this `Bytes<'a>` is distinct from the very-common
-/// [`bytes::Bytes`](https://docs.rs/bytes/) type from the `bytes` crate
-/// (which is a refcounted byte buffer, not a body reference). In handlers
-/// that need both, import this as
-/// `use tako::extractors::bytes::Bytes as BytesBody;` to avoid the clash.
+/// The unbuffered request body. Not the `bytes::Bytes` buffer: import one under an alias,
+/// such as `Bytes as BytesBody`, when a handler needs both.
 #[doc(alias = "bytes")]
 pub struct Bytes<'a>(pub &'a mut TakoBody);
 

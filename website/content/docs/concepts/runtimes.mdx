@@ -12,8 +12,7 @@ runtime: both
 Tako runs on two async runtimes, chosen at build time. The application model —
 `Router`, handlers, extractors, middleware, responders — is identical on both.
 Transport availability and some middleware adapters differ. Router and route
-timeouts work on both; `middleware::timeout::Timeout` currently has a Tokio
-adapter only.
+timeouts work on both; `middleware::timeout::Timeout` exists only on Tokio.
 
 - **Tokio** (default) — multi-threaded, work-stealing scheduler with `Send`
   futures end-to-end. This is what the standalone `Server` builder targets.
@@ -60,8 +59,8 @@ tako-rs = { version = "2", default-features = false, features = [
 
 The umbrella crate swaps the server type for you: with `compio` on, the
 re-exports surface `CompioServer` / `CompioServerBuilder` instead of `Server` /
-`ServerBuilder`. The core router API is shared by both. The HTTP `serve_*` helpers are deprecated;
-use the selected builder and its `try_spawn_*` methods.
+`ServerBuilder`. The core router API is shared by both. Start servers with the selected builder
+and its `try_spawn_*` methods.
 
 ## Transport coverage
 

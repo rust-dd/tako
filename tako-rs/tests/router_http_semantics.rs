@@ -1,4 +1,3 @@
-#![allow(deprecated)]
 use http::Method;
 use http::StatusCode;
 use http::Version;
@@ -176,8 +175,4 @@ fn typed_state_replaces_existing_values_without_affecting_other_routers() {
   assert_eq!(second.router_state().get::<Value>().unwrap().0, "other");
   assert_eq!(previous.0, "old");
   assert_eq!(first.router_state().len(), 1);
-
-  tako::state::set_state(Value("old"));
-  tako::state::set_state(Value("new"));
-  assert_eq!(tako::state::get_state::<Value>().unwrap().0, "new");
 }

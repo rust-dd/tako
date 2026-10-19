@@ -1,23 +1,19 @@
-//! OpenTelemetry metrics backend and OTLP exporter configuration.
-
 use anyhow::Result;
 use tako_rs_core::router::Router;
 
 use crate::plugins::metrics::MetricsPlugin;
 
-/// OpenTelemetry backend implementation.
-#[cfg(feature = "metrics-opentelemetry")]
 pub mod opentelemetry_backend {
   use opentelemetry::KeyValue;
   use opentelemetry::metrics::Counter;
   use opentelemetry::metrics::Meter;
   use tako_rs_core::signals::Signal;
 
+  use super::super::recorder::route_label;
+  use super::super::recorder::transport_label;
   use crate::plugins::metrics::MetricsBackend;
 
-  /// Basic OpenTelemetry metrics backend that records counters using the
-  /// global meter provider. Users are expected to configure an exporter
-  /// (e.g. OTLP, Prometheus) separately.
+  /// Counters only: unlike the Prometheus backend it records no latency histogram.
   pub struct OtelMetricsBackend {
     http_requests_total: Counter<u64>,
     http_route_requests_total: Counter<u64>,
@@ -41,34 +37,10 @@ pub mod opentelemetry_backend {
     }
   }
 
-  /// Derives a low-cardinality `transport` label from a connection signal.
-  fn transport_label(signal: &Signal) -> &'static str {
-    if signal.metadata.get("protocol").map(String::as_str) == Some("h3") {
-      "h3"
-    } else if signal.metadata.get("tls").map(String::as_str) == Some("true") {
-      "tls"
-    } else if signal.metadata.contains_key("unix_path") {
-      "unix"
-    } else {
-      "tcp"
-    }
-  }
-
-  /// Prefer the matched route template (`route`) over the raw URI path (`path`).
-  fn route_label(signal: &Signal) -> String {
-    // Bound label cardinality: a matched route template is finite; the raw
-    // URI path is attacker-controlled and would explode label space.
-    signal
-      .metadata
-      .get("route")
-      .cloned()
-      .unwrap_or_else(|| "unmatched".to_string())
-  }
-
   impl MetricsBackend for OtelMetricsBackend {
     fn on_request_completed(&self, signal: &Signal) {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();
-      let route = route_label(signal);
+      let route = route_label(signal).to_owned();
       let status = signal.metadata.get("status").cloned().unwrap_or_default();
       self.http_requests_total.add(
         1,
@@ -82,7 +54,7 @@ pub mod opentelemetry_backend {
 
     fn on_route_request_completed(&self, signal: &Signal) {
       let method = signal.metadata.get("method").cloned().unwrap_or_default();
-      let route = route_label(signal);
+      let route = route_label(signal).to_owned();
       let status = signal.metadata.get("status").cloned().unwrap_or_default();
       self.http_route_requests_total.add(
         1,
@@ -108,16 +80,14 @@ pub mod opentelemetry_backend {
   }
 }
 
-#[cfg(feature = "metrics-opentelemetry")]
 #[derive(Clone)]
 pub struct OtelMetricsConfig {
-  /// Name for the OpenTelemetry meter used by Tako.
+  /// Default: `tako`.
   pub meter_name: &'static str,
-  /// OTLP endpoint URL for metrics export.
+  /// OTLP/HTTP metrics endpoint; default `http://localhost:4318/v1/metrics`.
   pub endpoint: String,
 }
 
-#[cfg(feature = "metrics-opentelemetry")]
 impl Default for OtelMetricsConfig {
   fn default() -> Self {
     Self {
@@ -127,24 +97,19 @@ impl Default for OtelMetricsConfig {
   }
 }
 
-#[cfg(feature = "metrics-opentelemetry")]
 impl OtelMetricsConfig {
-  /// Sets the OTLP endpoint URL.
   pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
     self.endpoint = endpoint.into();
     self
   }
 
-  /// Sets the meter name.
   pub fn with_meter_name(mut self, name: &'static str) -> Self {
     self.meter_name = name;
     self
   }
 
-  /// Installs an OpenTelemetry metrics backend with OTLP exporter.
-  ///
-  /// Returns the `SdkMeterProvider` which should be kept alive for the
-  /// application lifetime. Call `shutdown()` on it during graceful shutdown.
+  /// Also sets the global meter provider. Keep the returned provider alive and call its
+  /// `shutdown()` during graceful shutdown.
   pub fn install(
     self,
     router: &mut Router,

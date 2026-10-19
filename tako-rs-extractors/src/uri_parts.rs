@@ -1,19 +1,5 @@
-//! URI-derived extractors: `OriginalUri`, `Host`, `Scheme`.
-//!
-//! These mirror axum and surface request location data from `Uri`, `Host`
-//! header, and the underlying transport. `OriginalUri` is captured on first
-//! observation so middleware that mutates the request URI (e.g. `nest` /
-//! `scope` rewrites) cannot lose the original.
-//!
-//! ## Trust model
-//!
-//! `Host` and `Scheme` honor `Forwarded` / `X-Forwarded-*` headers **only** when
-//! the connection's peer IP appears in a configured trusted-proxy list. Insert
-//! a `UriPartsConfig` (see [`UriPartsConfig`](crate::uri_parts::UriPartsConfig))
-//! into the application state (or request extensions) to enable that path. Without configuration the extractors fall back to the
-//! `Host` header and the transport-resolved scheme — never an attacker-supplied
-//! `X-Forwarded-Host`, which previously enabled cache-poisoning and open
-//! redirect classes when the server was directly reachable.
+//! `OriginalUri`, `Host` and `Scheme`; the last two trust forwarding headers only from a peer
+//! listed in a [`UriPartsConfig`].
 
 use std::net::IpAddr;
 
@@ -25,37 +11,21 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Configuration governing which forwarding headers `Host` / `Scheme` are
-/// allowed to consult. The extractors only honor `Forwarded` /
-/// `X-Forwarded-Host` / `X-Forwarded-Proto` when the peer address (from the
-/// transport's `ConnInfo`) appears in [`Self::trusted_proxies`].
+/// Proxies whose forwarding headers `Host` and `Scheme` honor; read from a request extension,
+/// then `Router::with_state`, then a process-global value from `get_or_init_state`.
 #[derive(Debug, Clone, Default)]
 pub struct UriPartsConfig {
-  /// Peer addresses (immediate TCP/UDS counter-party) whose forwarded
-  /// headers may be trusted. Empty means "trust no forwarded headers".
+  /// Direct-peer IPs; empty trusts no forwarding headers.
   pub trusted_proxies: Vec<IpAddr>,
 }
 
 impl UriPartsConfig {
-  /// Builder convenience for the common "trust this single proxy" setup.
   pub fn with_trusted_proxy(mut self, ip: IpAddr) -> Self {
     self.trusted_proxies.push(ip);
     self
   }
 }
 
-/// Resolve a `UriPartsConfig` consulting (in order) request extensions,
-/// per-router state, then process-global state.
-///
-/// EXT-3: the module docs advertise the config can live in "application state
-/// (or request extensions)", but the original implementation only checked
-/// extensions. Trusted-proxy config set via `Router::with_state` or
-/// `tako_rs_core::state::set_state` was silently inactive — `peer_is_trusted`
-/// always returned false, fail-safe in the security sense but a documented
-/// feature that did not work. Falls back through both state layers now, with
-/// a tiny ~2-3 extra hash probes (scc, lock-free) per Host/Scheme extraction
-/// in the no-config-in-extensions case — cold-path enough that it does not
-/// move hot-path numbers.
 fn lookup_uri_parts_cfg(ext: &http::Extensions) -> Option<UriPartsConfig> {
   if let Some(cfg) = ext.get::<UriPartsConfig>() {
     return Some(cfg.clone());
@@ -87,15 +57,10 @@ fn peer_is_trusted(ext: &http::Extensions) -> bool {
   }
 }
 
-/// Marker stored in request extensions to preserve the URI as it first
-/// arrived at the dispatcher. `OriginalUri` reads from this.
-#[derive(Debug, Clone)]
-pub struct OriginalUriMarker(pub Uri);
+pub use tako_rs_core::router_state::OriginalUriMarker;
 
-/// The URI of the request as it first hit the dispatcher.
-///
-/// Useful when downstream middleware rewrites the URI (nest / scope strip
-/// the prefix) and the handler still needs the original path.
+/// The URI saved at router entry, before middleware or nested dispatch rewrites it;
+/// falls back to the request URI when extracted without a router.
 pub struct OriginalUri(pub Uri);
 
 impl<'a> FromRequest<'a> for OriginalUri {
@@ -126,16 +91,10 @@ impl<'a> FromRequestParts<'a> for OriginalUri {
   }
 }
 
-/// Host derived from `:authority` / `Host` / `X-Forwarded-Host`.
-///
-/// Resolution order (matches axum):
-/// 1. `Forwarded: host=…` (RFC 7239), first entry
-/// 2. `X-Forwarded-Host` first value
-/// 3. `Host` header
-/// 4. `Uri::authority()` (HTTP/2+ when the request line carries authority)
+/// The `Host` header, else the URI authority, with a trusted proxy's `Forwarded: host=` and
+/// `X-Forwarded-Host` taking precedence; rejects with 400 when none is present.
 pub struct Host(pub String);
 
-/// Rejection when the host cannot be determined.
 #[derive(Debug)]
 pub struct HostMissing;
 
@@ -207,8 +166,8 @@ impl<'a> FromRequestParts<'a> for Host {
   }
 }
 
-/// HTTP scheme derived from the request URI / `X-Forwarded-Proto` /
-/// transport-injected `ConnInfo`.
+/// The lowercase scheme: a trusted proxy's `X-Forwarded-Proto`, else the URI's, else `https`
+/// on TLS connections and `http` otherwise.
 pub struct Scheme(pub String);
 
 fn extract_scheme(

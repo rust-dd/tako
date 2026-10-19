@@ -1,10 +1,4 @@
-//! Basic HTTP authentication credential extraction from Authorization headers.
-//!
-//! This module provides extractors for parsing HTTP Basic authentication credentials
-//! as defined in RFC 7617. It extracts and validates the Authorization header with
-//! Basic scheme, decodes the Base64-encoded credentials, and provides structured
-//! access to username and password. The extractor handles proper error cases and
-//! provides detailed error information for authentication failures.
+//! HTTP Basic credentials (RFC 7617) from the `Authorization` header.
 //!
 //! # Examples
 //!
@@ -40,40 +34,29 @@ use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
 use tako_rs_core::types::Request;
 
-/// Basic HTTP authentication credentials extracted from Authorization header.
-///
-/// Represents the username and password extracted from a Basic authentication
-/// Authorization header. The credentials are Base64-decoded and split on the
-/// first colon character as per RFC 7617. The raw token is also preserved
-/// for logging or advanced use cases.
+/// Decoded Basic credentials, split at the first `:` so the password may contain colons.
 pub struct Basic {
-  /// Username extracted from the Basic auth token.
   pub username: String,
-  /// Password extracted from the Basic auth token.
   pub password: String,
-  /// Raw Basic auth token as received in the Authorization header.
+  /// The whole header value, including the `Basic ` prefix.
   pub raw: String,
 }
 
-/// Error types for Basic authentication extraction and validation.
+/// Rejection of [`Basic`]; every variant responds 401.
 #[derive(Debug)]
 pub enum BasicAuthError {
-  /// Authorization header is missing from the request.
   MissingAuthHeader,
-  /// Authorization header contains invalid UTF-8 or cannot be parsed.
+  /// The header value is not visible ASCII.
   InvalidAuthHeader,
-  /// Authorization header does not use Basic authentication scheme.
+  /// The value does not start with a case-insensitive `Basic ` scheme.
   InvalidBasicFormat,
-  /// Base64 encoding in the Basic auth token is invalid.
   InvalidBase64,
-  /// Decoded credentials contain invalid UTF-8 characters.
   InvalidUtf8,
-  /// Credentials format is invalid (missing colon separator).
+  /// The decoded credentials contain no `:`.
   InvalidCredentialsFormat,
 }
 
 impl Responder for BasicAuthError {
-  /// Converts Basic authentication errors into appropriate HTTP responses.
   fn into_response(self) -> tako_rs_core::types::Response {
     let (status, message) = match self {
       BasicAuthError::MissingAuthHeader => {
@@ -104,7 +87,6 @@ impl Responder for BasicAuthError {
 }
 
 impl Basic {
-  /// Parses Basic authentication credentials from HTTP headers.
   fn extract_from_headers(headers: &http::HeaderMap) -> Result<Self, BasicAuthError> {
     let auth_header = headers
       .get("Authorization")
@@ -114,7 +96,10 @@ impl Basic {
       .to_str()
       .map_err(|_| BasicAuthError::InvalidAuthHeader)?;
 
-    if !auth_str.starts_with("Basic ") {
+    if !auth_str
+      .get(..6)
+      .is_some_and(|prefix| prefix.eq_ignore_ascii_case("Basic "))
+    {
       return Err(BasicAuthError::InvalidBasicFormat);
     }
 

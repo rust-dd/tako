@@ -1,20 +1,13 @@
-//! Rate-limiter configuration: algorithm choice, unkeyed-request policy,
-//! runtime settings, and the custom key-function type.
-
 use std::sync::Arc;
 
 use http::StatusCode;
 use tako_rs_core::types::Request;
 
-/// Rate-limiting algorithm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Algorithm {
-  /// Classic token bucket. `refill_rate` tokens added every
-  /// `refill_interval_ms`, capped at `max_requests` (burst capacity).
+  /// Refills continuously at `refill_rate` per `refill_interval_ms`, up to `max_requests`.
   TokenBucket,
-  /// Generic Cell Rate Algorithm (RFC 4341 / IETF rate-limit headers draft).
-  /// One token every `1 / rate_per_second` second; bursts up to
-  /// `max_requests` allowed.
+  /// Generic Cell Rate Algorithm at the same rate and burst; its state is one time debt.
   Gcra,
 }
 
@@ -28,20 +21,17 @@ pub enum UnkeyedBehavior {
   Reject,
 }
 
-/// Configuration parameters.
 #[derive(Clone)]
 pub struct Config {
-  /// Maximum burst capacity.
+  /// Burst capacity.
   pub max_requests: u32,
-  /// Tokens added per refill interval (`TokenBucket` only).
+  /// With `refill_interval_ms`, sets the sustained rate of both algorithms.
   pub refill_rate: u32,
-  /// Refill interval (`TokenBucket` only).
   pub refill_interval_ms: u64,
-  /// HTTP status returned on rejection.
+  /// Default: 429.
   pub status_on_limit: StatusCode,
-  /// Algorithm choice.
   pub algorithm: Algorithm,
-  /// Behavior for requests that cannot be keyed.
+  /// Default: `Allow`.
   pub on_unkeyed: UnkeyedBehavior,
   /// Resolve trusted forwarding headers through the router's `IpAddrConfig`.
   pub client_ip: bool,

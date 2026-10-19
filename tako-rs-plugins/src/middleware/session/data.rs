@@ -1,5 +1,3 @@
-//! The per-request [`Session`] handle injected into request extensions.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -26,7 +24,7 @@ impl Session {
     }
   }
 
-  /// Reads a value from the session.
+  /// `None` when the key is missing or does not deserialize as `T`.
   pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
     self
       .data
@@ -35,33 +33,23 @@ impl Session {
       .and_then(|v| serde_json::from_value(v.clone()).ok())
   }
 
-  /// Stores a value in the session.
+  /// A value that fails to serialize is dropped.
   pub fn set<T: Serialize>(&self, key: &str, value: T) {
     if let Ok(v) = serde_json::to_value(value) {
       self.data.lock().insert(key.to_string(), v);
     }
   }
 
-  /// Removes a key from the session.
   pub fn remove(&self, key: &str) {
     self.data.lock().remove(key);
   }
 
-  /// Empties the session keeping its id stable. Use this when you want the
-  /// session to live on (e.g. clearing temporary state) but the cookie should
-  /// keep being refreshed. For logout flows that should remove the cookie
-  /// from the browser, use [`Self::destroy`] instead.
+  /// Empties the data but keeps the id and cookie; log out with [`Self::destroy`].
   pub fn clear(&self) {
-    let mut guard = self.data.lock();
-    if !guard.is_empty() {
-      guard.clear();
-    }
+    self.data.lock().clear();
   }
 
-  /// Marks the session for destruction: the server-side entry is removed and
-  /// the response Set-Cookie carries `Max-Age=0` with a past `Expires` so the
-  /// user agent drops it. Pair this with whatever logout response your
-  /// application returns.
+  /// Removes the stored session and expires the cookie on this response.
   pub fn destroy(&self) {
     self.data.lock().clear();
     self.destroyed.store(true, Ordering::Release);
@@ -71,17 +59,13 @@ impl Session {
     self.destroyed.load(Ordering::Acquire)
   }
 
-  /// Forces a fresh session id on the next response. Call this after
-  /// privilege transitions (login / role change) to defend against
-  /// fixation attacks.
+  /// Issues a new id on this response, keeping the data; call it after login or a role change
+  /// to prevent session fixation.
   pub fn rotate(&self) {
     self.rotation_counter.fetch_add(1, Ordering::AcqRel);
   }
 
-  /// True if [`Session::rotate`] has been called on this handle since the
-  /// session middleware created it. Surfaced as public API so paired
-  /// middleware (notably CSRF) can mint fresh derivative tokens on the same
-  /// response that emits the rotated session id.
+  /// Lets paired middleware such as CSRF mint fresh tokens alongside the rotated id.
   pub fn rotation_requested(&self) -> bool {
     self.rotation_counter.load(Ordering::Acquire) > 0
   }

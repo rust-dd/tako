@@ -21,7 +21,6 @@ use crate::route::Route;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Builds a status response with an empty body.
 #[inline]
 pub(crate) fn empty_status_response(status: StatusCode) -> Response {
   let mut resp = crate::responder::new_response(TakoBody::empty());
@@ -30,10 +29,7 @@ pub(crate) fn empty_status_response(status: StatusCode) -> Response {
 }
 
 impl Router {
-  /// Executes the given endpoint through the global middleware chain.
-  ///
-  /// This helper is used for cases like TSR redirects and default 404 responses,
-  /// ensuring that router-level middleware (e.g., CORS) always runs.
+  /// Runs `endpoint` behind the global middleware, so it also covers redirects, 405s and 404s.
   pub(super) async fn run_with_global_middlewares_for_endpoint(
     &self,
     req: Request,
@@ -53,7 +49,7 @@ impl Router {
     }
   }
 
-  /// Dispatches an incoming request to the appropriate route handler.
+  /// Runs `req` through routing, middleware, timeouts and error handlers to a response.
   #[inline]
   pub async fn dispatch(&self, req: Request) -> Response {
     match self.begin(req, None) {
@@ -63,10 +59,18 @@ impl Router {
   }
 
   /// Runs a request through middleware, timeouts, fallbacks, and error hooks.
-  pub(crate) async fn dispatch_full(&self, req: Request) -> Response {
+  pub(crate) async fn dispatch_full(&self, mut req: Request) -> Response {
     #[cfg(feature = "plugins")]
     if self.setup_plugins_once().is_err() {
       return empty_status_response(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    if req
+      .extensions()
+      .get::<crate::router_state::OriginalUriMarker>()
+      .is_none()
+    {
+      let original = crate::router_state::OriginalUriMarker(req.uri().clone());
+      req.extensions_mut().insert(original);
     }
     let request_parts = self.error_handler_with_parts.as_ref().map(|_| {
       let mut saved = Request::default();
@@ -131,24 +135,22 @@ impl Router {
           .or(timeout_router.timeout)
           .or(self.timeout);
 
-        // Fast atomic check: skip ArcSwap loads entirely when no middleware is registered.
+        // Skip the `ArcSwap` loads when no middleware is registered.
         let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
           || route.has_middleware.load(Ordering::Acquire);
 
-        {
-          if !needs_chain && effective_timeout.is_none() {
-            route.handler.call(req).await
-          } else {
-            let next = Next {
-              global_middlewares: self.middlewares.load_full(),
-              route_middlewares: route.middlewares.load_full(),
-              index: 0,
-              endpoint: route.handler.clone(),
-            };
-            timeout_router
-              .run_with_timeout(req, next, effective_timeout)
-              .await
-          }
+        if !needs_chain && effective_timeout.is_none() {
+          route.handler.call(req).await
+        } else {
+          let next = Next {
+            global_middlewares: self.middlewares.load_full(),
+            route_middlewares: route.middlewares.load_full(),
+            index: 0,
+            endpoint: route.handler.clone(),
+          };
+          timeout_router
+            .run_with_timeout(req, next, effective_timeout)
+            .await
         }
       }
     } else {
@@ -202,21 +204,14 @@ impl Router {
           .run_with_global_middlewares_for_endpoint(req, BoxHandler::new::<_, (Request,)>(handler))
           .await
       } else {
-        // Method-mismatch detection: if the same path is registered for any
-        // *other* method, RFC 9110 mandates 405 with an `Allow` header rather
-        // than 404. This is the cold path; iterating the 9 standard methods
-        // is cheap.
+        // RFC 9110: a path routed only for other methods gets 405 with `Allow`, not 404.
         let allowed = self.collect_allowed_methods(req.uri().path());
         if !allowed.is_empty() {
           let allow_value = join_methods(&allowed);
           let handler = move |_req: Request| {
             let allow_value = allow_value.clone();
             async move {
-              // `allow_value` is built from `Method::as_str()` for the
-              // registered methods, so it only contains ASCII method tokens
-              // — `HeaderValue::from_str` is statically infallible. Use the
-              // fallible API and ignore the impossible error rather than
-              // panicking.
+              // Method tokens are always valid header bytes; this only avoids a panic path.
               let mut resp = empty_status_response(StatusCode::METHOD_NOT_ALLOWED);
               if let Ok(v) = http::HeaderValue::from_str(&allow_value) {
                 resp.headers_mut().insert(http::header::ALLOW, v);
@@ -279,9 +274,7 @@ impl Router {
     response
   }
 
-  /// Applies the appropriate error handler if one is set:
-  /// - 5xx → [`Router::error_handler`]
-  /// - 4xx → [`Router::client_error_handler`]
+  /// Hands 5xx responses to [`Router::error_handler`], 4xx to [`Router::client_error_handler`].
   fn maybe_apply_error_handler(&self, response: Response) -> Response {
     let status = response.status();
     if status.is_server_error() {
@@ -296,10 +289,7 @@ impl Router {
     response
   }
 
-  /// Returns every method that has a route matching the given path.
-  ///
-  /// Used by the 405 / `Allow` cold-path branch in [`Router::dispatch`]; not on
-  /// the fast path. Iterates all standard methods (O(9)) plus any custom ones.
+  /// Methods with a route for `path`, plus HEAD wherever GET is routed.
   fn collect_allowed_methods(&self, path: &str) -> SmallVec<[Method; 4]> {
     let mut allowed = SmallVec::<[Method; 4]>::new();
     for (method, m) in self.inner.iter() {
@@ -313,9 +303,7 @@ impl Router {
     allowed
   }
 
-  /// Ensures the request HTTP version satisfies the route's configured protocol guard.
-  /// Returns `Some(Response)` with 505 HTTP Version Not Supported when the request
-  /// doesn't match the guard, otherwise returns `None` to continue dispatch.
+  /// Answers 505 when the request's HTTP version differs from the route's guard.
   fn enforce_protocol_guard(route: &Route, req: &Request) -> Option<Response> {
     if let Some(guard) = route.protocol_guard()
       && guard != req.version()
@@ -328,7 +316,6 @@ impl Router {
   }
 }
 
-/// Joins a slice of HTTP methods into a comma-separated `Allow`-header value.
 fn join_methods(methods: &[Method]) -> String {
   let mut out = String::with_capacity(methods.len() * 8);
   for (i, m) in methods.iter().enumerate() {

@@ -1,8 +1,5 @@
-//! WebTransport stream types: thin wrappers over h3's buffered QUIC streams
-//! that implement the `tokio::io` and `futures::io` read/write traits.
-//!
-//! Adapted from `h3-webtransport` 0.1.2 (<https://github.com/hyperium/h3>,
-//! MIT License, Copyright (c) 2020 h3 authors).
+//! WebTransport streams with `tokio::io` and `futures::io` traits, adapted from `h3-webtransport`
+//! 0.1.2 (MIT License, Copyright (c) 2020 h3 authors).
 
 use std::io;
 use std::pin::Pin;
@@ -24,11 +21,8 @@ type QuicSend = <QuicConnection as quic::OpenStreams<Bytes>>::SendStream;
 type QuicRecv = <QuicConnection as quic::Connection<Bytes>>::RecvStream;
 
 pin_project! {
-  /// A bidirectional WebTransport stream.
-  ///
-  /// Implements `AsyncRead` and `AsyncWrite` from both `tokio::io` and
-  /// `futures::io`. [`split`](Self::split) it to read and write from
-  /// separate tasks; shutting down the write side finishes the stream.
+  /// A bidirectional WebTransport stream; [`split`](Self::split) it to read and write from
+  /// separate tasks. Shutting down the write side finishes the stream.
   pub struct BidiStream {
     #[pin]
     stream: BufRecvStream<QuicBidi, Bytes>,
