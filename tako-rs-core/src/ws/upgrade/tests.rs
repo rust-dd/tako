@@ -45,6 +45,27 @@ fn unrepresentable_limits_are_rejected_before_upgrading() {
 async fn handler(_: crate::ws::WebSocket) {}
 
 #[test]
+fn a_protocol_from_a_later_header_is_returned_in_the_upgrade() {
+  let mut request = request();
+  request.headers_mut().append(
+    http::header::SEC_WEBSOCKET_PROTOCOL,
+    http::HeaderValue::from_static("other"),
+  );
+  request.headers_mut().append(
+    http::header::SEC_WEBSOCKET_PROTOCOL,
+    http::HeaderValue::from_static("chat"),
+  );
+  let (response, _) = WebSocketUpgrade::new(request, handler)
+    .protocols(["chat"])
+    .accept();
+  assert_eq!(response.status(), http::StatusCode::SWITCHING_PROTOCOLS);
+  assert_eq!(
+    response.headers().get(http::header::SEC_WEBSOCKET_PROTOCOL),
+    Some(&http::HeaderValue::from_static("chat"))
+  );
+}
+
+#[test]
 fn zero_payload_limits_and_write_through_are_valid() {
   let (response, _) = WebSocketUpgrade::new(request(), handler)
     .max_frame_size(0)

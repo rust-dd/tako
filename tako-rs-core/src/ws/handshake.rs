@@ -71,10 +71,10 @@ pub(crate) fn negotiate_subprotocol(
     return None;
   }
   let offered: Vec<&str> = headers
-    .get(header::SEC_WEBSOCKET_PROTOCOL)?
-    .to_str()
-    .ok()?
-    .split(',')
+    .get_all(header::SEC_WEBSOCKET_PROTOCOL)
+    .iter()
+    .filter_map(|value| value.to_str().ok())
+    .flat_map(|value| value.split(','))
     .map(str::trim)
     .collect();
   protocols
@@ -252,6 +252,25 @@ mod tests {
     );
     assert_eq!(negotiate_subprotocol(&headers, &["v2"]), None);
     assert_eq!(negotiate_subprotocol(&headers, &[]), None);
+  }
+
+  #[test]
+  fn repeated_protocol_headers_keep_the_server_preference() {
+    let mut headers = HeaderMap::new();
+    headers.append(
+      header::SEC_WEBSOCKET_PROTOCOL,
+      HeaderValue::from_static("other, superchat"),
+    );
+    headers.append(
+      header::SEC_WEBSOCKET_PROTOCOL,
+      HeaderValue::from_static(" chat, v2 "),
+    );
+    assert_eq!(
+      negotiate_subprotocol(&headers, &["chat", "superchat"]),
+      Some("chat")
+    );
+    assert_eq!(negotiate_subprotocol(&headers, &["v2"]), Some("v2"));
+    assert_eq!(negotiate_subprotocol(&headers, &["Chat"]), None);
   }
 
   #[test]
