@@ -1,60 +1,61 @@
 #!/usr/bin/env bash
-# Publish all tako sub-crates to crates.io in topological order, then publish
-# the umbrella `tako-rs` crate.
-#
-# Usage:
-#   ./publish.sh                 # publish for real (runs gate: fmt + clippy + tests)
-#   ./publish.sh --dry-run       # validate without uploading (still runs gate)
-#   ./publish.sh --allow-dirty   # publish with uncommitted changes
-#   ./publish.sh --skip-gate     # bypass fmt/clippy/test gate (NOT recommended)
-#
-# Notes:
-# - As of 2.0.0, every sub-crate is publishable (no `publish = false`). Cargo
-#   refuses to upload a crate whose path-deps are unpublishable, so the v2
-#   release required flipping that flag on tako-{macros,core,extractors,
-#   server,server-pt,streams,plugins} simultaneously.
-# - Crates already published at the current local version are skipped, so the
-#   script is safe to re-run if a publish fails partway through.
-# - Modern cargo (>=1.66) waits for the registry index to sync after each
-#   publish, so no manual sleep is needed.
+# Publish workspace crates to crates.io in dependency order.
 
 set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: ./publish.sh [--gate-only|--dry-run] [--allow-dirty] [--skip-gate]
+
+  --gate-only   Run formatting, Clippy, and tests without accessing the registry.
+  --dry-run     Validate Cargo packages without uploading, after the gate passes.
+  --allow-dirty Allow publishing with uncommitted changes.
+  --skip-gate   Skip formatting, Clippy, and tests; incompatible with --gate-only.
+USAGE
+}
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+cd "$repo_root"
 
 DRY_RUN=()
 ALLOW_DIRTY=()
 SKIP_GATE=0
+GATE_ONLY=0
 for arg in "$@"; do
   case "$arg" in
+    --gate-only)   GATE_ONLY=1 ;;
     --dry-run)     DRY_RUN=(--dry-run) ;;
     --allow-dirty) ALLOW_DIRTY=(--allow-dirty) ;;
     --skip-gate)   SKIP_GATE=1 ;;
     -h|--help)
-      sed -n '2,22p' "$0"; exit 0 ;;
+      usage; exit 0 ;;
     *) echo "unknown flag: $arg" >&2; exit 1 ;;
   esac
 done
 
-# Pre-publish gate: fmt + clippy + workspace test. Catches the kinds of
-# regressions the v2 pre-release audit (`AUDIT.md`) was set up to prevent.
-# Skip with `--skip-gate` if you really must (e.g., re-running after a
-# transient crates.io upload failure on a known-good commit).
+if [[ $GATE_ONLY -eq 1 && $SKIP_GATE -eq 1 ]]; then
+  echo "--gate-only cannot be combined with --skip-gate" >&2
+  exit 2
+fi
+
 if [[ $SKIP_GATE -eq 0 ]]; then
-  echo "==> pre-publish gate: cargo +nightly fmt --all --check"
-  # rustfmt.toml uses `imports_granularity` + `group_imports`, both
-  # nightly-only options — fmt has to run on nightly.
+  echo "==> pre-publish gate: formatting"
+  # The import-formatting options in rustfmt.toml require nightly.
   cargo +nightly fmt --all -- --check
 
-  echo "==> pre-publish gate: cargo clippy --workspace --all-features --no-deps --tests --examples -- -D warnings"
-  # The rich Tokio configuration also covers paths excluded by compio.
-  cargo clippy --workspace --no-deps --tests --examples -- -D warnings
-  cargo clippy --workspace --all-features --no-deps --tests --examples -- -D warnings
-  cargo clippy --workspace --no-deps --tests --examples \
-    --features "tls,http2,http3,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql" -- -D warnings
-
-  echo "==> pre-publish gate: cargo test --workspace --all-features"
-  cargo test --workspace --all-features
+  for profile in default tokio-rich all-features; do
+    echo "==> pre-publish gate: tests ($profile)"
+    "$repo_root/scripts/check-workspace.sh" test "$profile"
+    echo "==> pre-publish gate: Clippy ($profile)"
+    "$repo_root/scripts/check-workspace.sh" clippy "$profile"
+  done
 else
   echo "==> WARNING: --skip-gate is set; skipping fmt + clippy + test"
+fi
+
+if [[ $GATE_ONLY -eq 1 ]]; then
+  echo "Pre-publish gate passed."
+  exit 0
 fi
 
 # Topological order — each crate must come AFTER its internal deps.

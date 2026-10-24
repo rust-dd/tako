@@ -21,17 +21,19 @@ git clone https://github.com/rust-dd/tako
 cargo build --workspace
 ```
 
-Run the test suite. The strictest configuration enables every feature, which
-activates both runtimes and every transport, extractor, and plugin:
+Run all three workspace test profiles:
 
 ```bash
-cargo test --workspace --all-features
+scripts/check-workspace.sh test default
+scripts/check-workspace.sh test tokio-rich
+scripts/check-workspace.sh test all-features
 ```
 
-`--all-features` selects Compio and excludes Tokio-only exports. Also run a Tokio
-feature subset to cover the Tokio side of each transport. See the
-[feature reference](/docs/reference/features).
-
+`default` uses the workspace's default features. `tokio-rich` enables the full
+Tokio transport, extractor, and plugin profile. `all-features` selects Compio and
+excludes Tokio-only exports, so both runtime profiles are required. CI and
+`publish.sh` use the same profiles and feature list from
+`scripts/check-workspace.sh`. See the [feature reference](/docs/reference/features).
 
 ## Toolchain
 
@@ -58,8 +60,12 @@ Clippy must be clean at `-D warnings`. The workspace lint table sets
 `pedantic = warn`, so `-D warnings` catches pedantic regressions too:
 
 ```bash
-cargo clippy --workspace --all-features --no-deps -- -D warnings
+scripts/check-workspace.sh clippy default
+scripts/check-workspace.sh clippy tokio-rich
+scripts/check-workspace.sh clippy all-features
 ```
+
+Each profile checks the workspace libraries, integration tests, and examples.
 
 ## Code style
 
@@ -113,16 +119,26 @@ the umbrella `tako-rs` and imports it as `tako`.
 ## Publishing
 
 Releases go out through `publish.sh` at the repository root. It runs a
-pre-publish gate (fmt + clippy + workspace tests), then publishes each crate to
-crates.io in topological order — each sub-crate before any crate that depends on
-it, with the umbrella `tako-rs` last.
+pre-publish gate (formatting, plus Clippy and tests for all three profiles), then
+publishes each crate to crates.io in topological order — each sub-crate before
+any crate that depends on it, with the umbrella `tako-rs` last. A failing gate
+stops before any registry lookup.
 
 ```bash
+./publish.sh --gate-only  # run the gate without registry access or publishing
 ./publish.sh --dry-run    # validate without uploading (still runs the gate)
-./publish.sh              # publish for real
+./publish.sh             # publish for real
 ```
 
 Other flags: `--allow-dirty` to publish with uncommitted changes, and
-`--skip-gate` to bypass the fmt/clippy/test gate (not recommended). The script is
-re-runnable — crates already published at the current version are skipped, so a
-partial failure can be retried safely.
+`--skip-gate` to bypass the fmt/clippy/test gate (not recommended). `--gate-only`
+cannot be combined with `--skip-gate`. The script is re-runnable — crates already
+published at the current version are skipped, so a partial failure can be retried
+safely.
+
+The release-flow smoke tests use fake Cargo and curl commands. Run them without
+building crates or contacting the registry:
+
+```bash
+python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
+```
