@@ -23,10 +23,7 @@ use bytes::Bytes;
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use futures_util::Stream;
-use futures_util::TryStreamExt;
 use http_body::Body;
-use http_body::Frame;
-use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
@@ -36,9 +33,7 @@ pub fn stream_gzip<B>(body: B, level: u32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
 {
-  let upstream = body.into_data_stream();
-  let gzip = GzipStream::new(upstream, level).map_ok(Frame::data);
-  TakoBody::from_try_stream(gzip)
+  super::frames::encode(body, |stream| GzipStream::new(stream, level))
 }
 
 pin_project! {

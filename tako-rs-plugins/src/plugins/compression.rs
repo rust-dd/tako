@@ -46,11 +46,14 @@ mod config;
 pub mod deflate_stream;
 mod encoder;
 mod encoding;
+mod frames;
 pub mod gzip_stream;
 mod negotiate;
 mod plugin;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trailer_tests;
 pub mod zstd_stream;
 
 pub use builder::CompressionBuilder;
