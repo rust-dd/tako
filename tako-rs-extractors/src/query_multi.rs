@@ -32,7 +32,8 @@ use tako_rs_core::types::Request;
 /// ```
 pub struct QueryMulti<T>(pub T);
 
-/// Keys whose comma-separated values are split into repeated keys before parsing.
+/// Keys whose form-decoded values are split on commas before deserialization.
+/// `+` becomes a space, `%2B` stays a plus, and `%2C` becomes a separator.
 #[derive(Debug, Clone, Default)]
 pub struct QueryMultiOptions {
   csv_keys: Vec<&'static str>,
@@ -47,40 +48,27 @@ impl QueryMultiOptions {
 
   /// Compares decoded keys and splits decoded values, so `ta%67s` matches `tags` and `%2C`
   /// splits like `,`.
-  fn rewrite<'a>(&self, query: &'a str) -> Cow<'a, str> {
+  fn rewrite<'a>(&self, query: &'a str) -> Result<Cow<'a, str>, serde_urlencoded::de::Error> {
     if self.csv_keys.is_empty() {
-      return Cow::Borrowed(query);
+      return Ok(Cow::Borrowed(query));
     }
 
     let mut out = String::with_capacity(query.len());
     let mut first = true;
-    for pair in query.split('&').filter(|p| !p.is_empty()) {
-      let (key, value) = match pair.find('=') {
-        Some(idx) => (&pair[..idx], &pair[idx + 1..]),
-        None => (pair, ""),
-      };
-      let decoded_key = urlencoding::decode(key).unwrap_or(Cow::Borrowed(key));
-      let decoded_value = urlencoding::decode(value).unwrap_or(Cow::Borrowed(value));
-      if self.csv_keys.contains(&decoded_key.as_ref()) && decoded_value.contains(',') {
-        for part in decoded_value.split(',') {
-          if !first {
-            out.push('&');
-          }
-          first = false;
-          out.push_str(key);
-          out.push('=');
-          // Re-encoded so the parser decodes it back to the same value.
-          out.push_str(&urlencoding::encode(part));
-        }
-      } else {
+    let pairs: Vec<(String, String)> = serde_urlencoded::from_str(query)?;
+    for (key, value) in pairs {
+      let csv = self.csv_keys.contains(&key.as_str());
+      for part in value.split(|c| csv && c == ',') {
         if !first {
           out.push('&');
         }
         first = false;
-        out.push_str(pair);
+        out.push_str(&urlencoding::encode(&key));
+        out.push('=');
+        out.push_str(&urlencoding::encode(part));
       }
     }
-    Cow::Owned(out)
+    Ok(Cow::Owned(out))
   }
 }
 
@@ -110,7 +98,9 @@ fn lookup_options(extensions: &http::Extensions) -> QueryMultiOptions {
 }
 
 fn parse<T: DeserializeOwned>(query: &str, opts: &QueryMultiOptions) -> Result<T, QueryMultiError> {
-  let rewritten = opts.rewrite(query);
+  let rewritten = opts
+    .rewrite(query)
+    .map_err(|e| QueryMultiError::DeserializationError(e.to_string()))?;
   serde_html_form::from_str::<T>(rewritten.as_ref())
     .map_err(|e| QueryMultiError::DeserializationError(e.to_string()))
 }
@@ -142,5 +132,40 @@ where
     let opts = lookup_options(&parts.extensions);
     let q = parts.uri.query().unwrap_or("").to_string();
     futures_util::future::ready(parse::<T>(&q, &opts).map(QueryMulti))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use serde::Deserialize;
+
+  use super::*;
+
+  #[derive(Debug, Deserialize, PartialEq)]
+  struct Filter {
+    #[serde(rename = "ta g")]
+    tags: Vec<String>,
+  }
+
+  #[test]
+  fn csv_decodes_form_components_before_splitting_commas() {
+    let query = "ta+g=hello+world,x&ta%20g=a+b,%2B&ta+g=c%2Cd&ta%20g=%2B+%2B";
+    let parsed: Filter = parse(query, &QueryMultiOptions::default().csv_key("ta g")).unwrap();
+    assert_eq!(
+      parsed.tags,
+      ["hello world", "x", "a b", "+", "c", "d", "+ +"]
+    );
+  }
+
+  #[test]
+  fn ordinary_form_values_keep_commas_and_decode_plus_once() {
+    let query = "ta+g=hello+world,x&ta%20g=%2B%20%2C";
+    for opts in [
+      QueryMultiOptions::default(),
+      QueryMultiOptions::default().csv_key("other"),
+    ] {
+      let parsed: Filter = parse(query, &opts).unwrap();
+      assert_eq!(parsed.tags, ["hello world,x", "+ ,"]);
+    }
   }
 }

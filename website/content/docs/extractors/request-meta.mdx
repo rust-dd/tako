@@ -42,6 +42,12 @@ one, so a struct whose fields are all `Option` still extracts;
 `MissingQueryString` is returned when it needs a field. For query strings with repeated keys (`?tag=a&tag=b`)
 reach for `QueryMulti<T>`.
 
+`QueryMultiOptions::csv_key("tag")` in the request extensions also splits
+comma-separated values for that decoded key. Form decoding happens first:
+`+` and `%20` become spaces, `%2B` stays a literal plus, and `%2C` becomes a
+comma separator. Repeated and encoded keys combine in their original order;
+keys without CSV configuration keep commas inside their values.
+
 ## `Path<T>`
 
 Typed route path parameters (axum parity). `T` may be a single primitive
