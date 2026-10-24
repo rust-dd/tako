@@ -130,7 +130,6 @@ fn build_sse_response(body: TakoBody) -> Response {
     .status(StatusCode::OK)
     .header(header::CONTENT_TYPE, "text/event-stream")
     .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
-    .header(header::CONNECTION, "keep-alive")
     .header("X-Accel-Buffering", "no")
     .body(body)
     .expect("valid SSE response")
@@ -214,3 +213,6 @@ pub fn last_event_id_bytes(headers: &http::HeaderMap) -> Option<Vec<u8>> {
     .map_or(start, |i| i + 1);
   Some(bytes[start..end].to_vec())
 }
+
+#[cfg(test)]
+mod tests;

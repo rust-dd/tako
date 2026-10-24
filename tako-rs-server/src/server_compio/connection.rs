@@ -22,6 +22,7 @@ use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tokio::sync::OwnedSemaphorePermit;
@@ -180,7 +181,13 @@ pub(crate) async fn serve_connection<S>(
     peer.annotate(&mut req, wire);
     let router = router.clone();
     async move {
+      let multiplexed = req.version() == http::Version::HTTP_2;
       let response = router.dispatch(req.map(TakoBody::new)).await;
+      let response = if multiplexed {
+        sanitize_response(response)
+      } else {
+        response
+      };
       Ok::<_, Infallible>(response)
     }
   });

@@ -22,6 +22,7 @@ use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -188,7 +189,13 @@ pub async fn run_with_config(
             async move {
               req.extensions_mut().insert(addr);
               req.extensions_mut().insert(conn_info);
+              let multiplexed = req.version() == http::Version::HTTP_2;
               let response = r.dispatch(req.map(TakoBody::new)).await;
+              let response = if multiplexed {
+                sanitize_response(response)
+              } else {
+                response
+              };
               Ok::<_, Infallible>(response)
             }
           });

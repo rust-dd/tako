@@ -78,7 +78,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
-tako-rs = { workspace = true }
+tako-rs = { workspace = true, features = ["sse"] }
 wtransport = { workspace = true, features = ["quinn"] }
 
 [[bench]]

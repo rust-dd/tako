@@ -16,6 +16,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::sanitize_response;
 use tako_rs_core::types::BoxError;
 
 /// `Send` on Tokio, whose work-stealing runtime moves tasks between workers; no bound on compio,
@@ -105,7 +106,7 @@ pub(crate) async fn respond<S>(
 where
   S: SendStream<Bytes>,
 {
-  let (parts, body) = response.into_parts();
+  let (parts, body) = sanitize_response(response).into_parts();
   let resp = http::Response::from_parts(parts, ());
   send_stream.send_response(resp).await?;
 
