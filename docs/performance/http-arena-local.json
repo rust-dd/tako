@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-24",
+  "baseline_commit": "0fb91ee6",
+  "environment": {
+    "os": "macOS",
+    "arch": "arm64",
+    "rust": "1.99",
+    "isolated": false,
+    "client_server_same_host": true
+  },
+  "http2": {
+    "settings": {
+      "CONNECTIONS": 64,
+      "STREAMS": 32,
+      "REQUESTS": 32768,
+      "ROUNDS": 3,
+      "WORKERS": 4
+    },
+    "sequence": "before,after,before,after; 3 rounds per run",
+    "rps": {
+      "before": [
+        399341,
+        422077,
+        491596,
+        428559,
+        453648,
+        351451
+      ],
+      "after": [
+        342630,
+        384742,
+        379175,
+        445662,
+        536568,
+        508842
+      ]
+    },
+    "median_rps": {
+      "before": 425318.0,
+      "after": 415202.0
+    }
+  },
+  "http3": {
+    "settings": {
+      "CONNECTIONS": "64",
+      "STREAMS": "32",
+      "REQUESTS": "2048",
+      "ROUNDS": "5",
+      "WORKERS": "4"
+    },
+    "results": [
+      {
+        "label": "before",
+        "stdout": "connections=64 streams=32 requests/conn=2048 workers=4\nround=1 rps=191895 elapsed_ms=683.0\nround=2 rps=221728 elapsed_ms=591.1\nround=3 rps=239099 elapsed_ms=548.2\nround=4 rps=228232 elapsed_ms=574.3\nround=5 rps=224652 elapsed_ms=583.4\n"
+      },
+      {
+        "label": "after",
+        "stdout": "connections=64 streams=32 requests/conn=2048 workers=4\nround=1 rps=210104 elapsed_ms=623.8\nround=2 rps=250767 elapsed_ms=522.7\nround=3 rps=229831 elapsed_ms=570.3\nround=4 rps=232316 elapsed_ms=564.2\nround=5 rps=250467 elapsed_ms=523.3\n"
+      },
+      {
+        "label": "before",
+        "stdout": "connections=64 streams=32 requests/conn=2048 workers=4\nround=1 rps=105570 elapsed_ms=1241.6\nround=2 rps=225484 elapsed_ms=581.3\nround=3 rps=243213 elapsed_ms=538.9\nround=4 rps=240865 elapsed_ms=544.2\nround=5 rps=251977 elapsed_ms=520.2\n"
+      },
+      {
+        "label": "after",
+        "stdout": "connections=64 streams=32 requests/conn=2048 workers=4\nround=1 rps=212680 elapsed_ms=616.3\nround=2 rps=211944 elapsed_ms=618.4\nround=3 rps=219117 elapsed_ms=598.2\nround=4 rps=215185 elapsed_ms=609.1\nround=5 rps=225946 elapsed_ms=580.1\n"
+      }
+    ]
+  },
+  "grpc_scalar": {
+    "initial_pair_ns": {
+      "before": 221.0,
+      "after": 245.56
+    },
+    "repeated_pairs": [
+      {
+        "phase": "before",
+        "stdout": "grpc_decode/unary_sum   time:   [545.03 ns 576.48 ns 611.61 ns]\n                        thrpt:  [1.6350 Melem/s 1.7347 Melem/s 1.8348 Melem/s]\nFound 1 outliers among 50 measurements (2.00%)\n  1 (2.00%) high mild\n\n",
+        "stderr": "Gnuplot not found, using plotters backend\nBenchmarking grpc_decode/unary_sum\nBenchmarking grpc_decode/unary_sum: Warming up for 1.0000 s\nBenchmarking grpc_decode/unary_sum: Collecting 50 samples in estimated 3.0001 s (4.7M iterations)\nBenchmarking grpc_decode/unary_sum: Analyzing\n"
+      },
+      {
+        "phase": "after",
+        "stdout": "grpc_decode/unary_sum   time:   [330.25 ns 350.49 ns 370.09 ns]\n                        thrpt:  [2.7021 Melem/s 2.8532 Melem/s 3.0280 Melem/s]\n                 change:\n                        time:   [−41.105% −36.646% −31.780%] (p = 0.00 < 0.05)\n                        thrpt:  [+46.584% +57.843% +69.794%]\n                        Performance has improved.\n\n",
+        "stderr": "Gnuplot not found, using plotters backend\nBenchmarking grpc_decode/unary_sum\nBenchmarking grpc_decode/unary_sum: Warming up for 1.0000 s\nBenchmarking grpc_decode/unary_sum: Collecting 50 samples in estimated 3.0004 s (7.4M iterations)\nBenchmarking grpc_decode/unary_sum: Analyzing\n"
+      },
+      {
+        "phase": "before",
+        "stdout": "grpc_decode/unary_sum   time:   [299.08 ns 304.59 ns 310.73 ns]\n                        thrpt:  [3.2182 Melem/s 3.2831 Melem/s 3.3436 Melem/s]\n                 change:\n                        time:   [−13.702% −10.195% −6.5582%] (p = 0.00 < 0.05)\n                        thrpt:  [+7.0185% +11.352% +15.877%]\n                        Performance has improved.\nFound 16 outliers among 50 measurements (32.00%)\n  8 (16.00%) low severe\n  3 (6.00%) low mild\n  3 (6.00%) high mild\n  2 (4.00%) high severe\n\n",
+        "stderr": "Gnuplot not found, using plotters backend\nBenchmarking grpc_decode/unary_sum\nBenchmarking grpc_decode/unary_sum: Warming up for 1.0000 s\nBenchmarking grpc_decode/unary_sum: Collecting 50 samples in estimated 3.0002 s (8.3M iterations)\nBenchmarking grpc_decode/unary_sum: Analyzing\n"
+      },
+      {
+        "phase": "after",
+        "stdout": "grpc_decode/unary_sum   time:   [245.87 ns 262.94 ns 284.91 ns]\n                        thrpt:  [3.5099 Melem/s 3.8032 Melem/s 4.0673 Melem/s]\n                 change:\n                        time:   [−8.6555% −3.2044% +2.7882%] (p = 0.30 > 0.05)\n                        thrpt:  [−2.7125% +3.3105% +9.4756%]\n                        No change in performance detected.\nFound 1 outliers among 50 measurements (2.00%)\n  1 (2.00%) high mild\n\n",
+        "stderr": "Gnuplot not found, using plotters backend\nBenchmarking grpc_decode/unary_sum\nBenchmarking grpc_decode/unary_sum: Warming up for 1.0000 s\nBenchmarking grpc_decode/unary_sum: Collecting 50 samples in estimated 3.0003 s (13M iterations)\nBenchmarking grpc_decode/unary_sum: Analyzing\n"
+      }
+    ],
+    "conclusion": "Concurrent unrelated compilation and large run-to-run variance; no reliable timing conclusion."
+  },
+  "grpc_decode_sample_ns": [
+    {
+      "case": "unary_contiguous/32",
+      "before": 214.21,
+      "after": 197.97
+    },
+    {
+      "case": "unary_contiguous/1024",
+      "before": 224.67,
+      "after": 193.1
+    },
+    {
+      "case": "unary_contiguous/65536",
+      "before": 1374.5,
+      "after": 194.55
+    },
+    {
+      "case": "unary_fragmented/32",
+      "before": 293.54,
+      "after": 303.77
+    },
+    {
+      "case": "unary_fragmented/1024",
+      "before": 334.15,
+      "after": 333.85
+    },
+    {
+      "case": "unary_fragmented/65536",
+      "before": 1774.6,
+      "after": 1789.5
+    },
+    {
+      "case": "stream_128_batched",
+      "before": 1894.8,
+      "after": 2021.0
+    }
+  ],
+  "grpc_scalar_allocations": {
+    "samples": 1000,
+    "warmup_samples": 1,
+    "scope": "GlobalAlloc alloc/alloc_zeroed/realloc calls during GrpcRequest<SumRequest>::from_request, excluding prebuilt Request and shared Bytes construction; current-thread Tokio runtime",
+    "before": {
+      "calls_per_decode": 2,
+      "allocated_bytes_per_decode": 50
+    },
+    "after": {
+      "calls_per_decode": 0,
+      "allocated_bytes_per_decode": 0
+    }
+  }
+}
