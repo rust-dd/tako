@@ -1,6 +1,7 @@
 //! `OriginalUri`, `Host` and `Scheme`; the last two trust forwarding headers only from a peer
 //! listed in a [`UriPartsConfig`].
 
+use std::borrow::Cow;
 use std::net::IpAddr;
 
 use http::StatusCode;
@@ -137,17 +138,16 @@ fn extract_host(headers: &http::HeaderMap, uri: &Uri, trust_forwarded: bool) -> 
   }
   if trust_forwarded {
     if let Some(forwarded) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
-      for pair in forwarded.split(',').next()?.split(';') {
+      let (first, _) = split_forwarded(forwarded, b',')?;
+      let mut remaining = Some(first);
+      while let Some(parameters) = remaining {
+        let (pair, rest) = split_forwarded(parameters, b';')?;
+        remaining = rest;
         if let Some((name, value)) = pair.trim().split_once('=')
           && name.eq_ignore_ascii_case("host")
         {
-          let value = value.trim();
-          let value = if value.starts_with('"') {
-            value.strip_prefix('"')?.strip_suffix('"')?
-          } else {
-            value
-          };
-          return valid_authority(value).map(|a| a.to_string());
+          let value = forwarded_value(value.trim())?;
+          return valid_authority(&value).map(|a| a.to_string());
         }
       }
     }
@@ -160,6 +160,43 @@ fn extract_host(headers: &http::HeaderMap, uri: &Uri, trust_forwarded: bool) -> 
     }
   }
   host.or(authority).map(|a| a.to_string())
+}
+
+fn split_forwarded(value: &str, separator: u8) -> Option<(&str, Option<&str>)> {
+  let mut quoted = false;
+  let mut escaped = false;
+  for (index, byte) in value.bytes().enumerate() {
+    if escaped {
+      escaped = false;
+    } else if quoted && byte == b'\\' {
+      escaped = true;
+    } else if byte == b'"' {
+      quoted = !quoted;
+    } else if !quoted && byte == separator {
+      return Some((&value[..index], Some(&value[index + 1..])));
+    }
+  }
+  (!quoted && !escaped).then_some((value, None))
+}
+
+fn forwarded_value(value: &str) -> Option<Cow<'_, str>> {
+  if !value.starts_with('"') {
+    return Some(Cow::Borrowed(value));
+  }
+  let quoted = value.strip_prefix('"')?.strip_suffix('"')?;
+  if !quoted.contains('\\') {
+    return Some(Cow::Borrowed(quoted));
+  }
+  let mut decoded = String::with_capacity(quoted.len());
+  let mut chars = quoted.chars();
+  while let Some(character) = chars.next() {
+    decoded.push(if character == '\\' {
+      chars.next()?
+    } else {
+      character
+    });
+  }
+  Some(Cow::Owned(decoded))
 }
 
 fn valid_authority(value: &str) -> Option<Authority> {

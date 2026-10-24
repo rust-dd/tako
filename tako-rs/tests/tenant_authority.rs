@@ -145,3 +145,53 @@ async fn tenant_forwarding_requires_a_trusted_peer() {
     "acme"
   );
 }
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn quoted_forwarded_extensions_do_not_change_the_first_host() {
+  let peer: std::net::SocketAddr = "10.0.0.5:12345".parse().unwrap();
+  let mut router = router();
+  router.with_state(UriPartsConfig::default().with_trusted_proxy(peer.ip()));
+  for forwarded in [
+    r#"for=192.0.2.1; ext="a,b"; host=Acme.example.test, host=ignored.test"#,
+    r#"for=192.0.2.1; ext="a;b"; host=Acme.example.test"#,
+    r#"ext="a;host=evil.example.test"; host=Acme.example.test"#,
+    r#"ext="a\";host=evil.example.test,b"; host=Acme.example.test"#,
+    r#"host="Acme.example.test\:443"; ext="a,b""#,
+  ] {
+    let mut req = request(Version::HTTP_2, "https://backend.internal/", None);
+    req.extensions_mut().insert(ConnInfo::tcp(peer));
+    req
+      .headers_mut()
+      .insert("forwarded", forwarded.parse().unwrap());
+    let response = router.dispatch(req).await;
+    assert_eq!(response.status(), StatusCode::OK, "{forwarded}");
+    assert_eq!(
+      response.into_body().collect().await.unwrap().to_bytes(),
+      "acme",
+      "{forwarded}"
+    );
+  }
+}
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn quoted_host_text_and_later_elements_do_not_supply_a_forwarded_host() {
+  let peer: std::net::SocketAddr = "10.0.0.5:12345".parse().unwrap();
+  let mut router = router();
+  router.with_state(UriPartsConfig::default().with_trusted_proxy(peer.ip()));
+  let mut req = request(Version::HTTP_2, "https://backend.internal/", None);
+  req.extensions_mut().insert(ConnInfo::tcp(peer));
+  req.headers_mut().insert(
+    "forwarded",
+    r#"ext="a;host=evil.example.test", host=ignored.test"#
+      .parse()
+      .unwrap(),
+  );
+  let response = router.dispatch(req).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(
+    response.into_body().collect().await.unwrap().to_bytes(),
+    "backend"
+  );
+}
