@@ -75,6 +75,37 @@ pub(crate) fn address_len(hdr: &[u8; 4]) -> std::io::Result<usize> {
       format!("PROXY v2 addr_len {addr_len} exceeds {MAX_PROXY_ADDR_LEN}"),
     ));
   }
+  let command = hdr[0] & 0x0F;
+  if command > 1 {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("unsupported PROXY v2 command: {command}"),
+    ));
+  }
+  if command == 0 {
+    return Ok(addr_len);
+  }
+  let family = hdr[1] >> 4;
+  let protocol = hdr[1] & 0x0F;
+  if family > 3 || protocol > 2 {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("invalid PROXY v2 family/protocol: {:#04x}", hdr[1]),
+    ));
+  }
+  let required = match (family, protocol) {
+    (0, _) | (_, 0) => 0,
+    (1, _) => 12,
+    (2, _) => 36,
+    (3, _) => 216,
+    _ => unreachable!("family was validated"),
+  };
+  if addr_len < required {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("PROXY v2 address block has {addr_len} bytes, requires {required}"),
+    ));
+  }
   Ok(addr_len)
 }
 
@@ -84,8 +115,8 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
   let family = (hdr[1] >> 4) & 0x0F;
   let protocol = hdr[1] & 0x0F;
 
-  // LOCAL command: connection from proxy itself, no address info
-  if command == 0 {
+  // LOCAL and UNSPEC retain the real connection endpoints.
+  if command == 0 || family == 0 || protocol == 0 {
     return ProxyHeader::empty(ProxyVersion::V2, ProxyTransport::Unknown);
   }
 
