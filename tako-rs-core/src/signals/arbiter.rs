@@ -16,6 +16,8 @@ use super::signal::SignalExporter;
 use super::signal::SignalHandler;
 
 #[cfg(test)]
+mod lifetime_tests;
+#[cfg(test)]
 mod merge_tests;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 64;
@@ -130,11 +132,16 @@ impl SignalArbiter {
   }
 
   /// Subscribes to every id starting with `prefix`; a trailing `*` is ignored.
+  /// Dropped subscriptions are removed on subscription, emission, merge or introspection.
   pub fn subscribe_prefix(&self, prefix: impl AsRef<str>) -> broadcast::Receiver<Signal> {
     let key = prefix.as_ref().trim_end_matches('*').to_string();
     let (sender, receiver) = broadcast::channel(Self::global_broadcast_capacity());
     self.inner.prefix_topics.rcu(|current| {
-      let mut next = (**current).clone();
+      let mut next = current
+        .iter()
+        .filter(|(_, sender)| sender.receiver_count() != 0)
+        .cloned()
+        .collect::<Vec<_>>();
       next.push((key.clone(), sender.clone()));
       Arc::new(next)
     });
@@ -153,11 +160,33 @@ impl SignalArbiter {
       }
     }
 
+    self.prune_prefix_topics();
     for (prefix, sender) in self.inner.prefix_topics.load().iter() {
       if signal.id.starts_with(prefix.as_str()) {
         let _ = sender.send(signal.clone());
       }
     }
+  }
+
+  fn prune_prefix_topics(&self) {
+    if self
+      .inner
+      .prefix_topics
+      .load()
+      .iter()
+      .all(|(_, sender)| sender.receiver_count() != 0)
+    {
+      return;
+    }
+    self.inner.prefix_topics.rcu(|current| {
+      Arc::new(
+        current
+          .iter()
+          .filter(|(_, sender)| sender.receiver_count() != 0)
+          .cloned()
+          .collect(),
+      )
+    });
   }
 
   /// Waits for the next signal with `id`; `None` once the topic closes.
@@ -226,6 +255,8 @@ impl SignalArbiter {
     if Arc::ptr_eq(&self.inner, &other.inner) {
       return;
     }
+    other.prune_prefix_topics();
+    self.prune_prefix_topics();
     let prefixes = other.inner.prefix_topics.load_full();
     self.inner.prefix_topics.rcu(|current| {
       let mut next = (**current).clone();
@@ -301,6 +332,7 @@ impl SignalArbiter {
 
   /// Subscribed prefixes, each with a trailing `*`, sorted and deduplicated.
   pub fn signal_prefixes(&self) -> Vec<String> {
+    self.prune_prefix_topics();
     let mut prefixes = self
       .inner
       .prefix_topics

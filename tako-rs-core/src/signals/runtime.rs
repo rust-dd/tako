@@ -22,7 +22,12 @@ impl SignalArbiter {
     let (tx, out_rx) = mpsc::channel(FILTERED_SUBSCRIPTION_BUFFER);
     let forward = async move {
       loop {
-        let signal = match rx.recv().await {
+        let received = tokio::select! {
+          biased;
+          _ = tx.closed() => break,
+          received = rx.recv() => received,
+        };
+        let signal = match received {
           Ok(signal) => signal,
           Err(RecvError::Lagged(_)) => continue,
           Err(RecvError::Closed) => break,
