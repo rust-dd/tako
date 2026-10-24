@@ -32,6 +32,8 @@ use std::time::Duration;
 
 use quinn::crypto::rustls::QuicServerConfig;
 
+mod lifecycle;
+
 /// How long shutdown waits for sessions before aborting them.
 const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -171,32 +173,22 @@ where
   };
   tokio::pin!(signal_fused);
 
-  loop {
-    tokio::select! {
-      maybe_conn = endpoint.accept() => {
-        let Some(incoming) = maybe_conn else { break };
-        let handler = Arc::clone(&handler);
-
-        join_set.spawn(async move {
-          match incoming.await {
-            Ok(conn) => {
-              let remote = conn.remote_address();
-              tracing::debug!("WebTransport connection from {remote}");
-              let session = RawQuicSession::new(conn);
-              handler(session).await;
-              tracing::debug!("WebTransport session closed: {remote}");
-            }
-            Err(e) => {
-              tracing::error!("QUIC connection failed: {e}");
-            }
-          }
-        });
+  while let Some(incoming) =
+    lifecycle::next_connection(endpoint.accept(), signal_fused.as_mut(), &mut join_set).await
+  {
+    let handler = Arc::clone(&handler);
+    join_set.spawn(async move {
+      match incoming.await {
+        Ok(conn) => {
+          let remote = conn.remote_address();
+          tracing::debug!("WebTransport connection from {remote}");
+          let session = RawQuicSession::new(conn);
+          handler(session).await;
+          tracing::debug!("WebTransport session closed: {remote}");
+        }
+        Err(e) => tracing::error!("QUIC connection failed: {e}"),
       }
-      () = &mut signal_fused => {
-        tracing::info!("WebTransport server shutting down...");
-        break;
-      }
-    }
+    });
   }
 
   endpoint.close(quinn::VarInt::from_u32(0), b"server shutting down");
