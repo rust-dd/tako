@@ -160,6 +160,14 @@ endpoints must opt into `IdempotencyBuilder::new().anonymous()` explicitly. Keep
 authorization before cache lookup, including retries; see the
 [idempotency guide](/docs/middleware/traffic#idempotency) for middleware ordering.
 
+## JWT key types
+
+The `jwt-simple` integration uses `jwt-simple` 0.13 to obtain patched elliptic
+curve arithmetic. Applications that construct `AnyVerifyKey` variants or use
+`JWTClaims` from a direct `jwt-simple` dependency must update that dependency
+to 0.13 as well. Existing tokens and supported signing algorithms remain
+compatible.
+
 ## Removed deprecated APIs
 
 Every item below was deprecated in 2.1 or earlier and is now gone:

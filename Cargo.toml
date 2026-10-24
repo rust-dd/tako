@@ -99,7 +99,7 @@ hyper = "1.6.0"
 hyper-util = { version = "0.1.14", features = ["tokio"] }
 ipnet = "2.11.0"
 jsonschema = { version = "0.58.1", default-features = false }
-jwt-simple = { version = "0.12.12", default-features = false }
+jwt-simple = { version = "0.13.0", default-features = false }
 linkme = "0.3.36"
 listenfd = "1.0.2"
 matchit = "0.9.1"
@@ -145,7 +145,7 @@ tako-rs-server-pt = { path = "tako-rs-server-pt", version = "2.5.0" }
 tako-rs-streams = { path = "tako-rs-streams", version = "2.5.0" }
 thread_local = "1.1.10"
 tikv-jemallocator = "0.7.0"
-tokio = { version = "1.52.1", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.53.3", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = "0.26.2"
 tokio-util = { version = "0.7.15", features = ["compat"] }
 tokio-vsock = "0.7.2"
