@@ -23,6 +23,8 @@ use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 
 use crate::ServerConfig;
+#[cfg(feature = "http2")]
+use crate::h2_settings::H2Settings;
 
 /// Serves TLS HTTP with a prebuilt rustls config; a given `signal` starts the drain.
 pub async fn run_with_config(
@@ -58,15 +60,7 @@ pub async fn run_with_config(
   let tls_handshake_timeout = config.tls_handshake_timeout;
   let keep_alive = config.keep_alive;
   #[cfg(feature = "http2")]
-  let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
-  #[cfg(feature = "http2")]
-  let h2_max_header_list_size = config.h2_max_header_list_size;
-  #[cfg(feature = "http2")]
-  let h2_max_send_buf_size = config.h2_max_send_buf_size;
-  #[cfg(feature = "http2")]
-  let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
-  #[cfg(feature = "http2")]
-  let h2_keep_alive_interval = config.h2_keep_alive_interval;
+  let settings = H2Settings::from(&config);
 
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
@@ -174,13 +168,7 @@ pub async fn run_with_config(
           if proto.as_deref() == Some(b"h2") {
             let mut h2 = http2::Builder::new(TokioExecutor::new());
             h2.timer(hyper_util::rt::TokioTimer::new());
-            h2.max_concurrent_streams(h2_max_concurrent_streams)
-              .max_header_list_size(h2_max_header_list_size)
-              .max_send_buf_size(h2_max_send_buf_size)
-              .max_pending_accept_reset_streams(h2_max_pending_accept_reset_streams);
-            if let Some(interval) = h2_keep_alive_interval {
-              h2.keep_alive_interval(Some(interval));
-            }
+            settings.apply(&mut h2);
 
             if let Err(e) = drive_connection(h2.serve_connection(io, svc), conn_cancel.cancelled(), hyper::server::conn::http2::Connection::graceful_shutdown).await {
               tracing::debug!("HTTP/2 error: {e}");
