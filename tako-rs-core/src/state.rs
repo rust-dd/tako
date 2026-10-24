@@ -26,14 +26,49 @@
 
 use std::any::Any;
 use std::any::TypeId;
+use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use scc::HashMap as SccHashMap;
 
-/// Holds an `Arc<T>` under `TypeId::of::<T>()` for every stored `T`.
-static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
-  LazyLock::new(SccHashMap::new);
+type StateSlot = Arc<OnceLock<Arc<dyn Any + Send + Sync>>>;
+
+static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, StateSlot>> = LazyLock::new(SccHashMap::new);
+
+thread_local! {
+  static INITIALIZING: RefCell<Vec<TypeId>> = const { RefCell::new(Vec::new()) };
+}
+
+struct InitializationGuard;
+
+impl InitializationGuard {
+  fn enter<T: 'static>() -> Self {
+    let recursive = INITIALIZING.with(|initializing| {
+      let mut types = initializing.borrow_mut();
+      if types.contains(&TypeId::of::<T>()) {
+        return true;
+      }
+      types.push(TypeId::of::<T>());
+      false
+    });
+    assert!(
+      !recursive,
+      "recursive state initialization for {}",
+      std::any::type_name::<T>()
+    );
+    Self
+  }
+}
+
+impl Drop for InitializationGuard {
+  fn drop(&mut self) {
+    INITIALIZING.with(|initializing| {
+      initializing.borrow_mut().pop();
+    });
+  }
+}
 
 /// Returns the process-global value stored for `T`, if any.
 ///
@@ -58,23 +93,29 @@ static GLOBAL_STATE: LazyLock<SccHashMap<TypeId, Arc<dyn Any + Send + Sync>>> =
 /// ```
 pub fn get_state<T: Send + Sync + 'static>() -> Option<Arc<T>> {
   GLOBAL_STATE
-    .read_sync(&TypeId::of::<T>(), |_, v| Arc::clone(v))
+    .read_sync(&TypeId::of::<T>(), |_, slot| slot.get().cloned())
+    .flatten()
     .and_then(|v| v.downcast::<T>().ok())
 }
 
 /// Returns the global `T`, first storing `init()` if the slot is empty.
 ///
 /// `init` runs at most once, even under concurrent callers, which all get the same `Arc`.
+/// A panicking initializer leaves the slot empty for a later attempt. Initializers may
+/// initialize other types, but must not form dependency cycles across threads.
+/// Recursive initialization of the same type on one thread panics.
 pub fn get_or_init_state<T, F>(init: F) -> Arc<T>
 where
   T: Send + Sync + 'static,
   F: FnOnce() -> T,
 {
-  let entry = GLOBAL_STATE
+  let slot = GLOBAL_STATE
     .entry_sync(TypeId::of::<T>())
-    .or_insert_with(|| Arc::new(init()) as Arc<dyn Any + Send + Sync>);
-  entry
-    .get()
+    .or_insert_with(|| Arc::new(OnceLock::new()))
+    .clone();
+  let _guard = InitializationGuard::enter::<T>();
+  slot
+    .get_or_init(|| Arc::new(init()))
     .clone()
     .downcast::<T>()
     .expect("get_or_init_state type mismatch — global slot already held a different type")
