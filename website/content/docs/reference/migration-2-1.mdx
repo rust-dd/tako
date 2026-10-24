@@ -209,22 +209,6 @@ To advertise an existing HTTP/3 endpoint on HTTP/1 or HTTP/2 responses, install
 `middleware::alt_svc::AltSvc::h3(port, max_age)`. Advertising does not start a
 QUIC listener. Existing Alt-Svc response headers are preserved.
 
-## OpenAPI method conversion
-
-`openapi::vespera::http_method_to_vespera` returns `Option<HttpMethod>`.
-Handle `None` for `CONNECT` and extension methods instead of treating them as
-GET operations. `generate_openapi_from_routes` omits these routes and logs a
-warning containing the method and path. Supported operations on the same path
-remain intact.
-
-```rust
-use tako::openapi::vespera::http_method_to_vespera;
-use tako::Method;
-
-assert!(http_method_to_vespera(&Method::GET).is_some());
-assert!(http_method_to_vespera(&Method::CONNECT).is_none());
-```
-
 ## Dependencies and validation
 
 The workspace stays on stable dependency releases and Rust 1.95. Major library
