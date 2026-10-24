@@ -69,7 +69,7 @@ impl Responder for VesperaOpenApiJson {
   }
 }
 
-/// `CONNECT` and extension methods map to `HttpMethod::Get`.
+/// Converts supported OpenAPI methods; `CONNECT` and extension methods return `None`.
 ///
 /// # Examples
 ///
@@ -79,8 +79,8 @@ impl Responder for VesperaOpenApiJson {
 ///
 /// let method = http_method_to_vespera(&Method::GET);
 /// ```
-pub fn http_method_to_vespera(method: &http::Method) -> HttpMethod {
-  match method.as_str() {
+pub fn http_method_to_vespera(method: &http::Method) -> Option<HttpMethod> {
+  Some(match method.as_str() {
     "GET" => HttpMethod::Get,
     "POST" => HttpMethod::Post,
     "PUT" => HttpMethod::Put,
@@ -89,8 +89,8 @@ pub fn http_method_to_vespera(method: &http::Method) -> HttpMethod {
     "HEAD" => HttpMethod::Head,
     "OPTIONS" => HttpMethod::Options,
     "TRACE" => HttpMethod::Trace,
-    _ => HttpMethod::Get,
-  }
+    _ => return None,
+  })
 }
 
 pub fn parameter_location_to_vespera(loc: &super::ParameterLocation) -> ParameterLocation {
@@ -218,6 +218,7 @@ pub fn route_openapi_to_operation(route: &super::RouteOpenApi) -> Operation {
 }
 
 /// Builds a spec from the routes of `router` that carry `OpenAPI` metadata.
+/// Unsupported HTTP methods are omitted and logged as warnings with their method and path.
 ///
 /// # Examples
 ///
@@ -243,8 +244,11 @@ pub fn generate_openapi_from_routes(router: &crate::router::Router, info: Info) 
   let mut paths: BTreeMap<String, PathItem> = BTreeMap::new();
 
   for (method, path, route_openapi) in routes {
+    let Some(vespera_method) = http_method_to_vespera(&method) else {
+      tracing::warn!(%method, %path, "skipping unsupported OpenAPI route method");
+      continue;
+    };
     let operation = route_openapi_to_operation(&route_openapi);
-    let vespera_method = http_method_to_vespera(&method);
 
     let path_item = paths.entry(path).or_default();
     path_item.set_operation(vespera_method, operation);
