@@ -12,7 +12,7 @@ use tako_rs_core::state::get_state;
 
 #[test]
 fn nested_state_initialization_finishes() {
-  if in_child("nested_state_initialization_finishes") {
+  run_bounded("nested_state_initialization_finishes", || {
     struct Slot<const N: usize>;
     get_or_init_state(|| Slot::<0>);
     macro_rules! initialize {
@@ -29,37 +29,36 @@ fn nested_state_initialization_finishes() {
       26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
       49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
     );
-    return;
-  }
-
-  run_bounded("nested_state_initialization_finishes");
+  });
 }
 
 #[test]
 fn recursive_initialization_panics_and_leaves_slot_retryable() {
-  if in_child("recursive_initialization_panics_and_leaves_slot_retryable") {
-    struct RecursiveState;
-    assert!(
-      std::panic::catch_unwind(|| {
-        get_or_init_state(|| {
-          get_or_init_state(|| RecursiveState);
-          RecursiveState
-        });
-      })
-      .is_err()
-    );
-    assert!(get_state::<RecursiveState>().is_none());
-    get_or_init_state(|| RecursiveState);
+  run_bounded(
+    "recursive_initialization_panics_and_leaves_slot_retryable",
+    || {
+      struct RecursiveState;
+      assert!(
+        std::panic::catch_unwind(|| {
+          get_or_init_state(|| {
+            get_or_init_state(|| RecursiveState);
+            RecursiveState
+          });
+        })
+        .is_err()
+      );
+      assert!(get_state::<RecursiveState>().is_none());
+      get_or_init_state(|| RecursiveState);
+    },
+  );
+}
+
+fn run_bounded(name: &str, test: impl FnOnce()) {
+  if cfg!(miri) || std::env::var("TAKO_STATE_TEST_CHILD").as_deref() == Ok(name) {
+    test();
     return;
   }
-  run_bounded("recursive_initialization_panics_and_leaves_slot_retryable");
-}
 
-fn in_child(name: &str) -> bool {
-  std::env::var("TAKO_STATE_TEST_CHILD").as_deref() == Ok(name)
-}
-
-fn run_bounded(name: &str) {
   let mut child = Command::new(std::env::current_exe().unwrap())
     .args(["--exact", name, "--nocapture"])
     .env("TAKO_STATE_TEST_CHILD", name)
