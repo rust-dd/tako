@@ -20,6 +20,8 @@ use super::WebTransportClose;
 use super::capsule;
 use super::driver::ConnectSend;
 use super::driver::Driver;
+use super::requests::RequestFuture;
+use super::requests::Requests;
 use crate::h3_common::connection::QuicConnection;
 use crate::h3_common::request::handle_request;
 
@@ -44,6 +46,7 @@ struct Inner {
   close: OnceLock<WebTransportClose>,
   router: Arc<Router>,
   remote_addr: SocketAddr,
+  requests: tokio::sync::mpsc::UnboundedSender<RequestFuture>,
 }
 
 impl WebTransportSession {
@@ -65,6 +68,7 @@ impl WebTransportSession {
         return;
       }
     };
+    let (sender, mut requests) = Requests::new();
     let inner = Shared::new(Inner {
       driver,
       connect: tokio::sync::Mutex::new(Some(send)),
@@ -72,37 +76,48 @@ impl WebTransportSession {
       close: OnceLock::new(),
       router,
       remote_addr,
+      requests: sender,
     });
 
-    let mut watch = std::pin::pin!(capsule::watch(recv).fuse());
-    {
-      let handler = std::pin::pin!(handler(Self {
-        inner: inner.clone()
-      }));
-      let ended = std::pin::pin!(async {
-        let shutdown = std::pin::pin!(shutdown.cancelled());
-        if let Either::Left((close, _)) =
-          futures_util::future::select(watch.as_mut(), shutdown).await
-        {
-          let _ = inner.close.set(close);
-        }
-        inner.closed.cancel();
-        sleep(grace).await;
-      });
-      futures_util::future::select(handler, ended).await;
-    }
+    let session = async {
+      let mut watch = std::pin::pin!(capsule::watch(recv).fuse());
+      {
+        let handler = std::pin::pin!(handler(Self {
+          inner: inner.clone()
+        }));
+        let ended = std::pin::pin!(async {
+          let shutdown = std::pin::pin!(shutdown.cancelled());
+          if let Either::Left((close, _)) =
+            futures_util::future::select(watch.as_mut(), shutdown).await
+          {
+            let _ = inner.close.set(close);
+          }
+          inner.closed.cancel();
+          sleep(grace).await;
+        });
+        futures_util::future::select(handler, ended).await;
+      }
 
-    // Finishing the CONNECT stream closes cleanly with code 0; wait for the client's side so a
-    // close capsule still in flight is not dropped with the connection.
-    let close = async {
-      if let Some(mut connect) = inner.connect.lock().await.take() {
-        let _ = connect.finish().await;
-      }
-      if !watch.is_terminated() {
-        watch.as_mut().await;
-      }
+      // Finishing the CONNECT stream closes cleanly with code 0; wait for the client's side so a
+      // close capsule still in flight is not dropped with the connection.
+      let close = async {
+        if let Some(mut connect) = inner.connect.lock().await.take() {
+          let _ = connect.finish().await;
+        }
+        if !watch.is_terminated() {
+          watch.as_mut().await;
+        }
+      };
+      let _ =
+        futures_util::future::select(std::pin::pin!(close), std::pin::pin!(sleep(grace))).await;
     };
-    let _ = futures_util::future::select(std::pin::pin!(close), std::pin::pin!(sleep(grace))).await;
+    futures_util::future::select(std::pin::pin!(session), std::pin::pin!(requests.drive())).await;
+    inner.closed.cancel();
+    let _ = futures_util::future::select(
+      std::pin::pin!(requests.drain()),
+      std::pin::pin!(sleep(grace)),
+    )
+    .await;
   }
 
   /// The id of the session, which is the stream id of its CONNECT request.
@@ -230,10 +245,7 @@ impl WebTransportSession {
         tracing::error!("HTTP/3 request error: {e}");
       }
     };
-    #[cfg(not(feature = "compio"))]
-    tokio::spawn(request);
-    #[cfg(feature = "compio")]
-    compio::runtime::spawn(request).detach();
+    let _ = self.inner.requests.send(Box::pin(request));
   }
 }
 

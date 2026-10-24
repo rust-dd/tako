@@ -79,7 +79,7 @@ http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
 tako-rs = { workspace = true }
-wtransport = { workspace = true }
+wtransport = { workspace = true, features = ["quinn"] }
 
 [[bench]]
 name = "http2"
