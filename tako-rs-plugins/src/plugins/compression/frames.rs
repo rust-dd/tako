@@ -9,7 +9,6 @@ use futures_util::Stream;
 use http::HeaderMap;
 use http_body::Body;
 use http_body::Frame;
-use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
@@ -34,10 +33,13 @@ where
 }
 
 pub(super) fn buffered(body: Bytes, trailers: Option<HeaderMap>) -> TakoBody {
-  let body = TakoBody::from(body);
   match trailers {
-    Some(trailers) => TakoBody::new(body.with_trailers(std::future::ready(Some(Ok(trailers))))),
-    None => body,
+    // HTTP/1 needs unknown length to select chunked framing and carry trailers.
+    Some(trailers) => TakoBody::from_try_stream(futures_util::stream::iter([
+      Ok::<_, BoxError>(Frame::data(body)),
+      Ok(Frame::trailers(trailers)),
+    ])),
+    None => TakoBody::from(body),
   }
 }
 

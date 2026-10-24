@@ -133,33 +133,47 @@ impl Body for SizedFrames {
 
 #[tokio::test]
 async fn buffered_compression_preserves_trailers_and_propagates_errors() {
-  for fail in [false, true] {
-    let mut router = tako_rs_core::router::Router::new();
-    router.plugin(super::CompressionBuilder::new().min_size(0).build());
-    router.get("/", move || async move {
-      TakoBody::new(SizedFrames(frames(fail).into_iter()))
-    });
-    let response = router
-      .dispatch(
-        http::Request::builder()
-          .header("accept-encoding", "gzip")
-          .body(TakoBody::empty())
-          .unwrap(),
-      )
-      .await;
-    let collected = response.into_body().collect().await;
-    if fail {
-      assert!(
-        collected.is_err(),
-        "buffering must not turn a source error into success"
-      );
-    } else {
-      let collected = collected.unwrap();
-      assert_eq!(collected.trailers(), Some(&trailers()));
-      assert_eq!(
-        decode(flate2::read::GzDecoder::new(collected.to_bytes().as_ref())),
-        b"first second"
-      );
+  for (encoding, _, decode) in codecs() {
+    for fail in [false, true] {
+      let mut router = tako_rs_core::router::Router::new();
+      let compression = super::CompressionBuilder::new().min_size(0);
+      #[cfg(feature = "zstd")]
+      let compression = compression.enable_zstd(true);
+      router.plugin(compression.build());
+      router.get("/", move || async move {
+        TakoBody::new(SizedFrames(frames(fail).into_iter()))
+      });
+      let response = router
+        .dispatch(
+          http::Request::builder()
+            .header("accept-encoding", encoding)
+            .body(TakoBody::empty())
+            .unwrap(),
+        )
+        .await;
+      if !fail {
+        assert_eq!(response.headers()["content-encoding"], encoding);
+        assert_eq!(
+          response.body().size_hint().exact(),
+          None,
+          "{encoding}: trailers require unknown size so HTTP/1 uses chunked framing"
+        );
+      }
+      let collected = response.into_body().collect().await;
+      if fail {
+        assert!(
+          collected.is_err(),
+          "{encoding}: buffering must not turn a source error into success"
+        );
+      } else {
+        let collected = collected.unwrap();
+        assert_eq!(collected.trailers(), Some(&trailers()), "{encoding}");
+        assert_eq!(
+          decode(collected.to_bytes().as_ref()),
+          b"first second",
+          "{encoding}"
+        );
+      }
     }
   }
 }
