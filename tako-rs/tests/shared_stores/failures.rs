@@ -17,13 +17,19 @@ fn offline<T>() -> StoreResult<T> {
 }
 #[async_trait]
 impl SessionStore for Offline {
-  async fn load(&self, _: &str) -> StoreResult<Option<Vec<u8>>> {
+  async fn load(&self, _: &str) -> StoreResult<Option<StoredSession>> {
     offline()
   }
-  async fn store(&self, _: &str, _: Vec<u8>, _: Duration) -> StoreResult<()> {
+  async fn create(&self, _: &str, _: Vec<u8>, _: Duration) -> StoreResult<bool> {
     offline()
   }
-  async fn remove(&self, _: &str) -> StoreResult<bool> {
+  async fn update(&self, _: &str, _: &str, _: Vec<u8>, _: Duration) -> StoreResult<bool> {
+    offline()
+  }
+  async fn rotate(&self, _: &str, _: &str, _: &str, _: Vec<u8>, _: Duration) -> StoreResult<bool> {
+    offline()
+  }
+  async fn remove(&self, _: &str, _: &str) -> StoreResult<bool> {
     offline()
   }
 }

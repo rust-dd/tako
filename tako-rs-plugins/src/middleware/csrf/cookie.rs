@@ -73,6 +73,10 @@ pub(crate) fn ensure_csrf_cookie(
   }
   let cookie = build_cookie(cookie_name, &token, secure, same_site);
   if let Ok(v) = HeaderValue::from_str(&cookie) {
-    resp.headers_mut().append(http::header::SET_COOKIE, v);
+    if bind_to_session && let Some(session) = session {
+      session.defer_cookie(v);
+    } else {
+      resp.headers_mut().append(http::header::SET_COOKIE, v);
+    }
   }
 }

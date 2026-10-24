@@ -160,24 +160,25 @@ async fn handle<S: SessionStore>(
   let inbound = extract_cookie_value(&request, &config.cookie_name).map(str::to_owned);
   let mut existing = None;
   if let Some(id) = &inbound
-    && let Some(bytes) = store.load(id).await?
+    && let Some(stored) = store.load(id).await?
   {
-    let record = serde_json::from_slice::<SessionRecord>(&bytes)?;
+    let record = serde_json::from_slice::<SessionRecord>(&stored.data)?;
     if config
       .ttl
       .absolute_secs
       .is_none_or(|cap| now.saturating_sub(record.created_at) < cap)
     {
-      existing = Some(record);
+      existing = Some((stored.version, record));
     } else {
-      store.remove(id).await?;
+      store.remove(id, &stored.version).await?;
     }
   }
   let was_existing = existing.is_some();
-  let (id, record) = match (inbound, existing) {
-    (Some(id), Some(record)) => (id, record),
+  let (id, version, record) = match (inbound, existing) {
+    (Some(id), Some((version, record))) => (id, Some(version), record),
     _ => (
       generate_session_id(),
+      None,
       SessionRecord {
         data: serde_json::Map::new(),
         created_at: now,
@@ -188,8 +189,8 @@ async fn handle<S: SessionStore>(
   request.extensions_mut().insert(session.clone());
   let mut response = next.run(request).await;
   if session.is_destroyed() {
-    if was_existing {
-      store.remove(&id).await?;
+    if let Some(version) = &version {
+      store.remove(&id, version).await?;
     }
     let cookie = build_expired_cookie(
       &config.cookie_name,
@@ -205,12 +206,9 @@ async fn handle<S: SessionStore>(
     return Ok(response);
   }
   let effective_id = if session.rotation_requested() {
-    if was_existing {
-      store.remove(&id).await?;
-    }
     generate_session_id()
   } else {
-    id
+    id.clone()
   };
   let elapsed = SystemTime::now()
     .duration_since(UNIX_EPOCH)?
@@ -226,9 +224,28 @@ async fn handle<S: SessionStore>(
     data: session.snapshot(),
     created_at: record.created_at,
   })?;
-  store
-    .store(&effective_id, bytes, Duration::from_secs(max_age))
-    .await?;
+  let ttl = Duration::from_secs(max_age);
+  let saved = match version.as_deref() {
+    Some(version) if session.rotation_requested() => {
+      store
+        .rotate(&id, version, &effective_id, bytes, ttl)
+        .await?
+    }
+    Some(version) => store.update(&id, version, bytes, ttl).await?,
+    None => store.create(&effective_id, bytes, ttl).await?,
+  };
+  if !saved {
+    if !was_existing {
+      return Err(std::io::Error::other("session id collision").into());
+    }
+    // A late response must not recreate a revoked session or replace a newer cookie.
+    return Ok(response);
+  }
+  for cookie in session.take_cookies() {
+    response
+      .headers_mut()
+      .append(http::header::SET_COOKIE, cookie);
+  }
   let cookie = build_cookie(
     &config.cookie_name,
     &effective_id,
