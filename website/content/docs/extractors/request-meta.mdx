@@ -48,6 +48,24 @@ comma-separated values for that decoded key. Form decoding happens first:
 comma separator. Repeated and encoded keys combine in their original order;
 keys without CSV configuration keep commas inside their values.
 
+## `Host` and tenant subdomains
+
+`uri_parts::Host` resolves the `Host` header or the URI authority used by
+HTTP/2 and HTTP/3. It rejects missing or malformed authorities, user information,
+multiple Host values, and contradictory Host/authority pairs. Host names compare
+case-insensitively; the URI scheme supplies the default HTTP or HTTPS port.
+
+Forwarding headers take precedence only when the direct peer's IP appears in
+`UriPartsConfig::trusted_proxies`. The first `Forwarded` entry's `host` value,
+then the first `X-Forwarded-Host` value, can override a valid direct authority;
+forwarding does not bypass conflicting direct Host/authority checks. Configure
+trusted proxies through request extensions or router state.
+
+`TenantMiddleware::from_subdomain()` uses this same resolver and lowercases
+the first DNS label. IP literals and single-label hosts have no tenant;
+`.require(true)` rejects them with 400. Existing deployments that intentionally
+use a forwarded tenant name must configure their trusted proxy IPs explicitly.
+
 ## `Path<T>`
 
 Typed route path parameters (axum parity). `T` may be a single primitive
