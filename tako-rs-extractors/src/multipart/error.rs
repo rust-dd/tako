@@ -86,12 +86,30 @@ pub enum TypedMultipartError {
   BoundaryParseError(String),
   /// A field failed to parse, exceeded a size limit, or timed out.
   FieldError(String),
+  /// The body exceeds the shared buffering cap or the multipart whole-request cap.
+  BodyTooLarge,
   /// The collected fields do not deserialize into the target type.
   DeserializationError(String),
   /// A part's content type is not in the configured allow-list.
   DisallowedContentType(String),
   /// The configured `max_parts` count was exceeded.
   TooManyParts,
+}
+
+impl TypedMultipartError {
+  pub(super) fn from_field(error: impl Into<anyhow::Error>) -> Self {
+    let error = error.into();
+    if error.chain().any(|source| {
+      matches!(
+        source.downcast_ref::<multer::Error>(),
+        Some(multer::Error::StreamSizeExceeded { .. })
+      )
+    }) {
+      Self::BodyTooLarge
+    } else {
+      Self::FieldError(error.to_string())
+    }
+  }
 }
 
 impl Responder for TypedMultipartError {
@@ -113,6 +131,11 @@ impl Responder for TypedMultipartError {
       TypedMultipartError::FieldError(err) => (
         StatusCode::BAD_REQUEST,
         format!("Field processing error: {err}"),
+      )
+        .into_response(),
+      TypedMultipartError::BodyTooLarge => (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "multipart body exceeds the configured limit",
       )
         .into_response(),
       TypedMultipartError::DeserializationError(err) => (

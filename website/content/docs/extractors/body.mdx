@@ -19,6 +19,32 @@ read once. On a content-type mismatch or a deserialization failure the
 extractor's error type becomes a `400 Bad Request` response and the
 handler is skipped.
 
+## Buffering limits
+
+Buffered extractors use a 2 MiB `BodyLimit` by default, counting body bytes as
+they arrive rather than trusting `Content-Length`. This includes JSON, form,
+owned bytes and strings, unary gRPC, GraphQL POST bodies, and typed multipart.
+
+`router.body_limit(bytes)` replaces the default. A nested router's explicit
+limit, including `disable_body_limit()`, takes precedence over its parent's.
+Routing installs this setting in the request extensions before middleware;
+middleware can then replace `BodyLimit` for that request. Direct extraction
+uses the request's extension, falling back to the default when absent.
+
+`router.disable_body_limit()` or a `BodyLimit(None)` extension disables only
+this shared aggregate cap. Additional extractor limits still apply:
+
+| Extractor | Additional limit | Shared `BodyLimit` |
+| --- | --- | --- |
+| `GrpcRequest<T>` | 4 MiB per protobuf message | Entire DATA body, including frame prefix |
+| `GraphQLRequest`, `GraphQLBatchRequest` | 4 MiB POST body, plus multipart options | Entire POST body |
+| `TakoTypedMultipart` | `MultipartConfig` total and per-part caps | Entire multipart body, including boundaries |
+| `TakoMultipart` | `MultipartConfig` total and per-part caps | No aggregate shared cap |
+| `GrpcClientStream`, `GrpcBidi` | 4 MiB per message | No aggregate shared cap |
+
+Where several caps apply, the smallest wins. The borrowed `Bytes<'_>` stream
+and other manually consumed streams are responsible for their own limits.
+
 ## `Json<T>`
 
 The default JSON body extractor. `T` must implement `serde::Deserialize`.
@@ -200,6 +226,14 @@ then the router's state (`Router::with_state`), then the process-global store
 (413 when exceeded), and the content-type allow-list (415 when rejected).
 The typed extractor also applies `field_chunk_timeout`; manual field
 processing is responsible for its own read deadline.
+
+Typed multipart has a finite 2 MiB whole-body cap through `BodyLimit`, even
+when `MultipartConfig::total_size_limit` is `None`. The smaller of these two
+caps applies. An aggregate size rejection returns `413 Payload Too Large`, and
+temporary files created earlier in the request are removed. Disabling
+`BodyLimit` leaves the configured multipart caps active. Raw `TakoMultipart`
+uses only `MultipartConfig`; configure `total_size_limit` or `max_parts` when
+the stream needs a finite aggregate budget.
 
 <RustExample path="examples/multipart/src/main.rs" />
 

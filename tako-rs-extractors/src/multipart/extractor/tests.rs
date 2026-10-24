@@ -170,3 +170,46 @@ async fn ignored_field_cleans_its_upload() {
   assert_eq!(data["file"]["size"], 5);
   assert!(!observed_path().exists());
 }
+
+async fn aggregate_limit_cleans_upload() {
+  use tako_rs_core::extractors::body::BodyLimit;
+  use tako_rs_core::responder::Responder;
+
+  let prefix = format!("{}--probe\r\n", body_prefix());
+  let suffix = format!(
+    "Content-Disposition: form-data; name=\"extra\"\r\n\r\n{}\r\n--probe--\r\n",
+    "x".repeat(1024)
+  );
+  let mut suffix = Some(Bytes::from(suffix));
+  let stream = futures_util::stream::iter([Ok::<_, std::io::Error>(Bytes::from(prefix))]).chain(
+    futures_util::stream::poll_fn(move |_| {
+      if OBSERVED_PATH.with(|path| path.borrow().is_some()) {
+        Poll::Ready(suffix.take().map(Ok))
+      } else {
+        Poll::Pending
+      }
+    }),
+  );
+  let mut request = request(TakoBody::from_stream(stream));
+  request.extensions_mut().insert(BodyLimit(Some(512)));
+  let error = TakoTypedMultipart::<serde_json::Value, ObservedFile>::from_request(&mut request)
+    .await
+    .err()
+    .expect("aggregate limit must reject the later field");
+  assert_eq!(
+    error.into_response().status(),
+    http::StatusCode::PAYLOAD_TOO_LARGE
+  );
+  assert!(!observed_path().exists());
+}
+
+#[tokio::test]
+async fn body_limit_error_cleans_previously_read_upload() {
+  aggregate_limit_cleans_upload().await;
+}
+
+#[cfg(feature = "compio")]
+#[compio::test]
+async fn compio_body_limit_error_cleans_previously_read_upload() {
+  aggregate_limit_cleans_upload().await;
+}

@@ -31,13 +31,14 @@ impl Router {
     self
   }
 
-  /// Sets the maximum bytes buffered by body extractors (default: 2 MiB).
+  /// Sets the aggregate body cap for buffered extractors, including unary gRPC,
+  /// GraphQL and typed multipart (default: 2 MiB). Protocol-specific caps still apply.
   pub fn body_limit(&mut self, bytes: usize) -> &mut Self {
     self.body_limit = Some(crate::extractors::body::BodyLimit(Some(bytes)));
     self
   }
 
-  /// Explicitly allows body extractors to buffer without a size limit.
+  /// Disables the shared buffering cap; extractor-specific and streaming limits remain.
   pub fn disable_body_limit(&mut self) -> &mut Self {
     self.body_limit = Some(crate::extractors::body::BodyLimit(None));
     self
