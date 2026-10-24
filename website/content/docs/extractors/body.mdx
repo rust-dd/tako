@@ -5,7 +5,7 @@ category: extractor
 since: 2.0.0
 status: stable
 crate: tako-rs-extractors
-features: [protobuf, simd, multipart]
+features: [protobuf, simd, multipart, async-graphql]
 ---
 
 # Body extractors
@@ -236,6 +236,48 @@ uses only `MultipartConfig`; configure `total_size_limit` or `max_parts` when
 the stream needs a finite aggregate budget.
 
 <RustExample path="examples/multipart/src/main.rs" />
+
+## `GraphQLRequest`
+
+<Callout type="info">Requires the `async-graphql` feature. HTTP extraction works on Tokio and Compio.</Callout>
+
+`tako::graphql::GraphQLRequest` reads a GET query string or one POST request.
+`application/json` and `application/graphql-response+json` carry a JSON object
+with `query`, optional `variables`, and optional `operationName`.
+`application/graphql` carries the raw UTF-8 query, such as `{ __typename }`.
+`multipart/form-data` with a boundary uses async-graphql's upload parser.
+Missing or unsupported media types return 415 before the body is read.
+
+Given an async-graphql schema and router, execute a request with:
+
+```rust
+use tako::graphql::{GraphQLRequest, GraphQLResponse};
+
+router.post("/graphql", {
+  let schema = schema.clone();
+  move |GraphQLRequest(request): GraphQLRequest| {
+    let schema = schema.clone();
+    async move { GraphQLResponse(schema.execute(request).await) }
+  }
+});
+```
+
+POST bodies obey the shared `BodyLimit` and the 4 MiB
+`MAX_GRAPHQL_BODY_SIZE` ceiling. The smaller cap applies, even with missing or
+false `Content-Length`. `BodyLimit(None)` leaves the 4 MiB ceiling active.
+JSON is deserialized directly from the collected bytes; multipart options
+come from `attach_graphql_options`, router state, or process-global state, in
+that order. Empty bodies, invalid JSON, or non-UTF-8 raw queries return 400;
+size-limit failures return 413.
+
+## `GraphQLBatchRequest`
+
+`tako::graphql::GraphQLBatchRequest`, also behind `async-graphql`, accepts a
+single JSON object or a non-empty JSON array. GET and raw GraphQL requests
+produce a single request. It uses the same body limits and multipart options
+as `GraphQLRequest`, which rejects every JSON array, including a one-element
+batch. Execute `request.into_inner()` with `schema.execute_batch(...)` and
+return `GraphQLBatchResponse`.
 
 ## Related
 

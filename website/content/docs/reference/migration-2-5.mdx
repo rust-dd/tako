@@ -244,6 +244,25 @@ Untyped multipart extraction now enforces `MultipartConfig::max_parts` and
 violations as `TooManyParts` or `DisallowedContentType`. Code that names the
 raw stream or error type must use these wrapper types.
 
+`TakoTypedMultipart` also uses the router's 2 MiB default `BodyLimit` across
+all fields. The smaller of this cap and `MultipartConfig::total_size_limit`
+applies. Set `router.body_limit(bytes)` for larger forms; disabling the shared
+cap leaves the explicit multipart caps active. Aggregate failures return 413
+and remove temporary files already created by the request.
+
+## GraphQL HTTP bodies
+
+GraphQL POST extractors now obey the router's 2 MiB default `BodyLimit` as well
+as the existing 4 MiB protocol ceiling. Raise the shared cap with
+`router.body_limit(bytes)` when needed; `disable_body_limit()` leaves the
+protocol ceiling active.
+
+`application/graphql` now reads a raw UTF-8 query such as `{ __typename }`.
+JSON requests and batches keep their parsing and rejection behavior, while
+the JSON path avoids copying the collected body into a second buffer.
+Multipart uploads keep their existing parser and options. See
+[GraphQL body extractors](/docs/extractors/body#graphqlrequest).
+
 ## Performance changes
 
 These need no code changes. Against 2.4.2 in the same benchmark run, on a
