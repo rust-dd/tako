@@ -1,13 +1,7 @@
-//! Runtime-agnostic Unix socket binding checks; the Tokio and compio listeners add their own
-//! connect probe.
+//! Runtime-agnostic Unix socket binding checks and stale-socket cleanup.
 
 use std::io;
 use std::path::Path;
-use std::time::Duration;
-
-/// How long a stale-socket probe waits for a previous owner to accept; short, so a stuck peer
-/// cannot hold up the bind.
-pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// An `@` prefix marks a Linux abstract-namespace socket.
 #[inline]
@@ -74,5 +68,20 @@ pub(crate) fn remove_stale(path: &Path) -> io::Result<()> {
     Ok(()) => Ok(()),
     Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
     Err(e) => Err(e),
+  }
+}
+
+/// Removes a socket only when no kernel endpoint is attached to its path.
+pub(crate) fn cleanup_stale_socket(path: &Path) -> io::Result<()> {
+  if !existing_socket(path)? {
+    return Ok(());
+  }
+  // A stream connect can return ConnectionRefused for a full live backlog on BSD.
+  // A datagram probe checks the endpoint type before consulting that backlog.
+  let probe = std::os::unix::net::UnixDatagram::unbound()?;
+  probe.set_nonblocking(true)?;
+  match probe.connect(path) {
+    Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => remove_stale(path),
+    _ => Err(in_use(path)),
   }
 }

@@ -8,12 +8,9 @@ use tako_rs_core::conn_info::UnixPeerAddr;
 
 use super::accept::Listener;
 use super::connection::Peer;
-use crate::unix_path::PROBE_TIMEOUT;
 use crate::unix_path::bind_abstract;
-use crate::unix_path::existing_socket;
-use crate::unix_path::in_use;
+use crate::unix_path::cleanup_stale_socket;
 use crate::unix_path::is_abstract_path;
-use crate::unix_path::remove_stale;
 
 /// A bound Unix socket plus the path it removes after shutdown.
 pub(crate) struct UnixSocketListener {
@@ -34,7 +31,7 @@ pub(crate) async fn bind_listener(path: &Path) -> io::Result<compio::net::UnixLi
   if is_abstract_path(path) {
     return compio::net::UnixListener::from_std(bind_abstract(path)?);
   }
-  cleanup_stale_socket(path).await?;
+  cleanup_stale_socket(path)?;
   compio::net::UnixListener::bind(path).await
 }
 
@@ -65,17 +62,5 @@ impl Listener for UnixSocketListener {
     if !is_abstract_path(&self.path) {
       let _ = std::fs::remove_file(&self.path);
     }
-  }
-}
-
-async fn cleanup_stale_socket(path: &Path) -> io::Result<()> {
-  if !existing_socket(path)? {
-    return Ok(());
-  }
-  match compio::time::timeout(PROBE_TIMEOUT, compio::net::UnixStream::connect(path)).await {
-    Ok(Ok(_)) => Err(in_use(path)),
-    // A refused connect or an expired deadline both mean no live process
-    // serves the path any more.
-    Ok(Err(_)) | Err(_) => remove_stale(path),
   }
 }
