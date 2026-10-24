@@ -254,6 +254,7 @@ mod tests {
     tokio::time::sleep(Duration::from_secs(300)).await;
     assert!(!task.is_finished());
     ctx.activity.request_finished();
+    ctx.activity.response_flushed();
     assert_eq!(task.await.unwrap(), None);
   }
 
@@ -265,6 +266,7 @@ mod tests {
     tokio::time::sleep(Duration::from_secs(20)).await;
     ctx.activity.request_started();
     ctx.activity.request_finished();
+    ctx.activity.response_flushed();
     let idle_since = Instant::now();
     tokio::time::sleep(Duration::from_secs(29)).await;
     assert!(!task.is_finished());

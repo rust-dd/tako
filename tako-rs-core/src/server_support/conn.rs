@@ -31,6 +31,7 @@ use crate::types::Response;
 pub struct ConnActivity {
   requests: AtomicU32,
   busy: AtomicBool,
+  body_finished: AtomicBool,
 }
 
 impl ConnActivity {
@@ -38,12 +39,20 @@ impl ConnActivity {
   pub fn request_started(&self) {
     let requests = self.requests.load(Ordering::Relaxed).wrapping_add(1);
     self.requests.store(requests, Ordering::Relaxed);
+    self.body_finished.store(false, Ordering::Relaxed);
     self.busy.store(true, Ordering::Relaxed);
   }
 
-  /// Records that the response, including a streamed body, is done.
+  /// Records that Hyper consumed the response body, which may still be buffered for writing.
   pub fn request_finished(&self) {
-    self.busy.store(false, Ordering::Relaxed);
+    self.body_finished.store(true, Ordering::Relaxed);
+  }
+
+  /// Records that all bytes buffered by Hyper have reached the underlying IO.
+  pub fn response_flushed(&self) {
+    if self.body_finished.load(Ordering::Relaxed) {
+      self.busy.store(false, Ordering::Relaxed);
+    }
   }
 
   /// Whether a request is in flight or its response body still streams.
@@ -75,19 +84,19 @@ impl ConnCtx {
   }
 }
 
-/// Streamed response body that marks its connection idle once hyper drops it.
-struct IdleOnDrop {
+/// Response body that keeps the deadline suspended until Hyper consumes and flushes it.
+struct WritingOnDrop {
   body: TakoBody,
   activity: Arc<ConnActivity>,
 }
 
-impl Drop for IdleOnDrop {
+impl Drop for WritingOnDrop {
   fn drop(&mut self) {
     self.activity.request_finished();
   }
 }
 
-impl Body for IdleOnDrop {
+impl Body for WritingOnDrop {
   type Data = Bytes;
   type Error = BoxError;
 
@@ -141,18 +150,13 @@ async fn dispatch_full<H: Deref<Target = ConnCtx>>(ctx: H, req: Request) -> Resp
   ctx.router.dispatch_full(req).await
 }
 
-/// Frees the connection for the header deadline: at once for a buffered body,
-/// when hyper drops it for a streamed one.
+/// Keeps buffered and streamed responses busy until their final socket flush.
 fn finish(mut resp: Response, ctx: &ConnCtx) -> Response {
-  if resp.body().is_buffered() {
-    ctx.activity.request_finished();
-  } else {
-    let body = std::mem::take(resp.body_mut());
-    *resp.body_mut() = TakoBody::new(IdleOnDrop {
-      body,
-      activity: Arc::clone(&ctx.activity),
-    });
-  }
+  let body = std::mem::take(resp.body_mut());
+  *resp.body_mut() = TakoBody::new(WritingOnDrop {
+    body,
+    activity: Arc::clone(&ctx.activity),
+  });
   resp
 }
 
@@ -178,22 +182,29 @@ mod tests {
   }
 
   #[test]
-  fn buffered_response_frees_its_connection_at_once() {
+  fn buffered_response_keeps_its_connection_busy_until_flushed() {
     let ctx = ctx();
     ctx.activity.request_started();
     let resp = finish("ok".into_response(), &ctx);
-    assert!(!ctx.activity.is_busy());
+    assert!(ctx.activity.is_busy());
+    ctx.activity.response_flushed();
+    assert!(ctx.activity.is_busy());
     drop(resp);
+    assert!(ctx.activity.is_busy());
+    ctx.activity.response_flushed();
+    assert!(!ctx.activity.is_busy());
   }
 
   #[test]
-  fn streaming_response_keeps_its_connection_busy_until_dropped() {
+  fn streaming_response_keeps_its_connection_busy_until_flushed() {
     let ctx = ctx();
     ctx.activity.request_started();
     let stream = futures_util::stream::empty::<Result<Bytes, std::io::Error>>();
     let resp = finish(TakoBody::from_stream(stream).into_response(), &ctx);
     assert!(ctx.activity.is_busy());
     drop(resp);
+    assert!(ctx.activity.is_busy());
+    ctx.activity.response_flushed();
     assert!(!ctx.activity.is_busy());
   }
 }

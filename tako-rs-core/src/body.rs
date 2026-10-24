@@ -101,12 +101,6 @@ impl TakoBody {
     }
   }
 
-  /// Whether the whole body is already in memory.
-  #[inline]
-  pub(crate) fn is_buffered(&self) -> bool {
-    matches!(self.0, BodyInner::Full(_) | BodyInner::Empty(_))
-  }
-
   /// Boxes any `Body`; prefer [`full`](Self::full) or [`empty`](Self::empty) where they fit.
   #[inline]
   pub fn new<B>(body: B) -> Self
