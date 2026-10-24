@@ -50,16 +50,15 @@ pub fn parse_grpc_timeout(value: &str) -> Option<Duration> {
   Some(dur)
 }
 
-/// Reads `grpc-timeout` into a [`GrpcDeadline`] stored in the request extensions; a timeout
-/// that overflows `Instant` counts as absent.
+/// Stores the absolute deadline on first read; later calls and extractors reuse it.
+/// Call at ingress to include middleware time. An overflowing timeout counts as absent.
 pub fn read_grpc_deadline(req: &mut Request) -> Option<GrpcDeadline> {
   let deadline = deadline_from(req.headers(), req.extensions())?;
   req.extensions_mut().insert(deadline);
   Some(deadline)
 }
 
-/// Reuses a deadline stored by [`read_grpc_deadline`] so every reader of one
-/// request sees the same instant.
+/// Every entry point stores this result so a relative timeout is resolved only once.
 fn deadline_from(headers: &HeaderMap, extensions: &Extensions) -> Option<GrpcDeadline> {
   if let Some(deadline) = extensions.get::<GrpcDeadline>() {
     return Some(*deadline);
@@ -75,7 +74,11 @@ impl<'a> FromRequestParts<'a> for Option<GrpcDeadline> {
   fn from_request_parts(
     parts: &'a mut Parts,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Ok(deadline_from(&parts.headers, &parts.extensions)))
+    let deadline = deadline_from(&parts.headers, &parts.extensions);
+    if let Some(deadline) = deadline {
+      parts.extensions.insert(deadline);
+    }
+    futures_util::future::ready(Ok(deadline))
   }
 }
 
@@ -85,7 +88,7 @@ impl<'a> FromRequest<'a> for Option<GrpcDeadline> {
   fn from_request(
     req: &'a mut Request,
   ) -> impl Future<Output = Result<Self, Self::Error>> + Send + 'a {
-    futures_util::future::ready(Ok(deadline_from(req.headers(), req.extensions())))
+    futures_util::future::ready(Ok(read_grpc_deadline(req)))
   }
 }
 

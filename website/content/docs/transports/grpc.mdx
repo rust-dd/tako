@@ -270,9 +270,12 @@ async fn slow_count(deadline: Option<GrpcDeadline>, req: GrpcRequest<Number>) ->
 
 In a unary handler, bound the work with `deadline.remaining()`, for example with
 `tokio::time::timeout`. Parsing is overflow-safe: an absurdly large value is
-treated as "no deadline" rather than panicking. `read_grpc_deadline(&mut req)`
-stores the deadline in the request extensions for middleware, and the extractor
-reuses it.
+treated as "no deadline" rather than panicking. The first call to
+`read_grpc_deadline(&mut req)` or either deadline extractor stores the absolute
+deadline in the request extensions. Repeated request or parts extraction,
+middleware, and nested routing reuse that instant. The relative timeout starts
+at this first read; call `read_grpc_deadline` in ingress middleware to include
+later middleware time.
 
 When a client cancels a call or disconnects, the server drops the reply stream
 together with everything it owns, so a producer task notices through its closed
