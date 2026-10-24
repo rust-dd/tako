@@ -128,8 +128,8 @@ where
         }
       }
       Err(e) => {
-        tracing::error!("HTTP/3 body frame error: {e}");
-        break;
+        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+        return Err(e);
       }
     }
   }
