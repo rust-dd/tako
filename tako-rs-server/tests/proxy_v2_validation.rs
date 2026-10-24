@@ -110,3 +110,44 @@ fn crc_tlv_verifies_the_complete_header_after_validation() {
   bytes[16] = 1;
   assert_eq!(parse(&bytes).unwrap().crc32c_verified, Some(false));
 }
+
+fn metadata_wire(command: u8, family_protocol: u8) -> Vec<u8> {
+  let payload = [0x01, 0, 2, b'h', b'2', 0x03, 0, 4, 0, 0, 0, 0];
+  let mut bytes = wire(command, family_protocol, &payload);
+  let checksum = crc32c::crc32c(&bytes);
+  bytes[24..28].copy_from_slice(&checksum.to_be_bytes());
+  bytes
+}
+
+#[test]
+fn unspecified_proxy_preserves_tlvs_and_verifies_crc_without_addresses() {
+  for family_protocol in [0x00, 0x01, 0x02, 0x10, 0x20, 0x30] {
+    let mut bytes = metadata_wire(1, family_protocol);
+    let header = parse(&bytes).unwrap();
+    assert_eq!(header.transport, ProxyTransport::Unknown);
+    assert!(header.source.is_none());
+    assert!(header.destination.is_none());
+    assert!(header.source_unix.is_none());
+    assert!(header.destination_unix.is_none());
+    assert_eq!(header.alpn.as_deref(), Some(b"h2".as_slice()));
+    assert_eq!(header.crc32c_verified, Some(true));
+    assert_eq!(header.tlvs.len(), 2);
+
+    bytes[20] = b'3';
+    let corrupt = parse(&bytes).unwrap();
+    assert_eq!(corrupt.alpn.as_deref(), Some(b"h3".as_slice()));
+    assert_eq!(corrupt.crc32c_verified, Some(false));
+  }
+}
+
+#[test]
+fn local_ignores_tlvs_and_crc_even_when_the_payload_is_valid() {
+  for family_protocol in [0x00, 0xff] {
+    let header = parse(&metadata_wire(0, family_protocol)).unwrap();
+    assert!(header.alpn.is_none());
+    assert!(header.crc32c_verified.is_none());
+    assert!(header.tlvs.is_empty());
+    assert!(header.source.is_none());
+    assert!(header.destination.is_none());
+  }
+}
