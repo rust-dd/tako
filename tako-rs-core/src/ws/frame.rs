@@ -72,13 +72,24 @@ pub(crate) fn parse_header(
       let Some(bytes) = array::<2>(buf, 2) else {
         return Ok(None);
       };
-      (u64::from(u16::from_be_bytes(bytes)), 4)
+      let len = u64::from(u16::from_be_bytes(bytes));
+      if len < 126 {
+        return Err(ProtocolError::NonMinimalLength);
+      }
+      (len, 4)
     }
     127 => {
       let Some(bytes) = array::<8>(buf, 2) else {
         return Ok(None);
       };
-      (u64::from_be_bytes(bytes), 10)
+      let len = u64::from_be_bytes(bytes);
+      if len & (1 << 63) != 0 {
+        return Err(ProtocolError::ReservedLengthBit);
+      }
+      if len < 65536 {
+        return Err(ProtocolError::NonMinimalLength);
+      }
+      (len, 10)
     }
     short => (u64::from(short), 2),
   };
@@ -200,6 +211,39 @@ mod tests {
         max: MAX,
       })
     );
+  }
+
+  #[test]
+  fn non_minimal_lengths_are_protocol_errors() {
+    for header in [
+      vec![0x82, 0xfe, 0, 125, 1, 2, 3, 4],
+      vec![0x82, 0xff, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 1, 2, 3, 4],
+    ] {
+      let error = parse_header(&header, MAX).expect_err("length must use the shortest encoding");
+      assert_eq!(error.close_code(), crate::ws::CloseCode::PROTOCOL_ERROR);
+    }
+  }
+
+  #[test]
+  fn a_64_bit_length_with_its_high_bit_set_is_a_protocol_error() {
+    let header = [0x82, 0xff, 0x80, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4];
+    let error = parse_header(&header, MAX).unwrap_err();
+    assert_eq!(error.close_code(), crate::ws::CloseCode::PROTOCOL_ERROR);
+  }
+
+  #[test]
+  fn minimal_extended_lengths_accept_fragmented_frames_at_the_size_limit() {
+    for len in [126, 65535, 65536] {
+      let mut header = client_header(OpCode::Binary, len);
+      header[0] &= 0x7f;
+      let parsed = parse_header(&header, len).unwrap().unwrap();
+      assert!(!parsed.fin);
+      assert_eq!(parsed.len, len as u64);
+      assert!(matches!(
+        parse_header(&header, len - 1),
+        Err(ProtocolError::FrameTooLarge { .. })
+      ));
+    }
   }
 
   #[test]
