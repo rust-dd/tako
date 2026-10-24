@@ -69,7 +69,7 @@ impl Responder for VesperaOpenApiJson {
   }
 }
 
-/// Converts supported OpenAPI methods; `CONNECT` and extension methods return `None`.
+/// Converts supported `OpenAPI` methods; `CONNECT` and extension methods return `None`.
 ///
 /// # Examples
 ///

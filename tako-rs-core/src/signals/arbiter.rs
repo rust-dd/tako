@@ -291,11 +291,7 @@ impl SignalArbiter {
     });
 
     other.inner.topics.iter_sync(|k, v| {
-      let mut entry = self
-        .inner
-        .topics
-        .entry_sync(k.clone())
-        .or_insert_with(Vec::new);
+      let mut entry = self.inner.topics.entry_sync(k.clone()).or_default();
       for sender in v {
         if !entry.iter().any(|existing| existing.same_channel(sender)) {
           entry.get_mut().push(sender.clone());

@@ -136,12 +136,11 @@ impl Router {
       }
       response
     };
-    match super::timeout::run_with_timeout(lifecycle, effective_timeout).await {
-      Ok(response) => response,
-      Err(()) => {
-        let response = timeout_router.handle_timeout(fallback_request).await;
-        self.finish_response(response, is_head, request_parts.as_ref())
-      }
+    if let Ok(response) = super::timeout::run_with_timeout(lifecycle, effective_timeout).await {
+      response
+    } else {
+      let response = timeout_router.handle_timeout(fallback_request).await;
+      self.finish_response(response, is_head, request_parts.as_ref())
     }
   }
 
@@ -166,9 +165,7 @@ impl Router {
         let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
           || route.has_middleware.load(Ordering::Acquire);
 
-        if !needs_chain {
-          route.handler.call(req).await
-        } else {
+        if needs_chain {
           let next = Next {
             global_middlewares: self.middlewares.load_full(),
             route_middlewares: route.middlewares.load_full(),
@@ -176,6 +173,8 @@ impl Router {
             endpoint: route.handler.clone(),
           };
           next.run(req).await
+        } else {
+          route.handler.call(req).await
         }
       }
     } else {

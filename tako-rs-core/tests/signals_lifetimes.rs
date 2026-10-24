@@ -62,5 +62,5 @@ fn dropped_prefix_receivers_disappear_from_subscription_introspection() {
   }
   assert_eq!(arbiter.signal_prefixes(), ["live.*"]);
   drop(live);
-  assert!(arbiter.signal_prefixes().is_empty());
+  assert_eq!(arbiter.signal_prefixes(), Vec::<String>::new());
 }

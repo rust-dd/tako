@@ -143,7 +143,7 @@ async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError
     Err(e) => Err(match BodyReadError::from_boxed(e) {
       BodyReadError::TooLarge => GraphQLError::BodyTooLarge,
       BodyReadError::Read(error) => GraphQLError::BodyRead(error),
-      error => GraphQLError::BodyRead(error.to_string()),
+      error @ BodyReadError::InvalidUtf8 => GraphQLError::BodyRead(error.to_string()),
     }),
   }
 }

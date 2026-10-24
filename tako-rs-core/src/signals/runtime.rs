@@ -24,7 +24,7 @@ impl SignalArbiter {
       loop {
         let received = tokio::select! {
           biased;
-          _ = tx.closed() => break,
+          () = tx.closed() => break,
           received = rx.recv() => received,
         };
         let signal = match received {

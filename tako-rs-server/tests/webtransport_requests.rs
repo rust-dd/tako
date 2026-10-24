@@ -6,6 +6,10 @@ use std::time::Duration;
 
 use rustls::pki_types::CertificateDer;
 use tako_rs_core::router::Router;
+#[cfg(feature = "compio")]
+use tako_rs_server::CompioServer as RuntimeServer;
+#[cfg(not(feature = "compio"))]
+use tako_rs_server::Server as RuntimeServer;
 use tako_rs_server::ServerConfig;
 use tako_rs_server::TlsCert;
 use tako_rs_server::webtransport::WebTransport;
@@ -60,10 +64,6 @@ async fn exercise(peer_close: bool) {
       "done"
     }
   });
-  #[cfg(feature = "compio")]
-  use tako_rs_server::CompioServer as RuntimeServer;
-  #[cfg(not(feature = "compio"))]
-  use tako_rs_server::Server as RuntimeServer;
   let server = RuntimeServer::builder()
     .tls(TlsCert::der(vec![certificate.clone()], key.into()))
     .config(ServerConfig {

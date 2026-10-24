@@ -243,7 +243,9 @@ impl<T: Message + Default> Stream for FrameDecoder<T> {
           let error = match crate::extractors::body::BodyReadError::from_boxed(error) {
             crate::extractors::body::BodyReadError::TooLarge => GrpcError::BodyTooLarge,
             crate::extractors::body::BodyReadError::Read(error) => GrpcError::BodyReadError(error),
-            error => GrpcError::BodyReadError(error.to_string()),
+            error @ crate::extractors::body::BodyReadError::InvalidUtf8 => {
+              GrpcError::BodyReadError(error.to_string())
+            }
           };
           return this.finish(Some(Err(error)));
         }

@@ -99,7 +99,7 @@ async fn failed_occurrence_is_observable_and_not_retried(full: bool) {
   let mut run = Box::pin(scheduler.run().with_subscriber(recorder));
   let log = bounded(async {
     tokio::select! {
-      _ = &mut run => panic!("scheduler unexpectedly stopped"),
+      () = &mut run => panic!("scheduler unexpectedly stopped"),
       log = logs.recv() => log.expect("cron must report enqueue failure"),
     }
   })
@@ -111,8 +111,8 @@ async fn failed_occurrence_is_observable_and_not_retried(full: bool) {
   assert!(log.fields["error"].contains(if full { "queue full" } else { "unavailable" }));
 
   tokio::select! {
-    _ = &mut run => panic!("scheduler unexpectedly stopped"),
-    _ = sleep(Duration::from_millis(50)) => {}
+    () = &mut run => panic!("scheduler unexpectedly stopped"),
+    () = sleep(Duration::from_millis(50)) => {}
   }
   assert_eq!(backend.attempts.load(Ordering::SeqCst), 1);
   assert!(logs.try_recv().is_err());
@@ -124,8 +124,8 @@ async fn failed_occurrence_is_observable_and_not_retried(full: bool) {
   backend.unavailable.store(false, Ordering::SeqCst);
   bounded(async {
     tokio::select! {
-      _ = &mut run => panic!("scheduler unexpectedly stopped"),
-      _ = async {
+      () = &mut run => panic!("scheduler unexpectedly stopped"),
+      () = async {
         while backend.memory.pending_count() == 0 {
           sleep(Duration::from_millis(5)).await;
         }

@@ -9,6 +9,10 @@ use std::time::Duration;
 
 use rustls::pki_types::CertificateDer;
 use tako_rs_core::router::Router;
+#[cfg(feature = "compio")]
+use tako_rs_server::CompioServer as RuntimeServer;
+#[cfg(not(feature = "compio"))]
+use tako_rs_server::Server as RuntimeServer;
 use tako_rs_server::ServerConfig;
 use tako_rs_server::TlsCert;
 use tokio::io::AsyncRead;
@@ -51,10 +55,6 @@ async fn exercise(tls: bool) {
     drain_timeout: Duration::from_millis(100),
     ..ServerConfig::default()
   };
-  #[cfg(feature = "compio")]
-  use tako_rs_server::CompioServer as RuntimeServer;
-  #[cfg(not(feature = "compio"))]
-  use tako_rs_server::Server as RuntimeServer;
   #[cfg(not(feature = "compio"))]
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   #[cfg(feature = "compio")]
@@ -126,7 +126,7 @@ async fn inspect_wire(mut stream: impl AsyncRead + AsyncWrite + Unpin) {
     stream.read_exact(&mut payload).await.unwrap();
     match head[3] {
       4 if head[4] == 0 => {
-        for setting in payload.chunks_exact(6) {
+        for setting in payload.as_chunks::<6>().0 {
           settings.insert(
             u16::from_be_bytes([setting[0], setting[1]]),
             u32::from_be_bytes(setting[2..6].try_into().unwrap()),
