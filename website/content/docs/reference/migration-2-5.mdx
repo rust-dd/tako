@@ -222,6 +222,19 @@ and the `tls` module are now re-exported from `tako`, so the types that
 `TlsCert` and `ServerConfig` take can be named without depending on
 `tako-rs-server`.
 
+## Strict unary gRPC requests
+
+`GrpcRequest<T>` now requires exactly one message and the end of the body.
+Additional messages and malformed trailing data are rejected. A handler that
+intentionally consumed only the first message should use `GrpcClientStream<T>`
+and `StreamExt::next` instead. Native extractors accept only `application/grpc`
+and `application/grpc+proto`; use the separate gRPC-Web adapter for web framing.
+
+Unary requests also obey the router's 2 MiB default `BodyLimit`, counting the
+frame prefix. Raise it with `router.body_limit(bytes)` or disable the aggregate
+cap with `router.disable_body_limit()`. The 4 MiB per-message ceiling remains
+active for unary and streaming requests. See [gRPC](/docs/transports/grpc).
+
 ## Multipart limits
 
 Untyped multipart extraction now enforces `MultipartConfig::max_parts` and

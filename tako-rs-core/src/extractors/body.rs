@@ -12,7 +12,8 @@ use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Maximum buffered request size; `None` explicitly disables the limit.
+/// Maximum buffered request size (default: 2 MiB); `None` disables this shared cap.
+/// Extractor-specific limits still apply, and streaming extractors use their own policies.
 #[derive(Clone, Copy, Debug)]
 pub struct BodyLimit(pub Option<usize>);
 
@@ -42,7 +43,7 @@ impl BodyReadError {
     }
   }
 
-  fn from_boxed(error: crate::types::BoxError) -> Self {
+  pub(crate) fn from_boxed(error: crate::types::BoxError) -> Self {
     let mut source = Some(error.as_ref() as &(dyn std::error::Error + 'static));
     while let Some(error) = source {
       if error.is::<LengthLimitError>() {

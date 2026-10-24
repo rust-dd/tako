@@ -26,7 +26,7 @@ const PREFIX_LEN: usize = 5;
 /// Rejection of a gRPC request, answered with a trailers-only response.
 #[derive(Debug)]
 pub enum GrpcError {
-  /// Content-Type is not application/grpc.
+  /// Content-Type is neither native protobuf `application/grpc` nor `application/grpc+proto`.
   InvalidContentType,
   BodyReadError(String),
   /// The body ends inside a frame, or a frame is malformed.
@@ -34,6 +34,8 @@ pub enum GrpcError {
   /// A frame declares more than [`MAX_GRPC_MESSAGE_SIZE`]; sent as `ResourceExhausted`, as
   /// `grpc-go` and `tonic` do, so clients may back off and retry.
   MessageTooLarge,
+  /// A unary request exceeds its configured aggregate [`BodyLimit`](crate::extractors::body::BodyLimit).
+  BodyTooLarge,
   DecodeError(String),
   /// A frame is compressed but no codec is configured; sent as `Unimplemented`.
   CompressionUnsupported,
@@ -45,13 +47,17 @@ impl GrpcError {
       GrpcError::InvalidContentType => (
         // `Unimplemented`, not `InvalidArgument`: the protocol is unsupported, not the payload.
         GrpcStatusCode::Unimplemented,
-        "invalid content-type; expected application/grpc",
+        "invalid content-type; expected application/grpc or application/grpc+proto",
       ),
       GrpcError::BodyReadError(_) => (GrpcStatusCode::Internal, "failed to read request body"),
       GrpcError::InvalidFrame => (GrpcStatusCode::InvalidArgument, "malformed gRPC frame"),
       GrpcError::MessageTooLarge => (
         GrpcStatusCode::ResourceExhausted,
         "grpc message exceeds MAX_GRPC_MESSAGE_SIZE",
+      ),
+      GrpcError::BodyTooLarge => (
+        GrpcStatusCode::ResourceExhausted,
+        "grpc request exceeds the configured body limit",
       ),
       GrpcError::DecodeError(_) => (
         GrpcStatusCode::InvalidArgument,
@@ -234,7 +240,12 @@ impl<T: Message + Default> Stream for FrameDecoder<T> {
           }
         }
         Poll::Ready(Some(Err(error))) => {
-          return this.finish(Some(Err(GrpcError::BodyReadError(error.to_string()))));
+          let error = match crate::extractors::body::BodyReadError::from_boxed(error) {
+            crate::extractors::body::BodyReadError::TooLarge => GrpcError::BodyTooLarge,
+            crate::extractors::body::BodyReadError::Read(error) => GrpcError::BodyReadError(error),
+            error => GrpcError::BodyReadError(error.to_string()),
+          };
+          return this.finish(Some(Err(error)));
         }
         Poll::Ready(None) => {
           let truncated = !this.buffer.is_empty() || !this.chunk.is_empty();

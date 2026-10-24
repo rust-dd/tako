@@ -185,8 +185,8 @@ async fn client_stream_ends_after_oversized_or_compressed_frames() {
 }
 
 #[tokio::test]
-async fn unary_request_decodes_the_first_message() {
-  let req = GrpcRequest::<Number>::from_request(&mut request(vec![frame(4), frame(5)]))
+async fn unary_request_decodes_one_message() {
+  let req = GrpcRequest::<Number>::from_request(&mut request(vec![frame(4)]))
     .await
     .unwrap();
   assert_eq!(req.message.value, 4);
