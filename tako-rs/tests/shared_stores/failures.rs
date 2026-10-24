@@ -130,6 +130,7 @@ async fn plugin_backend_failures_stop_dispatch() {
   let mut idempotency = Router::new();
   idempotency.plugin(
     tako::plugins::idempotency::IdempotencyBuilder::new()
+      .anonymous()
       .store(Offline)
       .build(),
   );

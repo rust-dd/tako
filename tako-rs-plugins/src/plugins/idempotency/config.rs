@@ -1,14 +1,17 @@
 use http::HeaderName;
 use http::Method;
+use tako_rs_core::types::Request;
 
+use super::identity::IdempotencyIdentity;
+use super::identity::IdentitySource;
 use super::plugin::IdempotencyPlugin;
 
-/// Which request attributes are included in the idempotency key scope.
+/// Request attributes added to the authenticated identity's idempotency scope.
 #[derive(Clone, Copy)]
 pub enum Scope {
-  /// Only the header value identifies the operation.
+  /// The header value identifies the operation within the identity scope.
   KeyOnly,
-  /// Header value combined with HTTP method and path.
+  /// Header value combined with HTTP method and path within the identity scope.
   MethodAndPath,
 }
 
@@ -53,9 +56,11 @@ impl Default for Config {
   }
 }
 
+/// Configure idempotency; the default requires a trusted `IdempotencyIdentity` extension.
 pub struct IdempotencyBuilder(
   Config,
   Option<std::sync::Arc<dyn crate::stores::IdempotencyStore>>,
+  IdentitySource,
 );
 
 impl Default for IdempotencyBuilder {
@@ -66,7 +71,24 @@ impl Default for IdempotencyBuilder {
 
 impl IdempotencyBuilder {
   pub fn new() -> Self {
-    Self(Config::default(), None)
+    Self(Config::default(), None, IdentitySource::default())
+  }
+  /// Extract trusted identity after authentication; missing or empty identities return 401.
+  ///
+  /// `None` never falls back to request headers, extensions, or anonymous scope.
+  pub fn identity_fn(
+    mut self,
+    f: impl Fn(&Request) -> Option<IdempotencyIdentity> + Send + Sync + 'static,
+  ) -> Self {
+    self.2 = IdentitySource::Extractor(std::sync::Arc::new(f));
+    self
+  }
+  /// Share keys across callers for public operations whose responses are safe to share.
+  ///
+  /// This replaces the identity extractor and intentionally ignores authenticated identity.
+  pub fn anonymous(mut self) -> Self {
+    self.2 = IdentitySource::Anonymous;
+    self
   }
   /// Use a shared backend with atomic leases and completion.
   pub fn store(mut self, store: impl crate::stores::IdempotencyStore) -> Self {
@@ -115,6 +137,7 @@ impl IdempotencyBuilder {
   }
   pub fn build(self) -> IdempotencyPlugin {
     let mut plugin = IdempotencyPlugin::new(self.0);
+    plugin.identity_source = self.2;
     if let Some(store) = self.1 {
       plugin.store = store;
     }
