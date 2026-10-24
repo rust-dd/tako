@@ -80,3 +80,13 @@ hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
 tako-rs = { workspace = true }
 wtransport = { workspace = true }
+
+[[bench]]
+name = "http2"
+harness = false
+required-features = ["http2"]
+
+[[bench]]
+name = "http3"
+harness = false
+required-features = ["http3"]

@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::ops::Deref;
 
 use bytes::Buf;
 use bytes::Bytes;
@@ -63,7 +63,7 @@ where
 pub(crate) async fn handle_request<S>(
   req: Request<()>,
   stream: RequestStream<S, Bytes>,
-  router: Arc<Router>,
+  router: impl Deref<Target = Router>,
   remote_addr: SocketAddr,
 ) -> Result<(), BoxError>
 where

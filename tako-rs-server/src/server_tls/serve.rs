@@ -1,22 +1,19 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
 use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
-use hyper::service::service_fn;
 #[cfg(feature = "http2")]
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
-use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::http_service;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -109,7 +106,7 @@ pub async fn run_with_config(
         };
         let _ = stream.set_nodelay(true);
         let acceptor = acceptor.clone();
-        let router = connection_router(&router);
+        let router = Arc::clone(&router);
 
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
@@ -171,16 +168,7 @@ pub async fn run_with_config(
 
           let io = TokioIo::new(Leased::new(tls_stream, permit));
 
-          let svc = service_fn(move |mut req| {
-            let r = router.clone();
-            let conn_info = conn_info.clone();
-            async move {
-              req.extensions_mut().insert(addr);
-              req.extensions_mut().insert(conn_info);
-              let response = r.dispatch(req.map(TakoBody::incoming)).await;
-              Ok::<_, Infallible>(response)
-            }
-          });
+          let svc = http_service(router, conn_info);
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {

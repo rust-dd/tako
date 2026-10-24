@@ -1,17 +1,15 @@
 //! HTTP/2 prior-knowledge (h2c) accept loop, for proxies that speak HTTP/2 over plain TCP.
 
-use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
 use hyper::server::conn::http2;
-use hyper::service::service_fn;
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::http_service;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -91,14 +89,7 @@ pub(crate) async fn run(
         let router = router.clone();
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
-          let svc = service_fn(move |mut req| {
-            let router = router.clone();
-            async move {
-            req.extensions_mut().insert(addr);
-            req.extensions_mut().insert(ConnInfo::h2c(addr));
-            let resp = router.dispatch(req.map(TakoBody::incoming)).await;
-            Ok::<_, Infallible>(resp)
-          }});
+          let svc = http_service(router, ConnInfo::h2c(addr));
 
           let mut h2 = http2::Builder::new(TokioExecutor::new());
           h2.timer(hyper_util::rt::TokioTimer::new());

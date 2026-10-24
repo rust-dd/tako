@@ -7,6 +7,9 @@ use tako_rs_core::types::BoxError;
 
 use crate::h3_common::sessions::Sessions;
 
+#[cfg(test)]
+mod tests;
+
 /// Serves one connection until the peer closes it or shutdown sends GOAWAY, then gives requests
 /// `goaway_grace` to finish; an accepted WebTransport session takes the connection over.
 pub(crate) async fn handle_connection(
@@ -17,6 +20,8 @@ pub(crate) async fn handle_connection(
   goaway_grace: Duration,
 ) -> Result<(), BoxError> {
   let mut h3_conn = crate::h3_common::connection::accept(h3_quinn::Connection::new(conn)).await?;
+  // Per-stream clones share this connection's refcount, avoiding cross-connection contention.
+  let router = Arc::new(router);
   let mut request_tasks = tokio::task::JoinSet::new();
   let mut sessions = Sessions::new();
 
@@ -30,7 +35,7 @@ pub(crate) async fn handle_connection(
             request_tasks.spawn(async move {
               match resolver.resolve_request().await {
                 Ok((req, stream)) => {
-                  if let Err(e) = sessions.serve(req, stream, router, remote_addr).await {
+                  if let Err(e) = sessions.serve(req, stream, &router, remote_addr).await {
                     tracing::error!("HTTP/3 request error: {e}");
                   }
                 }
@@ -62,7 +67,13 @@ pub(crate) async fn handle_connection(
 
   if let Some(session) = session {
     session
-      .run(h3_conn, router, remote_addr, &shutdown, goaway_grace)
+      .run(
+        h3_conn,
+        router.as_ref().clone(),
+        remote_addr,
+        &shutdown,
+        goaway_grace,
+      )
       .await;
   }
 

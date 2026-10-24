@@ -2,6 +2,7 @@
 
 mod conn;
 mod driver;
+mod http;
 mod lease;
 mod shutdown;
 mod timer;
@@ -15,6 +16,7 @@ pub use conn::ConnCtx;
 pub use conn::tcp_service;
 pub use driver::ConnDriver;
 use futures_util::future::Either;
+pub use http::http_service;
 pub use lease::Leased;
 pub use shutdown::ShutdownSignal;
 pub use timer::ConnectionTimer;
