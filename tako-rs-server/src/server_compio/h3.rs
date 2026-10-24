@@ -2,6 +2,7 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -173,6 +174,8 @@ async fn handle_connection(
   goaway_grace: Duration,
 ) -> Result<(), BoxError> {
   let mut h3_conn = crate::h3_common::connection::accept(conn).await?;
+  // Request tasks stay on this thread, so their connection handle needs no atomic refcount.
+  let router = Rc::new(router);
   let mut requests = FuturesUnordered::new();
   let mut sessions = Sessions::new();
 
@@ -196,7 +199,7 @@ async fn handle_connection(
         requests.push(compio::runtime::spawn(async move {
           match resolver.resolve_request().await {
             Ok((req, stream)) => {
-              if let Err(e) = sessions.serve(req, stream, router, remote_addr).await {
+              if let Err(e) = sessions.serve(req, stream, &router, remote_addr).await {
                 tracing::error!("HTTP/3 request error: {e}");
               }
             }
@@ -226,7 +229,13 @@ async fn handle_connection(
 
   if let Some(session) = session {
     session
-      .run(h3_conn, router, remote_addr, &shutdown, goaway_grace)
+      .run(
+        h3_conn,
+        router.as_ref().clone(),
+        remote_addr,
+        &shutdown,
+        goaway_grace,
+      )
       .await;
   }
 

@@ -37,13 +37,6 @@ jobs:
       matrix:
         toolchain: [stable, beta]
         label: [default, tokio-rich, all-features]
-        include:
-          - label: default
-            features: ""
-          - label: tokio-rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql"
-          - label: all-features
-            features: --all-features
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -58,7 +51,7 @@ jobs:
       # `pedantic = warn` opts those in too, so `-D warnings` catches
       # regressions like the ones surfaced by the v2 release audit (items
       # after statements, ignored unit patterns, map_unwrap_or).
-      - run: cargo clippy --workspace --no-deps --tests --examples ${{ matrix.features }} -- -D warnings
+      - run: scripts/check-workspace.sh clippy "${{ matrix.label }}"
 
   test:
     name: test (${{ matrix.os }} / ${{ matrix.toolchain }} / ${{ matrix.label }})
@@ -69,29 +62,18 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         toolchain: [stable]
         label: [default]
-        features: [""]
         include:
           - os: ubuntu-latest
             toolchain: stable
-            label: rich
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,plugins,signals,multipart,simd,protobuf,grpc,ip-filter,hmac-signature,json-schema,zstd,typed-header,zero-copy-extractors,jwt-simple,file-stream"
-          - os: ubuntu-latest
-            toolchain: stable
-            label: http3
-            features: --features "ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,webtransport,plugins,signals"
+            label: tokio-rich
           - os: ubuntu-latest
             toolchain: stable
             label: all-features
-            # Regression guard for A1 (compio/tokio !Send mismatch under
-            # workspace-wide --all-features test-build). Re-fixing the
-            # gated test bins requires both runtimes resolved at once.
-            features: --all-features
           # Beta toolchain — early-warning for nightly→stable regressions
           # picked up by upstream crates.
           - os: ubuntu-latest
             toolchain: beta
             label: default
-            features: ""
           # MSRV pin — make sure the declared `rust-version = "1.95"` actually
           # builds AND passes tests. The plain `msrv` job below only builds;
           # this one runs the rich feature set under the floor toolchain.
@@ -111,7 +93,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: test-${{ matrix.os }}-${{ matrix.toolchain }}-${{ matrix.label }}
-      - run: cargo test --workspace ${{ matrix.features }}
+      - name: Workspace tests
+        if: matrix.label != 'msrv-rich'
+        shell: bash
+        run: scripts/check-workspace.sh test "${{ matrix.label }}"
+      - name: MSRV feature subset
+        if: matrix.label == 'msrv-rich'
+        shell: bash
+        run: cargo test --workspace ${{ matrix.features }}
+
+  release-gate:
+    name: release gate smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'
 
   msrv:
     name: MSRV build (1.95)
@@ -204,7 +200,8 @@ jobs:
         with:
           key: bench
       # Compile benchmark harnesses; timing comparisons run locally.
-      - run: cargo bench --no-run -p tako-rs-core
+      - run: cargo bench --no-run -p tako-rs-core --features grpc
+      - run: cargo bench --no-run -p tako-rs-server --features http2,http3
 
   autobahn:
     name: autobahn websocket suite (${{ matrix.example }})
@@ -330,6 +327,12 @@ jobs:
       - name: Audit (frontmatter, meta.json coverage, internal links)
         working-directory: website
         run: bun run audit
+      - name: Lint
+        working-directory: website
+        run: bun run lint
+      - name: Typecheck
+        working-directory: website
+        run: bun run typecheck
       - name: Build
         working-directory: website
         run: bun run build

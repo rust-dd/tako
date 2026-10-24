@@ -49,7 +49,8 @@ impl Router {
     }
   }
 
-  /// Runs `req` through routing, middleware, timeouts and error handlers to a response.
+  /// Runs routing, middleware and request signal hooks under one request timeout.
+  /// Cancellation drops pending hooks without replaying completion events.
   #[inline]
   pub async fn dispatch(&self, req: Request) -> Response {
     match self.begin(req, None) {
@@ -113,12 +114,43 @@ impl Router {
 
     #[cfg(feature = "signals")]
     let signals = super::request_signals::RequestSignals::new(&self.signals, route, &req);
-    #[cfg(feature = "signals")]
-    if let Some(signals) = &signals {
-      signals.started().await;
+    let timeout_router = route
+      .and_then(|route| route.scoped_timeout.as_deref())
+      .unwrap_or(self);
+    let effective_timeout = route
+      .and_then(Route::get_timeout)
+      .or(timeout_router.timeout)
+      .or(self.timeout);
+    let fallback_request =
+      effective_timeout.and_then(|_| timeout_router.snapshot_for_timeout(&req));
+    let lifecycle = async {
+      #[cfg(feature = "signals")]
+      if let Some(signals) = &signals {
+        signals.started().await;
+      }
+      let response = self.dispatch_endpoint(req, route, is_head).await;
+      let response = self.finish_response(response, is_head, request_parts.as_ref());
+      #[cfg(feature = "signals")]
+      if let Some(signals) = signals {
+        signals.complete(response.status()).await;
+      }
+      response
+    };
+    if let Ok(response) = super::timeout::run_with_timeout(lifecycle, effective_timeout).await {
+      response
+    } else {
+      let response = timeout_router.handle_timeout(fallback_request).await;
+      self.finish_response(response, is_head, request_parts.as_ref())
     }
+  }
 
-    let response = if let Some(route) = route {
+  async fn dispatch_endpoint(
+    &self,
+    req: Request,
+    route: Option<&Route>,
+    is_head: bool,
+  ) -> Response {
+    if let Some(route) = route {
       // Failures still pass through error formatting and completion signals.
       #[cfg(feature = "plugins")]
       let setup_error = route.setup_plugins_once().err();
@@ -129,28 +161,20 @@ impl Router {
       {
         res
       } else {
-        let timeout_router = route.scoped_timeout.as_deref().unwrap_or(self);
-        let effective_timeout = route
-          .get_timeout()
-          .or(timeout_router.timeout)
-          .or(self.timeout);
-
         // Skip the `ArcSwap` loads when no middleware is registered.
         let needs_chain = self.has_global_middleware.load(Ordering::Acquire)
           || route.has_middleware.load(Ordering::Acquire);
 
-        if !needs_chain && effective_timeout.is_none() {
-          route.handler.call(req).await
-        } else {
+        if needs_chain {
           let next = Next {
             global_middlewares: self.middlewares.load_full(),
             route_middlewares: route.middlewares.load_full(),
             index: 0,
             endpoint: route.handler.clone(),
           };
-          timeout_router
-            .run_with_timeout(req, next, effective_timeout)
-            .await
+          next.run(req).await
+        } else {
+          route.handler.call(req).await
         }
       }
     } else {
@@ -240,11 +264,18 @@ impl Router {
             .await
         }
       }
-    };
+    }
+  }
 
+  fn finish_response(
+    &self,
+    response: Response,
+    is_head: bool,
+    request_parts: Option<&http::request::Parts>,
+  ) -> Response {
     let mut response = self.maybe_apply_error_handler(response);
     if (response.status().is_client_error() || response.status().is_server_error())
-      && let (Some(handler), Some(parts)) = (&self.error_handler_with_parts, &request_parts)
+      && let (Some(handler), Some(parts)) = (&self.error_handler_with_parts, request_parts)
     {
       response = handler(parts, response);
     }
@@ -264,11 +295,6 @@ impl Router {
           .or_insert(http::HeaderValue::from(length));
       }
       *response.body_mut() = TakoBody::empty();
-    }
-
-    #[cfg(feature = "signals")]
-    if let Some(signals) = signals {
-      signals.complete(response.status()).await;
     }
 
     response

@@ -83,6 +83,40 @@ session id while keeping the data — call it after login to defend against
 fixation. `SessionMiddleware::handle()` returns a handle with a `revoke_all`
 API for emergency purges.
 
+Session writes carry the generation returned by the store. If logout, rotation,
+expiry, or administrative revocation invalidates that generation while a request
+is running, its late response cannot restore the session and does not emit a
+session cookie. Already running handlers are not cancelled by revocation.
+Session-bound CSRF cookies are also emitted only after the session save succeeds,
+so a rejected late response cannot overwrite a rotated session's token.
+
+### Custom session stores
+
+`SessionStore::load` returns `StoredSession { data, version }`. The opaque
+`version` identifies one generation of an id; create and rotation must issue a
+fresh value, even when an expired or deleted id is reused. Ordinary updates
+preserve the version. Concurrent updates to the same live generation still use
+last-writer-wins semantics; this is revocation protection, not field merging.
+
+Custom stores must replace unconditional `store`/upsert implementations with
+these atomic operations:
+
+| Operation | Required behavior |
+| --- | --- |
+| `create(id, data, ttl)` | Insert a fresh generation only if no live session owns the id. Return `false` on collision. |
+| `update(id, version, data, ttl)` | Match the live generation before updating; never recreate a missing or expired id. |
+| `rotate(id, version, new_id, data, ttl)` | In one transaction, validate the live source and unused destination, move the data, and assign a fresh generation. On rejection, leave both ids unchanged. |
+| `remove(id, version)` | Delete only the matching generation. A stale request must not delete its replacement. |
+
+Generation checks, expiry checks and writes must happen in the shared backend
+transaction or atomic script. A separate `load` followed by `store` is not
+sufficient across requests or application replicas. Bulk revocation must be
+atomic with rotation too. Backend failures still produce a generic 503;
+generation mismatches return `false` and discard only the stale session write.
+Persist the generation alongside the opaque data; do not generate a different
+version on every load. Existing shared-store records need a generation assigned
+once as part of the backend migration.
+
 <Callout type="info">
   The default store is in-process and not shared across instances. For a
   clustered deployment, back sessions with a shared store via the

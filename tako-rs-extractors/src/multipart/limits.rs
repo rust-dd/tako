@@ -7,7 +7,8 @@ use multer::SizeLimit;
 /// process-global value registered with `get_or_init_state`.
 #[derive(Debug, Clone)]
 pub struct MultipartConfig {
-  /// Whole-request body cap in bytes.
+  /// Whole-request body cap in bytes. Typed extraction also applies `BodyLimit`, using
+  /// the smaller cap; `None` leaves only that shared cap for typed extraction.
   pub total_size_limit: Option<u64>,
   /// Per-part body cap in bytes; the 1 MiB default bounds text fields, which are buffered whole.
   pub per_part_size_limit: Option<u64>,

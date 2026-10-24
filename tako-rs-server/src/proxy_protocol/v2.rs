@@ -75,6 +75,37 @@ pub(crate) fn address_len(hdr: &[u8; 4]) -> std::io::Result<usize> {
       format!("PROXY v2 addr_len {addr_len} exceeds {MAX_PROXY_ADDR_LEN}"),
     ));
   }
+  let command = hdr[0] & 0x0F;
+  if command > 1 {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("unsupported PROXY v2 command: {command}"),
+    ));
+  }
+  if command == 0 {
+    return Ok(addr_len);
+  }
+  let family = hdr[1] >> 4;
+  let protocol = hdr[1] & 0x0F;
+  if family > 3 || protocol > 2 {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("invalid PROXY v2 family/protocol: {:#04x}", hdr[1]),
+    ));
+  }
+  let required = match (family, protocol) {
+    (0, _) | (_, 0) => 0,
+    (1, _) => 12,
+    (2, _) => 36,
+    (3, _) => 216,
+    _ => unreachable!("family was validated"),
+  };
+  if addr_len < required {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("PROXY v2 address block has {addr_len} bytes, requires {required}"),
+    ));
+  }
   Ok(addr_len)
 }
 
@@ -84,22 +115,24 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
   let family = (hdr[1] >> 4) & 0x0F;
   let protocol = hdr[1] & 0x0F;
 
-  // LOCAL command: connection from proxy itself, no address info
+  // LOCAL ignores the protocol block, including its optional metadata.
   if command == 0 {
     return ProxyHeader::empty(ProxyVersion::V2, ProxyTransport::Unknown);
   }
 
-  let transport = match protocol {
-    1 => ProxyTransport::Tcp,
-    2 => ProxyTransport::Udp,
+  let transport = match (family, protocol) {
+    (1..=3, 1) => ProxyTransport::Tcp,
+    (1..=3, 2) => ProxyTransport::Udp,
     _ => ProxyTransport::Unknown,
   };
 
   let mut header = ProxyHeader::empty(ProxyVersion::V2, transport);
 
-  let consumed: usize = match family {
+  let consumed: usize = match (family, protocol) {
+    // UNSPEC has no forwarded address block; optional TLVs start at offset zero.
+    (0, _) | (_, 0) => 0,
     // AF_INET (IPv4)
-    1 if addr_buf.len() >= 12 => {
+    (1, _) if addr_buf.len() >= 12 => {
       let src_ip = Ipv4Addr::new(addr_buf[0], addr_buf[1], addr_buf[2], addr_buf[3]);
       let dst_ip = Ipv4Addr::new(addr_buf[4], addr_buf[5], addr_buf[6], addr_buf[7]);
       let src_port = u16::from_be_bytes([addr_buf[8], addr_buf[9]]);
@@ -109,7 +142,7 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
       12
     }
     // AF_INET6 (IPv6)
-    2 if addr_buf.len() >= 36 => {
+    (2, _) if addr_buf.len() >= 36 => {
       let src_ip = Ipv6Addr::from(<[u8; 16]>::try_from(&addr_buf[0..16]).unwrap());
       let dst_ip = Ipv6Addr::from(<[u8; 16]>::try_from(&addr_buf[16..32]).unwrap());
       let src_port = u16::from_be_bytes([addr_buf[32], addr_buf[33]]);
@@ -119,14 +152,13 @@ pub(crate) fn parse_v2(sig: &[u8; 12], hdr: &[u8; 4], addr_buf: &[u8]) -> ProxyH
       36
     }
     // AF_UNIX — 108-byte src + 108-byte dst NUL-terminated paths.
-    3 if addr_buf.len() >= 216 => {
+    (3, _) if addr_buf.len() >= 216 => {
       let src = parse_unix_path(&addr_buf[0..108]);
       let dst = parse_unix_path(&addr_buf[108..216]);
       header.source_unix = src;
       header.destination_unix = dst;
       216
     }
-    // UNSPEC or unknown — payload past addr_buf is still treated as TLVs.
     _ => 0,
   };
 

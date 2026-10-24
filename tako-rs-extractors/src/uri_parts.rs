@@ -1,11 +1,13 @@
 //! `OriginalUri`, `Host` and `Scheme`; the last two trust forwarding headers only from a peer
 //! listed in a [`UriPartsConfig`].
 
+use std::borrow::Cow;
 use std::net::IpAddr;
 
 use http::StatusCode;
 use http::Uri;
 use http::request::Parts;
+use http::uri::Authority;
 use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::extractors::FromRequestParts;
 use tako_rs_core::responder::Responder;
@@ -92,7 +94,8 @@ impl<'a> FromRequestParts<'a> for OriginalUri {
 }
 
 /// The `Host` header, else the URI authority, with a trusted proxy's `Forwarded: host=` and
-/// `X-Forwarded-Host` taking precedence; rejects with 400 when none is present.
+/// `X-Forwarded-Host` taking precedence. Missing, malformed, or conflicting Host/authority
+/// values reject with 400, including when forwarding headers are trusted.
 pub struct Host(pub String);
 
 #[derive(Debug)]
@@ -100,20 +103,51 @@ pub struct HostMissing;
 
 impl Responder for HostMissing {
   fn into_response(self) -> tako_rs_core::types::Response {
-    (StatusCode::BAD_REQUEST, "request has no host").into_response()
+    (
+      StatusCode::BAD_REQUEST,
+      "request has no valid, unambiguous host",
+    )
+      .into_response()
   }
 }
 
 fn extract_host(headers: &http::HeaderMap, uri: &Uri, trust_forwarded: bool) -> Option<String> {
+  let mut hosts = headers.get_all(http::header::HOST).iter();
+  let host = match hosts.next() {
+    Some(value) => Some(valid_authority(value.to_str().ok()?)?),
+    None => None,
+  };
+  if hosts.next().is_some() {
+    return None;
+  }
+  let authority = match uri.authority() {
+    Some(value) => Some(valid_authority(value.as_str())?),
+    None => None,
+  };
+  if let (Some(host), Some(authority)) = (&host, &authority) {
+    let default_port = match uri.scheme_str() {
+      Some("https") => Some(443),
+      Some("http") => Some(80),
+      _ => None,
+    };
+    if !host.host().eq_ignore_ascii_case(authority.host())
+      || host.port_u16().or(default_port) != authority.port_u16().or(default_port)
+    {
+      return None;
+    }
+  }
   if trust_forwarded {
     if let Some(forwarded) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
-      for pair in forwarded.split(';') {
-        let pair = pair.trim();
-        if let Some(rest) = pair.strip_prefix("host=") {
-          let host = rest.trim_matches('"');
-          if !host.is_empty() {
-            return Some(host.to_string());
-          }
+      let (first, _) = split_forwarded(forwarded, b',')?;
+      let mut remaining = Some(first);
+      while let Some(parameters) = remaining {
+        let (pair, rest) = split_forwarded(parameters, b';')?;
+        remaining = rest;
+        if let Some((name, value)) = pair.trim().split_once('=')
+          && name.eq_ignore_ascii_case("host")
+        {
+          let value = forwarded_value(value.trim())?;
+          return valid_authority(&value).map(|a| a.to_string());
         }
       }
     }
@@ -121,19 +155,60 @@ fn extract_host(headers: &http::HeaderMap, uri: &Uri, trust_forwarded: bool) -> 
       .get("x-forwarded-host")
       .and_then(|v| v.to_str().ok())
       .and_then(|v| v.split(',').next())
-      .map(|s| s.trim().to_string())
-      && !xfh.is_empty()
     {
-      return Some(xfh);
+      return valid_authority(xfh.trim()).map(|a| a.to_string());
     }
   }
-  if let Some(host) = headers
-    .get(http::header::HOST)
-    .and_then(|v| v.to_str().ok())
-  {
-    return Some(host.to_string());
+  host.or(authority).map(|a| a.to_string())
+}
+
+fn split_forwarded(value: &str, separator: u8) -> Option<(&str, Option<&str>)> {
+  let mut quoted = false;
+  let mut escaped = false;
+  for (index, byte) in value.bytes().enumerate() {
+    if escaped {
+      escaped = false;
+    } else if quoted && byte == b'\\' {
+      escaped = true;
+    } else if byte == b'"' {
+      quoted = !quoted;
+    } else if !quoted && byte == separator {
+      return Some((&value[..index], Some(&value[index + 1..])));
+    }
   }
-  uri.authority().map(|a| a.as_str().to_string())
+  (!quoted && !escaped).then_some((value, None))
+}
+
+fn forwarded_value(value: &str) -> Option<Cow<'_, str>> {
+  if !value.starts_with('"') {
+    return Some(Cow::Borrowed(value));
+  }
+  let quoted = value.strip_prefix('"')?.strip_suffix('"')?;
+  if !quoted.contains('\\') {
+    return Some(Cow::Borrowed(quoted));
+  }
+  let mut decoded = String::with_capacity(quoted.len());
+  let mut chars = quoted.chars();
+  while let Some(character) = chars.next() {
+    decoded.push(if character == '\\' {
+      chars.next()?
+    } else {
+      character
+    });
+  }
+  Some(Cow::Owned(decoded))
+}
+
+fn valid_authority(value: &str) -> Option<Authority> {
+  let authority = value.parse::<Authority>().ok()?;
+  if value.contains('@') || authority.host().is_empty() {
+    return None;
+  }
+  let suffix = authority.as_str().strip_prefix(authority.host())?;
+  if !suffix.is_empty() && (!suffix.starts_with(':') || authority.port_u16().is_none()) {
+    return None;
+  }
+  Some(authority)
 }
 
 impl<'a> FromRequest<'a> for Host {

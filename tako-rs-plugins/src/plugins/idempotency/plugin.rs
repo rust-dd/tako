@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -10,6 +12,7 @@ use http_body_util::BodyExt;
 use sha2::Digest;
 use sha2::Sha256;
 use tako_rs_core::body::TakoBody;
+use tako_rs_core::middleware::IntoMiddleware;
 use tako_rs_core::middleware::Next;
 use tako_rs_core::plugins::TakoPlugin;
 use tako_rs_core::responder::Responder;
@@ -19,7 +22,7 @@ use tako_rs_core::types::Response;
 
 use super::config::Config;
 use super::config::IdempotencyBuilder;
-use super::config::Scope;
+use super::identity::IdentitySource;
 use super::response::cacheable_body;
 use super::response::conflict;
 use super::response::filter_headers;
@@ -32,12 +35,15 @@ use crate::stores::StoreResult;
 use crate::stores::memory::MemoryIdempotencyStore;
 use crate::stores::runtime;
 
-/// Unknown-length, oversized and trailer-bearing responses pass through uncached. Keep the
-/// backend lease TTL above the longest handler run.
+/// Identity-scoped retries; run authentication and authorization before this layer.
+///
+/// Use `IntoMiddleware` for explicit per-route ordering. Unknown-length, oversized and
+/// trailer-bearing responses pass through uncached. Keep lease TTL above the handler duration.
 #[derive(Clone)]
 #[doc(alias = "idempotency")]
 pub struct IdempotencyPlugin {
   cfg: Config,
+  pub(crate) identity_source: IdentitySource,
   pub(crate) store: Arc<dyn IdempotencyStore>,
   janitor_started: Arc<AtomicBool>,
 }
@@ -49,6 +55,7 @@ impl IdempotencyPlugin {
   pub fn new(cfg: Config) -> Self {
     Self {
       cfg,
+      identity_source: IdentitySource::default(),
       store: Arc::new(MemoryIdempotencyStore::new()),
       janitor_started: Arc::new(AtomicBool::new(false)),
     }
@@ -60,25 +67,41 @@ impl TakoPlugin for IdempotencyPlugin {
     "IdempotencyPlugin"
   }
   fn setup(&self, router: &Router) -> Result<()> {
-    let cfg = Arc::new(self.cfg.clone());
-    let store = self.store.clone();
-    router.middleware(move |request, next| {
+    router.middleware(self.clone().into_middleware());
+    Ok(())
+  }
+}
+
+impl IntoMiddleware for IdempotencyPlugin {
+  fn into_middleware(
+    self,
+  ) -> impl Fn(Request, Next) -> Pin<Box<dyn Future<Output = Response> + Send + 'static>>
+  + Clone
+  + Send
+  + Sync
+  + 'static {
+    let cfg = Arc::new(self.cfg);
+    let store = self.store;
+    let identity_source = self.identity_source;
+    let janitor_started = self.janitor_started;
+    move |request, next| {
       let cfg = cfg.clone();
       let store = store.clone();
-      async move {
-        handle(request, next, &cfg, store)
+      let identity_source = identity_source.clone();
+      let janitor_started = janitor_started.clone();
+      Box::pin(async move {
+        if !janitor_started.swap(true, Ordering::Relaxed) {
+          runtime::sweep(
+            &store,
+            Duration::from_secs(cfg.ttl_secs.clamp(5, 3600)),
+            |store| Box::pin(async move { store.sweep().await }),
+          );
+        }
+        handle(request, next, &cfg, store, &identity_source)
           .await
           .unwrap_or_else(runtime::unavailable)
-      }
-    });
-    if !self.janitor_started.swap(true, Ordering::Relaxed) {
-      runtime::sweep(
-        &self.store,
-        Duration::from_secs(self.cfg.ttl_secs.clamp(5, 3600)),
-        |store| Box::pin(async move { store.sweep().await }),
-      );
+      })
     }
-    Ok(())
   }
 }
 
@@ -87,6 +110,7 @@ async fn handle(
   next: Next,
   cfg: &Config,
   store: Arc<dyn IdempotencyStore>,
+  identity_source: &IdentitySource,
 ) -> StoreResult<Response> {
   if !cfg.methods.contains(request.method()) {
     return Ok(next.run(request).await);
@@ -98,6 +122,9 @@ async fn handle(
       Ok(key) => key.to_owned(),
       Err(_) => return Ok(StatusCode::BAD_REQUEST.into_response()),
     },
+  };
+  let Some(cache_key) = identity_source.cache_key(&request, cfg.scope, &key) else {
+    return Ok(StatusCode::UNAUTHORIZED.into_response());
   };
   let (parts, body) = request.into_parts();
   let body = match http_body_util::Limited::new(body, cfg.max_request_body_bytes)
@@ -135,16 +162,6 @@ async fn handle(
     hash.finalize().into()
   } else {
     [0; 32]
-  };
-  let cache_key = match cfg.scope {
-    Scope::KeyOnly => key,
-    Scope::MethodAndPath => format!(
-      "{}:{}:{}{}",
-      parts.method,
-      parts.uri.path().len(),
-      parts.uri.path(),
-      key
-    ),
   };
   let lease = match store.begin(&cache_key, payload_sig).await? {
     IdempotencyBegin::Acquired(lease) => lease,

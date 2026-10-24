@@ -1,22 +1,19 @@
-use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
 use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
-use hyper::service::service_fn;
 #[cfg(feature = "http2")]
 use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
-use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::http_service;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -26,6 +23,8 @@ use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig as RustlsServerConfig;
 
 use crate::ServerConfig;
+#[cfg(feature = "http2")]
+use crate::h2_settings::H2Settings;
 
 /// Serves TLS HTTP with a prebuilt rustls config; a given `signal` starts the drain.
 pub async fn run_with_config(
@@ -61,15 +60,7 @@ pub async fn run_with_config(
   let tls_handshake_timeout = config.tls_handshake_timeout;
   let keep_alive = config.keep_alive;
   #[cfg(feature = "http2")]
-  let h2_max_concurrent_streams = config.h2_max_concurrent_streams;
-  #[cfg(feature = "http2")]
-  let h2_max_header_list_size = config.h2_max_header_list_size;
-  #[cfg(feature = "http2")]
-  let h2_max_send_buf_size = config.h2_max_send_buf_size;
-  #[cfg(feature = "http2")]
-  let h2_max_pending_accept_reset_streams = config.h2_max_pending_accept_reset_streams;
-  #[cfg(feature = "http2")]
-  let h2_keep_alive_interval = config.h2_keep_alive_interval;
+  let settings = H2Settings::from(&config);
 
   let cancel = tokio_util::sync::CancellationToken::new();
   let mut signal_tasks = JoinSet::new();
@@ -109,7 +100,7 @@ pub async fn run_with_config(
         };
         let _ = stream.set_nodelay(true);
         let acceptor = acceptor.clone();
-        let router = connection_router(&router);
+        let router = Arc::clone(&router);
 
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
@@ -171,28 +162,13 @@ pub async fn run_with_config(
 
           let io = TokioIo::new(Leased::new(tls_stream, permit));
 
-          let svc = service_fn(move |mut req| {
-            let r = router.clone();
-            let conn_info = conn_info.clone();
-            async move {
-              req.extensions_mut().insert(addr);
-              req.extensions_mut().insert(conn_info);
-              let response = r.dispatch(req.map(TakoBody::incoming)).await;
-              Ok::<_, Infallible>(response)
-            }
-          });
+          let svc = http_service(router, conn_info);
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
             let mut h2 = http2::Builder::new(TokioExecutor::new());
             h2.timer(hyper_util::rt::TokioTimer::new());
-            h2.max_concurrent_streams(h2_max_concurrent_streams)
-              .max_header_list_size(h2_max_header_list_size)
-              .max_send_buf_size(h2_max_send_buf_size)
-              .max_pending_accept_reset_streams(h2_max_pending_accept_reset_streams);
-            if let Some(interval) = h2_keep_alive_interval {
-              h2.keep_alive_interval(Some(interval));
-            }
+            settings.apply(&mut h2);
 
             if let Err(e) = drive_connection(h2.serve_connection(io, svc), conn_cancel.cancelled(), hyper::server::conn::http2::Connection::graceful_shutdown).await {
               tracing::debug!("HTTP/2 error: {e}");

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import type { Metadata } from 'next';
 import { ServerCodeBlock } from 'fumadocs-ui/components/codeblock.rsc';
 import { JsonLd } from '@/components/JsonLd';
@@ -198,14 +199,14 @@ export default function HomePage() {
           loopback, 7% server-bound, and 17% pipelined; the default server
           serves about 24% more than Axum.
         </p>
-        <img
+        <Image
           src="/benchmarks/hello-world-light.svg"
           alt="Hello-world requests per second under loopback, server-bound, and pipelined load for Tako per-thread with and without core pinning, Actix Web, ntex, Tako, Tako with jemalloc, and Axum"
           width={980}
           height={358}
           className="mt-6 w-full dark:hidden"
         />
-        <img
+        <Image
           src="/benchmarks/hello-world-dark.svg"
           alt="Hello-world requests per second under loopback, server-bound, and pipelined load for Tako per-thread with and without core pinning, Actix Web, ntex, Tako, Tako with jemalloc, and Axum"
           width={980}

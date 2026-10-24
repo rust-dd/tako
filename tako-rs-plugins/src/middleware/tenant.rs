@@ -8,10 +8,12 @@ use std::sync::Arc;
 use http::HeaderName;
 use http::StatusCode;
 use tako_rs_core::body::TakoBody;
+use tako_rs_core::extractors::FromRequest;
 use tako_rs_core::middleware::IntoMiddleware;
 use tako_rs_core::middleware::Next;
 use tako_rs_core::types::Request;
 use tako_rs_core::types::Response;
+use tako_rs_extractors::uri_parts::Host;
 
 /// Decoded tenant identifier inserted into request extensions.
 #[derive(Debug, Clone)]
@@ -43,7 +45,8 @@ impl TenantMiddleware {
     }
   }
 
-  /// The first `Host` label, lowercased; a host with a single label yields none.
+  /// The first DNS label from [`Host`], lowercased; IP literals and single labels yield none.
+  /// Uses the same authority validation and trusted-proxy configuration as that extractor.
   pub fn from_subdomain() -> Self {
     Self {
       strategy: TenantStrategy::Subdomain,
@@ -77,7 +80,15 @@ impl TenantMiddleware {
 }
 
 fn extract_subdomain(host: &str) -> Option<String> {
-  let host = host.split(':').next().unwrap_or(host);
+  let authority = host.parse::<http::uri::Authority>().ok()?;
+  let host = authority.host();
+  if host
+    .trim_matches(['[', ']'])
+    .parse::<std::net::IpAddr>()
+    .is_ok()
+  {
+    return None;
+  }
   let mut labels = host.split('.');
   let first = labels.next()?;
   // A lone label is the whole host, not a subdomain.
@@ -132,11 +143,10 @@ impl IntoMiddleware for TenantMiddleware {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
-          TenantStrategy::Subdomain => req
-            .headers()
-            .get(http::header::HOST)
-            .and_then(|v| v.to_str().ok())
-            .and_then(extract_subdomain),
+          TenantStrategy::Subdomain => Host::from_request(&mut req)
+            .await
+            .ok()
+            .and_then(|Host(host)| extract_subdomain(&host)),
           TenantStrategy::PathPrefix(idx) => extract_path_segment(req.uri().path(), *idx),
           TenantStrategy::Custom(f) => f(&req),
         };

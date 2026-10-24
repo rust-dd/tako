@@ -72,6 +72,10 @@ For catch-all suffixes use `{*rest}`:
 router.get("/static/{*rest}", serve_static);
 ```
 
+The attribute macros accept the same terminal catch-all syntax, for example
+`#[tako::get("/static/{*rest}")]`. Read the suffix with `Path<String>`; a
+catch-all has no type annotation and must occupy the final path segment.
+
 See [Extractors](/docs/extractors) for the full catalog of types you can
 bind to handler arguments, including [`Path<T>`](/docs/extractors/request-meta).
 

@@ -199,10 +199,19 @@ Linux-only; on other unix platforms an `@`-path returns an `Unsupported` error.
 
 <Callout type="warn">
 Unix sockets are **unix-only** and are absent on non-unix targets. Both runtimes
-clean up a stale filesystem socket before binding — it refuses to unlink a path
-that is not actually an `AF_UNIX` socket (symlink-escalation guard) and removes the
-file again on graceful shutdown so the next run can re-bind.
+remove stale filesystem sockets before binding and refuse to replace a live
+listener, a regular file, or a symlink. HTTP servers remove the socket file on
+graceful shutdown; raw Unix listeners leave a stale socket for the next startup.
 </Callout>
+
+Filesystem socket startup creates a persistent sibling file, `<socket>.lock`.
+Both runtimes hold an exclusive OS file lock throughout the stale-socket probe,
+removal, and bind, so concurrent Tako processes cannot replace each other's new
+listeners. A competing startup receives `AddrInUse` immediately. The lock is
+released after binding or on an error; the empty lockfile remains after shutdown
+and must not be removed while processes may start or serve that socket path.
+The directory must allow creating this file, and the file must remain readable
+and writable by the server user. Abstract-namespace sockets use no lockfile.
 
 ## Graceful shutdown
 

@@ -1,5 +1,9 @@
 # Tako v2 előtti audit
 
+> Történeti jelentés a lent megjelölt revízióról. A build-, CI- és API-állítások
+> az akkori állapotot rögzítik, nem a jelenlegi repositoryét. Ez a fájl az
+> eredeti vizsgálat és javítások előzményeit őrzi.
+
 Dátum: 2026-05-04
 Audited revision: `main` (`c7a1607`)
 Workspace: 8 crate, ~33,500 sor Rust

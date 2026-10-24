@@ -69,7 +69,7 @@ pub(crate) struct PathParam {
 }
 
 /// Reduces every placeholder to `{name}` for matchit and returns the typed `{name: Type}` ones;
-/// an untyped `{name}` adds no field.
+/// untyped `{name}` and terminal `{*name}` captures add no field.
 pub(crate) fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<PathParam>)> {
   // RFC 3986 paths are ASCII, and the byte loop below would split multi-byte characters.
   if !path.is_ascii() {
@@ -99,7 +99,23 @@ pub(crate) fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<Pat
       .find(|&j| bytes[j] == b'}')
       .ok_or_else(|| syn::Error::new(span, "unclosed '{' in path"))?;
     let inner = &path[i + 1..close];
-    if let Some((name_str, ty_str)) = inner.split_once(':') {
+    if let Some(name_str) = inner.trim().strip_prefix('*') {
+      if i == 0 || bytes[i - 1] != b'/' || close + 1 != bytes.len() {
+        return Err(syn::Error::new(
+          span,
+          "catch-all must be the final path segment",
+        ));
+      }
+      let name: Ident = parse_str(name_str.trim()).map_err(|_| {
+        syn::Error::new(
+          span,
+          "catch-all must contain an untyped identifier: {*name}",
+        )
+      })?;
+      stripped.push_str("{*");
+      stripped.push_str(&name.to_string());
+      stripped.push('}');
+    } else if let Some((name_str, ty_str)) = inner.split_once(':') {
       let name: Ident = parse_str(name_str.trim()).map_err(|e| {
         syn::Error::new(
           span,
@@ -130,4 +146,31 @@ pub(crate) fn parse_path(path: &str, span: Span) -> syn::Result<(String, Vec<Pat
     i = close + 1;
   }
   Ok((stripped, typed))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn catch_all_is_preserved_without_a_typed_field() {
+    let (path, params) = parse_path("/files/{*rest}", Span::call_site()).unwrap();
+    assert_eq!(path, "/files/{*rest}");
+    assert!(params.is_empty());
+  }
+
+  #[test]
+  fn malformed_catch_all_has_a_specific_error() {
+    for path in [
+      "/files/{*}",
+      "/files/{**rest}",
+      "/files/{*rest: String}",
+      "/files/{*rest}/more",
+    ] {
+      let Err(error) = parse_path(path, Span::call_site()) else {
+        panic!("accepted invalid catch-all: {path}");
+      };
+      assert!(error.to_string().contains("catch-all"), "{path}: {error}");
+    }
+  }
 }

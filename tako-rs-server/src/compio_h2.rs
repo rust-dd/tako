@@ -75,40 +75,13 @@ impl hyper::rt::Timer for CompioH2Timer {
   }
 }
 
-/// HTTP/2 limits copied out of [`crate::ServerConfig`] once per server.
-#[derive(Clone, Copy)]
-pub(crate) struct H2Settings {
-  max_concurrent_streams: u32,
-  max_header_list_size: u32,
-  max_send_buf_size: usize,
-  max_pending_accept_reset_streams: usize,
-  keep_alive_interval: Option<std::time::Duration>,
-}
-
-impl From<&crate::ServerConfig> for H2Settings {
-  fn from(config: &crate::ServerConfig) -> Self {
-    Self {
-      max_concurrent_streams: config.h2_max_concurrent_streams,
-      max_header_list_size: config.h2_max_header_list_size,
-      max_send_buf_size: config.h2_max_send_buf_size,
-      max_pending_accept_reset_streams: config.h2_max_pending_accept_reset_streams,
-      keep_alive_interval: config.h2_keep_alive_interval,
-    }
-  }
-}
+pub(crate) use crate::h2_settings::H2Settings;
 
 impl H2Settings {
   pub(crate) fn builder(self) -> http2::Builder<CompioH2Executor> {
     let mut builder = http2::Builder::new(CompioH2Executor);
-    builder
-      .timer(CompioH2Timer)
-      .max_concurrent_streams(self.max_concurrent_streams)
-      .max_header_list_size(self.max_header_list_size)
-      .max_send_buf_size(self.max_send_buf_size)
-      .max_pending_accept_reset_streams(self.max_pending_accept_reset_streams);
-    if let Some(interval) = self.keep_alive_interval {
-      builder.keep_alive_interval(Some(interval));
-    }
+    builder.timer(CompioH2Timer);
+    self.apply(&mut builder);
     builder
   }
 }

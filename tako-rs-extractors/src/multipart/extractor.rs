@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Map;
 use serde_json::Value;
 use tako_rs_core::extractors::FromRequest;
+use tako_rs_core::extractors::body::BodyLimit;
 use tako_rs_core::types::Request;
 
 use super::cleanup::PendingUploads;
@@ -87,7 +88,7 @@ impl<'a> TakoMultipart<'a> {
 }
 
 /// A multipart body deserialized into `T`: text fields become strings and file fields are
-/// read as `F`. Enforces every [`MultipartConfig`] limit.
+/// read as `F`. Enforces [`BodyLimit`] and every [`MultipartConfig`] limit.
 #[doc(alias = "typed_multipart")]
 pub struct TakoTypedMultipart<'a, T, F> {
   pub data: T,
@@ -117,7 +118,20 @@ where
       let boundary = multer::parse_boundary(content_type_str)
         .map_err(|e| TypedMultipartError::BoundaryParseError(e.to_string()))?;
 
-      let cfg = MultipartConfig::lookup(req.extensions());
+      let mut cfg = MultipartConfig::lookup(req.extensions());
+      if let Some(limit) = req
+        .extensions()
+        .get::<BodyLimit>()
+        .copied()
+        .unwrap_or_default()
+        .0
+      {
+        cfg.total_size_limit = Some(
+          cfg
+            .total_size_limit
+            .map_or(limit as u64, |configured| configured.min(limit as u64)),
+        );
+      }
       let constraints = cfg.to_constraints();
       let mut multipart =
         Multipart::with_constraints(req.body_mut().into_data_stream(), boundary, constraints);
@@ -131,7 +145,7 @@ where
         let field = match field_timeout {
           Some(d) => match timeout(d, next_field_fut).await {
             Ok(Ok(field)) => field,
-            Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+            Ok(Err(e)) => return Err(TypedMultipartError::from_field(e)),
             Err(()) => {
               return Err(TypedMultipartError::FieldError(
                 "multipart slow-read timeout".to_string(),
@@ -140,7 +154,7 @@ where
           },
           None => next_field_fut
             .await
-            .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+            .map_err(TypedMultipartError::from_field)?,
         };
         let Some(field) = field else {
           break;
@@ -167,7 +181,7 @@ where
           let mut file_value = match field_timeout {
             Some(d) => match timeout(d, F::from_field_with(field, &cfg)).await {
               Ok(Ok(v)) => v,
-              Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+              Ok(Err(e)) => return Err(TypedMultipartError::from_field(e)),
               Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
@@ -176,7 +190,7 @@ where
             },
             None => F::from_field_with(field, &cfg)
               .await
-              .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+              .map_err(TypedMultipartError::from_field)?,
           };
 
           let json_value = serde_json::to_value(&file_value)
@@ -187,7 +201,7 @@ where
           let field_bytes = match field_timeout {
             Some(d) => match timeout(d, field.bytes()).await {
               Ok(Ok(b)) => b,
-              Ok(Err(e)) => return Err(TypedMultipartError::FieldError(e.to_string())),
+              Ok(Err(e)) => return Err(TypedMultipartError::from_field(e)),
               Err(()) => {
                 return Err(TypedMultipartError::FieldError(
                   "multipart slow-read timeout".to_string(),
@@ -197,7 +211,7 @@ where
             None => field
               .bytes()
               .await
-              .map_err(|e| TypedMultipartError::FieldError(e.to_string()))?,
+              .map_err(TypedMultipartError::from_field)?,
           };
 
           let text = String::from_utf8(field_bytes.to_vec())

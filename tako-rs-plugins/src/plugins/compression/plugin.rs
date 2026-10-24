@@ -13,6 +13,7 @@ use http::header::CONTENT_RANGE;
 use http::header::CONTENT_TYPE;
 use http::header::VARY;
 use http_body::Body;
+use http_body::Frame;
 use http_body_util::BodyExt;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::Next;
@@ -107,20 +108,26 @@ async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Resp
     return resp;
   };
 
-  let body_bytes = if let Ok(c) = resp.body_mut().collect().await {
-    c.to_bytes()
-  } else {
-    tracing::warn!(
-      "compression middleware: response body collect() failed; \
-       returning original status with empty body (no compression)"
-    );
-    resp.headers_mut().remove(http::header::CONTENT_ENCODING);
-    resp.headers_mut().remove(CONTENT_LENGTH);
-    *resp.body_mut() = TakoBody::empty();
-    return resp;
+  let collected = match resp.body_mut().collect().await {
+    Ok(collected) => collected,
+    Err(error) => {
+      tracing::warn!(%error, "compression middleware: response body failed");
+      resp.headers_mut().remove(CONTENT_ENCODING);
+      resp.headers_mut().remove(CONTENT_LENGTH);
+      *resp.body_mut() =
+        TakoBody::from_try_stream(futures_util::stream::once(std::future::ready(Err::<
+          Frame<Bytes>,
+          _,
+        >(
+          error
+        ))));
+      return resp;
+    }
   };
+  let trailers = collected.trailers().cloned();
+  let body_bytes = collected.to_bytes();
   if body_bytes.len() < cfg.min_size {
-    *resp.body_mut() = TakoBody::from(body_bytes);
+    *resp.body_mut() = super::frames::buffered(body_bytes, trailers);
     return resp;
   }
 
@@ -135,7 +142,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Resp
     compress_buffer(&body_bytes, enc, &cfg)
   };
   if let Some(buf) = compressed {
-    *resp.body_mut() = TakoBody::from(Bytes::from(buf));
+    *resp.body_mut() = super::frames::buffered(Bytes::from(buf), trailers);
     resp
       .headers_mut()
       .insert(CONTENT_ENCODING, HeaderValue::from_static(enc.as_str()));
@@ -146,7 +153,7 @@ async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Resp
       encoding = enc.as_str(),
       "compression failed; serving identity"
     );
-    *resp.body_mut() = TakoBody::from(body_bytes);
+    *resp.body_mut() = super::frames::buffered(body_bytes, trailers);
     resp.headers_mut().remove(CONTENT_ENCODING);
   }
 

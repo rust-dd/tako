@@ -26,8 +26,10 @@ fn router(store: MemoryIdempotencyStore, calls: Arc<AtomicUsize>, release: Arc<N
   let mut router = Router::new();
   router.plugin(
     IdempotencyBuilder::new()
+      .anonymous()
       .store(store)
       .scope(Scope::KeyOnly)
+      .inflight_wait_timeout_ms(Some(1_000))
       .build(),
   );
   router.post("/", move || {
@@ -83,7 +85,12 @@ async fn oversized_and_unknown_length_responses_keep_the_original_body() {
     let calls = Arc::new(AtomicUsize::new(0));
     let handler_calls = calls.clone();
     let mut router = Router::new();
-    router.plugin(IdempotencyBuilder::new().max_cached_body_bytes(2).build());
+    router.plugin(
+      IdempotencyBuilder::new()
+        .anonymous()
+        .max_cached_body_bytes(2)
+        .build(),
+    );
     router.post("/", move || {
       handler_calls.fetch_add(1, Ordering::SeqCst);
       async move {
@@ -143,17 +150,21 @@ async fn expired_owners_cannot_complete_or_remove_new_leases() {
 #[cfg_attr(not(feature = "compio"), tokio::test)]
 async fn cancelling_an_owner_releases_its_lease() {
   let store = MemoryIdempotencyStore::new();
-  let first = router(
-    store.clone(),
-    Arc::new(AtomicUsize::new(0)),
-    Arc::new(Notify::new()),
-  );
+  let calls = Arc::new(AtomicUsize::new(0));
+  let release = Arc::new(Notify::new());
+  let first = router(store.clone(), calls.clone(), release.clone());
+  let second = router(store, calls.clone(), release.clone());
   let mut owner = Box::pin(first.dispatch(post("body")));
   assert!(futures_util::poll!(&mut owner).is_pending());
+  let mut duplicate = std::pin::pin!(second.dispatch(post("body")));
+  assert!(futures_util::poll!(&mut duplicate).is_pending());
+  assert_eq!(calls.load(Ordering::SeqCst), 1);
   drop(owner);
-  let entry = store
-    .wait("operation", Some(Duration::from_secs(1)))
-    .await
-    .unwrap();
-  assert!(entry.is_none());
+  assert_eq!(duplicate.await.status(), StatusCode::CONFLICT);
+
+  let mut retry = std::pin::pin!(second.dispatch(post("body")));
+  assert!(futures_util::poll!(&mut retry).is_pending());
+  assert_eq!(calls.load(Ordering::SeqCst), 2);
+  release.notify_one();
+  assert_eq!(body(retry.await).await, "result");
 }

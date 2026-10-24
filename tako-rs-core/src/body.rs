@@ -85,6 +85,11 @@ impl std::fmt::Debug for TakoBody {
 }
 
 impl TakoBody {
+  /// Whether the body is buffered and cannot contain trailers.
+  pub(crate) fn is_buffered(&self) -> bool {
+    matches!(self.0, BodyInner::Full(_) | BodyInner::Empty(_))
+  }
+
   /// Returns bytes only for an already buffered body, without polling a stream.
   pub(crate) fn into_full_bytes(self) -> Option<Bytes> {
     match self.0 {
@@ -99,12 +104,6 @@ impl TakoBody {
       BodyInner::Empty(_) => Some(Bytes::new()),
       _ => None,
     }
-  }
-
-  /// Whether the whole body is already in memory.
-  #[inline]
-  pub(crate) fn is_buffered(&self) -> bool {
-    matches!(self.0, BodyInner::Full(_) | BodyInner::Empty(_))
   }
 
   /// Boxes any `Body`; prefer [`full`](Self::full) or [`empty`](Self::empty) where they fit.

@@ -80,7 +80,12 @@ Operational helpers:
   exhaust their retry budget land here for manual inspection.
 - `queue.shutdown(timeout)` — drain workers gracefully on SIGTERM.
 - `tako::queue::cron::CronScheduler` (feature `queue-cron`) — wire
-  a crontab spec into `queue.push`.
+  a crontab spec into a `QueueBackend`.
+
+Cron makes one enqueue attempt per scheduled occurrence. A failed push produces
+an error log with the queue, scheduled time, backend error, and `policy = "drop"`.
+That occurrence is dropped without retry; future occurrences still run. This
+avoids resubmitting a job when a backend error leaves acceptance uncertain.
 
 Signals are emitted for every job lifecycle event:
 

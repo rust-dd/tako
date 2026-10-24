@@ -28,10 +28,7 @@ use std::task::Poll;
 
 use bytes::Bytes;
 use futures_util::Stream;
-use futures_util::TryStreamExt;
 use http_body::Body;
-use http_body::Frame;
-use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
@@ -42,9 +39,7 @@ pub fn stream_zstd<B>(body: B, level: i32) -> TakoBody
 where
   B: Body<Data = Bytes, Error = BoxError> + Send + 'static,
 {
-  let upstream = body.into_data_stream();
-  let zstd_stream = ZstdStream::new(upstream, level).map_ok(Frame::data);
-  TakoBody::from_try_stream(zstd_stream)
+  super::frames::encode(body, |stream| ZstdStream::new(stream, level))
 }
 
 pin_project! {

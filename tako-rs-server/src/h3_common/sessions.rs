@@ -2,6 +2,7 @@
 //! h3 connection; without `webtransport` the loop's `recv` arm just stays pending.
 
 use std::net::SocketAddr;
+#[cfg(not(feature = "webtransport"))]
 use std::sync::Arc;
 #[cfg(not(feature = "webtransport"))]
 use std::time::Duration;
@@ -91,13 +92,13 @@ impl SessionSender {
     self,
     req: Request<()>,
     stream: ServerStream,
-    router: Arc<Router>,
+    router: &Router,
     remote_addr: SocketAddr,
   ) -> Result<(), BoxError> {
     #[cfg(feature = "webtransport")]
     if crate::webtransport::upgrade::is_session_request(&req) {
       if let Some(accepted) =
-        crate::webtransport::upgrade::route(req, stream, &router, remote_addr).await
+        crate::webtransport::upgrade::route(req, stream, router, remote_addr).await
       {
         // The loop stops listening once it runs a session; later CONNECTs
         // exceed the one-session limit and are dropped.

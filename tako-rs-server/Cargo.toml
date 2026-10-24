@@ -78,5 +78,16 @@ rustdoc-args = ["--cfg", "docsrs"]
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["client"] }
 rcgen = { workspace = true }
-tako-rs = { workspace = true }
-wtransport = { workspace = true }
+socket2 = { workspace = true }
+tako-rs = { workspace = true, features = ["sse"] }
+wtransport = { workspace = true, features = ["quinn"] }
+
+[[bench]]
+name = "http2"
+harness = false
+required-features = ["http2"]
+
+[[bench]]
+name = "http3"
+harness = false
+required-features = ["http3"]

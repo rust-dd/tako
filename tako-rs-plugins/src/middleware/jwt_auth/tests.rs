@@ -143,3 +143,42 @@ fn middleware_time_tolerance_reaches_the_verifier() {
     }
   });
 }
+
+#[test]
+fn elliptic_curve_tokens_require_the_configured_signing_key() {
+  run(async {
+    let es256 = ES256KeyPair::generate();
+    let es256k = ES256kKeyPair::generate();
+    let es384 = ES384KeyPair::generate();
+    let claims = || Claims::create(Duration::from_secs(60));
+    for (key, token, wrong_key_token) in [
+      (
+        AnyVerifyKey::ES256(Arc::new(es256.public_key())),
+        es256.sign(claims()).unwrap(),
+        ES256KeyPair::generate().sign(claims()).unwrap(),
+      ),
+      (
+        AnyVerifyKey::ES256K(Arc::new(es256k.public_key())),
+        es256k.sign(claims()).unwrap(),
+        ES256kKeyPair::generate().sign(claims()).unwrap(),
+      ),
+      (
+        AnyVerifyKey::ES384(Arc::new(es384.public_key())),
+        es384.sign(claims()).unwrap(),
+        ES384KeyPair::generate().sign(claims()).unwrap(),
+      ),
+    ] {
+      let mut keys = HashMap::with_hasher(BuildHasher::default());
+      keys.insert(key.alg_id(), key);
+      let mut router = Router::new();
+      router
+        .middleware(JwtAuth::new(MultiKeyVerifier::<NoCustomClaims>::new(keys)).into_middleware());
+      router.get("/", || async { "ok" });
+      assert_eq!(status(&router, &token).await, http::StatusCode::OK);
+      assert_eq!(
+        status(&router, &wrong_key_token).await,
+        http::StatusCode::UNAUTHORIZED
+      );
+    }
+  });
+}

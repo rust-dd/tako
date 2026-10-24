@@ -52,6 +52,10 @@ pub enum ProtocolError {
   /// A reserved header bit was set; tako negotiates no extensions.
   ReservedBits,
   UnmaskedFrame,
+  /// The payload length did not use the shortest encoding.
+  NonMinimalLength,
+  /// The high bit of a 64-bit payload length was set.
+  ReservedLengthBit,
   /// The frame used a reserved opcode.
   UnknownOpcode(u8),
   /// A control frame had FIN clear.
@@ -96,6 +100,8 @@ impl fmt::Display for ProtocolError {
     match self {
       Self::ReservedBits => f.write_str("reserved bits set"),
       Self::UnmaskedFrame => f.write_str("client frame is not masked"),
+      Self::NonMinimalLength => f.write_str("payload length is not minimally encoded"),
+      Self::ReservedLengthBit => f.write_str("reserved payload-length bit is set"),
       Self::UnknownOpcode(opcode) => write!(f, "unknown opcode {opcode}"),
       Self::FragmentedControlFrame => f.write_str("fragmented control frame"),
       Self::ControlFrameTooLarge => f.write_str("control frame longer than 125 bytes"),

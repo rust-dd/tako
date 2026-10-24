@@ -37,6 +37,9 @@ impl CronScheduler {
   }
 
   /// Pushes at every fire time until the schedule runs out; drop the future to stop it.
+  /// Each occurrence gets one enqueue attempt. Failures are logged with the queue and
+  /// scheduled time, then dropped without retry; later occurrences still run.
+  /// This avoids duplicating a job when a backend error leaves its acceptance uncertain.
   pub async fn run(self) {
     loop {
       let Some(next) = self.schedule.upcoming(Utc).next() else {
@@ -47,10 +50,19 @@ impl CronScheduler {
       tokio::time::sleep(wait).await;
       #[cfg(feature = "compio")]
       compio::time::sleep(wait).await;
-      let _ = self
+      if let Err(error) = self
         .backend
         .push(&self.queue, self.payload.as_slice(), PushOptions::default())
-        .await;
+        .await
+      {
+        tracing::error!(
+          queue = %self.queue,
+          scheduled_at = %next,
+          %error,
+          policy = "drop",
+          "cron enqueue failed; dropping scheduled occurrence"
+        );
+      }
     }
   }
 }

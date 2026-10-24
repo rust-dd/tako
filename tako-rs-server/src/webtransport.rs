@@ -40,6 +40,7 @@ use tako_rs_core::types::Response;
 
 mod capsule;
 mod driver;
+mod requests;
 mod session;
 mod stream;
 pub(crate) mod upgrade;

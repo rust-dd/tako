@@ -6,6 +6,8 @@ use http::StatusCode;
 use http_body_util::BodyExt;
 
 use crate::extractors::FromRequest;
+use crate::extractors::body::BodyLimit;
+use crate::extractors::body::BodyReadError;
 use crate::responder::Responder;
 use crate::router_state::RouterState;
 use crate::types::Request;
@@ -29,15 +31,14 @@ impl GraphQLBatchRequest {
   }
 }
 
-/// Largest POST body the `GraphQL` extractors buffer; async-graphql parses the whole body
-/// before it can validate the query.
+/// Protocol ceiling for POST bodies; the request's [`BodyLimit`] may impose a smaller cap.
 pub const MAX_GRAPHQL_BODY_SIZE: usize = 4 * 1024 * 1024;
 
 /// Rejection of a `GraphQL` HTTP request, answered with a 400, 413 or 415.
 #[derive(Debug)]
 pub enum GraphQLError {
   BodyRead(String),
-  /// The body, declared or streamed, exceeds [`MAX_GRAPHQL_BODY_SIZE`].
+  /// The declared or streamed body exceeds [`BodyLimit`] or [`MAX_GRAPHQL_BODY_SIZE`].
   BodyTooLarge,
   Parse(String),
   UnsupportedMediaType(String),
@@ -57,7 +58,7 @@ impl Responder for GraphQLError {
       }
       GraphQLError::BodyTooLarge => (
         StatusCode::PAYLOAD_TOO_LARGE,
-        format!("GraphQL body exceeds {MAX_GRAPHQL_BODY_SIZE} bytes"),
+        "GraphQL body exceeds the configured limit",
       )
         .into_response(),
       GraphQLError::Parse(e) => {
@@ -72,8 +73,14 @@ impl Responder for GraphQLError {
   }
 }
 
-/// Rejects a content type async-graphql cannot parse before the body is buffered.
-fn check_content_type(ct: Option<&str>) -> Result<(), GraphQLError> {
+enum BodyFormat {
+  Json,
+  Raw,
+  Multipart,
+}
+
+/// Rejects unsupported content before the body is buffered.
+fn check_content_type(ct: Option<&str>) -> Result<BodyFormat, GraphQLError> {
   let raw = ct.unwrap_or("").trim();
   if raw.is_empty() {
     return Err(GraphQLError::UnsupportedMediaType("<missing>".to_string()));
@@ -85,10 +92,9 @@ fn check_content_type(ct: Option<&str>) -> Result<(), GraphQLError> {
     .trim()
     .to_ascii_lowercase();
   match essence.as_str() {
-    "application/json"
-    | "application/graphql"
-    | "application/graphql-response+json"
-    | "multipart/form-data" => Ok(()),
+    "application/json" | "application/graphql-response+json" => Ok(BodyFormat::Json),
+    "application/graphql" => Ok(BodyFormat::Raw),
+    "multipart/form-data" => Ok(BodyFormat::Multipart),
     _ => Err(GraphQLError::UnsupportedMediaType(raw.to_string())),
   }
 }
@@ -113,28 +119,32 @@ fn parse_get_request(req: &Request) -> Result<async_graphql::Request, GraphQLErr
 }
 
 async fn read_body_bytes(req: &mut Request) -> Result<bytes::Bytes, GraphQLError> {
+  let limit = req
+    .extensions()
+    .get::<BodyLimit>()
+    .copied()
+    .unwrap_or_default()
+    .0
+    .map_or(MAX_GRAPHQL_BODY_SIZE, |limit| {
+      limit.min(MAX_GRAPHQL_BODY_SIZE)
+    });
   if let Some(cl) = req.headers().get(http::header::CONTENT_LENGTH)
     && let Some(n) = cl.to_str().ok().and_then(|s| s.parse::<usize>().ok())
-    && n > MAX_GRAPHQL_BODY_SIZE
+    && n > limit
   {
     return Err(GraphQLError::BodyTooLarge);
   }
 
   // `Limited` also caps a chunked body or one whose `Content-Length` lies.
   let body = std::mem::take(req.body_mut());
-  let limited = http_body_util::Limited::new(body, MAX_GRAPHQL_BODY_SIZE);
+  let limited = http_body_util::Limited::new(body, limit);
   match limited.collect().await {
     Ok(c) => Ok(c.to_bytes()),
-    Err(e) => {
-      if e
-        .downcast_ref::<http_body_util::LengthLimitError>()
-        .is_some()
-      {
-        Err(GraphQLError::BodyTooLarge)
-      } else {
-        Err(GraphQLError::BodyRead(e.to_string()))
-      }
-    }
+    Err(e) => Err(match BodyReadError::from_boxed(e) {
+      BodyReadError::TooLarge => GraphQLError::BodyTooLarge,
+      BodyReadError::Read(error) => GraphQLError::BodyRead(error),
+      error @ BodyReadError::InvalidUtf8 => GraphQLError::BodyRead(error.to_string()),
+    }),
   }
 }
 
@@ -181,15 +191,36 @@ pub async fn receive_graphql_batch(
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
     .map(std::string::ToString::to_string);
-  check_content_type(content_type.as_deref())?;
+  let format = check_content_type(content_type.as_deref())?;
   let body = read_body_bytes(req).await?;
   if body.is_empty() {
     return Err(GraphQLError::Parse("empty request body".to_string()));
   }
-  let reader = futures_util::io::Cursor::new(body);
-  async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
-    .await
-    .map_err(|e| GraphQLError::Parse(e.to_string()))
+  if matches!(format, BodyFormat::Json | BodyFormat::Raw) {
+    content_type
+      .as_deref()
+      .unwrap_or_default()
+      .parse::<mime::Mime>()
+      .map_err(|error| {
+        GraphQLError::Parse(async_graphql::ParseRequestError::from(error).to_string())
+      })?;
+  }
+  match format {
+    BodyFormat::Json => serde_json::from_slice(&body).map_err(|error| {
+      GraphQLError::Parse(
+        async_graphql::ParseRequestError::InvalidRequest(Box::new(error)).to_string(),
+      )
+    }),
+    BodyFormat::Raw => String::from_utf8(body.to_vec())
+      .map(|query| GqlBatchRequest::Single(async_graphql::Request::new(query)))
+      .map_err(|error| GraphQLError::Parse(format!("GraphQL query must be UTF-8: {error}"))),
+    BodyFormat::Multipart => {
+      let reader = futures_util::io::Cursor::new(body);
+      async_graphql::http::receive_batch_body(content_type.as_deref(), reader, opts)
+        .await
+        .map_err(|e| GraphQLError::Parse(e.to_string()))
+    }
+  }
 }
 
 impl<'a> FromRequest<'a> for GraphQLBatchRequest {

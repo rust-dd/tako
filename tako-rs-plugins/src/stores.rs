@@ -11,12 +11,42 @@ pub(crate) mod runtime;
 /// A backend failure. Middleware logs the cause and fails closed.
 pub type StoreResult<T> = Result<T, tako_rs_core::types::BoxError>;
 
-/// Opaque session blobs with expiration enforced on reads.
+/// An opaque session blob and the generation used to reject writes after revocation.
+#[derive(Debug, Clone)]
+pub struct StoredSession {
+  pub data: Vec<u8>,
+  /// Created by the backend; never reused when an id is created again or rotated.
+  pub version: String,
+}
+
+/// Session mutations must be atomic in the backend, including rotation and revocation.
+/// Updates preserve the generation; missing, expired or replaced generations cannot be saved.
 #[async_trait]
 pub trait SessionStore: Send + Sync + 'static {
-  async fn load(&self, id: &str) -> StoreResult<Option<Vec<u8>>>;
-  async fn store(&self, id: &str, data: Vec<u8>, ttl: Duration) -> StoreResult<()>;
-  async fn remove(&self, id: &str) -> StoreResult<bool>;
+  /// Return only live sessions, with their current generation.
+  async fn load(&self, id: &str) -> StoreResult<Option<StoredSession>>;
+  /// Create a fresh generation without overwriting a live id; return false on collision.
+  async fn create(&self, id: &str, data: Vec<u8>, ttl: Duration) -> StoreResult<bool>;
+  /// Save only if the id is live and its generation matches. Never insert a missing id.
+  async fn update(
+    &self,
+    id: &str,
+    version: &str,
+    data: Vec<u8>,
+    ttl: Duration,
+  ) -> StoreResult<bool>;
+  /// Atomically move a matching live generation to an unused id with a fresh generation.
+  /// Return false without changing either id if the source or destination check fails.
+  async fn rotate(
+    &self,
+    id: &str,
+    version: &str,
+    new_id: &str,
+    data: Vec<u8>,
+    ttl: Duration,
+  ) -> StoreResult<bool>;
+  /// Remove only the matching generation, so a stale request cannot remove its replacement.
+  async fn remove(&self, id: &str, version: &str) -> StoreResult<bool>;
   /// Optional cleanup for expired entries; remote stores can use database TTLs.
   async fn sweep(&self) -> StoreResult<()> {
     Ok(())

@@ -20,7 +20,9 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -124,8 +126,6 @@ pub async fn run_with_config(
         let conn_cancel = cancel.clone();
 
         connections.push(compio::runtime::spawn(async move {
-          let _permit = permit;
-
           let handshake_deadline = std::pin::pin!(compio::time::sleep(tls_handshake_timeout));
           let shutdown_wait = std::pin::pin!(conn_cancel.cancelled());
           let deadline_or_shutdown = std::pin::pin!(futures_util::future::select(
@@ -181,7 +181,7 @@ pub async fn run_with_config(
           #[cfg(feature = "http2")]
           let proto = alpn_proto;
 
-          let io = HyperStream::new_tls(tls_stream);
+          let io = Leased::new(HyperStream::new_tls(tls_stream), permit);
 
           let svc = service_fn(move |mut req| {
             let r = router.clone();
@@ -189,7 +189,13 @@ pub async fn run_with_config(
             async move {
               req.extensions_mut().insert(addr);
               req.extensions_mut().insert(conn_info);
+              let multiplexed = req.version() == http::Version::HTTP_2;
               let response = r.dispatch(req.map(TakoBody::new)).await;
+              let response = if multiplexed {
+                sanitize_response(response)
+              } else {
+                response
+              };
               Ok::<_, Infallible>(response)
             }
           });

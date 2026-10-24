@@ -11,9 +11,10 @@ features: [plugins]
 # Traffic
 
 The traffic-shaping entries — rate limiter, CORS, compression, and idempotency
-— are **plugins**, not raw middleware. They implement `TakoPlugin` and are
+— implement `TakoPlugin` and are
 registered with `Router::plugin` (global) or `Route::plugin` (per-route)
-instead of `.into_middleware()`. All four require the `plugins` feature;
+to install their middleware. Idempotency also supports `.into_middleware()`
+for explicit ordering after authentication. All four require the `plugins` feature;
 compression's zstd path additionally needs `zstd`.
 
 ```toml
@@ -113,35 +114,142 @@ responses that could be vulnerable to compression side-channels.
 ## Idempotency
 
 `plugins::idempotency::IdempotencyBuilder` implements server-side idempotency
-for unsafe methods, keyed by a caller-supplied header (default
-`Idempotency-Key`). For a given key and scope it guarantees the same response
-within a TTL.
+for configured methods (default `POST`), keyed by a caller-supplied header
+(default `Idempotency-Key`) and a trusted authenticated identity. Retries for
+the same identity replay a cached response within the TTL; other principals
+and tenants have independent operations, even when their keys match.
+
+<Callout type="warn">
+  A keyed request now requires an `IdempotencyIdentity` extension by default.
+  Missing or empty identities return `401 Unauthorized` before the cache or
+  handler runs. The plugin does not infer identity from credentials, cookies,
+  or tenant headers. Existing public endpoints must explicitly opt into
+  `anonymous()`; authenticated endpoints must supply trusted identity.
+</Callout>
+
+After verifying credentials and authorizing the operation, authentication
+middleware can insert
+`IdempotencyIdentity::new(user_id).tenant(tenant_id)` into request extensions.
+Use a stable principal identifier so refreshing credentials preserves retries.
+Include the authenticated tenant whenever operations belong to a tenant.
+
+Use `identity_fn` to adapt an existing application identity type instead:
 
 ```rust
-use tako::plugins::idempotency::{IdempotencyBuilder, Scope};
+use tako::plugins::idempotency::{IdempotencyBuilder, IdempotencyIdentity, Scope};
+
+#[derive(Clone)]
+struct AuthenticatedUser {
+  id: String,
+  tenant_id: String,
+}
 
 let idempotency = IdempotencyBuilder::new()
+  .identity_fn(|request| {
+    request.extensions().get::<AuthenticatedUser>().map(|user| {
+      IdempotencyIdentity::new(user.id.clone()).tenant(user.tenant_id.clone())
+    })
+  })
   .ttl_secs(3_600)
-  .scope(Scope::MethodAndPath)  // or Scope::KeyOnly
-  .coalesce_inflight(true)      // concurrent dupes wait for the first to finish
-  .verify_payload(true)         // same key + different body => 409 Conflict
+  .scope(Scope::MethodAndPath)
+  .coalesce_inflight(true)
+  .verify_payload(true)
   .build();
 
 router.plugin(idempotency);
 ```
 
+The extractor must read identity established by earlier authentication and
+authorization middleware. Returning `None` or an empty principal or tenant
+returns `401`; it never falls back to anonymous scope or another identity
+source. Both `Scope::KeyOnly` and `Scope::MethodAndPath` include identity.
+
+Run authentication and authorization before every cache lookup, including
+retries, so revoked access cannot receive an earlier response. Use
+`router.plugin(idempotency)` only when every required check executes before
+that router's cache layer. Route plugins are prepended to route middleware,
+regardless of the order of the plugin and middleware builder calls.
+
+<Callout type="warn">
+  `Router::nest` wraps the child's global middleware into route middleware.
+  A route plugin or an ancestor router's cache can therefore run before the
+  child's authentication or authorization checks. An identity inserted by the
+  parent does not prove that the child has authorized the current request.
+  Keep the cache after all required checks; a missing-identity rejection cannot
+  catch this ordering mistake when an earlier layer has already supplied identity.
+</Callout>
+
+For per-route checks, use `IntoMiddleware` so the order is explicit. Given your
+`authenticate_and_authorize` middleware and `charge` handler:
+
+```rust
+use tako::middleware::IntoMiddleware;
+
+router
+  .post("/charge", charge)
+  .middleware(authenticate_and_authorize)
+  .middleware(IdempotencyBuilder::new().build().into_middleware());
+```
+
+The authentication and authorization middleware then runs on initial requests,
+cache replays, and requests waiting for an operation already in progress.
+
+For a nested router with parent authentication and child authorization, put
+idempotency on the child's route with `IntoMiddleware`. The child's middleware
+then runs before the cache even after nesting:
+
+```rust
+use tako::router::Router;
+
+let mut api = Router::new();
+api.middleware(authorize_charge);
+api
+  .post("/charge", charge)
+  .middleware(IdempotencyBuilder::new().build().into_middleware());
+
+let mut root = Router::new();
+root.middleware(authenticate);
+root.nest("/api", api);
+```
+
+Any additional route authorization must also precede the idempotency middleware.
+Keep ancestor routers free of an earlier idempotency layer for these operations.
+
+For a public operation whose response can be shared by all callers, explicitly
+select a common anonymous scope:
+
+```rust
+let public_idempotency = IdempotencyBuilder::new().anonymous().build();
+```
+
+`anonymous()` intentionally ignores authenticated identity. Its entries are
+separate from authenticated entries, even when the backend store is shared.
+
 Behavior:
 
-- The first request with a new key is processed and its response cached.
-- Concurrent requests with the same key wait for completion and receive the
-  cached result.
+- The first request with a new key in its identity scope is processed and its
+  cacheable response stored.
+- Concurrent requests with the same identity and key wait for completion and
+  receive the cached result.
 - Replays within the TTL return the cached result immediately.
 - Reusing a key with a *different* payload returns `409 Conflict` (when
   `verify_payload` is on).
 
 Bodies are buffered to compute a stable signature and to cache the response;
 `max_request_body_bytes` and `max_cached_body_bytes` bound that buffering.
-Storage is in-memory with periodic TTL cleanup.
+Unknown-length, oversized, and trailer-bearing responses pass through uncached.
+Storage is in-memory with periodic TTL cleanup, or a shared `IdempotencyStore`
+supplied through `store(...)`. Store keys hash the identity and request scope
+with unambiguous field boundaries; the store API is unchanged.
+
+When migrating a shared cache, retire legacy writers and use a fresh backend
+namespace, or drain outstanding retries before clearing the old namespace.
+The new key prefix alone does not isolate legacy `KeyOnly` entries: old callers
+could supply any literal key, including a new-format key. Legacy responses have
+no trusted identity binding and must not be replayed into authenticated scope.
+Preserve business-level deduplication during the cutover, or let the previous
+retry window drain before switching; removing old records cannot preserve their
+idempotency guarantees for requests still being retried.
 
 See the [middleware model](/docs/middleware) for how plugins fit into the
 chain, and [Plugins](/docs/plugins) for the plugin-vs-middleware distinction.

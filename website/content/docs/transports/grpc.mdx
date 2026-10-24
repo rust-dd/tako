@@ -89,6 +89,17 @@ A successful reply sends the message and then `grpc-status: 0` in the HTTP/2
 trailers. An error is a trailers-only response: HTTP `200 OK` with `grpc-status`
 and `grpc-message` in the headers and no body, per the gRPC HTTP/2 mapping.
 
+`GrpcRequest<T>` requires exactly one complete message and waits for the request
+body to end. A second message or truncated trailing frame rejects the request.
+Native request extractors accept `application/grpc` and
+`application/grpc+proto`, including valid MIME parameters and case variants.
+They reject `application/grpc+json`, `application/grpc-web`, and prefix lookalikes;
+gRPC-Web must use the separate adapter.
+
+If migrating a handler that deliberately consumed only the first message, use
+`GrpcClientStream<T>` and call `next().await`. The low-level `grpc_decode` helper
+still decodes the first frame of a byte slice.
+
 ## Server streaming
 
 Return a `GrpcServerStream` built from any `Stream` of `Result<T, GrpcStatus>`.
@@ -270,9 +281,12 @@ async fn slow_count(deadline: Option<GrpcDeadline>, req: GrpcRequest<Number>) ->
 
 In a unary handler, bound the work with `deadline.remaining()`, for example with
 `tokio::time::timeout`. Parsing is overflow-safe: an absurdly large value is
-treated as "no deadline" rather than panicking. `read_grpc_deadline(&mut req)`
-stores the deadline in the request extensions for middleware, and the extractor
-reuses it.
+treated as "no deadline" rather than panicking. The first call to
+`read_grpc_deadline(&mut req)` or either deadline extractor stores the absolute
+deadline in the request extensions. Repeated request or parts extraction,
+middleware, and nested routing reuse that instant. The relative timeout starts
+at this first read; call `read_grpc_deadline` in ingress middleware to include
+later middleware time.
 
 When a client cancels a call or disconnects, the server drops the reply stream
 together with everything it owns, so a producer task notices through its closed
@@ -285,8 +299,19 @@ Each inbound message is capped at `MAX_GRPC_MESSAGE_SIZE` (4 MiB), matching the
 default `grpc-go` and `tonic` server limits, for unary and streaming requests
 alike. A length prefix that advertises more is rejected with `ResourceExhausted`
 before the message is buffered, so a hostile client cannot force a large
-allocation with a few bytes. The extractors read the body message by message and
-never buffer it whole.
+allocation with a few bytes. The extractors read the body message by message.
+
+`GrpcRequest<T>` also applies `BodyLimit` to the entire request DATA body,
+including the five-byte frame prefix. Its default is 2 MiB; configure
+`router.body_limit(bytes)` to raise or lower it. `router.disable_body_limit()`
+removes that aggregate cap while retaining the 4 MiB per-message ceiling.
+Exceeding either cap returns `ResourceExhausted` (`grpc-status: 8`), even with a
+missing or false `Content-Length`.
+
+`GrpcClientStream` and `GrpcBidi` apply the per-message ceiling without an
+aggregate `BodyLimit`, so a long-lived stream may carry many bounded messages.
+See [buffered body limits](/docs/extractors/body#buffering-limits) for router,
+nested-router, and middleware precedence.
 
 <Callout type="warn">
 Compressed messages are **not** supported. A request whose compressed-flag byte is

@@ -32,6 +32,9 @@ pub use builder::TlsCert;
 #[cfg(feature = "tls")]
 pub use builder::build_rustls_server_config;
 
+#[cfg(feature = "http2")]
+mod h2_settings;
+
 #[cfg(all(feature = "compio", feature = "http2"))]
 mod compio_h2;
 

@@ -12,12 +12,15 @@ use super::status::GrpcStatus;
 use super::status::GrpcStatusCode;
 use super::status::build_grpc_error_response;
 use crate::body::TakoBody;
+use crate::extractors::Entries;
 use crate::extractors::FromRequest;
+use crate::extractors::body::BodyLimit;
 use crate::responder::Responder;
 use crate::types::Request;
 use crate::types::Response;
 
-/// Unary request: the first message of an `application/grpc` body.
+/// Exactly one protobuf message, with no trailing data, under the request's [`BodyLimit`].
+/// Accepts `application/grpc` and `application/grpc+proto`, with MIME parameters.
 pub struct GrpcRequest<T: Message + Default> {
   pub message: T,
 }
@@ -27,6 +30,7 @@ where
   T: Message + Default + Send + 'static,
 {
   type Error = GrpcError;
+  const ENTRIES: Entries = Entries::BODY_LIMIT;
 
   fn from_request(
     req: &'a mut Request,
@@ -35,13 +39,22 @@ where
       if !is_grpc_content_type(req) {
         return Err(GrpcError::InvalidContentType);
       }
-      // Reads only as far as the first message, so the body is bounded by
-      // `MAX_GRPC_MESSAGE_SIZE` rather than buffered whole.
-      let mut messages = FrameDecoder::<T>::new(std::mem::take(req.body_mut()));
+      let limit = req
+        .extensions()
+        .get::<BodyLimit>()
+        .copied()
+        .unwrap_or_default();
+      let body = std::mem::take(req.body_mut());
+      let body = match limit.0 {
+        Some(limit) => TakoBody::new(http_body_util::Limited::new(body, limit)),
+        None => body,
+      };
+      let mut messages = FrameDecoder::<T>::new(body);
+      let message = messages.next().await.ok_or(GrpcError::InvalidFrame)??;
       match messages.next().await {
-        Some(Ok(message)) => Ok(GrpcRequest { message }),
+        None => Ok(GrpcRequest { message }),
+        Some(Ok(_)) => Err(GrpcError::InvalidFrame),
         Some(Err(error)) => Err(error),
-        None => Err(GrpcError::InvalidFrame),
       }
     }
   }
@@ -52,7 +65,12 @@ pub(crate) fn is_grpc_content_type(req: &Request) -> bool {
     .headers()
     .get(http::header::CONTENT_TYPE)
     .and_then(|v| v.to_str().ok())
-    .is_some_and(|ct| ct.starts_with("application/grpc"))
+    .and_then(|ct| ct.parse::<mime::Mime>().ok())
+    .is_some_and(|ct| {
+      ct.type_() == mime::APPLICATION
+        && ct.subtype() == "grpc"
+        && ct.suffix().is_none_or(|suffix| suffix == "proto")
+    })
 }
 
 /// Unary reply: one message with `grpc-status` in trailers, or a trailers-only error.

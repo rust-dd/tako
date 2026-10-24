@@ -20,7 +20,9 @@ use tako_rs_core::conn_info::ConnInfo;
 #[cfg(unix)]
 use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::drive_connection;
+use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tokio::sync::OwnedSemaphorePermit;
@@ -156,8 +158,6 @@ pub(crate) async fn serve_connection<S>(
   S::ReadHalf: AsyncRead + Unpin,
   S::WriteHalf: AsyncWrite + Unpin,
 {
-  let _permit = permit;
-
   #[cfg(feature = "proxy-protocol")]
   let peer = if matches!(protocol, Protocol::ProxyHttp1) {
     match read_proxy_header(&mut stream, settings.proxy_read_timeout, &cancel).await {
@@ -176,12 +176,18 @@ pub(crate) async fn serve_connection<S>(
   }
 
   let wire = protocol.wire();
-  let io = HyperStream::new_plain(stream);
+  let io = Leased::new(HyperStream::new_plain(stream), permit);
   let svc = service_fn(move |mut req| {
     peer.annotate(&mut req, wire);
     let router = router.clone();
     async move {
+      let multiplexed = req.version() == http::Version::HTTP_2;
       let response = router.dispatch(req.map(TakoBody::new)).await;
+      let response = if multiplexed {
+        sanitize_response(response)
+      } else {
+        response
+      };
       Ok::<_, Infallible>(response)
     }
   });

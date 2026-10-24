@@ -135,9 +135,7 @@ impl StoredCsrf {
       response.headers_mut().append(header::SET_COOKIE, value);
     }
     let cookie = build_cookie(&self.cookie_name, &token, self.secure, self.same_site);
-    response
-      .headers_mut()
-      .append(header::SET_COOKIE, cookie.parse()?);
+    session.defer_cookie(cookie.parse()?);
     Ok(response)
   }
 }
