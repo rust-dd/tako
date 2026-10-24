@@ -28,6 +28,7 @@ pub(crate) fn worker_main_compio(
   use cyper_core::HyperStream;
   use futures_util::FutureExt;
   use futures_util::StreamExt;
+  use tako_rs_core::server_support::Leased;
   use tako_rs_core::server_support::connection_router;
   use tako_rs_core::server_support::drive_connection;
 
@@ -146,12 +147,11 @@ pub(crate) fn worker_main_compio(
       } else {
         None
       };
-      let io = HyperStream::new_plain(stream);
+      let io = Leased::new(HyperStream::new_plain(stream), permit);
       let router = connection_router(&router);
       let conn_cancel = cancel.clone();
 
       connections.push(compio::runtime::spawn(async move {
-        let _permit = permit;
         let svc = service_fn(move |mut req| {
           let router = router.clone();
           async move {

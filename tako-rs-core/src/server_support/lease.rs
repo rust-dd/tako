@@ -66,6 +66,48 @@ impl<S: AsyncWrite, L> AsyncWrite for Leased<S, L> {
   }
 }
 
+impl<S: hyper::rt::Read, L> hyper::rt::Read for Leased<S, L> {
+  #[inline]
+  fn poll_read(
+    self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: hyper::rt::ReadBufCursor<'_>,
+  ) -> Poll<io::Result<()>> {
+    self.project().io.poll_read(cx, buf)
+  }
+}
+
+impl<S: hyper::rt::Write, L> hyper::rt::Write for Leased<S, L> {
+  #[inline]
+  fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    self.project().io.poll_write(cx, buf)
+  }
+
+  #[inline]
+  fn poll_write_vectored(
+    self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    bufs: &[io::IoSlice<'_>],
+  ) -> Poll<io::Result<usize>> {
+    self.project().io.poll_write_vectored(cx, bufs)
+  }
+
+  #[inline]
+  fn is_write_vectored(&self) -> bool {
+    self.io.is_write_vectored()
+  }
+
+  #[inline]
+  fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    self.project().io.poll_flush(cx)
+  }
+
+  #[inline]
+  fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    self.project().io.poll_shutdown(cx)
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use std::io::IoSlice;
