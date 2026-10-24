@@ -72,6 +72,22 @@ async fn main() -> anyhow::Result<()> {
 completion; cancelling the entire server future skips its final event.
 `ROUTER_HOT_RELOAD` is an application-defined convention, not an automatic event.
 
+## Request hooks and deadlines
+
+Router and route timeouts cover request-start hooks, middleware, the handler,
+and request-completion hooks under one deadline. A pending hook is dropped when
+the deadline expires or the caller cancels dispatch; no observer task is detached.
+The configured timeout response replaces any response waiting on completion hooks.
+
+Delivery is at most once. Cancellation can leave a started event without a
+completion event, or stop completion delivery between arbiters. Events already
+delivered are not replayed. A completion event records the response available
+before its hooks run; a later hook timeout can still replace that response.
+
+A custom `timeout_fallback` receives a metadata-only request after cancellation.
+It runs outside the expired deadline and must finish independently. The default
+timeout response needs no further asynchronous work.
+
 ## RPC over signals
 
 The same arbiter doubles as a typed RPC bus:
