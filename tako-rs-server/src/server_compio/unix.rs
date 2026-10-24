@@ -8,8 +8,7 @@ use tako_rs_core::conn_info::UnixPeerAddr;
 
 use super::accept::Listener;
 use super::connection::Peer;
-use crate::unix_path::bind_abstract;
-use crate::unix_path::cleanup_stale_socket;
+use crate::unix_path;
 use crate::unix_path::is_abstract_path;
 
 /// A bound Unix socket plus the path it removes after shutdown.
@@ -28,11 +27,7 @@ impl UnixSocketListener {
 /// Binds `path`, replacing a stale socket file but never a live socket or a
 /// non-socket file. `@`-prefixed paths bind the Linux abstract namespace.
 pub(crate) async fn bind_listener(path: &Path) -> io::Result<compio::net::UnixListener> {
-  if is_abstract_path(path) {
-    return compio::net::UnixListener::from_std(bind_abstract(path)?);
-  }
-  cleanup_stale_socket(path)?;
-  compio::net::UnixListener::bind(path).await
+  compio::net::UnixListener::from_std(unix_path::bind_listener(path)?)
 }
 
 /// Peer address of an accepted connection, from its bound path if any.
