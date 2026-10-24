@@ -27,7 +27,7 @@ bun run start        # serve the production build locally
 
 ```bash
 bun run typecheck    # tsc --noEmit
-bun run lint         # eslint via next
+bun run lint         # ESLint: Next.js, React, hooks, and TypeScript rules
 bun run lint:mdx     # frontmatter zod schema (scripts/lint-mdx.ts)
 bun run audit        # full docs audit (see .claude/skills/docs-writing)
 ```

@@ -331,6 +331,12 @@ jobs:
       - name: Audit (frontmatter, meta.json coverage, internal links)
         working-directory: website
         run: bun run audit
+      - name: Lint
+        working-directory: website
+        run: bun run lint
+      - name: Typecheck
+        working-directory: website
+        run: bun run typecheck
       - name: Build
         working-directory: website
         run: bun run build
