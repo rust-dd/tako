@@ -1,45 +1,60 @@
 #![cfg(unix)]
 
+use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use socket2::Domain;
+use socket2::SockAddr;
+use socket2::Socket;
+use socket2::Type;
 use tako_rs_core::router::Router;
 
 struct BackloggedSocket {
   path: PathBuf,
   listener: UnixListener,
-  clients: Vec<tokio::net::UnixStream>,
+  clients: Vec<Socket>,
   inode: u64,
 }
 
 impl BackloggedSocket {
   fn new() -> Self {
     let path = std::env::temp_dir().join(format!("tako-full-backlog-{}.sock", std::process::id()));
-    let listener = UnixListener::bind(&path).unwrap();
+    let address = SockAddr::unix(&path).unwrap();
+    let listener = Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
+    listener.bind(&address).unwrap();
+    listener.listen(1).unwrap();
     let inode = std::fs::symlink_metadata(&path).unwrap().ino();
-    let clients = tokio::runtime::Runtime::new().unwrap().block_on(async {
-      let mut clients = Vec::new();
-      for _ in 0..512 {
-        match tokio::time::timeout(
-          Duration::from_millis(2),
-          tokio::net::UnixStream::connect(&path),
-        )
-        .await
-        {
-          Ok(Ok(client)) => clients.push(client),
-          _ => return clients,
+    let mut socket = Self {
+      path,
+      listener: listener.into(),
+      clients: Vec::new(),
+      inode,
+    };
+    for _ in 0..16 {
+      let client = Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
+      client.set_nonblocking(true).unwrap();
+      match client.connect(&address) {
+        Ok(()) => socket.clients.push(client),
+        Err(error) => {
+          assert!(
+            matches!(
+              error.kind(),
+              ErrorKind::WouldBlock | ErrorKind::ConnectionRefused
+            ),
+            "unexpected error while filling listener backlog: {error}"
+          );
+          assert!(
+            !socket.clients.is_empty(),
+            "listener never queued a connection"
+          );
+          return socket;
         }
       }
-      panic!("could not fill listener backlog");
-    });
-    Self {
-      path,
-      listener,
-      clients,
-      inode,
     }
+    panic!("could not fill listener backlog");
   }
 
   fn assert_preserved(&mut self) {

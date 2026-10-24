@@ -5062,6 +5062,7 @@ dependencies = [
  "rcgen",
  "rustls",
  "send_wrapper",
+ "socket2",
  "tako-rs",
  "tako-rs-core",
  "tokio",
