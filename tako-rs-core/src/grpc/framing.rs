@@ -3,6 +3,8 @@ use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 
+use bytes::Buf;
+use bytes::Bytes;
 use bytes::BytesMut;
 use futures_util::Stream;
 use http_body::Body;
@@ -131,10 +133,11 @@ pub fn grpc_decode<T: Message + Default>(data: &[u8]) -> Result<T, GrpcError> {
     .map_err(|e| GrpcError::DecodeError(e.to_string()))
 }
 
-/// Decodes frames off a body as they arrive, buffering at most one message plus one chunk;
-/// the first error ends the stream.
+/// Decodes frames as they arrive, sharing complete messages with their DATA chunk.
+/// Fragmented messages buffer at most one message plus one chunk; the first error ends the stream.
 pub(crate) struct FrameDecoder<T> {
   body: TakoBody,
+  chunk: Bytes,
   buffer: BytesMut,
   done: bool,
   message: PhantomData<fn() -> T>,
@@ -144,6 +147,7 @@ impl<T> FrameDecoder<T> {
   pub(crate) fn new(body: TakoBody) -> Self {
     Self {
       body,
+      chunk: Bytes::new(),
       buffer: BytesMut::new(),
       done: false,
       message: PhantomData,
@@ -152,36 +156,61 @@ impl<T> FrameDecoder<T> {
 
   fn finish(&mut self, item: Option<Result<T, GrpcError>>) -> Poll<Option<Result<T, GrpcError>>> {
     self.done = true;
+    self.chunk = Bytes::new();
     self.buffer = BytesMut::new();
     Poll::Ready(item)
+  }
+
+  #[inline]
+  fn buffer_to(&mut self, len: usize) {
+    let needed = len.saturating_sub(self.buffer.len()).min(self.chunk.len());
+    self.buffer.extend_from_slice(&self.chunk[..needed]);
+    self.chunk.advance(needed);
   }
 }
 
 impl<T: Message + Default> FrameDecoder<T> {
   fn buffered_message(&mut self) -> Option<Result<T, GrpcError>> {
-    if self.buffer.len() < PREFIX_LEN {
-      return None;
-    }
-    if self.buffer[0] != 0 {
-      return Some(Err(GrpcError::CompressionUnsupported));
-    }
-    let len = u32::from_be_bytes([
-      self.buffer[1],
-      self.buffer[2],
-      self.buffer[3],
-      self.buffer[4],
-    ]) as usize;
-    if len > MAX_GRPC_MESSAGE_SIZE {
-      return Some(Err(GrpcError::MessageTooLarge));
-    }
-    if self.buffer.len() < PREFIX_LEN + len {
-      return None;
-    }
-    // Decoding from `Bytes` lets `bytes::Bytes` message fields share the
-    // buffer instead of copying out of it.
-    let frame = self.buffer.split_to(PREFIX_LEN + len).freeze();
-    Some(T::decode(frame.slice(PREFIX_LEN..)).map_err(|e| GrpcError::DecodeError(e.to_string())))
+    let mut frame = if self.buffer.is_empty() && self.chunk.len() >= PREFIX_LEN {
+      let len = match frame_len(&self.chunk) {
+        Ok(len) => len,
+        Err(error) => return Some(Err(error)),
+      };
+      if self.chunk.len() < len {
+        self.buffer.extend_from_slice(&self.chunk);
+        self.chunk = Bytes::new();
+        return None;
+      }
+      self.chunk.split_to(len)
+    } else {
+      self.buffer_to(PREFIX_LEN);
+      if self.buffer.len() < PREFIX_LEN {
+        return None;
+      }
+      let len = match frame_len(&self.buffer) {
+        Ok(len) => len,
+        Err(error) => return Some(Err(error)),
+      };
+      self.buffer_to(len);
+      if self.buffer.len() < len {
+        return None;
+      }
+      self.buffer.split().freeze()
+    };
+    frame.advance(PREFIX_LEN);
+    Some(T::decode(frame).map_err(|e| GrpcError::DecodeError(e.to_string())))
   }
+}
+
+fn frame_len(prefix: &[u8]) -> Result<usize, GrpcError> {
+  if prefix[0] != 0 {
+    return Err(GrpcError::CompressionUnsupported);
+  }
+  let len = u32::from_be_bytes([prefix[1], prefix[2], prefix[3], prefix[4]]) as usize;
+  if len > MAX_GRPC_MESSAGE_SIZE {
+    return Err(GrpcError::MessageTooLarge);
+  }
+  Ok(PREFIX_LEN + len)
 }
 
 impl<T: Message + Default> Stream for FrameDecoder<T> {
@@ -200,15 +229,15 @@ impl<T: Message + Default> Stream for FrameDecoder<T> {
       }
       match Pin::new(&mut this.body).poll_frame(cx) {
         Poll::Ready(Some(Ok(frame))) => {
-          if let Some(data) = frame.data_ref() {
-            this.buffer.extend_from_slice(data);
+          if let Ok(data) = frame.into_data() {
+            this.chunk = data;
           }
         }
         Poll::Ready(Some(Err(error))) => {
           return this.finish(Some(Err(GrpcError::BodyReadError(error.to_string()))));
         }
         Poll::Ready(None) => {
-          let truncated = !this.buffer.is_empty();
+          let truncated = !this.buffer.is_empty() || !this.chunk.is_empty();
           return this.finish(truncated.then_some(Err(GrpcError::InvalidFrame)));
         }
         Poll::Pending => return Poll::Pending,

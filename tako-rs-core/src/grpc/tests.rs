@@ -16,6 +16,8 @@ use crate::extractors::FromRequestParts;
 use crate::responder::Responder;
 use crate::types::Request;
 
+mod framing;
+
 #[derive(Clone, PartialEq, Message)]
 struct Number {
   #[prost(int64, tag = "1")]

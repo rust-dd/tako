@@ -113,5 +113,10 @@ harness = false
 name = "queue"
 harness = false
 
+[[bench]]
+name = "grpc_decode"
+harness = false
+required-features = ["grpc"]
+
 [lints]
 workspace = true
