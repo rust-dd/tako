@@ -222,24 +222,19 @@ impl Queue {
 
   /// Starts the configured workers once, including across clones and concurrent calls.
   ///
-  /// Workers stop when the last queue clone is dropped. A handler that captures a queue
-  /// clone must be shut down explicitly, or managed with [`spawn`](Self::spawn).
+  /// Dropping the last queue clone stops workers unless a [`QueueHandle`] remains.
   pub fn start(&self) {
     self.inner.start_workers();
   }
 
-  /// Starts workers once and returns a shared lifecycle handle. Dropping the last handle
-  /// stops the workers, even if queue clones are still held by job handlers.
+  /// Starts workers once and returns a shared [`QueueHandle`].
   pub fn spawn(&self) -> QueueHandle {
     let handle = self.inner.handle();
     self.inner.start_workers();
     handle
   }
 
-  /// Stops accepting jobs and waits up to `timeout` for all workers, then cancels remaining
-  /// jobs. Pending and cancelled jobs move to the dead letter queue.
-  ///
-  /// Use [`QueueHandle::shutdown`] to distinguish a timeout from completed shutdown.
+  /// Stops the queue with a deadline; use [`QueueHandle::shutdown`] to receive errors.
   pub async fn shutdown(&self, timeout: Duration) {
     let _ = self.inner.shutdown_workers(timeout).await;
   }

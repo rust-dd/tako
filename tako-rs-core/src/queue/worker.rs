@@ -123,24 +123,28 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       ),
     };
 
-    #[cfg(feature = "signals")]
     if result.is_ok() {
-      emit_queue_signal(
-        signal_ids::QUEUE_JOB_COMPLETED,
-        &pending_job.name,
-        pending_job.id,
-        pending_job.attempt,
-      )
-      .await;
-    } else {
-      emit_queue_signal(
-        signal_ids::QUEUE_JOB_FAILED,
-        &pending_job.name,
-        pending_job.id,
-        pending_job.attempt,
-      )
-      .await;
+      #[cfg(feature = "signals")]
+      let (name, id, attempt) = {
+        let completed = inflight.job.take().unwrap();
+        (completed.name, completed.id, completed.attempt)
+      };
+      #[cfg(not(feature = "signals"))]
+      inflight.job.take();
+      drop(inflight);
+      #[cfg(feature = "signals")]
+      emit_queue_signal(signal_ids::QUEUE_JOB_COMPLETED, &name, id, attempt).await;
+      continue;
     }
+
+    #[cfg(feature = "signals")]
+    emit_queue_signal(
+      signal_ids::QUEUE_JOB_FAILED,
+      &pending_job.name,
+      pending_job.id,
+      pending_job.attempt,
+    )
+    .await;
 
     if let Err(e) = result {
       let max_retries = if panicked {
@@ -171,9 +175,26 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         )
         .await;
 
+        let Some(run_after) = Instant::now().checked_add(delay) else {
+          #[cfg(feature = "signals")]
+          emit_queue_signal(
+            signal_ids::QUEUE_JOB_DEAD_LETTER,
+            &pending_job.name,
+            pending_job.id,
+            next_attempt,
+          )
+          .await;
+          inner.dead_letter(
+            inflight.job.take().unwrap(),
+            next_attempt,
+            format!("retry delay cannot be represented: {e}"),
+          );
+          continue;
+        };
+
         let mut job = inflight.job.take().unwrap();
         job.attempt = next_attempt;
-        job.run_after = Some(Instant::now() + delay);
+        job.run_after = Some(run_after);
         {
           let mut pending = inner.pending.lock();
           if inner.shutdown.load(Ordering::SeqCst) {
@@ -205,8 +226,6 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         let attempts = pending_job.attempt + 1;
         inner.dead_letter(inflight.job.take().unwrap(), attempts, e.to_string());
       }
-    } else {
-      inflight.job.take();
     }
   }
 }

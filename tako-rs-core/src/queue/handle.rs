@@ -3,15 +3,15 @@ use std::time::Duration;
 
 use super::runtime::QueueInner;
 
-/// A queue worker runtime failed or exceeded its shutdown deadline.
+/// Queue worker failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum QueueRunError {
-  /// The shutdown deadline expired; remaining workers have been asked to cancel.
+  /// Shutdown deadline expired; cancellation was requested.
   Timeout,
-  /// A worker panicked outside the job handler's panic boundary.
+  /// Worker panic outside a job handler.
   WorkerPanicked,
-  /// The runtime or its last owner dropped a worker before completion.
+  /// Worker cancelled before completion.
   Aborted,
 }
 
@@ -27,10 +27,7 @@ impl std::fmt::Display for QueueRunError {
 
 impl std::error::Error for QueueRunError {}
 
-/// Shared ownership of a queue's workers on either runtime.
-///
-/// The last handle's drop cancels workers, including when handlers retain queue clones.
-/// Keep a handle until shutdown completes; cloning it does not create more workers.
+/// Worker lifecycle handle; dropping the last clone cancels its workers.
 #[derive(Clone)]
 pub struct QueueHandle {
   pub(crate) owner: Arc<HandleOwner>,
@@ -44,21 +41,19 @@ impl QueueHandle {
     self.owner.0.trigger();
   }
 
-  /// Waits until every worker has exited and released its running job, without stopping it.
+  /// Waits for every worker to exit without triggering shutdown.
   pub async fn join(&self) {
     self.owner.0.join_workers().await;
   }
 
-  /// Waits for every worker and returns the shared runtime result to every caller.
+  /// Waits for workers and returns their shared completion result.
   pub async fn result(&self) -> Result<(), QueueRunError> {
     self.owner.0.worker_result().await
   }
 
-  /// Stops the queue and waits at most `timeout`, reporting deadline expiry distinctly.
+  /// Stops the queue, cancelling workers if `timeout` expires.
   ///
-  /// On timeout, cancellation is requested and this method returns immediately. Use
-  /// [`join`](Self::join) to await resource release. Handlers must yield to the runtime
-  /// for cancellation to run; synchronous blocking code cannot be interrupted.
+  /// After a timeout, [`join`](Self::join) waits for cooperative cancellation to finish.
   pub async fn shutdown(&self, timeout: Duration) -> Result<(), QueueRunError> {
     self.owner.0.shutdown_workers(timeout).await
   }
