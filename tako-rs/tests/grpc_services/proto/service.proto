@@ -1,0 +1,15 @@
+syntax = "proto2";
+package test;
+import "shared.proto";
+
+message Input {
+  optional shared.Container.Nested input = 1;
+}
+
+service Math {
+  rpc Count(Input) returns (shared.Container.Nested);
+}
+
+extend shared.Container {
+  optional string note = 100;
+}

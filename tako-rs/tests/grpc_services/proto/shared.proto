@@ -1,0 +1,15 @@
+syntax = "proto2";
+package shared;
+
+message Container {
+  extensions 100 to 199;
+  message Nested {
+    optional int32 value = 1;
+  }
+  enum Mode {
+    ZERO = 0;
+  }
+  oneof selection {
+    int32 value = 1;
+  }
+}

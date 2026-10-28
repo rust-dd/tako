@@ -6,7 +6,7 @@ since: 2.0.0
 status: stable
 crate: tako-rs-core
 runtime: both
-features: [grpc]
+features: [grpc, http2]
 ---
 
 # gRPC
@@ -318,9 +318,84 @@ Compressed messages are **not** supported. A request whose compressed-flag byte 
 set is rejected with `Unimplemented`, signalling the client to retry uncompressed.
 </Callout>
 
+## Health checks
+
+`HealthRegistry::register` adds the standard `grpc.health.v1.Health` Check,
+Watch, and List methods. The registry starts empty; set the empty service name
+for the server's overall status and fully-qualified names for individual services:
+
+```rust
+use tako::grpc::health::{HealthRegistry, ServingStatus};
+use tako::router::Router;
+
+let mut router = Router::new();
+let health = HealthRegistry::new();
+health.set_status("", ServingStatus::Serving);
+health.set_status("numbers.Numbers", ServingStatus::Serving);
+health.register(&mut router);
+
+// A clone can report readiness changes while the server is running.
+let reporter = health.clone();
+reporter.set_status("numbers.Numbers", ServingStatus::NotServing);
+```
+
+Check returns `NotFound` for an unknown service. Watch immediately reports the
+current status, using `ServiceUnknown` for an unknown name, and stays open for
+updates. Repeating a status does not emit another message. Slow readers receive
+the latest status without an unbounded backlog. Dropping the call releases its
+subscription, and the client's `grpc-timeout` ends a watch with `DeadlineExceeded`.
+List returns a snapshot of the registered services.
+
+## Server reflection
+
+`ReflectionRegistry::register` serves bidirectional reflection on both
+`grpc.reflection.v1.ServerReflection` and the compatible `v1alpha` path used by
+older clients. The standard messages and descriptors ship with Tako; consumer
+builds do not need `protoc` for health or reflection.
+
+Create a descriptor set for your application, including imported definitions:
+
+```bash
+protoc -I proto --include_imports --descriptor_set_out=proto/numbers.bin \
+  proto/numbers.proto
+```
+
+Commit the descriptor alongside your generated messages, or produce it in your
+existing protobuf build step. Register it on the same router as the RPC handlers:
+
+```rust
+use tako::grpc::{health, reflection::ReflectionRegistry};
+
+let reflection = ReflectionRegistry::new();
+reflection.register_encoded_file_descriptor_set(include_bytes!("../proto/numbers.bin"))?;
+reflection.register_encoded_file_descriptor_set(health::FILE_DESCRIPTOR_SET)?;
+reflection.register(&mut router);
+```
+
+Descriptor sets automatically index services, methods, messages, nested types,
+fields, enums, and extensions. File and symbol lookups return the requested
+descriptor plus its transitive imports. Custom protobuf options are preserved.
+The registry also retains `add_service`, `add_file`, and `map_symbol` for manual
+registration; importing a descriptor set validates it before changing the registry.
+Service lists are sorted and deduplicated.
+
+Missing files, symbols, or extensions return `NotFound` in a reflection error
+message; a query without a request returns `InvalidArgument`. These errors leave
+the stream open for the next query. Include all imports when registering a set:
+a missing dependency also produces `NotFound`. Reflection exposes registered
+schemas through ordinary routes, so existing router middleware can control access.
+
 ## Calling it with grpcurl
 
-Tako has no server reflection, so pass the `.proto` file to the client:
+With reflection registered, clients can discover schemas directly:
+
+```bash
+grpcurl -plaintext 127.0.0.1:50051 list
+grpcurl -plaintext -d '{"value": 3}' 127.0.0.1:50051 numbers.Numbers/Count
+grpcurl -plaintext -d '{"service": ""}' 127.0.0.1:50051 grpc.health.v1.Health/Check
+```
+
+Without reflection, pass the `.proto` file to the client:
 
 ```bash
 grpcurl -plaintext -import-path proto -proto numbers.proto \
@@ -334,8 +409,8 @@ client on both runtimes.
 
 ## Other helpers
 
-The module also contains a gRPC-Web bridge, a `GrpcInterceptor` chain, and
-`grpc.health.v1` / reflection scaffolding. These are lower-level building blocks;
+The module also contains a gRPC-Web bridge and a `GrpcInterceptor` chain.
+These are lower-level building blocks;
 for browser-facing realtime, prefer [SSE](/docs/transports/sse) or
 [WebSocket](/docs/transports/websocket).
 

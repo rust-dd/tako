@@ -326,8 +326,10 @@ matching thread-safe equivalent. The `per-thread-local` /
   `GrpcDeadline(Instant)` extension.
 - `GrpcInterceptor` async trait + `InterceptorChain` short-circuiting on
   the first `Err(GrpcStatus)`.
-- Reflection / health scaffolding (storage layer ships now; protobuf
-  encoders deferred until consumers don't have to ship `protoc`).
+- Standard health Check / Watch / List and bidirectional server reflection
+  are available through `HealthRegistry::register` and
+  `ReflectionRegistry::register`, with checked-in protobuf types and descriptors.
+  See [gRPC services](/docs/transports/grpc#health-checks).
 - gRPC-Web byte-level decoder/encoder helpers.
 
 ## 17. GraphQL & OpenAPI
@@ -382,7 +384,6 @@ The following are tracked separately and have **not yet** landed:
 - `tako-stores-redis`, `tako-stores-postgres`
 - `TlsCert::Acme { ... }`
 - Multipart/byteranges responder, Linux `sendfile(2)` path
-- Generated gRPC stubs (reflection / health protobuf)
 - Cluster `SignalBus` impls (Redis, NATS, Kafka)
 - Hot-reload `Arc<Router>` swap (current path keeps `Box::leak` for
   per-connection performance)
