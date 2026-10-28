@@ -5,9 +5,12 @@ use std::sync::atomic::AtomicU64;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
 
+use super::QueueLimits;
 use super::RetryPolicy;
+use super::capacity::Budget;
 use super::lifecycle::Lifecycle;
 use super::lifecycle::QueueOwner;
+use super::retention::Retention;
 use super::runtime::Queue;
 use super::runtime::QueueInner;
 
@@ -15,6 +18,7 @@ use super::runtime::QueueInner;
 pub struct QueueBuilder {
   pub(crate) workers: usize,
   pub(crate) retry: RetryPolicy,
+  pub(crate) limits: QueueLimits,
 }
 
 impl QueueBuilder {
@@ -30,12 +34,19 @@ impl QueueBuilder {
     self
   }
 
+  /// Limits outstanding payloads and retained dead letters.
+  pub fn limits(mut self, limits: QueueLimits) -> Self {
+    self.limits = limits;
+    self
+  }
+
   /// Builds the queue; it runs jobs only after [`Queue::start`].
   pub fn build(self) -> Queue {
     let inner = Arc::new(QueueInner {
       pending: Mutex::default(),
+      budget: Arc::new(Budget::new(self.limits)),
       handlers: Mutex::default(),
-      dead_letters: Mutex::new(Vec::new()),
+      dead_letters: Mutex::new(Retention::new(self.limits)),
       notify: Notify::new(),
       next_id: AtomicU64::new(1),
       num_workers: self.workers,

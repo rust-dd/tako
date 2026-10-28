@@ -2,7 +2,7 @@
 #[derive(Debug)]
 pub enum QueueError {
   SerializeError(String),
-  /// A handler failed or panicked, or a payload did not deserialize.
+  /// A capacity limit was reached, a handler failed, or a payload did not deserialize.
   HandlerError(String),
   /// The queue is shutting down and accepts no more jobs.
   Shutdown,

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 pub(crate) struct PendingJob {
+  pub(crate) _permit: Option<super::capacity::Permit>,
   pub(crate) id: u64,
   pub(crate) name: String,
   pub(crate) payload: Vec<u8>,
@@ -112,6 +113,7 @@ mod tests {
   fn job(id: u64, deadline: Option<Instant>, key: Option<&str>) -> PendingJob {
     PendingJob {
       id,
+      _permit: None,
       name: "test".into(),
       payload: vec![],
       attempt: 0,

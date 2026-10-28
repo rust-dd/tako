@@ -1,10 +1,17 @@
 //! Trait for a job broker outside the process, plus the in-memory [`MemoryBackend`].
 //! [`Queue`](super::Queue) keeps its own storage; the cron scheduler pushes through this trait.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use parking_lot::Mutex;
+
+use super::CapacityExceeded;
+use super::QueueLimits;
+use super::capacity::Budget;
+use super::capacity::Permit;
+use super::retention::Retention;
 
 /// Job identifier returned by [`QueueBackend::push`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,6 +83,7 @@ impl std::error::Error for BackendError {}
 #[derive(Default)]
 pub struct MemoryBackend {
   inner: Mutex<MemoryInner>,
+  budget: Arc<Budget>,
   next_id: std::sync::atomic::AtomicU64,
   max_pending: Option<usize>,
 }
@@ -84,14 +92,14 @@ pub struct MemoryBackend {
 struct MemoryInner {
   pending: Vec<MemoryJob>,
   reserved: Vec<MemoryJob>,
-  dlq: Vec<MemoryJob>,
+  dlq: Retention<MemoryJob>,
   /// A key lives until `complete` or `dead_letter`, so a duplicate pushed while the job
   /// waits for a retry is still coalesced.
   dedup: std::collections::HashSet<String>,
 }
 
-#[derive(Clone)]
 struct MemoryJob {
+  permit: Option<Permit>,
   id: JobId,
   queue: String,
   payload: Vec<u8>,
@@ -105,11 +113,64 @@ impl MemoryBackend {
     Self::default()
   }
 
-  /// Fails pushes with `Transport("queue full")` once `max` jobs are pending.
+  /// Caps pending jobs; a retry at capacity returns an error and stays reserved.
   #[must_use]
   pub fn with_max_pending(mut self, max: usize) -> Self {
     self.max_pending = Some(max);
     self
+  }
+
+  /// Caps outstanding jobs and retained dead letters across all queue names.
+  pub fn with_limits(mut self, limits: QueueLimits) -> Self {
+    self.budget.set_limits(limits);
+    self.inner.get_mut().dlq.set_limits(limits);
+    self
+  }
+
+  /// Enqueues without waiting for capacity, returning the exhausted limit on failure.
+  #[allow(
+    clippy::unused_async_trait_impl,
+    reason = "enqueue only when the future is polled"
+  )]
+  pub async fn try_push(
+    &self,
+    queue: &str,
+    payload: &[u8],
+    opts: PushOptions,
+  ) -> Result<JobId, CapacityExceeded> {
+    let mut inner = self.inner.lock();
+    if opts
+      .dedup_key
+      .as_ref()
+      .is_some_and(|key| inner.dedup.contains(key))
+    {
+      return Ok(JobId(0));
+    }
+    if let Some(limit) = self.max_pending
+      && inner.pending.len() >= limit
+    {
+      return Err(CapacityExceeded::Jobs { limit });
+    }
+    let permit = self.budget.reserve(payload.len())?;
+    let id = JobId(
+      self
+        .next_id
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1,
+    );
+    if let Some(key) = &opts.dedup_key {
+      inner.dedup.insert(key.clone());
+    }
+    inner.pending.push(MemoryJob {
+      permit: Some(permit),
+      id,
+      queue: queue.to_string(),
+      payload: payload.to_vec(),
+      attempt: opts.attempt,
+      run_after: opts.run_after,
+      dedup_key: opts.dedup_key,
+    });
+    Ok(id)
   }
 }
 
@@ -121,33 +182,10 @@ impl QueueBackend for MemoryBackend {
     payload: &[u8],
     opts: PushOptions,
   ) -> Result<JobId, BackendError> {
-    let mut inner = self.inner.lock();
-    if let Some(cap) = self.max_pending
-      && inner.pending.len() >= cap
-    {
-      return Err(BackendError::Transport("queue full".into()));
-    }
-    if let Some(key) = opts.dedup_key.as_ref()
-      && !inner.dedup.insert(key.clone())
-    {
-      // A coalesced push reports the placeholder id 0.
-      return Ok(JobId(0));
-    }
-    let id = JobId(
-      self
-        .next_id
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        + 1,
-    );
-    inner.pending.push(MemoryJob {
-      id,
-      queue: queue.to_string(),
-      payload: payload.to_vec(),
-      attempt: opts.attempt,
-      run_after: opts.run_after,
-      dedup_key: opts.dedup_key,
-    });
-    Ok(id)
+    self
+      .try_push(queue, payload, opts)
+      .await
+      .map_err(|error| BackendError::Transport(error.to_string()))
   }
 
   async fn reserve(&self, queue: &str) -> Result<Option<ReservedJob>, BackendError> {
@@ -190,6 +228,13 @@ impl QueueBackend for MemoryBackend {
     let Some(idx) = pos else {
       return Err(BackendError::NotFound);
     };
+    if let Some(limit) = self.max_pending
+      && inner.pending.len() >= limit
+    {
+      return Err(BackendError::Transport(
+        CapacityExceeded::Jobs { limit }.to_string(),
+      ));
+    }
     let mut job = inner.reserved.remove(idx);
     job.attempt = job.attempt.saturating_add(1);
     job.run_after = retry_at;
@@ -203,11 +248,13 @@ impl QueueBackend for MemoryBackend {
     let Some(idx) = pos else {
       return Err(BackendError::NotFound);
     };
-    let job = inner.reserved.remove(idx);
+    let mut job = inner.reserved.remove(idx);
     if let Some(key) = job.dedup_key.as_ref() {
       inner.dedup.remove(key);
     }
-    inner.dlq.push(job);
+    drop(job.permit.take());
+    let bytes = job.payload.len();
+    inner.dlq.push(job, bytes);
     Ok(())
   }
 }
@@ -231,6 +278,24 @@ impl MemoryBackend {
 
   pub fn reserved_count(&self) -> usize {
     self.inner.lock().reserved.len()
+  }
+
+  /// Pending and reserved jobs together, including retries.
+  pub fn outstanding_count(&self) -> usize {
+    self.budget.usage().0
+  }
+
+  pub fn outstanding_payload_bytes(&self) -> usize {
+    self.budget.usage().1
+  }
+
+  pub fn dead_letter_payload_bytes(&self) -> usize {
+    self.inner.lock().dlq.bytes()
+  }
+
+  /// Dead letters discarded by retention limits since the backend was built.
+  pub fn dead_letter_evictions(&self) -> u64 {
+    self.inner.lock().dlq.evictions()
   }
 
   /// Active dedup keys; steady growth means jobs never reach `complete` or `dead_letter`.

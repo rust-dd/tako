@@ -167,14 +167,18 @@ impl QueueInner {
   }
 
   pub(crate) fn dead_letter(&self, job: PendingJob, attempts: u32, error: String) {
-    self.dead_letters.lock().push(Arc::new(DeadJob {
-      id: job.id,
-      name: job.name,
-      payload: job.payload,
-      attempts,
-      error,
-      failed_at: Instant::now(),
-    }));
+    let bytes = job.payload.len();
+    self.dead_letters.lock().push(
+      Arc::new(DeadJob {
+        id: job.id,
+        name: job.name,
+        payload: job.payload,
+        attempts,
+        error,
+        failed_at: Instant::now(),
+      }),
+      bytes,
+    );
   }
 
   pub(crate) fn drain_pending(&self) {
