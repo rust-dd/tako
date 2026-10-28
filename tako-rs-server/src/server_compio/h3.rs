@@ -22,6 +22,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::ServerConfig;
 use crate::h3_common::config::transport_config_from;
+use crate::h3_common::endpoint::BoundEndpoint;
+use crate::h3_common::endpoint::ConnectionConfig;
 use crate::h3_common::sessions::Accepted;
 use crate::h3_common::sessions::Sessions;
 
@@ -30,7 +32,8 @@ pub(crate) fn bind_endpoint(
   addr: &str,
   tls_config: &rustls::ServerConfig,
   config: &ServerConfig,
-) -> Result<Endpoint, BoxError> {
+  #[cfg(feature = "http3-qlog")] qlog_dir: Option<&std::path::Path>,
+) -> Result<BoundEndpoint<Endpoint>, BoxError> {
   // Early data requires replay protection, which this server does not provide.
   let mut tls = tls_config.clone();
   tls.max_early_data_size = 0;
@@ -39,22 +42,37 @@ pub(crate) fn bind_endpoint(
     compio::quic::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls)?));
   server_config.transport_config(Arc::new(transport_config_from(config)));
 
-  let socket_addr: SocketAddr = addr.parse()?;
+  let connections = ConnectionConfig::new(
+    server_config,
+    #[cfg(feature = "http3-qlog")]
+    qlog_dir,
+    #[cfg(feature = "http3-qlog")]
+    config,
+  )?;
+  let socket_addr = addr.parse::<SocketAddr>()?;
   let socket = compio::net::UdpSocket::from_std(std::net::UdpSocket::bind(socket_addr)?)?;
-  Ok(Endpoint::new(
+  let endpoint = Endpoint::new(
     socket,
     EndpointConfig::default(),
-    Some(server_config),
+    Some(connections.base()),
     None,
-  )?)
+  )?;
+  Ok(BoundEndpoint {
+    endpoint,
+    connections,
+  })
 }
 
 pub(crate) async fn run_endpoint(
-  endpoint: Endpoint,
+  bound: BoundEndpoint<Endpoint>,
   router: Router,
   signal: impl Future<Output = ()>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  let BoundEndpoint {
+    endpoint,
+    connections: connection_config,
+  } = bound;
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -105,6 +123,14 @@ pub(crate) async fn run_endpoint(
         };
         let router = router.clone();
         let conn_shutdown = conn_shutdown.clone();
+        let incoming =
+          match incoming.accept_with(Arc::unwrap_or_clone(connection_config.for_connection())) {
+            Ok(incoming) => incoming,
+            Err(error) => {
+              tracing::error!("QUIC connection failed: {error}");
+              continue;
+            }
+          };
 
         connections.push(compio::runtime::spawn(async move {
           let _permit = permit;
@@ -158,6 +184,8 @@ pub(crate) async fn run_endpoint(
 
   endpoint.close(0u32.into(), b"server shutting down");
   let _ = compio::time::timeout_at(deadline, endpoint.shutdown()).await;
+  #[cfg(feature = "http3-qlog")]
+  let _ = compio::time::timeout_at(deadline, connection_config.finish()).await;
   tracing::info!("HTTP/3 server shut down gracefully");
   #[cfg(feature = "signals")]
   signal_tx::emit_server_stopped(&addr_str, "quic", true).await;

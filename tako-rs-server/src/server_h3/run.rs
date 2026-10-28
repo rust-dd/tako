@@ -11,6 +11,8 @@ use tako_rs_core::types::BoxError;
 use super::connection::handle_connection;
 use crate::ServerConfig;
 use crate::h3_common::config::transport_config_from;
+use crate::h3_common::endpoint::BoundEndpoint;
+use crate::h3_common::endpoint::ConnectionConfig;
 
 pub(crate) async fn run_with_rustls_config(
   router: Router,
@@ -19,7 +21,13 @@ pub(crate) async fn run_with_rustls_config(
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
-  let endpoint = bind_endpoint(addr, tls_config, &config)?;
+  let endpoint = bind_endpoint(
+    addr,
+    tls_config,
+    &config,
+    #[cfg(feature = "http3-qlog")]
+    None,
+  )?;
   run_endpoint(endpoint, router, signal, config).await
 }
 
@@ -27,7 +35,8 @@ pub(crate) fn bind_endpoint(
   addr: &str,
   tls_config: Arc<rustls::ServerConfig>,
   config: &ServerConfig,
-) -> Result<quinn::Endpoint, BoxError> {
+  #[cfg(feature = "http3-qlog")] qlog_dir: Option<&std::path::Path>,
+) -> Result<BoundEndpoint<quinn::Endpoint>, BoxError> {
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -43,16 +52,31 @@ pub(crate) fn bind_endpoint(
     quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls_config_inner)?));
   server_config.transport_config(Arc::new(transport_config_from(config)));
 
-  let socket_addr: SocketAddr = addr.parse()?;
-  quinn::Endpoint::server(server_config, socket_addr).map_err(Into::into)
+  let connections = ConnectionConfig::new(
+    server_config,
+    #[cfg(feature = "http3-qlog")]
+    qlog_dir,
+    #[cfg(feature = "http3-qlog")]
+    config,
+  )?;
+  let socket_addr = addr.parse::<SocketAddr>()?;
+  let endpoint = quinn::Endpoint::server(connections.base(), socket_addr)?;
+  Ok(BoundEndpoint {
+    endpoint,
+    connections,
+  })
 }
 
 pub(crate) async fn run_endpoint(
-  endpoint: quinn::Endpoint,
+  bound: BoundEndpoint<quinn::Endpoint>,
   router: Router,
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  let BoundEndpoint {
+    endpoint,
+    connections,
+  } = bound;
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -113,6 +137,13 @@ pub(crate) async fn run_endpoint(
         };
         let router = router.clone();
         let conn_shutdown = conn_shutdown.clone();
+        let incoming = match incoming.accept_with(connections.for_connection()) {
+          Ok(incoming) => incoming,
+          Err(error) => {
+            tracing::error!("QUIC connection failed: {error}");
+            continue;
+          }
+        };
 
         join_set.spawn(async move {
           match incoming.await {
@@ -164,6 +195,8 @@ pub(crate) async fn run_endpoint(
 
   endpoint.close(0u32.into(), b"server shutting down");
   let _ = tokio::time::timeout_at(deadline, endpoint.wait_idle()).await;
+  #[cfg(feature = "http3-qlog")]
+  let _ = tokio::time::timeout_at(deadline, connections.finish()).await;
   signal_tasks.shutdown().await;
   tracing::info!("HTTP/3 server shut down gracefully");
   #[cfg(feature = "signals")]

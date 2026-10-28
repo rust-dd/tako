@@ -1,4 +1,4 @@
-#[cfg(unix)]
+#[cfg(any(unix, feature = "http3-qlog"))]
 use std::path::PathBuf;
 
 use tako_rs_core::router::Router;
@@ -20,6 +20,8 @@ pub struct CompioServerBuilder {
   config: ServerConfig,
   #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
+  #[cfg(feature = "http3-qlog")]
+  h3_qlog_dir: Option<PathBuf>,
 }
 
 impl CompioServerBuilder {
@@ -38,12 +40,26 @@ impl CompioServerBuilder {
     self
   }
 
+  /// Write one QUIC JSON-sequence trace per connection, including WebTransport.
+  ///
+  /// The existing directory is validated by `try_spawn_h3`. Logging is off by default.
+  /// File I/O runs on a bounded background writer; overload or write errors stop the affected
+  /// trace with a warning. Files contain transport metadata and need an external retention policy.
+  #[cfg(feature = "http3-qlog")]
+  #[must_use]
+  pub fn h3_qlog_dir(mut self, directory: impl Into<PathBuf>) -> Self {
+    self.h3_qlog_dir = Some(directory.into());
+    self
+  }
+
   /// Finalize and produce the [`CompioServer`].
   pub fn build(self) -> CompioServer {
     CompioServer {
       config: self.config,
       #[cfg(any(feature = "compio-tls", feature = "http3"))]
       tls: self.tls,
+      #[cfg(feature = "http3-qlog")]
+      h3_qlog_dir: self.h3_qlog_dir,
     }
   }
 }
@@ -55,6 +71,8 @@ pub struct CompioServer {
   config: ServerConfig,
   #[cfg(any(feature = "compio-tls", feature = "http3"))]
   tls: Option<TlsCert>,
+  #[cfg(feature = "http3-qlog")]
+  h3_qlog_dir: Option<PathBuf>,
 }
 
 impl CompioServer {
@@ -237,8 +255,17 @@ impl CompioServer {
     let tls = build_rustls_server_config(tls, vec![b"h3".to_vec()])?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
-    let endpoint = crate::server_compio::h3::bind_endpoint(&addr.into(), &tls, &self.config)?;
-    let (handle, signal) = make_handle(self.config.drain_timeout, Some(endpoint.local_addr()?));
+    let endpoint = crate::server_compio::h3::bind_endpoint(
+      &addr.into(),
+      &tls,
+      &self.config,
+      #[cfg(feature = "http3-qlog")]
+      self.h3_qlog_dir.as_deref(),
+    )?;
+    let (handle, signal) = make_handle(
+      self.config.drain_timeout,
+      Some(endpoint.endpoint.local_addr()?),
+    );
     spawn_done_compio(
       &handle,
       crate::server_compio::h3::run_endpoint(endpoint, router, signal, self.config.clone()),
