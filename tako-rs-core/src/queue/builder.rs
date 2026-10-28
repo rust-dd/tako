@@ -34,7 +34,6 @@ impl QueueBuilder {
     self
   }
 
-  /// Limits outstanding payloads and retained dead letters.
   pub fn limits(mut self, limits: QueueLimits) -> Self {
     self.limits = limits;
     self

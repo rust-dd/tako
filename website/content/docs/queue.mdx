@@ -143,7 +143,7 @@ as `QueueError::HandlerError` to preserve their error type.
 
 Dead-letter limits are independent of the active-job budget. Retention evicts
 the oldest entries first; an entry larger than the entire byte limit is discarded
-without evicting smaller retained entries. Zero disables retention. Inspect
+without evicting smaller retained entries. `max_dead_letters(0)` disables retention. Inspect
 `dead_letter_evictions()` to count discarded records and
 `dead_letter_payload_bytes()` for retained payload bytes. Clearing dead letters
 does not reset the eviction counter. Snapshots already held by the caller stay

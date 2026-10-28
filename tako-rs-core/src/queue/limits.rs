@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::QueueError;
 
-/// Optional limits for outstanding payloads and retained dead letters; all default to unbounded.
+/// All limits default to unbounded.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueueLimits {
   pub(crate) jobs: Option<usize>,
@@ -41,7 +41,6 @@ impl QueueLimits {
   }
 }
 
-/// The admission limit that rejected a job. The payload was not queued.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CapacityExceeded {
@@ -60,7 +59,6 @@ impl fmt::Display for CapacityExceeded {
 
 impl std::error::Error for CapacityExceeded {}
 
-/// An enqueue failure that distinguishes capacity exhaustion from queue errors.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EnqueueError {

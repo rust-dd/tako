@@ -10,8 +10,7 @@ use super::QueueError;
 use super::pending::PendingJob;
 
 impl Queue {
-  /// Queues a JSON payload. Capacity failures use `HandlerError`; [`Self::try_push`]
-  /// exposes them separately.
+  /// Capacity failures use `HandlerError`; [`Self::try_push`] returns a typed error.
   pub async fn push(
     &self,
     name: impl Into<String>,
@@ -76,7 +75,7 @@ impl Queue {
       .map_err(Into::into)
   }
 
-  /// Like [`Self::try_push`], coalescing pending duplicates without reserving more capacity.
+  /// Pending duplicates do not consume capacity.
   #[allow(
     clippy::unused_async_trait_impl,
     reason = "deduplicate only when the future is polled"

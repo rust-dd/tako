@@ -120,7 +120,7 @@ impl MemoryBackend {
     self
   }
 
-  /// Caps outstanding jobs and retained dead letters across all queue names.
+  /// Limits apply across all queue names.
   pub fn with_limits(mut self, limits: QueueLimits) -> Self {
     self.budget.set_limits(limits);
     self.inner.get_mut().dlq.set_limits(limits);
