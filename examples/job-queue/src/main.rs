@@ -140,32 +140,28 @@ async fn health(_: Request) -> impl Responder {
 async fn main() -> Result<()> {
   tracing_subscriber::fmt::init();
 
-  // Build the queue: 4 workers, exponential backoff retry (max 3 retries)
   let queue = Queue::builder()
     .workers(4)
     .retry(RetryPolicy::exponential(3, Duration::from_millis(500)))
     .build();
 
-  // Register job handlers
   queue.register("send_email", |job: Job| async move {
-    let email: EmailPayload = job.deserialize()?;
+    let email = job.deserialize::<EmailPayload>()?;
     println!(
       "[email] Sending to: {} | Subject: {} (attempt {})",
       email.to, email.subject, job.attempt
     );
-    // Simulate sending...
     tokio::time::sleep(Duration::from_millis(100)).await;
     println!("[email] Sent to {}", email.to);
     Ok(())
   });
 
   queue.register("send_webhook", |job: Job| async move {
-    let webhook: WebhookPayload = job.deserialize()?;
+    let webhook = job.deserialize::<WebhookPayload>()?;
     println!(
       "[webhook] POST {} event={} (attempt {})",
       webhook.url, webhook.event, job.attempt
     );
-    // Simulate HTTP call...
     tokio::time::sleep(Duration::from_millis(50)).await;
     println!("[webhook] Delivered to {}", webhook.url);
     Ok(())
@@ -178,8 +174,7 @@ async fn main() -> Result<()> {
     ))
   });
 
-  // Start background workers
-  queue.start();
+  let workers = queue.spawn();
 
   let mut router = Router::new();
   router.with_state(queue.clone());
@@ -221,7 +216,7 @@ async fn main() -> Result<()> {
     }
   }
 
-  queue.shutdown(Duration::from_secs(5)).await;
+  workers.shutdown(Duration::from_secs(5)).await?;
 
   Ok(())
 }

@@ -21,7 +21,7 @@ cargo_args=(--workspace)
 case "$profile" in
   default) ;;
   tokio-rich)
-    tokio_features="ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql,queue-cron,socket-activation,vsock,utoipa-yaml"
+    tokio_features="ws,sse,proxy-protocol,udp,per-thread,tls,http2,http3,http3-qlog,webtransport,plugins,signals,multipart,simd,protobuf,ip-filter,hmac-signature,json-schema,zstd,validator,garde,typed-header,zero-copy-extractors,async-graphql,grpc,utoipa,vespera,metrics-prometheus,metrics-opentelemetry,tako-tracing,jwt-simple,file-stream,jemalloc,ahash,graphiql,queue-cron,socket-activation,vsock,utoipa-yaml"
     cargo_args+=(--features "$tokio_features")
     ;;
   all-features) cargo_args+=(--all-features) ;;

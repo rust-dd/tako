@@ -91,7 +91,8 @@ See:
 - [`examples/metrics-opentelemetry`](https://github.com/rust-dd/tako/tree/main/examples/metrics-opentelemetry)
   for OTLP export.
 
-<Callout type="info">
-HTTP/3 qlog and `traceparent` propagation through the v2 outbound
-client are deferred follow-up items.
-</Callout>
+For QUIC packet and recovery diagnostics, enable `http3-qlog` and configure
+`.h3_qlog_dir(...)` on the server builder. It writes a separate trace for each
+HTTP/3 connection, including WebTransport traffic, on either runtime. See
+[HTTP/3 qlog configuration](/docs/transports/http3#quic-diagnostics-with-qlog)
+for directory requirements, buffering limits, and retention.

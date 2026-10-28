@@ -170,6 +170,54 @@ the total shutdown past the global drain budget.
 ceiling. Raise `drain_timeout` too if you need a longer overall drain window.
 </Callout>
 
+## QUIC diagnostics with qlog
+
+Enable `http3-qlog` and set `.h3_qlog_dir(...)` on `Server::builder()` or
+`CompioServer::builder()` to record packet and recovery events. The feature
+implies `http3`; add `compio` to select that runtime. Logging stays off until
+you configure a directory, even when the feature is enabled. `QLOGDIR` is not
+read automatically.
+
+```toml
+tako-rs = { version = "2.5", features = ["http3-qlog"] }
+```
+
+```rust
+use tako::{Server, TlsCert};
+use tako::router::Router;
+
+async fn serve(router: Router) -> Result<(), tako::types::BoxError> {
+  std::fs::create_dir_all("qlog")?;
+  Server::builder()
+    .tls(TlsCert::pem_paths("cert.pem", "key.pem"))
+    .h3_qlog_dir("qlog")
+    .build()
+    .try_spawn_h3("127.0.0.1:4433", router)?
+    .result()
+    .await?;
+  Ok(())
+}
+```
+
+The directory must already exist and be writable. `try_spawn_h3` validates it
+before starting the server; `spawn_h3` reports the same errors through its handle.
+Each accepted QUIC connection gets a unique `.sqlog` JSON-sequence file. Files
+are created without overwriting existing traces and use mode `0600` on Unix.
+Retry packets do not create files. [WebTransport](/docs/transports/webtransport)
+traffic stays in the trace of its underlying connection. These are QUIC transport
+events, not HTTP/3 frame or application-payload logs.
+
+One background thread per configured server writes files. The queue holds at
+most 256 complete records, with a 64 KiB record limit. If it fills, a record is
+too large, or a file write fails, the affected trace stops and emits a warning;
+the connection continues. Shutdown drains queued records within the remaining
+server drain budget. Traces can be incomplete after a write failure, an expired
+drain budget, or process termination.
+
+Trace files contain connection metadata and can grow throughout a connection's
+lifetime. Choose a private directory and manage disk limits and retention outside
+Tako.
+
 ## Certificate provider note
 
 With `http3`, rustls is compiled with two crypto providers: `aws-lc-rs` (its

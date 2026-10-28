@@ -76,6 +76,11 @@ and integrations through [Cargo features](https://tako.rust-dd.com/docs/referenc
 See the [runtime compatibility guide](https://tako.rust-dd.com/docs/concepts/runtimes)
 for transport support on Tokio and Compio.
 
+For HTTP/3 and WebTransport diagnostics, enable `http3-qlog` and configure
+`.h3_qlog_dir(...)` on either server builder. See the
+[qlog guide](https://tako.rust-dd.com/docs/transports/http3#quic-diagnostics-with-qlog)
+for per-connection trace files and output limits.
+
 Upgrading? 2.5 changes the WebSocket API, removes deprecated APIs, and wraps
 the raw multipart stream to enforce upload limits. Follow the
 [2.5 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-5).

@@ -37,6 +37,7 @@ cargo metadata --format-version 1 --no-deps \
 | `tls` | Server-side HTTPS via `rustls`. | `tako-rs-server/tls`, `tako-rs-core/tls` |
 | `http2` | HTTP/2 cleartext (h2c) and ALPN-negotiated h2 over TLS. | `tako-rs-server/http2`, `tako-rs-core/http2` |
 | `http3` | HTTP/3 over QUIC; also enables the QUIC dependency tree in `tako-rs-streams`. | `tako-rs-server/http3`, `tako-rs-streams/http3`, `tako-rs-core/http3` |
+| `http3-qlog` | Opt-in per-connection QUIC traces for HTTP/3 and WebTransport on either runtime. Configure `.h3_qlog_dir(...)` to write files. | `http3`, `tako-rs-server/http3-qlog` |
 | `webtransport` | W3C WebTransport sessions on the HTTP/3 server, on either runtime, plus the Tokio-only raw QUIC helper. Implies `http3`. | `http3`, `tako-rs-server/webtransport`, `tako-rs-streams/webtransport`, `tako-rs-core/webtransport` |
 | `vsock` | Linux vsock listener for sidecar workloads. | `tako-rs-server/vsock` |
 
