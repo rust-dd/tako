@@ -5,6 +5,7 @@ category: guide
 since: 2.0.0
 status: stable
 crate: tako-rs-core
+runtime: both
 ---
 
 # Queue
@@ -15,54 +16,11 @@ hand-rolled on top of `tokio::spawn` — send-email, dispatch-webhook,
 reindex, etc. — with retry, dead-lettering, deduplication, and
 delayed execution built in.
 
-```rust
-use std::time::Duration;
+The same queue API runs on Tokio and native Compio. The `compio` feature selects
+Compio worker spawning and timers; call `start()` or `spawn()` from the selected
+runtime.
 
-use serde::{Deserialize, Serialize};
-use tako::Method;
-use tako::extractors::json::Json;
-use tako::extractors::state::State;
-use tako::queue::{Job, Queue, RetryPolicy};
-use tako::responder::Responder;
-use tako::router::Router;
-
-#[derive(Serialize, Deserialize)]
-struct Email { to: String, subject: String }
-
-async fn enqueue(
-  State(q): State<Queue>,
-  Json(req): Json<Email>,
-) -> impl Responder {
-  match q.0.push("send_email", &req).await {
-    Ok(id) => (tako::StatusCode::ACCEPTED, format!("queued id={id}\n")),
-    Err(e) => (tako::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-  }
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-  let queue = Queue::builder()
-    .workers(4)
-    .retry(RetryPolicy::exponential(3, Duration::from_millis(500)))
-    .build();
-
-  queue.register("send_email", |job: Job| async move {
-    let payload: Email = job.deserialize()?;
-    println!("send_email -> {} / {}", payload.to, payload.subject);
-    Ok(())
-  });
-  queue.start();
-
-  let mut router = Router::new();
-  router.with_state(queue);
-  router.route(Method::POST, "/emails", enqueue);
-
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
-  tako::Server::builder().build().spawn_http(listener, router)
-    .result().await.expect("HTTP server failed");
-  Ok(())
-}
-```
+<RustExample path="examples/job-queue/src/main.rs" />
 
 The builder gives you a fluent way to set worker count and retry
 policy. Job handlers are registered by name with
@@ -78,9 +36,49 @@ Operational helpers:
   metrics for dashboards.
 - `queue.dead_letters()` — read the dead-letter queue. Jobs that
   exhaust their retry budget land here for manual inspection.
-- `queue.shutdown(timeout)` — drain workers gracefully on SIGTERM.
+- `queue.spawn()` — start workers and retain a `QueueHandle` for shutdown and completion.
+- `queue.shutdown(timeout)` — stop workers while ignoring the shutdown result.
 - `tako::queue::cron::CronScheduler` (feature `queue-cron`) — wire
   a crontab spec into a `QueueBackend`.
+
+## Worker lifecycle
+
+`queue.start()` and `queue.spawn()` start the configured number of workers once.
+Repeated or concurrent calls across queue clones share those workers. A stopped
+queue cannot be restarted. `Queue::start()` retains its existing unit return type;
+`Queue::spawn()` adds an explicit, cloneable `QueueHandle`.
+
+Keep the handle for as long as the workers are needed. `handle.trigger()` stops
+accepting jobs immediately and moves ready and delayed jobs to the dead-letter
+queue. Running handlers may finish, but failed jobs are not retried after shutdown.
+`handle.join().await` waits for every worker and its running job to be released.
+`handle.result().await` also returns the shared completion result; multiple callers
+can wait safely.
+
+`handle.shutdown(timeout).await` triggers shutdown and returns `Ok(())` after all
+workers finish. It returns `QueueRunError::Timeout` when the deadline expires and
+requests cancellation of remaining workers. The timeout result is retained for
+later `result()` calls. Call `join()` after a timeout to await cleanup. Cancellation
+preserves unfinished jobs in the dead-letter queue, including a running handler's
+payload. Handlers must yield to the runtime for cancellation to run; synchronous
+blocking code cannot be interrupted.
+
+Job handler panics are recorded as failed jobs and leave the worker available.
+An unexpected worker panic produces `QueueRunError::WorkerPanicked`; a dropped
+worker runtime produces `QueueRunError::Aborted`.
+
+Dropping the last `QueueHandle` cancels its workers even if other queue clones
+remain. With `start()`, dropping the last queue clone also stops the workers.
+A registered handler that captures a queue clone retains that ownership; use an
+explicit handle or call `shutdown()` to break that cycle. A live explicit handle
+keeps workers running when application queue clones are dropped.
+
+`queue.shutdown(timeout)` remains available and discards the result. It now waits
+for workers, including their cleanup, instead of only watching the in-flight job
+count. Use the handle when the application needs to distinguish clean shutdown
+from a deadline expiry.
+
+## Scheduled jobs and signals
 
 Cron makes one enqueue attempt per scheduled occurrence. A failed push produces
 an error log with the queue, scheduled time, backend error, and `policy = "drop"`.

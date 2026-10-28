@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use futures_util::FutureExt;
 
-use super::DeadJob;
 use super::Job;
 use super::QueueError;
 #[cfg(feature = "signals")]
@@ -39,25 +38,6 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
     notified.as_mut().enable();
 
     if inner.shutdown.load(Ordering::SeqCst) {
-      // Preserve unstarted jobs for inspection without waiting for delayed deadlines.
-      let drained = {
-        let mut pending = inner.pending.lock();
-        if pending.is_empty() {
-          break;
-        }
-        pending.drain()
-      };
-      let mut dlq = inner.dead_letters.lock();
-      for pj in drained {
-        dlq.push(Arc::new(DeadJob {
-          id: pj.id,
-          name: pj.name,
-          payload: pj.payload,
-          attempts: pj.attempt,
-          error: "queue shutdown before job ran".into(),
-          failed_at: Instant::now(),
-        }));
-      }
       break;
     }
 
@@ -88,14 +68,14 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
       processed = 0;
       continue;
     };
-    let _inflight = InflightJob(&inner);
+    let mut inflight = InflightJob {
+      inner: &inner,
+      job: Some(pending_job),
+    };
+    let pending_job = inflight.job.as_ref().unwrap();
     processed += 1;
 
-    let handler = inner
-      .handlers
-      .get_async(&pending_job.name)
-      .await
-      .map(|e| e.get().clone());
+    let handler = inner.handlers.lock().get(&pending_job.name).cloned();
 
     let Some(handler) = handler else {
       tracing::warn!("No handler for job '{}', moving to DLQ", pending_job.name);
@@ -107,14 +87,12 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         pending_job.attempt + 1,
       )
       .await;
-      inner.dead_letters.lock().push(Arc::new(DeadJob {
-        id: pending_job.id,
-        name: pending_job.name,
-        payload: pending_job.payload,
-        attempts: pending_job.attempt + 1,
-        error: "no handler registered".into(),
-        failed_at: Instant::now(),
-      }));
+      let attempts = pending_job.attempt + 1;
+      inner.dead_letter(
+        inflight.job.take().unwrap(),
+        attempts,
+        "no handler registered".into(),
+      );
       continue;
     };
 
@@ -193,14 +171,17 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         )
         .await;
 
-        inner.pending.lock().push(PendingJob {
-          id: pending_job.id,
-          name: pending_job.name,
-          payload: pending_job.payload,
-          attempt: next_attempt,
-          run_after: Some(Instant::now() + delay),
-          dedup_key: pending_job.dedup_key,
-        });
+        let mut job = inflight.job.take().unwrap();
+        job.attempt = next_attempt;
+        job.run_after = Some(Instant::now() + delay);
+        {
+          let mut pending = inner.pending.lock();
+          if inner.shutdown.load(Ordering::SeqCst) {
+            inner.dead_letter(job, next_attempt, "queue shutdown before retry ran".into());
+          } else {
+            pending.push(job);
+          }
+        }
 
         inner.notify.notify_one();
       } else {
@@ -221,26 +202,28 @@ pub(crate) async fn worker_loop(inner: Arc<QueueInner>) {
         )
         .await;
 
-        inner.dead_letters.lock().push(Arc::new(DeadJob {
-          id: pending_job.id,
-          name: pending_job.name,
-          payload: pending_job.payload,
-          attempts: pending_job.attempt + 1,
-          error: e.to_string(),
-          failed_at: Instant::now(),
-        }));
+        let attempts = pending_job.attempt + 1;
+        inner.dead_letter(inflight.job.take().unwrap(), attempts, e.to_string());
       }
+    } else {
+      inflight.job.take();
     }
   }
 }
 
-struct InflightJob<'a>(&'a QueueInner);
+struct InflightJob<'a> {
+  inner: &'a QueueInner,
+  job: Option<PendingJob>,
+}
 
 impl Drop for InflightJob<'_> {
   fn drop(&mut self) {
-    let prev = self.0.inflight.fetch_sub(1, Ordering::SeqCst);
-    if prev == 1 && self.0.shutdown.load(Ordering::SeqCst) {
-      self.0.drain_notify.notify_one();
+    if let Some(job) = self.job.take() {
+      let attempts = job.attempt + 1;
+      self
+        .inner
+        .dead_letter(job, attempts, "job cancelled before completion".into());
     }
+    self.inner.inflight.fetch_sub(1, Ordering::SeqCst);
   }
 }
