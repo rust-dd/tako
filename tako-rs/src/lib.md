@@ -9,7 +9,7 @@ separate `tako` crate on crates.io is an unrelated project.
 
 ```toml
 [dependencies]
-tako-rs = "2.5"
+tako-rs = "2.6"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 

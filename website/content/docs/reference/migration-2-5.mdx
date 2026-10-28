@@ -1,6 +1,6 @@
 ---
 title: Migrating to 2.5
-description: Migrate to Tako 2.5 with updated WebSockets, session stores, idempotency identity, body limits, and OpenAPI method conversion.
+description: Tako 2.5 replaces tokio-tungstenite with its own WebSocket engine; move handlers from TakoWs to WebSocketUpgrade and compio-ws to compio plus ws.
 category: reference
 since: 2.5.0
 status: stable
@@ -12,9 +12,9 @@ runtime: both
 
 Tako 2.5.0 ships its own WebSocket engine and drops `tokio-tungstenite`,
 `tungstenite` and `compio-ws`, and it removes every API deprecated since 2.1.
-WebSocket handlers, custom session stores, idempotency middleware, body limits,
-and OpenAPI integrations need the changes below. The WebSocket engine and its
-API are the same on Tokio and Compio.
+WebSocket handlers, deprecated APIs and code that accesses the raw multipart
+stream need the changes below. The WebSocket engine and its API are the same on
+Tokio and Compio.
 
 ## Replace `TakoWs` with `WebSocketUpgrade`
 
@@ -140,34 +140,6 @@ tako-rs = { version = "2.5", default-features = false, features = ["compio", "ws
 
 Compio's own `ws` feature is no longer needed.
 
-## Session stores and revocation
-
-Custom `SessionStore` implementations must replace unconditional `store`/upsert
-with atomic `create`, `update`, `rotate`, and `remove` operations. `load` now
-returns `StoredSession { data, version }`; updates and removals must validate
-that generation so a late request cannot restore a revoked session. Persist
-the generation with existing shared-store records. The
-[custom session store contract](/docs/middleware/security#custom-session-stores)
-describes transaction requirements and migration of stored data.
-
-## Idempotency identity
-
-Keyed requests require a trusted `IdempotencyIdentity` by default. After
-authentication and authorization, insert
-`IdempotencyIdentity::new(user_id).tenant(tenant_id)` or configure `identity_fn`
-to read the application's identity. Missing identity returns 401. Public
-endpoints must opt into `IdempotencyBuilder::new().anonymous()` explicitly. Keep
-authorization before cache lookup, including retries; see the
-[idempotency guide](/docs/middleware/traffic#idempotency) for middleware ordering.
-
-## JWT key types
-
-The `jwt-simple` integration uses `jwt-simple` 0.13 to obtain patched elliptic
-curve arithmetic. Applications that construct `AnyVerifyKey` variants or use
-`JWTClaims` from a direct `jwt-simple` dependency must update that dependency
-to 0.13 as well. Existing tokens and supported signing algorithms remain
-compatible.
-
 ## Removed deprecated APIs
 
 Every item below was deprecated in 2.1 or earlier and is now gone:
@@ -250,22 +222,6 @@ and the `tls` module are now re-exported from `tako`, so the types that
 `TlsCert` and `ServerConfig` take can be named without depending on
 `tako-rs-server`.
 
-## Strict unary gRPC requests
-
-`GrpcRequest<T>` now requires exactly one message and the end of the body.
-Additional messages and malformed trailing data are rejected. A handler that
-intentionally consumed only the first message should use `GrpcClientStream<T>`
-and `StreamExt::next` instead. Native extractors accept only `application/grpc`
-and `application/grpc+proto`; use the separate gRPC-Web adapter for web framing.
-
-Unary requests also obey the router's 2 MiB default `BodyLimit`, counting the
-frame prefix. Raise it with `router.body_limit(bytes)` or disable the aggregate
-cap with `router.disable_body_limit()`. The 4 MiB per-message ceiling remains
-active for unary and streaming requests. See [gRPC](/docs/transports/grpc).
-
-Exhaustive matches on `GrpcError` need an arm for `GrpcError::BodyTooLarge`,
-which reports the shared request cap separately from `MessageTooLarge`.
-
 ## Multipart limits
 
 Untyped multipart extraction now enforces `MultipartConfig::max_parts` and
@@ -274,45 +230,6 @@ Untyped multipart extraction now enforces `MultipartConfig::max_parts` and
 `multer::Multipart`; `next_field()` returns `MultipartError` and reports limit
 violations as `TooManyParts` or `DisallowedContentType`. Code that names the
 raw stream or error type must use these wrapper types.
-
-`TakoTypedMultipart` also uses the router's 2 MiB default `BodyLimit` across
-all fields. The smaller of this cap and `MultipartConfig::total_size_limit`
-applies. Set `router.body_limit(bytes)` for larger forms; disabling the shared
-cap leaves the explicit multipart caps active. Aggregate failures return 413
-and remove temporary files already created by the request.
-
-Exhaustive matches on `TypedMultipartError` need an arm for
-`TypedMultipartError::BodyTooLarge`; aggregate size failures now use this
-variant instead of `FieldError`.
-
-## GraphQL HTTP bodies
-
-GraphQL POST extractors now obey the router's 2 MiB default `BodyLimit` as well
-as the existing 4 MiB protocol ceiling. Raise the shared cap with
-`router.body_limit(bytes)` when needed; `disable_body_limit()` leaves the
-protocol ceiling active.
-
-`application/graphql` now reads a raw UTF-8 query such as `{ __typename }`.
-JSON requests and batches keep their parsing and rejection behavior, while
-the JSON path avoids copying the collected body into a second buffer.
-Multipart uploads keep their existing parser and options. See
-[GraphQL body extractors](/docs/extractors/body#graphqlrequest).
-
-## OpenAPI method conversion
-
-`openapi::vespera::http_method_to_vespera` returns `Option<HttpMethod>`.
-Handle `None` for `CONNECT` and extension methods instead of treating them as
-GET operations. `generate_openapi_from_routes` omits these routes and logs a
-warning containing the method and path. Supported operations on the same path
-remain intact.
-
-```rust
-use tako::openapi::vespera::http_method_to_vespera;
-use tako::Method;
-
-assert!(http_method_to_vespera(&Method::GET).is_some());
-assert!(http_method_to_vespera(&Method::CONNECT).is_none());
-```
 
 ## Performance changes
 

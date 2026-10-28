@@ -24,7 +24,7 @@ Add these dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "2.5"
+tako-rs = "2.6"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
@@ -81,9 +81,11 @@ For HTTP/3 and WebTransport diagnostics, enable `http3-qlog` and configure
 [qlog guide](https://tako.rust-dd.com/docs/transports/http3#quic-diagnostics-with-qlog)
 for per-connection trace files and output limits.
 
-Upgrading? 2.5 changes the WebSocket API, removes deprecated APIs, and wraps
-the raw multipart stream to enforce upload limits. Follow the
-[2.5 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-5).
+Upgrading? 2.6 changes session stores, idempotency identity, request body limits,
+and queue lifecycle behavior. Follow the
+[2.6 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-6).
+The [2.5 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-5)
+covers the WebSocket API, removed deprecated APIs, and raw multipart changes.
 The [2.4 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-4)
 covers core pinning, the header deadline, and extractor entries. The
 [2.3 migration guide](https://tako.rust-dd.com/docs/reference/migration-2-3)
