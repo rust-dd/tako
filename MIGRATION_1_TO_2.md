@@ -370,7 +370,6 @@ The following are tracked separately and have **not yet** landed on
 
 - `tako-stores-redis`, `tako-stores-postgres`
 - `TlsCert::Acme { ... }`
-- HTTP/3 qlog
 - Multipart/byteranges responder, Linux `sendfile(2)` path
 - Real WebTransport CONNECT handshake
 - Generated gRPC stubs (reflection / health protobuf)
@@ -380,3 +379,6 @@ The following are tracked separately and have **not yet** landed on
   per-connection performance)
 
 When these land, this guide is updated alongside.
+
+HTTP/3 qlog is available through the `http3-qlog` feature and the server builder's
+`.h3_qlog_dir(...)` method on both runtimes.

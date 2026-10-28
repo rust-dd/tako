@@ -28,8 +28,11 @@ async fn exercise_router_sharing() {
     "127.0.0.1:0",
     Arc::new(tls),
     &crate::ServerConfig::default(),
+    #[cfg(feature = "http3-qlog")]
+    None,
   )
-  .unwrap();
+  .unwrap()
+  .endpoint;
   let address = server.local_addr().unwrap();
 
   let (started, mut requests_started) = tokio::sync::mpsc::unbounded_channel();

@@ -1,5 +1,5 @@
 use std::future::Future;
-#[cfg(unix)]
+#[cfg(any(unix, feature = "http3-qlog"))]
 use std::path::PathBuf;
 use std::pin::Pin;
 #[cfg(feature = "udp")]
@@ -23,6 +23,8 @@ use crate::ServerConfig;
 pub struct ServerBuilder {
   config: ServerConfig,
   tls: Option<TlsCert>,
+  #[cfg(feature = "http3-qlog")]
+  h3_qlog_dir: Option<PathBuf>,
 }
 
 impl ServerBuilder {
@@ -40,11 +42,21 @@ impl ServerBuilder {
     self
   }
 
+  /// Enables per-connection qlog files in an existing directory.
+  #[cfg(feature = "http3-qlog")]
+  #[must_use]
+  pub fn h3_qlog_dir(mut self, directory: impl Into<PathBuf>) -> Self {
+    self.h3_qlog_dir = Some(directory.into());
+    self
+  }
+
   /// Finalize and produce the [`Server`].
   pub fn build(self) -> Server {
     Server {
       config: self.config,
       tls: self.tls,
+      #[cfg(feature = "http3-qlog")]
+      h3_qlog_dir: self.h3_qlog_dir,
     }
   }
 }
@@ -56,6 +68,8 @@ pub struct Server {
   // Kept without `tls`/`http3` so `ServerBuilder::tls` exists under every feature set.
   #[cfg_attr(not(any(feature = "tls", feature = "http3")), allow(dead_code))]
   tls: Option<TlsCert>,
+  #[cfg(feature = "http3-qlog")]
+  h3_qlog_dir: Option<PathBuf>,
 }
 
 impl Server {
@@ -171,8 +185,17 @@ impl Server {
     let tls = build_rustls_server_config(tls, vec![b"h3".to_vec()])?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
-    let endpoint = crate::server_h3::run::bind_endpoint(&addr.into(), tls, &self.config)?;
-    let (handle, signal) = make_handle(self.config.drain_timeout, Some(endpoint.local_addr()?));
+    let endpoint = crate::server_h3::run::bind_endpoint(
+      &addr.into(),
+      tls,
+      &self.config,
+      #[cfg(feature = "http3-qlog")]
+      self.h3_qlog_dir.as_deref(),
+    )?;
+    let (handle, signal) = make_handle(
+      self.config.drain_timeout,
+      Some(endpoint.endpoint.local_addr()?),
+    );
     spawn_done(
       &handle,
       crate::server_h3::run::run_endpoint(endpoint, router, Some(signal), self.config.clone()),

@@ -381,7 +381,6 @@ The following are tracked separately and have **not yet** landed:
 
 - `tako-stores-redis`, `tako-stores-postgres`
 - `TlsCert::Acme { ... }`
-- HTTP/3 qlog
 - Multipart/byteranges responder, Linux `sendfile(2)` path
 - Generated gRPC stubs (reflection / health protobuf)
 - Cluster `SignalBus` impls (Redis, NATS, Kafka)
@@ -389,3 +388,6 @@ The following are tracked separately and have **not yet** landed:
   per-connection performance)
 
 When these land, this guide is updated alongside.
+
+HTTP/3 qlog is available through the `http3-qlog` feature and the server builder's
+`.h3_qlog_dir(...)` method on both runtimes. See [QUIC diagnostics](/docs/transports/http3#quic-diagnostics-with-qlog).
