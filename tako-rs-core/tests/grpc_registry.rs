@@ -4,9 +4,11 @@ use futures_util::StreamExt;
 use prost::Message;
 use prost_types::FileDescriptorProto;
 use prost_types::ServiceDescriptorProto;
+use tako::body::TakoBody;
 use tako::grpc::health::HealthRegistry;
 use tako::grpc::health::ServingStatus;
 use tako::grpc::reflection::ReflectionRegistry;
+use tako::router::Router;
 
 #[test]
 fn descriptor_sets_preserve_unknown_custom_options() {
@@ -61,4 +63,24 @@ async fn watching_unknown_services_does_not_register_them() {
   assert_eq!(registry.snapshot().len(), 0);
   registry.set_status("unknown", ServingStatus::Serving);
   assert_eq!(watch.next().await.unwrap().unwrap().status, 1);
+}
+
+#[cfg_attr(feature = "compio", compio::test)]
+#[cfg_attr(not(feature = "compio"), tokio::test)]
+async fn health_list_rejects_expired_deadlines() {
+  let registry = HealthRegistry::new();
+  registry.set_status("", ServingStatus::Serving);
+  let mut router = Router::new();
+  registry.register(&mut router);
+  let request = http::Request::builder()
+    .method("POST")
+    .uri("/grpc.health.v1.Health/List")
+    .header("content-type", "application/grpc")
+    .header("grpc-timeout", "0n")
+    .body(TakoBody::from(vec![0; 5]))
+    .unwrap();
+
+  let response = router.dispatch(request).await;
+
+  assert_eq!(response.headers().get("grpc-status").unwrap(), "4");
 }

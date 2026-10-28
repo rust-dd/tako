@@ -79,7 +79,7 @@ impl HealthRegistry {
     let registry = self.clone();
     router.post(
       "/grpc.health.v1.Health/List",
-      move |_: GrpcRequest<HealthListRequest>| {
+      move |deadline: Option<GrpcDeadline>, _: GrpcRequest<HealthListRequest>| {
         let statuses = registry
           .snapshot()
           .into_iter()
@@ -92,7 +92,12 @@ impl HealthRegistry {
             )
           })
           .collect();
-        async move { GrpcResponse::ok(HealthListResponse { statuses }) }
+        async move {
+          if deadline.is_some_and(|deadline| deadline.remaining().is_zero()) {
+            return GrpcResponse::error(GrpcStatusCode::DeadlineExceeded, "deadline exceeded");
+          }
+          GrpcResponse::ok(HealthListResponse { statuses })
+        }
       },
     );
   }
