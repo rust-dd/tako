@@ -39,6 +39,7 @@ mime_guess = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true, optional = true }
+prost-types = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 scc = { workspace = true }
 send_wrapper = { workspace = true, optional = true }
@@ -78,7 +79,7 @@ simd = ["tako-rs/simd", "simd-sonic", "simd-json-impl"]
 simd-sonic = ["tako-rs/simd-sonic", "dep:sonic-rs"]
 simd-json-impl = ["tako-rs/simd-json-impl"]
 tls = ["tako-rs/tls", "dep:rustls"]
-grpc = ["tako-rs/grpc", "protobuf", "dep:base64"]
+grpc = ["tako-rs/grpc", "protobuf", "dep:base64", "dep:prost-types"]
 queue-cron = ["tako-rs/queue-cron", "dep:cron", "dep:chrono"]
 http3 = ["tako-rs/http3", "dep:rustls"]
 webtransport = ["tako-rs/webtransport", "http3"]

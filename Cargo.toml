@@ -115,6 +115,7 @@ pin-project-lite = "0.2.16"
 proc-macro2 = { version = "1" }
 prometheus = "0.14.0"
 prost = "0.14.1"
+prost-types = "0.14.1"
 quinn = "0.11.9"
 quote = { version = "1" }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs"] }
