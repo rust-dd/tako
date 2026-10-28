@@ -14,7 +14,7 @@
 //!     .build();
 //!
 //! queue.register("send_email", |job: Job| async move {
-//!     let to: String = job.deserialize()?;
+//!     let to = job.deserialize::<String>()?;
 //!     println!("Sending email to {to}");
 //!     Ok(())
 //! });
@@ -29,7 +29,9 @@ mod builder;
 #[cfg_attr(docsrs, doc(cfg(feature = "queue-cron")))]
 pub mod cron;
 mod error;
+mod handle;
 mod job;
+mod lifecycle;
 mod pending;
 mod retry;
 mod runtime;
@@ -39,6 +41,8 @@ mod worker;
 
 pub use builder::QueueBuilder;
 pub use error::QueueError;
+pub use handle::QueueHandle;
+pub use handle::QueueRunError;
 pub use job::DeadJob;
 pub use job::Job;
 pub use retry::RetryPolicy;
