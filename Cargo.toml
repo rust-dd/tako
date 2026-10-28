@@ -161,7 +161,7 @@ uuid = { version = "1.17.0", features = ["v4"] }
 validator = { version = "0.21.0", features = ["derive"] }
 vespera_core = { version = "0.4.0" }
 wtransport = { version = "0.7.2", default-features = false, features = ["aws-lc-rs"] }
-zstd = "0.14.0"
+zstd = "0.14.3"
 
 [profile.release]
 lto = "fat"
