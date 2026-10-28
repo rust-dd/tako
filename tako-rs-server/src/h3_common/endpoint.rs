@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-/// Retains the base transport configuration so each accepted connection can own its trace.
 pub(crate) struct BoundEndpoint<E> {
   pub(crate) endpoint: E,
   pub(crate) connections: ConnectionConfig,

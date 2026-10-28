@@ -49,7 +49,7 @@ pub(super) fn run(directory: &Path, mut receiver: mpsc::Receiver<Message>, stopp
     }
     processed += 1;
     if processed == QUEUED_RECORDS || receiver.is_empty() {
-      // A full queue can discard a close notification; sweep completed traces as well.
+      // A full queue can drop Close messages.
       files.retain(|_, output| {
         !output.trace.closed.load(Ordering::Acquire)
           || output.trace.pending.load(Ordering::Acquire) != 0
@@ -87,7 +87,7 @@ impl Output {
   fn write(&mut self, bytes: &[u8]) {
     let Some(file) = &mut self.file else { return };
     if let Err(error) = file.write_all(bytes) {
-      // Restore the last complete record if the device accepted only part of this one.
+      // Truncate partial records after a write failure.
       let _ = file.set_len(self.bytes);
       self.trace.fail(error);
       self.file = None;

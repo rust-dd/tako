@@ -11,7 +11,6 @@ use super::MAX_RECORD_BYTES;
 use super::Message;
 use super::Trace;
 
-/// Buffers qlog's fragmented serializer writes until a complete JSON-sequence record is ready.
 pub(super) struct Writer {
   sender: mpsc::Sender<Message>,
   stopped: Arc<AtomicBool>,

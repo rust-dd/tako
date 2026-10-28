@@ -40,11 +40,7 @@ impl CompioServerBuilder {
     self
   }
 
-  /// Write one QUIC JSON-sequence trace per connection, including WebTransport.
-  ///
-  /// The existing directory is validated by `try_spawn_h3`. Logging is off by default.
-  /// File I/O runs on a bounded background writer; overload or write errors stop the affected
-  /// trace with a warning. Files contain transport metadata and need an external retention policy.
+  /// Enables per-connection qlog files in an existing directory.
   #[cfg(feature = "http3-qlog")]
   #[must_use]
   pub fn h3_qlog_dir(mut self, directory: impl Into<PathBuf>) -> Self {
