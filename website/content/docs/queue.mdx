@@ -102,3 +102,59 @@ rate-limit / idempotency / JWKS / CSRF stores.
 See [`examples/job-queue`](https://github.com/rust-dd/tako/tree/main/examples/job-queue)
 for a full end-to-end demo including retries, delayed jobs, and the
 dead-letter queue.
+
+## Capacity and retention
+
+Queues are unbounded by default. Set limits on the builder to reject new work
+before a growing backlog exhausts memory:
+
+```rust
+use tako::queue::{EnqueueError, Queue, QueueLimits};
+
+let queue = Queue::builder()
+  .limits(
+    QueueLimits::new()
+      .max_jobs(1_000)
+      .max_payload_bytes(16 * 1024 * 1024)
+      .max_dead_letters(100)
+      .max_dead_letter_bytes(1024 * 1024),
+  )
+  .build();
+
+match queue.try_push("send_email", &"user@example.com").await {
+  Ok(id) => println!("queued {id}"),
+  Err(EnqueueError::Capacity(limit)) => eprintln!("busy: {limit}"),
+  Err(error) => eprintln!("enqueue failed: {error}"),
+}
+```
+
+`max_jobs` counts ready, delayed, running, and retrying jobs together. A retry
+keeps its reservation; workers release it when the job completes, enters the
+dead-letter queue, or is cancelled. `max_payload_bytes` counts each outstanding
+job's serialized JSON payload once. It also stops serialization when one payload
+would exceed the entire budget. It is not a bound on total process memory:
+handler-owned copies, job metadata, and caller-held snapshots are excluded.
+
+`try_push`, `try_push_delayed`, and `try_push_dedup` return immediately when there
+is no capacity, with `EnqueueError::Capacity`. Rejected work is not queued.
+Pending duplicates return the existing id without using another reservation.
+The existing `push` methods enforce the same limits but return capacity failures
+as `QueueError::HandlerError` to preserve their error type.
+
+Dead-letter limits are independent of the active-job budget. Retention evicts
+the oldest entries first; an entry larger than the entire byte limit is discarded
+without evicting smaller retained entries. `max_dead_letters(0)` disables retention. Inspect
+`dead_letter_evictions()` to count discarded records and
+`dead_letter_payload_bytes()` for retained payload bytes. Clearing dead letters
+does not reset the eviction counter. Snapshots already held by the caller stay
+alive until the caller drops them.
+
+`outstanding_count()` and `outstanding_payload_bytes()` report active admission
+usage. `pending_count()` continues to count only jobs waiting to run.
+
+The separate `MemoryBackend` accepts the same policy through
+`MemoryBackend::new().with_limits(limits)`, counting pending and reserved jobs.
+Its `try_push` returns `CapacityExceeded` directly; the `QueueBackend` trait maps
+that failure to `BackendError::Transport`. The older `with_max_pending` limit
+counts pending jobs only. If that limit prevents a retry, `fail` returns an error
+and leaves the job reserved so the consumer can retry later or dead-letter it.

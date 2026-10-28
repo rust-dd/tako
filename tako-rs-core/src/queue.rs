@@ -25,14 +25,18 @@
 
 pub mod backend;
 mod builder;
+mod capacity;
 #[cfg(feature = "queue-cron")]
 #[cfg_attr(docsrs, doc(cfg(feature = "queue-cron")))]
 pub mod cron;
+mod enqueue;
 mod error;
 mod handle;
 mod job;
 mod lifecycle;
+mod limits;
 mod pending;
+mod retention;
 mod retry;
 mod runtime;
 #[cfg(feature = "signals")]
@@ -45,6 +49,9 @@ pub use handle::QueueHandle;
 pub use handle::QueueRunError;
 pub use job::DeadJob;
 pub use job::Job;
+pub use limits::CapacityExceeded;
+pub use limits::EnqueueError;
+pub use limits::QueueLimits;
 pub use retry::RetryPolicy;
 pub use runtime::Queue;
 #[cfg(feature = "signals")]
