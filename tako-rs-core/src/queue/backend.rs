@@ -182,10 +182,12 @@ impl QueueBackend for MemoryBackend {
     payload: &[u8],
     opts: PushOptions,
   ) -> Result<JobId, BackendError> {
-    self
-      .try_push(queue, payload, opts)
-      .await
-      .map_err(|error| BackendError::Transport(error.to_string()))
+    self.try_push(queue, payload, opts).await.map_err(|error| {
+      BackendError::Transport(match error {
+        CapacityExceeded::Jobs { .. } => "queue full".into(),
+        CapacityExceeded::PayloadBytes { .. } => error.to_string(),
+      })
+    })
   }
 
   async fn reserve(&self, queue: &str) -> Result<Option<ReservedJob>, BackendError> {
