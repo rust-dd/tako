@@ -1,0 +1,162 @@
+---
+title: Migrating to 2.6
+description: Update session stores, idempotency identity, body limits, and queue lifecycle behavior when upgrading to Tako 2.6.
+category: reference
+since: 2.6.0
+status: stable
+crate: tako-rs
+runtime: both
+---
+
+# Migrating to 2.6
+
+Tako 2.6.0 adds supervised queues, optional queue limits, HTTP/3 qlog, and
+built-in gRPC health and reflection. It also changes session stores, idempotency,
+request limits, and OpenAPI conversion. Rust 1.95 or newer is required.
+
+## Session stores and revocation
+
+Custom `SessionStore` implementations must replace unconditional `store`/upsert
+with atomic `create`, `update`, `rotate`, and `remove` operations. `load` returns
+`StoredSession { data, version }`; updates, rotations, and removals must validate
+that generation so stale requests cannot restore revoked sessions or delete their
+replacements. Persist the generation with existing shared-store records. The
+[custom session store contract](/docs/middleware/security#custom-session-stores)
+describes transaction requirements and migration of stored data.
+
+## Idempotency identity
+
+Keyed requests require a trusted `IdempotencyIdentity` by default. After
+authentication and authorization, insert
+`IdempotencyIdentity::new(user_id).tenant(tenant_id)` or configure `identity_fn`
+to read the application's identity. Missing identity returns 401. Public
+endpoints must opt into `IdempotencyBuilder::new().anonymous()` explicitly.
+Keep authorization before cache lookup, including retries; see the
+[idempotency guide](/docs/middleware/traffic#idempotency) for middleware ordering.
+
+## JWT key types
+
+The `jwt-simple` integration now uses 0.13 with patched elliptic curve arithmetic.
+Applications that construct `AnyVerifyKey` variants or use `JWTClaims` from a
+direct `jwt-simple` dependency must update that dependency to 0.13 as well.
+Existing tokens and supported signing algorithms remain compatible.
+
+## Strict unary gRPC requests
+
+`GrpcRequest<T>` requires exactly one message and the end of the body. Additional
+messages and malformed trailing data are rejected. To intentionally read only the
+first message, use `GrpcClientStream<T>` and `StreamExt::next`. Native extractors
+accept only `application/grpc` and `application/grpc+proto`, with MIME parameters;
+use the separate gRPC-Web adapter for web framing.
+
+Unary requests now obey the router's 2 MiB default `BodyLimit`, including the
+frame prefix. Raise it with `router.body_limit(bytes)` or disable the aggregate
+cap with `router.disable_body_limit()`. The 4 MiB per-message ceiling remains
+active for unary and streaming requests.
+
+Exhaustive matches on `GrpcError` need `GrpcError::BodyTooLarge`, which reports
+the shared cap separately from `MessageTooLarge`. See [gRPC](/docs/transports/grpc).
+
+## Typed multipart limits
+
+`TakoTypedMultipart` now applies the router's 2 MiB default `BodyLimit` across
+all fields. The smaller of this cap and `MultipartConfig::total_size_limit`
+applies. Set `router.body_limit(bytes)` for larger forms; disabling the shared
+cap leaves explicit multipart limits active. Aggregate failures return 413 and
+remove temporary files already created by the request.
+
+Exhaustive matches on `TypedMultipartError` need `TypedMultipartError::BodyTooLarge`;
+aggregate size failures now use this variant instead of `FieldError`.
+
+## GraphQL HTTP bodies
+
+GraphQL POST extractors now obey the router's 2 MiB default `BodyLimit` alongside
+the existing 4 MiB protocol ceiling. Raise the shared cap with
+`router.body_limit(bytes)` when needed; `disable_body_limit()` leaves the protocol
+ceiling active.
+
+`application/graphql` reads a raw UTF-8 query such as `{ __typename }`. JSON
+requests and batches retain their parsing behavior and avoid a second body
+buffer. Multipart uploads retain their parser and options. See
+[GraphQL body extractors](/docs/extractors/body#graphqlrequest).
+
+## OpenAPI method conversion
+
+`openapi::vespera::http_method_to_vespera` returns `Option<HttpMethod>`. Handle
+`None` for `CONNECT` and extension methods instead of treating them as GET.
+`generate_openapi_from_routes` omits these routes and logs their method and path;
+supported operations on the same path remain intact.
+
+```rust
+use tako::openapi::vespera::http_method_to_vespera;
+use tako::Method;
+
+assert!(http_method_to_vespera(&Method::GET).is_some());
+assert!(http_method_to_vespera(&Method::CONNECT).is_none());
+```
+
+## Queue lifecycle
+
+`Queue::start()` still returns `()`. Repeated `start()` or `spawn()` calls share
+one set of workers, and a stopped queue cannot restart. `Queue::spawn()` returns
+a cloneable `QueueHandle` with `trigger()`, `join()`, `result()`, and
+`shutdown(timeout)`. Keep this handle while workers are needed: dropping its
+last clone cancels them. With `start()`, dropping the last queue clone stops
+workers unless an explicit handle remains.
+
+Shutdown stops admission and moves unstarted jobs to dead letters. Running jobs
+may finish, but are not retried after shutdown. `handle.shutdown(timeout).await`
+returns `QueueRunError::Timeout` if the deadline expires; call `join().await`
+afterward to await cleanup. Cancellation preserves unfinished jobs as dead
+letters, subject to retention limits. Handlers must yield for cancellation to run.
+
+`queue.shutdown(timeout)` remains available and discards the result. It waits
+for workers and cleanup until the deadline, then requests cancellation.
+See the [queue lifecycle guide](/docs/queue#worker-lifecycle)
+for ownership rules and worker errors.
+
+## Optional queue limits
+
+Queues remain unbounded by default. Configure admission and dead-letter retention
+separately with `QueueLimits`:
+
+```rust
+use tako::queue::{Queue, QueueLimits};
+
+let queue = Queue::builder()
+  .limits(QueueLimits::new().max_jobs(1_000).max_dead_letters(100))
+  .build();
+```
+
+`max_jobs` counts ready, delayed, running, and retrying work together.
+`max_payload_bytes` caps serialized payload bytes, not total process memory.
+Use `try_push`, `try_push_delayed`, or `try_push_dedup` to handle typed
+`EnqueueError::Capacity` failures. Existing `push` methods enforce the same limits
+but report capacity failures as `QueueError::HandlerError`. The separate
+`MemoryBackend` accepts `with_limits`; see [capacity and retention](/docs/queue#capacity-and-retention).
+
+## HTTP/3 qlog
+
+Enable `http3-qlog` and configure `.h3_qlog_dir(...)` on either server builder.
+The feature implies `http3` and works on Tokio and Compio, including WebTransport
+connections. Logging stays off until a directory is configured; create that
+directory before starting the server. See [qlog configuration](/docs/transports/http3#quic-diagnostics-with-qlog)
+for trace contents, output limits, and retention.
+
+## Built-in gRPC health and reflection
+
+With `grpc`, call `register(&mut router)` on a `HealthRegistry` to serve Check,
+Watch, and List. Set the empty service name explicitly for overall server health.
+Call the same method on a `ReflectionRegistry` to serve v1 and v1alpha reflection.
+Import application descriptor sets with `register_encoded_file_descriptor_set`,
+including their dependencies. Built-in schemas ship with Tako; consumers need no
+`protoc` step for these services. Existing registry methods remain available;
+reflection service lists are now sorted and deduplicated. See [gRPC services](/docs/transports/grpc#health-checks).
+
+## Request parsing fixes
+
+`Host` and tenant lookup reject malformed or conflicting HTTP authorities, even
+when forwarding headers are trusted. `QueryMulti` form-decodes CSV values before
+splitting: `+` becomes a space, `%2B` stays a plus, and `%2C` is a separator.
+WebSockets reject non-minimal payload lengths and reserved length bits. These
+checks can reject requests that older releases accepted.
