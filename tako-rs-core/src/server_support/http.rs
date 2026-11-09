@@ -26,8 +26,38 @@ pub fn http_service(
   Error = Infallible,
   Future = impl Future<Output = Result<Response, Infallible>>,
 > {
+  service(router, info, None)
+}
+
+/// HTTP service that tracks WebSocket sessions across the HTTP upgrade boundary.
+pub fn http_service_with_upgrades(
+  router: Arc<Router>,
+  info: ConnInfo,
+  upgrades: super::UpgradeRegistry,
+) -> impl Service<
+  hyper::Request<Incoming>,
+  Response = Response,
+  Error = Infallible,
+  Future = impl Future<Output = Result<Response, Infallible>>,
+> {
+  service(router, info, Some(upgrades))
+}
+
+fn service(
+  router: Arc<Router>,
+  info: ConnInfo,
+  upgrades: Option<super::UpgradeRegistry>,
+) -> impl Service<
+  hyper::Request<Incoming>,
+  Response = Response,
+  Error = Infallible,
+  Future = impl Future<Output = Result<Response, Infallible>>,
+> {
   let router = connection_router(&router);
-  hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
+  hyper::service::service_fn(move |mut req: hyper::Request<Incoming>| {
+    if let Some(upgrades) = &upgrades {
+      upgrades.attach(&mut req);
+    }
     start_request(Arc::clone(&router), req.map(TakoBody::incoming), &info)
   })
 }

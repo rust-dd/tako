@@ -68,13 +68,21 @@ mod raw;
 mod raw_compio;
 
 #[cfg(not(feature = "compio"))]
+pub(crate) use raw::run_listener;
+#[cfg(not(feature = "compio"))]
 pub use raw::serve_unix;
+#[cfg(not(feature = "compio"))]
+pub use raw::serve_unix_with_config;
 #[cfg(not(feature = "compio"))]
 pub use raw::serve_unix_with_shutdown;
 #[cfg(not(feature = "compio"))]
 pub use raw::serve_unix_with_shutdown_and_drain;
 #[cfg(feature = "compio")]
+pub(crate) use raw_compio::run_listener;
+#[cfg(feature = "compio")]
 pub use raw_compio::serve_unix;
+#[cfg(feature = "compio")]
+pub use raw_compio::serve_unix_with_config;
 #[cfg(feature = "compio")]
 pub use raw_compio::serve_unix_with_shutdown;
 #[cfg(feature = "compio")]

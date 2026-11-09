@@ -5,4 +5,5 @@ mod serve;
 
 pub use entry::serve_tls_with_rustls_config;
 pub use entry::serve_tls_with_rustls_config_and_shutdown;
+pub(crate) use serve::run_supervised;
 pub use serve::run_with_config;

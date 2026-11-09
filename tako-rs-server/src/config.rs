@@ -2,6 +2,9 @@
 
 use std::time::Duration;
 
+mod validation;
+pub use validation::ServerConfigError;
+
 /// QUIC congestion controller for HTTP/3, from `quinn::congestion` without a quinn dependency.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum H3Congestion {
@@ -55,7 +58,9 @@ pub struct ServerConfig {
   /// `drain_timeout`.
   pub h3_goaway_grace: Duration,
   /// Cap on concurrent connections, `None` for none; an upgraded connection such as a WebSocket
-  /// counts until its socket closes.
+  /// counts until its socket closes. Raw TCP and Unix streams count until their handler returns.
+  /// On raw UDP, caps active datagram handlers; excess datagrams are dropped without queuing.
+  /// A configured limit must be positive and at most [`tokio::sync::Semaphore::MAX_PERMITS`].
   pub max_connections: Option<usize>,
   /// Read deadline applied before the PROXY protocol header is parsed, 10 s by default.
   pub proxy_read_timeout: Duration,

@@ -34,6 +34,7 @@ pub(crate) fn bind_endpoint(
   config: &ServerConfig,
   #[cfg(feature = "http3-qlog")] qlog_dir: Option<&std::path::Path>,
 ) -> Result<BoundEndpoint<Endpoint>, BoxError> {
+  config.validate()?;
   // Early data requires replay protection, which this server does not provide.
   let mut tls = tls_config.clone();
   tls.max_early_data_size = 0;
@@ -69,6 +70,7 @@ pub(crate) async fn run_endpoint(
   signal: impl Future<Output = ()>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  config.validate()?;
   let BoundEndpoint {
     endpoint,
     connections: connection_config,

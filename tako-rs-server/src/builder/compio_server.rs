@@ -14,6 +14,8 @@ use super::tls_cert::TlsCert;
 use super::tls_cert::build_rustls_server_config;
 use crate::ServerConfig;
 
+mod raw;
+
 /// Fluent constructor for the compio-runtime [`CompioServer`].
 #[derive(Debug, Default, Clone)]
 pub struct CompioServerBuilder {
@@ -25,6 +27,12 @@ pub struct CompioServerBuilder {
 }
 
 impl CompioServerBuilder {
+  /// Validates the configuration and produces the [`CompioServer`] before startup side effects.
+  pub fn try_build(self) -> Result<CompioServer, crate::config::ServerConfigError> {
+    self.config.validate()?;
+    Ok(self.build())
+  }
+
   /// Override the [`ServerConfig`].
   #[must_use]
   pub fn config(mut self, config: ServerConfig) -> Self {
@@ -49,6 +57,7 @@ impl CompioServerBuilder {
   }
 
   /// Finalize and produce the [`CompioServer`].
+  /// Builds the server, deferring validation to startup. Use [`Self::try_build`] to validate now.
   pub fn build(self) -> CompioServer {
     CompioServer {
       config: self.config,
@@ -97,12 +106,19 @@ impl CompioServer {
     listener: compio::net::TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::run(listener, router, signal, self.config.clone()),
+      crate::server_compio::run(
+        listener,
+        router,
+        signal,
+        self.config.clone(),
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -122,6 +138,7 @@ impl CompioServer {
     listener: compio::net::TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -151,12 +168,19 @@ impl CompioServer {
     listener: compio::net::TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_compio::run_proxy_protocol(listener, router, signal, self.config.clone()),
+      crate::server_compio::run_proxy_protocol(
+        listener,
+        router,
+        signal,
+        self.config.clone(),
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -164,12 +188,16 @@ impl CompioServer {
   /// Spawns HTTP/1 on a Unix domain socket; bind failures are returned by `result()`.
   #[cfg(unix)]
   pub fn spawn_unix_http(&self, path: impl Into<PathBuf>, router: Router) -> ServerHandle {
+    if let Err(error) = self.config.validate() {
+      return super::spawn::failed_handle(error.into(), self.config.drain_timeout);
+    }
     let path = path.into();
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
+    let upgrades = handle.upgrade_supervisor();
     spawn_done_compio(&handle, async move {
       let listener = crate::server_compio::unix::UnixSocketListener::bind(path).await?;
-      crate::server_compio::run_unix(listener, router, signal, config).await
+      crate::server_compio::run_unix(listener, router, signal, config, upgrades).await
     });
     handle
   }
@@ -181,6 +209,7 @@ impl CompioServer {
     path: impl Into<PathBuf>,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let listener = crate::server_compio::unix::UnixSocketListener::bind(path.into()).await?;
@@ -188,7 +217,13 @@ impl CompioServer {
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done_compio(
       &handle,
-      crate::server_compio::run_unix(listener, router, signal, config),
+      crate::server_compio::run_unix(
+        listener,
+        router,
+        signal,
+        config,
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -208,6 +243,7 @@ impl CompioServer {
     listener: compio::net::TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     let tls = self
       .tls
       .as_ref()
@@ -218,12 +254,13 @@ impl CompioServer {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done_compio(
       &handle,
-      crate::server_tls_compio::run_with_config(
+      crate::server_tls_compio::run_supervised(
         listener,
         router,
         tls,
         Some(signal),
         self.config.clone(),
+        handle.upgrade_supervisor(),
       ),
     );
     Ok(handle)
@@ -244,6 +281,7 @@ impl CompioServer {
     addr: impl Into<String>,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
     let tls = self
       .tls
       .as_ref()

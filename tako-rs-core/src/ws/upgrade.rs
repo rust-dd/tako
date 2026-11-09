@@ -16,6 +16,8 @@ use super::socket::Config;
 use super::socket::Core;
 use crate::body::TakoBody;
 use crate::responder::Responder;
+use crate::server_support::UpgradeRegistry;
+use crate::server_support::UpgradeSession;
 use crate::types::Request;
 use crate::types::Response;
 
@@ -156,13 +158,24 @@ where
     let session = request
       .extensions_mut()
       .remove::<OnUpgrade>()
-      .map(|on_upgrade| Session {
-        on_upgrade,
-        handler,
-        config,
-        upgrade_timeout,
-        max_lifetime,
-      });
+      .map(|on_upgrade| {
+        let lease = match request.extensions().get::<UpgradeRegistry>() {
+          Some(registry) => Some(registry.register().ok_or(())?),
+          None => None,
+        };
+        Ok::<_, ()>(Session {
+          on_upgrade,
+          handler,
+          config,
+          upgrade_timeout,
+          max_lifetime,
+          lease,
+        })
+      })
+      .transpose();
+    let Ok(session) = session else {
+      return (handshake::rejection(StatusCode::SERVICE_UNAVAILABLE), None);
+    };
     (response, session)
   }
 }
@@ -173,36 +186,83 @@ struct Session<H> {
   config: Config,
   upgrade_timeout: Option<Duration>,
   max_lifetime: Option<Duration>,
+  lease: Option<UpgradeSession>,
 }
 
 impl<H> Session<H> {
-  async fn run<Fut>(self)
+  async fn run<Fut>(mut self)
   where
     H: FnOnce(WebSocket) -> Fut,
     Fut: Future<Output = ()>,
   {
-    let upgraded = match self.upgrade_timeout {
-      Some(limit) => {
-        match futures_util::future::select(self.on_upgrade, runtime::sleep(limit)).await {
-          Either::Left((Ok(upgraded), _)) => upgraded,
-          _ => return,
+    let lease = self.lease.take();
+    let registry = lease.as_ref().map(UpgradeSession::registry);
+    let run = self.run_socket(registry);
+    match lease {
+      Some(lease) => lease.run(run).await,
+      None => run.await,
+    }
+  }
+
+  async fn run_socket<Fut>(self, registry: Option<UpgradeRegistry>)
+  where
+    H: FnOnce(WebSocket) -> Fut,
+    Fut: Future<Output = ()>,
+  {
+    let upgraded = {
+      let stopping = async {
+        match &registry {
+          Some(registry) => registry.stopping().await,
+          None => std::future::pending().await,
         }
+      };
+      let stopping = std::pin::pin!(stopping);
+      let upgrade = std::pin::pin!(Self::upgrade(self.on_upgrade, self.upgrade_timeout));
+      match futures_util::future::select(upgrade, stopping).await {
+        Either::Left((Some(upgraded), _)) => upgraded,
+        _ => return,
       }
-      None => match self.on_upgrade.await {
-        Ok(upgraded) => upgraded,
-        Err(_) => return,
-      },
     };
     let core = runtime::shared(Core::new(upgraded, self.config));
     let socket = WebSocket::new(core.clone());
-    Driver::new(core, (self.handler)(socket), self.max_lifetime).await;
+    let mut driver = Driver::new(
+      core,
+      async move { (self.handler)(socket).await },
+      self.max_lifetime,
+    );
+    if let Some(registry) = registry {
+      driver = driver.with_shutdown(registry);
+    }
+    driver.await;
+  }
+
+  async fn upgrade(
+    mut on_upgrade: OnUpgrade,
+    timeout: Option<Duration>,
+  ) -> Option<hyper::upgrade::Upgraded> {
+    let upgraded = match timeout {
+      Some(limit) => {
+        match futures_util::future::select(&mut on_upgrade, runtime::sleep(limit)).await {
+          Either::Left((Ok(upgraded), _)) => upgraded,
+          _ => return None,
+        }
+      }
+      None => match on_upgrade.await {
+        Ok(upgraded) => upgraded,
+        Err(_) => return None,
+      },
+    };
+    Some(upgraded)
   }
 }
 
 /// Runs `handler` on the connection once the server hands it over, with default settings.
 #[cfg(all(feature = "async-graphql", not(feature = "compio")))]
-pub(crate) fn spawn_session<H, Fut>(on_upgrade: OnUpgrade, handler: H)
-where
+pub(crate) fn spawn_session<H, Fut>(
+  on_upgrade: OnUpgrade,
+  lease: Option<UpgradeSession>,
+  handler: H,
+) where
   H: FnOnce(WebSocket) -> Fut + Send + 'static,
   Fut: Future<Output = ()> + Send + 'static,
 {
@@ -212,6 +272,7 @@ where
     config: Config::default(),
     upgrade_timeout: None,
     max_lifetime: None,
+    lease,
   };
   runtime::spawn(session.run());
 }

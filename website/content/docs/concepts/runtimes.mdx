@@ -101,9 +101,12 @@ to a multi-threaded Tokio executor.
 The `per-thread` and `per-thread-compio` features host the same thread-safe
 `Router` on N current-thread workers, fanned out with `SO_REUSEPORT`; Tokio
 workers also hand new connections to the least busy worker.
-`serve_per_thread(addr, router, config)` blocks until Ctrl+C or SIGTERM and then
-drains the workers. `spawn_per_thread(addr, router, config)` returns the worker
-thread handles and a `PerThreadShutdown` for explicit control. Enabling
+`serve_per_thread(addr, router, config)` waits for Ctrl+C, SIGTERM, or a terminal
+worker failure, drains the workers, and returns failures. For observable
+readiness and errors, `spawn_per_thread_supervised(addr, router, config)` returns
+a `PerThreadHandle` with `wait_ready()`, `readiness()`, and async `result()`.
+`spawn_per_thread(addr, router, config)` still returns the worker thread handles
+and a `PerThreadShutdown` for explicit control. Enabling
 `per-thread-compio` also selects Compio for all shared runtime-dependent code.
 These entry points live in `tako-rs-server-pt`.
 

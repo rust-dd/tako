@@ -1,13 +1,14 @@
-use std::convert::Infallible;
+#[cfg(feature = "plugins")]
 use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::router::Router;
 
+use crate::PerThreadError;
+use crate::PerThreadErrorKind;
 use crate::config::PerThreadConfig;
 use crate::listener::bind_reuseport_compio;
 use crate::shutdown::PerThreadShutdown;
@@ -22,15 +23,16 @@ pub(crate) fn worker_main_compio(
   router: std::sync::Arc<Router>,
   cfg: PerThreadConfig,
   shutdown: PerThreadShutdown,
-) {
+) -> Result<(), PerThreadError> {
   use std::sync::Arc;
 
   use cyper_core::HyperStream;
   use futures_util::FutureExt;
   use futures_util::StreamExt;
   use tako_rs_core::server_support::Leased;
-  use tako_rs_core::server_support::connection_router;
+  use tako_rs_core::server_support::UpgradeSupervisor;
   use tako_rs_core::server_support::drive_connection;
+  use tako_rs_core::server_support::http_service_with_upgrades;
 
   #[cfg(feature = "affinity")]
   if cfg.pin_to_core {
@@ -62,31 +64,35 @@ pub(crate) fn worker_main_compio(
     Err(e) => {
       tracing::error!("worker {worker_id}: failed to build compio runtime: {e}");
 
-      shutdown.report_bind_failure(io::Error::other(format!(
-        "worker {worker_id}: failed to build compio runtime: {e}"
-      )));
-      return;
+      return Err(PerThreadError::new(
+        worker_id,
+        PerThreadErrorKind::Startup,
+        e,
+      ));
     }
   };
 
-  rt.block_on(async move {
+  let supervisor = shutdown.clone();
+  let accept_loop = async move {
     #[cfg(feature = "plugins")]
     if let Err(error) = router.setup_plugins_once() {
-      shutdown.report_bind_failure(io::Error::other(error.clone()));
-      return;
+      return Err(PerThreadError::new(
+        worker_id,
+        PerThreadErrorKind::Startup,
+        io::Error::other(error.clone()),
+      ));
     }
     let semaphore = cfg
       .max_connections
       .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
     let listener = match bind_reuseport_compio(addr, cfg.backlog) {
       Ok(l) => {
-        shutdown.report_bind_success();
+        shutdown.report_bind_success(worker_id);
         l
       }
       Err(e) => {
         tracing::error!("worker {worker_id}: bind failed: {e}");
-        shutdown.report_bind_failure(e);
-        return;
+        return Err(PerThreadError::new(worker_id, PerThreadErrorKind::Bind, e));
       }
     };
     tracing::debug!("tako-pt-compio worker {worker_id} listening on {addr}");
@@ -104,6 +110,7 @@ pub(crate) fn worker_main_compio(
     let cancel = shutdown.inner.child_token();
     let mut backoff = compio_accept_backoff();
     let mut connections = futures_util::stream::FuturesUnordered::new();
+    let upgrades = UpgradeSupervisor::default();
 
     loop {
       let accept_fut = listener.accept();
@@ -148,29 +155,21 @@ pub(crate) fn worker_main_compio(
         None
       };
       let io = Leased::new(HyperStream::new_plain(stream), permit);
-      let router = connection_router(&router);
+      let service = http_service_with_upgrades(
+        Arc::clone(&router),
+        ConnInfo::tcp(peer),
+        upgrades.registry(),
+      );
       let conn_cancel = cancel.clone();
 
       connections.push(compio::runtime::spawn(async move {
-        let svc = service_fn(move |mut req| {
-          let router = router.clone();
-          async move {
-            req.extensions_mut().insert(peer);
-            req.extensions_mut().insert(ConnInfo::tcp(peer));
-            let resp = router
-              .dispatch(req.map(tako_rs_core::body::TakoBody::new))
-              .await;
-            Ok::<_, Infallible>(resp)
-          }
-        });
-
         let mut http = http1::Builder::new();
         http.keep_alive(true);
         http
           .timer(cyper_core::CompioTimer)
           .header_read_timeout(cfg.header_read_timeout);
         if let Err(err) = drive_connection(
-          http.serve_connection(io, svc).with_upgrades(),
+          http.serve_connection(io, service).with_upgrades(),
           conn_cancel.cancelled(),
           hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown,
         )
@@ -186,15 +185,19 @@ pub(crate) fn worker_main_compio(
       while connections.next().now_or_never().flatten().is_some() {}
     }
 
+    upgrades.trigger();
     if compio::time::timeout(cfg.drain_timeout, async {
       while connections.next().await.is_some() {}
+      upgrades.join().await;
     })
     .await
     .is_err()
     {
+      upgrades.abort();
       for connection in connections {
         connection.cancel().await;
       }
+      upgrades.join().await;
     }
     #[cfg(feature = "signals")]
     tako_rs_core::signals::transport::emit_server_stopped(
@@ -203,5 +206,7 @@ pub(crate) fn worker_main_compio(
       false,
     )
     .await;
-  });
+    Ok(())
+  };
+  supervisor.supervise_runtime(worker_id, || rt.block_on(accept_loop))
 }

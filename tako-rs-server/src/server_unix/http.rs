@@ -13,6 +13,7 @@ use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 #[cfg(feature = "signals")]
@@ -29,9 +30,11 @@ pub(crate) async fn run_http(
   router: Router,
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
+  config.validate()?;
   let listener = bind_unix_listener(path).await?;
-  run_listener(listener, path, router, signal, config).await
+  run_listener(listener, path, router, signal, config, upgrades).await
 }
 
 pub(crate) async fn run_listener(
@@ -40,7 +43,9 @@ pub(crate) async fn run_listener(
   router: Router,
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
+  config.validate()?;
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -101,8 +106,10 @@ pub(crate) async fn run_listener(
         };
 
         let conn_cancel = cancel.clone();
+        let registry = upgrades.registry();
         join_set.spawn(async move {
           let svc = service_fn(move |mut req| {
+            registry.attach(&mut req);
             let router = router.clone();
             let peer_addr = peer_addr.clone();
             async move {
@@ -137,8 +144,10 @@ pub(crate) async fn run_listener(
     }
   }
 
+  upgrades.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
+    upgrades.join().await;
   });
 
   if drain.await.is_err() {
@@ -146,7 +155,9 @@ pub(crate) async fn run_listener(
       "Drain timeout exceeded, aborting {} remaining connections",
       join_set.len()
     );
+    upgrades.abort();
     join_set.shutdown().await;
+    upgrades.join().await;
   }
 
   if !is_abstract_path(path) {

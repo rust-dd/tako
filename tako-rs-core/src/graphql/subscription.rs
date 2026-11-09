@@ -142,7 +142,17 @@ where
       keepalive_timeout,
     } = self;
     if let Some(on_upgrade) = request.extensions_mut().remove::<OnUpgrade>() {
-      ws::spawn_session(on_upgrade, move |socket| {
+      let lease = match request
+        .extensions()
+        .get::<crate::server_support::UpgradeRegistry>()
+      {
+        Some(registry) => match registry.register() {
+          Some(lease) => Some(lease),
+          None => return ws::rejection(StatusCode::SERVICE_UNAVAILABLE),
+        },
+        None => None,
+      };
+      ws::spawn_session(on_upgrade, lease, move |socket| {
         GraphQLWebSocket::new(socket, executor, protocol)
           .with_data(data)
           .on_connection_init(on_connection_init)

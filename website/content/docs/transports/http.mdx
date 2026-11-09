@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
       max_connections: Some(10_000),
       ..ServerConfig::default()
     })
-    .build();
+    .try_build()?;
 
   let handle = server.spawn_http(listener, router);
   tokio::signal::ctrl_c().await?;
@@ -122,6 +122,14 @@ read timeout, keep-alive and keep-alive timeout, HTTP/2 caps, HTTP/3 caps,
 `max_connections`, the PROXY read timeout, and the TLS handshake timeout. Its
 `Default` mirrors the historical hardcoded values (30 s drain, 30 s header read,
 100 H2 streams), so anything you do not set keeps a safe default.
+
+`ServerConfig::validate()` and the builder's `try_build()` return a typed
+`ServerConfigError` with `field()` and `reason()` for invalid settings, such as
+`max_connections: Some(0)`. The existing `build()` remains available and defers
+validation to startup. Every `try_spawn_*` checks the configuration before
+plugin setup or task creation; methods that bind their own sockets validate
+before binding. The corresponding `spawn_*` reports startup failures through
+`ServerHandle::result()`.
 
 ## HTTP/2 cleartext (h2c)
 

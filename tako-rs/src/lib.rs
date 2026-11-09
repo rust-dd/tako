@@ -76,6 +76,7 @@ pub use tako_rs_server::Server;
 #[cfg(not(feature = "compio"))]
 pub use tako_rs_server::ServerBuilder;
 pub use tako_rs_server::ServerConfig;
+pub use tako_rs_server::ServerConfigError;
 pub use tako_rs_server::ServerError;
 pub use tako_rs_server::ServerHandle;
 pub use tako_rs_server::TlsCert;
@@ -235,13 +236,31 @@ pub mod plugins {
 pub use tako_rs_server_pt::PerThreadConfig;
 #[cfg(feature = "per-thread")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadError;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadErrorKind;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadHandle;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadReadiness;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_rs_server_pt::PerThreadShutdown;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::PerThreadWorkerState;
 #[cfg(feature = "per-thread")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_rs_server_pt::serve_per_thread;
 #[cfg(feature = "per-thread")]
 #[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
 pub use tako_rs_server_pt::spawn_per_thread;
+#[cfg(feature = "per-thread")]
+#[cfg_attr(docsrs, doc(cfg(feature = "per-thread")))]
+pub use tako_rs_server_pt::spawn_per_thread_supervised;
 #[cfg(feature = "jemalloc")]
 #[cfg_attr(docsrs, doc(cfg(feature = "jemalloc")))]
 pub use tikv_jemallocator::Jemalloc;

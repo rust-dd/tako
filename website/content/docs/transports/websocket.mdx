@@ -72,6 +72,19 @@ other combinators work. Through `Sink`, `poll_flush` always writes.
 When the handler returns and no `WebSocket` handle is left, tako closes the
 connection with code 1000. A handler that panics closes it with 1011.
 
+## Server shutdown
+
+WebSocket sessions participate in the listener's shutdown on both runtimes,
+including per-thread workers and GraphQL subscriptions. Once draining starts,
+new upgrades return HTTP 503 and existing sessions send close code 1001.
+HTTP connections and WebSocket sessions share the configured drain deadline.
+
+After the deadline, remaining sessions are cancelled and their sockets are
+closed. `ServerHandle::shutdown()` waits for that cleanup before returning,
+including sockets whose WebSocket handles were moved into application tasks.
+Those application tasks remain responsible for their own lifecycle; retained
+handles report a closed connection.
+
 ## Compio
 
 With the `compio` and `ws` features the same code runs on Compio. `WebSocket` is

@@ -32,6 +32,7 @@ pub(crate) struct Driver<F> {
   shared: Shared<Core>,
   handler: Option<Pin<Box<CatchUnwind<AssertUnwindSafe<F>>>>>,
   lifetime: Option<Sleep>,
+  shutdown: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
   close_timer: Option<Sleep>,
   phase: Phase,
 }
@@ -42,9 +43,15 @@ impl<F: Future<Output = ()>> Driver<F> {
       shared,
       handler: Some(Box::pin(AssertUnwindSafe(handler).catch_unwind())),
       lifetime: max_lifetime.map(sleep),
+      shutdown: None,
       close_timer: None,
       phase: Phase::Running,
     }
+  }
+
+  pub(crate) fn with_shutdown(mut self, registry: crate::server_support::UpgradeRegistry) -> Self {
+    self.shutdown = Some(Box::pin(async move { registry.stopping().await }));
+    self
   }
 
   fn close(&mut self, code: CloseCode) {
@@ -64,6 +71,10 @@ impl<F: Future<Output = ()>> Driver<F> {
       .lifetime
       .as_mut()
       .is_some_and(|lifetime| lifetime.as_mut().poll(cx).is_ready())
+      || self
+        .shutdown
+        .as_mut()
+        .is_some_and(|shutdown| shutdown.as_mut().poll(cx).is_ready())
   }
 
   fn poll_handler(&mut self, cx: &mut Context<'_>) -> Poll<()> {
@@ -149,3 +160,9 @@ impl<F: Future<Output = ()>> Future for Driver<F> {
 
 #[cfg(test)]
 mod tests;
+
+impl<F> Drop for Driver<F> {
+  fn drop(&mut self) {
+    lock(&self.shared).terminate();
+  }
+}

@@ -21,6 +21,7 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::UnixPeerAddr;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeRegistry;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
@@ -122,8 +123,9 @@ impl Peer {
 }
 
 /// Per-connection limits copied out of [`ServerConfig`] once per server.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct ConnectionSettings {
+  upgrades: Option<UpgradeRegistry>,
   keep_alive: bool,
   header_read_timeout: Option<Duration>,
   #[cfg(feature = "http2")]
@@ -135,6 +137,7 @@ pub(crate) struct ConnectionSettings {
 impl From<&ServerConfig> for ConnectionSettings {
   fn from(config: &ServerConfig) -> Self {
     Self {
+      upgrades: None,
       keep_alive: config.keep_alive,
       header_read_timeout: config.header_read_timeout,
       #[cfg(feature = "http2")]
@@ -142,6 +145,13 @@ impl From<&ServerConfig> for ConnectionSettings {
       #[cfg(feature = "proxy-protocol")]
       proxy_read_timeout: config.proxy_read_timeout,
     }
+  }
+}
+
+impl ConnectionSettings {
+  pub(crate) fn with_upgrades(mut self, upgrades: UpgradeRegistry) -> Self {
+    self.upgrades = Some(upgrades);
+    self
   }
 }
 
@@ -178,6 +188,9 @@ pub(crate) async fn serve_connection<S>(
   let wire = protocol.wire();
   let io = Leased::new(HyperStream::new_plain(stream), permit);
   let svc = service_fn(move |mut req| {
+    if let Some(upgrades) = &settings.upgrades {
+      upgrades.attach(&mut req);
+    }
     peer.annotate(&mut req, wire);
     let router = router.clone();
     async move {

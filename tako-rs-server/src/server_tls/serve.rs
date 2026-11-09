@@ -12,8 +12,9 @@ use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::drive_connection;
-use tako_rs_core::server_support::http_service;
+use tako_rs_core::server_support::http_service_with_upgrades;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -34,6 +35,26 @@ pub async fn run_with_config(
   signal: Option<impl Future<Output = ()> + Send + 'static>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  run_supervised(
+    listener,
+    router,
+    tls_config,
+    signal,
+    config,
+    UpgradeSupervisor::default(),
+  )
+  .await
+}
+
+pub(crate) async fn run_supervised(
+  listener: TcpListener,
+  router: Router,
+  tls_config: Arc<RustlsServerConfig>,
+  signal: Option<impl Future<Output = ()> + Send + 'static>,
+  config: ServerConfig,
+  upgrades: UpgradeSupervisor,
+) -> Result<(), BoxError> {
+  config.validate()?;
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -101,6 +122,7 @@ pub async fn run_with_config(
         let _ = stream.set_nodelay(true);
         let acceptor = acceptor.clone();
         let router = Arc::clone(&router);
+        let registry = upgrades.registry();
 
         let conn_cancel = cancel.clone();
         join_set.spawn(async move {
@@ -162,7 +184,7 @@ pub async fn run_with_config(
 
           let io = TokioIo::new(Leased::new(tls_stream, permit));
 
-          let svc = http_service(router, conn_info);
+          let svc = http_service_with_upgrades(router, conn_info, registry);
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {
@@ -204,8 +226,10 @@ pub async fn run_with_config(
     }
   }
 
+  upgrades.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
+    upgrades.join().await;
   });
 
   if drain.await.is_err() {
@@ -214,7 +238,9 @@ pub async fn run_with_config(
       drain_timeout,
       join_set.len()
     );
+    upgrades.abort();
     join_set.shutdown().await;
+    upgrades.join().await;
   }
 
   tracing::info!("TLS server shut down gracefully");

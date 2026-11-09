@@ -69,6 +69,7 @@ impl ConnActivity {
 pub struct ConnCtx {
   router: Arc<Router>,
   peer: SocketAddr,
+  upgrades: Option<super::UpgradeRegistry>,
   /// Request activity the header deadline watches; shared with the bodies of
   /// streamed responses.
   pub activity: Arc<ConnActivity>,
@@ -79,8 +80,14 @@ impl ConnCtx {
     Self {
       router,
       peer,
+      upgrades: None,
       activity: Arc::default(),
     }
+  }
+
+  pub fn with_upgrades(mut self, upgrades: super::UpgradeRegistry) -> Self {
+    self.upgrades = Some(upgrades);
+    self
   }
 }
 
@@ -135,7 +142,10 @@ where
   hyper::service::service_fn(move |req: hyper::Request<Incoming>| {
     let ctx = ctx.clone();
     ctx.activity.request_started();
-    let req = req.map(TakoBody::incoming);
+    let mut req = req.map(TakoBody::incoming);
+    if let Some(upgrades) = &ctx.upgrades {
+      upgrades.attach(&mut req);
+    }
     // Boxing the full pipeline keeps this future small: hyper moves it into
     // place on every request, and the full pipeline's state is large.
     let pending = match ctx.router.begin(req, Some(ctx.peer)) {

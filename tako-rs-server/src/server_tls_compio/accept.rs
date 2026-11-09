@@ -21,6 +21,7 @@ use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::server_support::sanitize_response;
 #[cfg(feature = "signals")]
@@ -42,6 +43,26 @@ pub async fn run_with_config(
   signal: Option<impl Future<Output = ()>>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  run_supervised(
+    listener,
+    router,
+    tls_config,
+    signal,
+    config,
+    UpgradeSupervisor::default(),
+  )
+  .await
+}
+
+pub(crate) async fn run_supervised(
+  listener: TcpListener,
+  router: Router,
+  tls_config: Arc<RustlsServerConfig>,
+  signal: Option<impl Future<Output = ()>>,
+  config: ServerConfig,
+  upgrades: UpgradeSupervisor,
+) -> Result<(), BoxError> {
+  config.validate()?;
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -124,6 +145,7 @@ pub async fn run_with_config(
         let router = router.clone();
 
         let conn_cancel = cancel.clone();
+        let registry = upgrades.registry();
 
         connections.push(compio::runtime::spawn(async move {
           let handshake_deadline = std::pin::pin!(compio::time::sleep(tls_handshake_timeout));
@@ -184,6 +206,7 @@ pub async fn run_with_config(
           let io = Leased::new(HyperStream::new_tls(tls_stream), permit);
 
           let svc = service_fn(move |mut req| {
+            registry.attach(&mut req);
             let r = router.clone();
             let conn_info = conn_info.clone();
             async move {
@@ -252,16 +275,20 @@ pub async fn run_with_config(
   }
 
   cancel.cancel();
+  upgrades.trigger();
   if compio::time::timeout(drain_timeout, async {
     while connections.next().await.is_some() {}
+    upgrades.join().await;
   })
   .await
   .is_err()
   {
     tracing::warn!("drain timeout exceeded; cancelling remaining connections");
+    upgrades.abort();
     for connection in connections {
       connection.cancel().await;
     }
+    upgrades.join().await;
   }
 
   tracing::info!("TLS server shut down gracefully");

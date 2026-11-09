@@ -10,6 +10,7 @@ use tako_rs_core::server_support::ConnDriver;
 use tako_rs_core::server_support::Http1Io;
 use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::ShutdownSignal;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::tcp_service;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
@@ -27,7 +28,9 @@ pub(crate) async fn run(
   router: Router,
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
+  config.validate()?;
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -89,7 +92,7 @@ pub(crate) async fn run(
         };
 
         let _ = stream.set_nodelay(true);
-        let ctx = Arc::new(ConnCtx::new(Arc::clone(&router), addr));
+        let ctx = Arc::new(ConnCtx::new(Arc::clone(&router), addr).with_upgrades(upgrades.registry()));
         let io = Http1Io::new(
           hyper_util::rt::TokioIo::new(Leased::new(stream, permit)),
           Arc::clone(&ctx.activity),
@@ -134,8 +137,10 @@ pub(crate) async fn run(
   }
 
   stopping.trigger();
+  upgrades.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
+    upgrades.join().await;
   });
 
   if drain.await.is_err() {
@@ -144,7 +149,9 @@ pub(crate) async fn run(
       drain_timeout,
       join_set.len()
     );
+    upgrades.abort();
     join_set.shutdown().await;
+    upgrades.join().await;
   }
 
   tracing::info!("Server shut down gracefully");

@@ -9,6 +9,7 @@ mod config;
 pub use config::AcceptBackoff;
 pub use config::H3Congestion;
 pub use config::ServerConfig;
+pub use config::ServerConfigError;
 
 #[cfg(not(feature = "compio"))]
 mod server;

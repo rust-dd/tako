@@ -10,6 +10,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
@@ -24,7 +25,9 @@ pub(crate) async fn run_proxy_http(
   router: Router,
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
+  config.validate()?;
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -90,6 +93,7 @@ pub(crate) async fn run_proxy_http(
         let router = connection_router(&router);
 
         let conn_cancel = cancel.clone();
+        let registry = upgrades.registry();
         join_set.spawn(async move {
 
           let handshake = tokio::select! {
@@ -115,6 +119,7 @@ pub(crate) async fn run_proxy_http(
           let io = hyper_util::rt::TokioIo::new(Leased::new(stream, permit));
 
           let svc = service_fn(move |mut req| {
+            registry.attach(&mut req);
             apply_to_request(&mut req, &proxy_header);
             let router = router.clone();
             async move {
@@ -146,8 +151,10 @@ pub(crate) async fn run_proxy_http(
     }
   }
 
+  upgrades.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
+    upgrades.join().await;
   });
 
   if drain.await.is_err() {
@@ -155,7 +162,9 @@ pub(crate) async fn run_proxy_http(
       "Drain timeout exceeded, aborting {} remaining connections",
       join_set.len()
     );
+    upgrades.abort();
     join_set.shutdown().await;
+    upgrades.join().await;
   }
 
   tracing::info!("PROXY protocol HTTP server shut down gracefully");

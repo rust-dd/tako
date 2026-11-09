@@ -11,6 +11,7 @@ use tako_rs_core::server_support::ConnDriver;
 use tako_rs_core::server_support::Http1Io;
 use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::ShutdownSignal;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::tcp_service;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
@@ -18,6 +19,8 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::task::LocalSet;
 
+use crate::PerThreadError;
+use crate::PerThreadErrorKind;
 use crate::balance::Handoff;
 use crate::balance::LiveConnection;
 use crate::balance::WorkerBalance;
@@ -32,7 +35,7 @@ pub(crate) fn worker_main(
   cfg: PerThreadConfig,
   shutdown: PerThreadShutdown,
   balance: Option<WorkerBalance>,
-) {
+) -> Result<(), PerThreadError> {
   #[cfg(feature = "affinity")]
   if cfg.pin_to_core {
     if let Some(ids) = core_affinity::get_core_ids() {
@@ -63,20 +66,25 @@ pub(crate) fn worker_main(
     Err(e) => {
       tracing::error!("worker {worker_id}: failed to build runtime: {e}");
 
-      shutdown.report_bind_failure(io::Error::other(format!(
-        "worker {worker_id}: failed to build runtime: {e}"
-      )));
-      return;
+      return Err(PerThreadError::new(
+        worker_id,
+        PerThreadErrorKind::Startup,
+        e,
+      ));
     }
   };
 
+  let supervisor = shutdown.clone();
   // The accept loop runs as its own task, so the `LocalSet` re-polls only its
   // join handle, not the whole accept `select!`, each time a connection wakes.
   let accept_loop = async move {
     #[cfg(feature = "plugins")]
     if let Err(error) = router.setup_plugins_once() {
-      shutdown.report_bind_failure(io::Error::other(error.clone()));
-      return;
+      return Err(PerThreadError::new(
+        worker_id,
+        PerThreadErrorKind::Startup,
+        io::Error::other(error.clone()),
+      ));
     }
     let mut backoff = Duration::from_millis(5);
     let semaphore = cfg
@@ -88,18 +96,17 @@ pub(crate) fn worker_main(
     };
     let listener = match bind_reuseport(addr, cfg.backlog) {
       Ok(listener) => {
-        shutdown.report_bind_success();
+        shutdown.report_bind_success(worker_id);
         Some(listener)
       }
       Err(e) if balancer.is_some() => {
         tracing::warn!("worker {worker_id}: bind failed, serving handed-over connections: {e}");
-        shutdown.report_bind_failure(e);
+        shutdown.report_handoff_only(worker_id, e);
         None
       }
       Err(e) => {
         tracing::error!("worker {worker_id}: bind failed: {e}");
-        shutdown.report_bind_failure(e);
-        return;
+        return Err(PerThreadError::new(worker_id, PerThreadErrorKind::Bind, e));
       }
     };
     tracing::debug!("tako-pt worker {worker_id} listening on {addr}");
@@ -118,6 +125,7 @@ pub(crate) fn worker_main(
 
     let mut connection_handles = tokio::task::JoinSet::new();
     let stopping = Arc::new(ShutdownSignal::default());
+    let upgrades = UpgradeSupervisor::default();
 
     loop {
       let (stream, peer, live) = tokio::select! {
@@ -171,7 +179,7 @@ pub(crate) fn worker_main(
       } else {
         None
       };
-      let ctx = Rc::new(ConnCtx::new(Arc::clone(&router), peer));
+      let ctx = Rc::new(ConnCtx::new(Arc::clone(&router), peer).with_upgrades(upgrades.registry()));
       let io = Http1Io::new(
         hyper_util::rt::TokioIo::new(Leased::new(stream, (live, permit))),
         Arc::clone(&ctx.activity),
@@ -207,23 +215,34 @@ pub(crate) fn worker_main(
     }
 
     stopping.trigger();
+    upgrades.trigger();
     let drain = tokio::time::timeout(cfg.drain_timeout, async {
       while connection_handles.join_next().await.is_some() {}
+      upgrades.join().await;
     });
     if drain.await.is_err() {
+      upgrades.abort();
       connection_handles.shutdown().await;
+      upgrades.join().await;
     }
     #[cfg(feature = "signals")]
     tako_rs_core::signals::transport::emit_server_stopped(&local_addr, "tcp", false).await;
+    Ok(())
   };
   let local = LocalSet::new();
-  local.block_on(&rt, async move {
-    if let Err(error) = tokio::task::spawn_local(accept_loop).await
-      && error.is_panic()
-    {
-      std::panic::resume_unwind(error.into_panic());
-    }
-  });
+  supervisor.supervise_runtime(worker_id, || {
+    local.block_on(&rt, async move {
+      match tokio::task::spawn_local(accept_loop).await {
+        Ok(result) => result,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => Err(PerThreadError::new(
+          worker_id,
+          PerThreadErrorKind::Io,
+          io::Error::other(error),
+        )),
+      }
+    })
+  })
 }
 
 async fn accept(listener: Option<&TcpListener>) -> io::Result<(TcpStream, SocketAddr)> {
