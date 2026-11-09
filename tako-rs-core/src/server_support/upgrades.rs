@@ -7,7 +7,7 @@ use tokio::sync::Notify;
 #[cfg(all(test, feature = "ws"))]
 mod tests;
 
-/// Owns upgraded sessions for one server or worker, including after HTTP hands off the IO.
+/// Owns upgraded sessions and aborts them on drop.
 #[derive(Default)]
 pub struct UpgradeSupervisor {
   registry: UpgradeRegistry,
@@ -34,7 +34,6 @@ struct State {
 }
 
 impl UpgradeSupervisor {
-  /// Shares a registry with an outer task that also awaits cancelled sessions.
   pub fn new(registry: UpgradeRegistry) -> Self {
     Self { registry }
   }
@@ -49,7 +48,7 @@ impl UpgradeSupervisor {
     self.registry.0.stopping.notify_waiters();
   }
 
-  /// Cancels remaining sessions on their next poll, releasing their underlying sockets.
+  /// Cancels sessions on their next poll; [`Self::join`] waits for socket cleanup.
   pub fn abort(&self) {
     self.trigger();
     let tasks = self
@@ -62,12 +61,12 @@ impl UpgradeSupervisor {
       .flatten()
       .cloned()
       .collect::<Vec<_>>();
+
     for task in tasks {
       task.abort();
     }
   }
 
-  /// Waits until all registered session futures have been dropped.
   pub async fn join(&self) {
     self.registry.join().await;
   }
@@ -86,13 +85,16 @@ impl UpgradeRegistry {
       let notified = self.0.drained.notified();
       tokio::pin!(notified);
       notified.as_mut().enable();
+
       if self.0.state.lock().active == 0 {
         return;
       }
+
       notified.await;
     }
   }
-  /// Adds lifecycle metadata only when Hyper offers an HTTP upgrade.
+
+  /// Attaches the registry to requests that support HTTP upgrades.
   pub fn attach<B>(
     &self,
     #[cfg_attr(not(feature = "ws"), allow(unused_variables))] request: &mut http::Request<B>,
@@ -113,6 +115,7 @@ impl UpgradeRegistry {
     if state.stopping {
       return None;
     }
+
     let (handle, registration) = AbortHandle::new_pair();
     let slot = if let Some(slot) = state.free.pop() {
       state.tasks[slot] = Some(handle);
@@ -122,6 +125,7 @@ impl UpgradeRegistry {
       state.tasks.len() - 1
     };
     state.active += 1;
+
     Some(UpgradeSession {
       registry: self.clone(),
       slot,
@@ -135,9 +139,11 @@ impl UpgradeRegistry {
       let notified = self.0.stopping.notified();
       tokio::pin!(notified);
       notified.as_mut().enable();
+
       if self.0.state.lock().stopping {
         return;
       }
+
       notified.await;
     }
   }
@@ -169,6 +175,7 @@ impl Drop for UpgradeSession {
     state.tasks[self.slot] = None;
     state.free.push(self.slot);
     state.active -= 1;
+
     if state.active == 0 {
       self.registry.0.drained.notify_waiters();
     }

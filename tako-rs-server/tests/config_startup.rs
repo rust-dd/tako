@@ -46,6 +46,7 @@ async fn check_startup() {
     .try_spawn_http(listener, router)
     .err()
     .unwrap();
+
   assert_eq!(
     error.downcast_ref::<ServerConfigError>().unwrap().field(),
     "max_connections"

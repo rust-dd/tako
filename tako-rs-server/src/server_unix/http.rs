@@ -33,6 +33,7 @@ pub(crate) async fn run_http(
   upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   let listener = bind_unix_listener(path).await?;
   run_listener(listener, path, router, signal, config, upgrades).await
 }
@@ -46,6 +47,7 @@ pub(crate) async fn run_listener(
   upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]

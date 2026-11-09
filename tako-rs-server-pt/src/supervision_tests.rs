@@ -28,6 +28,7 @@ fn post_startup_panic(id: usize, router: std::sync::Arc<Router>, shutdown: PerTh
         controls.fail.cancelled().await;
         panic!("failure after readiness");
       }
+
       controls.peer_ready.cancel();
       shutdown.notified().await;
       controls.release_peer.cancelled().await;
@@ -63,12 +64,14 @@ async fn post_startup_panic_clears_readiness_and_reports_before_peers_finish() {
   handle.wait_ready().await.unwrap();
   controls.peer_ready.cancelled().await;
   assert!(readiness.is_ready());
+
   controls.fail.cancel();
   let result = tokio::time::timeout(Duration::from_secs(1), handle.result()).await;
   controls.release_peer.cancel();
   let error = result
     .expect("result must not wait for a draining peer")
     .unwrap_err();
+
   assert_eq!(error.kind(), PerThreadErrorKind::Panic);
   assert_eq!(error.worker_id(), 0);
   assert!(!readiness.is_ready());
@@ -104,16 +107,19 @@ async fn startup_and_io_failures_reach_every_result_observer() {
     .unwrap();
     let handle = PerThreadHandle::new(workers, shutdown);
     let ready = tokio::time::timeout(Duration::from_secs(1), handle.wait_ready()).await;
+
     assert!(ready.unwrap().is_err());
     for _ in 0..2 {
       assert_eq!(handle.result().await.unwrap_err().kind(), kind);
     }
+
     assert_eq!(handle.join().unwrap_err().kind(), kind);
   }
 }
 
 fn injected_error(id: usize, router: std::sync::Arc<Router>) -> Result<(), PerThreadError> {
   let kind = *router.router_state().get::<PerThreadErrorKind>().unwrap();
+
   Err(PerThreadError::new(
     id,
     kind,
@@ -138,6 +144,7 @@ async fn unexpected_return_is_a_terminal_failure() {
   .unwrap();
   let handle = PerThreadHandle::new(workers, shutdown);
   let result = tokio::time::timeout(Duration::from_secs(1), handle.result()).await;
+
   assert_eq!(
     result.unwrap().unwrap_err().kind(),
     PerThreadErrorKind::UnexpectedExit
@@ -169,6 +176,7 @@ fn serving_returns_worker_failure_without_waiting_for_an_os_signal() {
       .unwrap();
   });
   let result = received.recv_timeout(Duration::from_secs(1));
+
   assert!(
     result
       .expect("serving waited for an OS signal after worker failure")
@@ -196,6 +204,7 @@ async fn one_failed_bind_does_not_stop_a_listening_worker() {
   let readiness = handle.readiness();
   handle.wait_ready().await.unwrap();
   assert!(readiness.is_ready());
+
   handle.shutdown();
   assert!(!readiness.is_ready());
   handle.result().await.unwrap();
@@ -214,6 +223,7 @@ fn bind_or_wait(id: usize, shutdown: PerThreadShutdown) -> Result<(), PerThreadE
       std::io::Error::new(std::io::ErrorKind::AddrInUse, "occupied listener"),
     ));
   }
+
   shutdown.report_bind_success(id);
   tokio::runtime::Builder::new_current_thread()
     .build()
@@ -248,6 +258,7 @@ async fn worker_panic_cancels_its_peers() {
   for worker in workers {
     let _ = worker.join();
   }
+
   assert!(
     stopped.is_ok(),
     "worker panic did not stop surviving workers"
@@ -282,6 +293,7 @@ async fn panic_before_bind_wakes_readiness_waiters() {
     shutdown.wait_for_bind_outcome(1),
   )
   .await;
+
   shutdown.trigger();
   for worker in workers {
     assert!(
@@ -289,6 +301,7 @@ async fn panic_before_bind_wakes_readiness_waiters() {
       "legacy thread joins must preserve worker panics"
     );
   }
+
   assert!(ready.is_ok(), "worker panic left readiness pending forever");
   assert!(ready.unwrap().is_err());
 }

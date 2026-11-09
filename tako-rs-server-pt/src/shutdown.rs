@@ -4,7 +4,7 @@ use crate::PerThreadError;
 use crate::PerThreadErrorKind;
 use crate::PerThreadReadiness;
 
-/// Stops per-thread workers. The signal is sticky, so workers that start waiting later see it.
+/// Sticky shutdown signal: workers that start waiting later still receive it.
 #[derive(Clone)]
 pub struct PerThreadShutdown {
   pub(crate) inner: tokio_util::sync::CancellationToken,
@@ -19,7 +19,7 @@ impl PerThreadShutdown {
     }
   }
 
-  /// Clears readiness and tells every worker to stop accepting and drain.
+  /// Clears readiness and starts draining all workers.
   pub fn trigger(&self) {
     self.readiness.stop();
     self.inner.cancel();
@@ -65,11 +65,13 @@ impl PerThreadShutdown {
         } else {
           result
         };
+
         if let Err(error) = &result
           && self.readiness.failed(worker_id, error.clone())
         {
           self.trigger();
         }
+
         result
       }
       Err(payload) => {
@@ -83,8 +85,7 @@ impl PerThreadShutdown {
     }
   }
 
-  /// Waits for a listener or a terminal failure. `total` is retained for source compatibility;
-  /// the actual worker count is recorded when spawning. Shutdown also wakes this wait.
+  /// Waits for readiness, failure, or shutdown. `total` is ignored; spawning sets the count.
   pub async fn wait_for_bind_outcome(&self, _total: usize) -> io::Result<()> {
     self.readiness.wait_ready().await
   }

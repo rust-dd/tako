@@ -82,6 +82,7 @@ pub(crate) fn worker_main_compio(
         io::Error::other(error.clone()),
       ));
     }
+
     let semaphore = cfg
       .max_connections
       .map(|n| Arc::new(tokio::sync::Semaphore::new(n)));
@@ -199,6 +200,7 @@ pub(crate) fn worker_main_compio(
       }
       upgrades.join().await;
     }
+
     #[cfg(feature = "signals")]
     tako_rs_core::signals::transport::emit_server_stopped(
       &listener.local_addr().unwrap_or(addr).to_string(),
@@ -208,5 +210,6 @@ pub(crate) fn worker_main_compio(
     .await;
     Ok(())
   };
+
   supervisor.supervise_runtime(worker_id, || rt.block_on(accept_loop))
 }

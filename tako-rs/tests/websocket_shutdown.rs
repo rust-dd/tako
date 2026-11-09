@@ -60,6 +60,7 @@ fn client(
         assert!(head.len() < 8192);
       }
       assert!(head.starts_with(b"HTTP/1.1 101"));
+
       let _ = ready.send(());
       let mut frames = Vec::new();
       stream.read_to_end(&mut frames)?;
@@ -82,6 +83,7 @@ async fn shutdown_sends_going_away_and_closes_the_session() {
   let server = serve(router).await;
   let (thread, ready, done) = client(server.local_addr().unwrap());
   ready.await.unwrap();
+
   server.shutdown(Duration::from_secs(1)).await;
   let frames = done.await.unwrap();
   thread.join().unwrap();
@@ -113,6 +115,7 @@ async fn forced_shutdown_closes_a_socket_retained_by_another_task() {
   let (thread, ready, done) = client(server.local_addr().unwrap());
   ready.await.unwrap();
   started_rx.recv().await.unwrap();
+
   server.shutdown(Duration::ZERO).await;
   let frames = done.await.unwrap();
   thread.join().unwrap();
@@ -151,6 +154,7 @@ async fn shutdown_returns_only_after_the_session_handler_is_dropped() {
   let (thread, upgraded, done) = client(server.local_addr().unwrap());
   upgraded.await.unwrap();
   ready.recv().await.unwrap();
+
   server.shutdown(Duration::ZERO).await;
   assert!(dropped.load(Ordering::SeqCst));
   done.await.unwrap().unwrap();
@@ -179,6 +183,7 @@ async fn a_handler_constructor_panic_closes_a_retained_socket() {
   ready.await.unwrap();
   let frames = done.await.unwrap().unwrap();
   thread.join().unwrap();
+
   assert_eq!(frames, [0x88, 2, 0x03, 0xF3]);
   server.shutdown(Duration::from_secs(1)).await;
 }

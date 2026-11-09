@@ -63,6 +63,7 @@ pub(crate) async fn run_supervised(
   upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 

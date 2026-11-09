@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use super::ServerConfig;
 
-/// A server setting that cannot be used safely by the transport implementations.
+/// Invalid server configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerConfigError {
   field: &'static str,
@@ -15,12 +15,10 @@ impl ServerConfigError {
     Self { field, reason }
   }
 
-  /// The name of the invalid [`ServerConfig`] field.
   pub const fn field(&self) -> &'static str {
     self.field
   }
 
-  /// The constraint that the setting must satisfy.
   pub const fn reason(&self) -> &'static str {
     self.reason
   }
@@ -41,11 +39,10 @@ impl From<ServerConfigError> for std::io::Error {
 }
 
 impl ServerConfig {
-  /// Checks limits before a server binds sockets, initializes plugins, or starts tasks.
+  /// Validates limits and deadlines before startup.
   ///
-  /// Zero shutdown and handshake deadlines remain valid immediate-expiry policies. A zero
-  /// HTTP/3 idle timeout disables that timeout, as defined by QUIC. Protocol stream, header,
-  /// and send-buffer limits may be zero to preserve explicit throttling policies.
+  /// Zero shutdown and handshake deadlines expire immediately; zero disables HTTP/3 idle timeout.
+  /// Protocol stream, header, and send-buffer limits may also be zero.
   pub fn validate(&self) -> Result<(), ServerConfigError> {
     if let Some(limit) = self.max_connections
       && (limit == 0 || limit > tokio::sync::Semaphore::MAX_PERMITS)
@@ -55,12 +52,14 @@ impl ServerConfig {
         "must be between 1 and tokio::sync::Semaphore::MAX_PERMITS",
       ));
     }
+
     if self.h2_max_send_buf_size > u32::MAX as usize {
       return Err(ServerConfigError::new(
         "h2_max_send_buf_size",
         "must be at most u32::MAX",
       ));
     }
+
     if let Some(timeout) = self.h3_max_idle_timeout
       && timeout.as_millis() > (1_u128 << 62) - 1
     {
@@ -69,6 +68,7 @@ impl ServerConfig {
         "must fit in a QUIC variable-length integer of milliseconds",
       ));
     }
+
     let now = Instant::now();
     for (field, timeout) in [
       ("drain_timeout", Some(self.drain_timeout)),
@@ -88,6 +88,7 @@ impl ServerConfig {
         ));
       }
     }
+
     Ok(())
   }
 }

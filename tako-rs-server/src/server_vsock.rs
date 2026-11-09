@@ -33,6 +33,7 @@ pub(crate) async fn run_listener(
   upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]

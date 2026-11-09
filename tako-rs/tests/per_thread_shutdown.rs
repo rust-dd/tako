@@ -32,6 +32,7 @@ async fn worker_shutdown_sends_websocket_going_away_before_closing() {
   )
   .unwrap();
   shutdown.wait_for_bind_outcome(1).await.unwrap();
+
   let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
   client.write_all(b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n").await.unwrap();
   let mut head = Vec::new();
@@ -39,6 +40,7 @@ async fn worker_shutdown_sends_websocket_going_away_before_closing() {
     head.push(client.read_u8().await.unwrap());
   }
   assert!(head.starts_with(b"HTTP/1.1 101"));
+
   shutdown.trigger();
   let mut frames = Vec::new();
   let closed = tokio::time::timeout(Duration::from_secs(2), client.read_to_end(&mut frames)).await;

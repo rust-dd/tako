@@ -28,6 +28,7 @@ pub(crate) async fn run_proxy_http(
   upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]

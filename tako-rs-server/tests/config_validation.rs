@@ -22,12 +22,14 @@ async fn unrepresentable_timeouts_are_rejected_before_http_startup() {
       },
     ),
   ];
+
   for (field, config) in cases {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let result = Server::builder()
       .config(config)
       .build()
       .try_spawn_http(listener, Router::new());
+
     assert!(result.is_err(), "invalid {field} started HTTP");
   }
 }
@@ -43,6 +45,7 @@ async fn invalid_connection_limit_is_rejected_before_http_startup() {
       })
       .build()
       .try_spawn_http(listener, Router::new());
+
     assert!(
       result.is_err(),
       "invalid max_connections {limit} started HTTP"
@@ -60,6 +63,7 @@ fn invalid_configuration_is_rejected_before_raw_tcp_binding() {
     .build()
     .try_spawn_tcp_raw("invalid socket address", |_, _| Box::pin(async { Ok(()) }));
   let error = result.expect_err("invalid configuration must fail");
+
   assert!(
     error.to_string().contains("max_connections"),
     "configuration must be checked before attempting to bind: {error}"

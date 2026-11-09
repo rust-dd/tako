@@ -32,11 +32,13 @@ async fn raw_tcp_waits_for_capacity_and_shutdown_cancels_the_active_handler() {
     })
     .unwrap();
   let address = handle.local_addr().unwrap();
+
   let _first = TcpStream::connect(address).await.unwrap();
   tokio::time::timeout(Duration::from_secs(1), received.recv())
     .await
     .unwrap()
     .unwrap();
+
   let mut second = TcpStream::connect(address).await.unwrap();
   assert!(
     tokio::time::timeout(Duration::from_millis(75), received.recv())
@@ -44,11 +46,13 @@ async fn raw_tcp_waits_for_capacity_and_shutdown_cancels_the_active_handler() {
       .is_err(),
     "a second raw TCP handler started while max_connections was exhausted"
   );
+
   release.add_permits(1);
   tokio::time::timeout(Duration::from_secs(1), received.recv())
     .await
     .unwrap()
     .unwrap();
+
   handle.trigger();
   tokio::time::timeout(Duration::from_secs(1), handle.result())
     .await
@@ -81,6 +85,7 @@ async fn raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
     .unwrap();
   let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
   let address = handle.local_addr().unwrap();
+
   socket.send_to(b"first", address).await.unwrap();
   assert_eq!(
     tokio::time::timeout(Duration::from_secs(1), received.recv())
@@ -89,6 +94,7 @@ async fn raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
       .unwrap(),
     b"first"
   );
+
   for _ in 0..32 {
     socket.send_to(b"excess", address).await.unwrap();
   }
@@ -98,6 +104,7 @@ async fn raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
       .is_err(),
     "UDP started excess handlers instead of dropping datagrams"
   );
+
   release.add_permits(1);
   tokio::time::sleep(Duration::from_millis(20)).await;
   socket.send_to(b"after", address).await.unwrap();
@@ -109,6 +116,7 @@ async fn raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
     b"after",
     "datagrams received at capacity must not be queued for later handlers"
   );
+
   handle.trigger();
   tokio::time::timeout(Duration::from_secs(1), handle.result())
     .await

@@ -80,7 +80,7 @@ where
   .await
 }
 
-/// Runs raw Unix sockets with validated connection limits and a shutdown drain deadline.
+/// Enforces the configured connection limit and drain timeout.
 pub async fn serve_unix_with_config<F, S>(
   path: impl AsRef<Path>,
   handler: F,
@@ -98,6 +98,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   let path = path.as_ref();
   let listener = bind_unix_listener(path).await?;
   run_listener(listener, path, handler, signal, config).await
@@ -121,6 +122,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   tracing::info!("Unix socket server listening on {}", path.display());
 
   #[cfg(feature = "signals")]

@@ -5,17 +5,15 @@ use std::sync::Mutex;
 use crate::PerThreadError;
 use crate::PerThreadErrorKind;
 
-/// Current state of a worker; vector positions returned by `workers()` are worker IDs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PerThreadWorkerState {
   Starting,
-  /// Owns a listener and can receive connections.
   Listening,
-  /// Serves connections handed over by another Tokio worker after its own bind failed.
+  /// Receives handoffs from other Tokio workers after its own bind failed.
   HandoffOnly,
   Stopped,
-  /// Has failed; runtime cleanup may still be running until the worker thread is joined.
+  /// Failed, but runtime cleanup may still be running.
   Failed,
 }
 
@@ -35,6 +33,7 @@ impl State {
     } else {
       self.failure.get_or_insert(error);
     }
+
     self.check_bind_failure();
   }
 
@@ -63,10 +62,8 @@ struct Shared {
   notify: tokio::sync::Notify,
 }
 
-/// A clonable, runtime-independent readiness snapshot suitable for a Healthcheck probe.
-///
-/// Readiness requires a listening worker and clears immediately on shutdown or a terminal
-/// failure. A tolerated bind failure does not clear it while another worker is listening.
+/// Shared readiness for health probes. Requires a listener and clears on shutdown or
+/// terminal failure; a bind failure is tolerated while another worker listens.
 #[derive(Clone)]
 pub struct PerThreadReadiness {
   shared: Arc<Shared>,
@@ -100,7 +97,7 @@ impl PerThreadReadiness {
     self.state().is_ready()
   }
 
-  /// Returns one state per configured worker, in worker ID order.
+  /// States indexed by worker ID.
   pub fn workers(&self) -> Vec<PerThreadWorkerState> {
     self.state().workers.clone()
   }
@@ -116,14 +113,17 @@ impl PerThreadReadiness {
       let notified = self.shared.notify.notified();
       tokio::pin!(notified);
       notified.as_mut().enable();
+
       {
         let state = self.state();
         if let Some(error) = &state.failure {
           return Err(error.clone().into());
         }
+
         if state.is_ready() {
           return Ok(());
         }
+
         if state.stopping || state.remaining == 0 {
           return Err(io::Error::new(
             io::ErrorKind::Interrupted,
@@ -131,6 +131,7 @@ impl PerThreadReadiness {
           ));
         }
       }
+
       notified.await;
     }
   }
@@ -140,15 +141,18 @@ impl PerThreadReadiness {
       let notified = self.shared.notify.notified();
       tokio::pin!(notified);
       notified.as_mut().enable();
+
       {
         let state = self.state();
         if let Some(error) = &state.failure {
           return Err(error.clone());
         }
+
         if state.remaining == 0 {
           return Ok(());
         }
       }
+
       notified.await;
     }
   }
@@ -174,6 +178,7 @@ impl PerThreadReadiness {
       state.check_bind_failure();
       state.failure.is_some()
     };
+
     self.shared.notify.notify_waiters();
     failed
   }
@@ -190,6 +195,7 @@ impl PerThreadReadiness {
       } else {
         outcome
       };
+
       state.remaining -= 1;
       match outcome {
         Ok(()) => state.workers[worker_id] = PerThreadWorkerState::Stopped,
@@ -198,6 +204,7 @@ impl PerThreadReadiness {
       state.check_bind_failure();
       state.failure.is_some()
     };
+
     self.shared.notify.notify_waiters();
     failed
   }
@@ -208,6 +215,7 @@ impl PerThreadReadiness {
       state.record_failure(worker_id, error);
       state.failure.is_some()
     };
+
     self.shared.notify.notify_waiters();
     failed
   }

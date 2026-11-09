@@ -26,16 +26,20 @@ fn compio_raw_tcp_waits_for_capacity_and_shutdown_cancels_the_active_handler() {
       })
       .unwrap();
     let address = handle.local_addr().unwrap();
+
     let _first = std::net::TcpStream::connect(address).unwrap();
     receive(&mut received).await;
+
     let mut second = compio::net::TcpStream::connect(address).await.unwrap();
     assert!(
       compio::time::timeout(Duration::from_millis(75), received.recv())
         .await
         .is_err()
     );
+
     release.add_permits(1);
     receive(&mut received).await;
+
     handle.trigger();
     compio::time::timeout(Duration::from_secs(1), handle.result())
       .await
@@ -70,16 +74,20 @@ fn compio_raw_unix_waits_for_capacity_and_shutdown_cancels_the_active_handler() 
       })
       .await
       .unwrap();
+
     let _first = std::os::unix::net::UnixStream::connect(&path).unwrap();
     receive(&mut received).await;
+
     let mut second = compio::net::UnixStream::connect(&path).await.unwrap();
     assert!(
       compio::time::timeout(Duration::from_millis(75), received.recv())
         .await
         .is_err()
     );
+
     release.add_permits(1);
     receive(&mut received).await;
+
     handle.trigger();
     compio::time::timeout(Duration::from_secs(1), handle.result())
       .await
@@ -113,8 +121,10 @@ fn compio_raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
       .unwrap();
     let address = handle.local_addr().unwrap();
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+
     socket.send_to(b"first", address).unwrap();
     assert_eq!(receive(&mut received).await, b"first");
+
     for _ in 0..32 {
       socket.send_to(b"excess", address).unwrap();
     }
@@ -123,10 +133,12 @@ fn compio_raw_udp_drops_excess_datagrams_and_resumes_after_capacity_returns() {
         .await
         .is_err()
     );
+
     release.add_permits(1);
     compio::time::sleep(Duration::from_millis(20)).await;
     socket.send_to(b"after", address).unwrap();
     assert_eq!(receive(&mut received).await, b"after");
+
     handle.trigger();
     compio::time::timeout(Duration::from_secs(1), handle.result())
       .await

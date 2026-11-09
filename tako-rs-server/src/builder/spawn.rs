@@ -75,6 +75,7 @@ where
   };
   let abort = handle.abort.clone();
   let upgrades = tako_rs_core::server_support::UpgradeSupervisor::new(handle.upgrades.clone());
+
   async move {
     let outcome = {
       let task = std::pin::pin!(std::panic::AssertUnwindSafe(fut).catch_unwind());
@@ -92,6 +93,7 @@ where
         )),
       }
     };
+
     upgrades.abort();
     upgrades.join().await;
     completion.outcome = Some(outcome);

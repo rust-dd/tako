@@ -38,6 +38,7 @@ pub(crate) fn bind_endpoint(
   #[cfg(feature = "http3-qlog")] qlog_dir: Option<&std::path::Path>,
 ) -> Result<BoundEndpoint<quinn::Endpoint>, BoxError> {
   config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -75,6 +76,7 @@ pub(crate) async fn run_endpoint(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   let BoundEndpoint {
     endpoint,
     connections,

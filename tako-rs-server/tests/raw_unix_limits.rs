@@ -32,11 +32,13 @@ async fn raw_unix_waits_for_capacity_and_shutdown_cancels_the_active_handler() {
     })
     .await
     .unwrap();
+
   let _first = tokio::net::UnixStream::connect(&path).await.unwrap();
   tokio::time::timeout(Duration::from_secs(1), received.recv())
     .await
     .unwrap()
     .unwrap();
+
   let mut second = tokio::net::UnixStream::connect(&path).await.unwrap();
   assert!(
     tokio::time::timeout(Duration::from_millis(75), received.recv())
@@ -44,11 +46,13 @@ async fn raw_unix_waits_for_capacity_and_shutdown_cancels_the_active_handler() {
       .is_err(),
     "a second raw Unix handler started while max_connections was exhausted"
   );
+
   release.add_permits(1);
   tokio::time::timeout(Duration::from_secs(1), received.recv())
     .await
     .unwrap()
     .unwrap();
+
   handle.trigger();
   tokio::time::timeout(Duration::from_secs(1), handle.result())
     .await

@@ -76,7 +76,7 @@ where
   .await
 }
 
-/// Runs raw Unix sockets with validated connection limits and a shutdown drain deadline.
+/// Enforces the configured connection limit and drain timeout.
 pub async fn serve_unix_with_config<F, S>(
   path: impl AsRef<Path>,
   handler: F,
@@ -91,6 +91,7 @@ where
   S: Future<Output = ()> + 'static,
 {
   config.validate()?;
+
   let path = path.as_ref();
   let listener = bind_listener(path).await?;
   run_listener(listener, path, handler, signal, config).await
@@ -111,6 +112,7 @@ where
   S: Future<Output = ()> + 'static,
 {
   config.validate()?;
+
   tracing::info!("Unix socket server listening on {}", path.display());
 
   #[cfg(feature = "signals")]
@@ -123,6 +125,7 @@ where
 
   loop {
     while connections.next().now_or_never().flatten().is_some() {}
+
     if config
       .max_connections
       .is_some_and(|max| connections.len() >= max)
@@ -133,12 +136,15 @@ where
         Either::Right(_) => continue,
       }
     }
+
     let accept = std::pin::pin!(listener.accept());
+
     match futures_util::future::select(&mut signal, accept).await {
       Either::Right((result, _)) => {
         let (stream, addr) = result?;
         let peer = peer_addr(addr.as_pathname());
         let handler = Arc::clone(&handler);
+
         connections.push(compio::runtime::spawn(async move {
           if let Err(e) = handler(stream, peer).await {
             tracing::error!("Unix socket connection error: {e}");

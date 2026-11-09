@@ -135,7 +135,7 @@ where
   .await
 }
 
-/// Runs raw TCP with validated connection limits and a configurable shutdown drain deadline.
+/// Enforces the configured connection limit and drain timeout.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_tcp_with_config<F, S>(
   addr: &str,
@@ -154,6 +154,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   let listener = tokio::net::TcpListener::bind(addr).await?;
   run_listener(listener, handler, signal, config).await
 }
@@ -176,6 +177,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
   #[cfg(feature = "signals")]
@@ -291,7 +293,7 @@ where
   .await
 }
 
-/// Runs raw TCP with validated connection limits and a configurable shutdown drain deadline.
+/// Enforces the configured connection limit and drain timeout.
 #[cfg(feature = "compio")]
 pub async fn serve_tcp_with_config<F, S>(
   addr: &str,
@@ -307,6 +309,7 @@ where
   S: Future<Output = ()> + 'static,
 {
   config.validate()?;
+
   let listener = compio::net::TcpListener::bind(addr).await?;
   run_listener(listener, handler, signal, config).await
 }
@@ -329,6 +332,7 @@ where
   use futures_util::StreamExt;
 
   config.validate()?;
+
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
   #[cfg(feature = "signals")]
@@ -347,6 +351,7 @@ where
 
   loop {
     while connections.next().now_or_never().flatten().is_some() {}
+
     if config
       .max_connections
       .is_some_and(|max| connections.len() >= max)
@@ -357,6 +362,7 @@ where
         futures_util::future::Either::Right(_) => continue,
       }
     }
+
     let accept_fut = listener.accept();
     let accept_fut = std::pin::pin!(accept_fut);
 
@@ -365,6 +371,7 @@ where
         let (stream, peer_addr) = result?;
         let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
+
         connections.push(compio::runtime::spawn(async move {
           if let Err(e) = handler(stream, peer_addr).await {
             tracing::error!("TCP connection error from {peer_addr}: {e}");

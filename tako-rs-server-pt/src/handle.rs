@@ -4,7 +4,7 @@ use crate::PerThreadError;
 use crate::PerThreadReadiness;
 use crate::PerThreadShutdown;
 
-/// Supervised worker ownership. Dropping the handle requests shutdown without blocking.
+/// Owns worker threads; dropping it requests shutdown without blocking.
 pub struct PerThreadHandle {
   workers: Vec<std::thread::JoinHandle<()>>,
   shutdown: PerThreadShutdown,
@@ -18,12 +18,11 @@ impl PerThreadHandle {
     Self { workers, shutdown }
   }
 
-  /// Returns a snapshot handle that remains usable after this handle is dropped.
+  /// Remains usable after the server handle is dropped.
   pub fn readiness(&self) -> PerThreadReadiness {
     self.shutdown.readiness.clone()
   }
 
-  /// Returns a trigger that can be moved to another task or thread.
   pub fn shutdown_handle(&self) -> PerThreadShutdown {
     self.shutdown.clone()
   }
@@ -38,7 +37,7 @@ impl PerThreadHandle {
   }
 
   /// Resolves at the first terminal failure, or after every worker stops cleanly.
-  /// On failure peers are already being stopped; use `join()` to wait for their drain.
+  /// Use [`Self::join`] to wait for peer cleanup after a failure.
   pub async fn result(&self) -> Result<(), PerThreadError> {
     self.shutdown.readiness.result().await
   }
@@ -52,6 +51,7 @@ impl PerThreadHandle {
         join_error.get_or_insert_with(|| PerThreadError::panic(worker_id, payload.as_ref()));
       }
     }
+
     self
       .shutdown
       .readiness

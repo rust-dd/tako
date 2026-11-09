@@ -56,6 +56,7 @@ fn endpoint() -> (Router, mpsc::Receiver<()>, Arc<AtomicBool>) {
       })
     }
   });
+
   (router, received, dropped)
 }
 
@@ -90,6 +91,7 @@ async fn check_shutdown<C, S>(
         assert!(head.len() < 8192);
       }
       assert!(head.starts_with(b"HTTP/1.1 101"), "{head:?}");
+
       let mut frames = Vec::new();
       stream.read_to_end(&mut frames)?;
       Ok::<_, std::io::Error>(frames)
@@ -97,6 +99,7 @@ async fn check_shutdown<C, S>(
     let _ = sent.send(result);
   });
   within(started.recv()).await.unwrap();
+
   within(server.shutdown(Duration::from_secs(1))).await;
   assert!(
     dropped.load(Ordering::Acquire),
@@ -130,6 +133,7 @@ async fn unix_websocket_shutdown_sends_going_away_and_drops_the_handler() {
     .try_spawn_unix_http(path.clone(), router)
     .await
     .unwrap();
+
   check_shutdown(server, started, dropped, move || {
     let stream = std::os::unix::net::UnixStream::connect(path)?;
     stream.set_read_timeout(Some(DEADLINE))?;
@@ -153,6 +157,7 @@ async fn proxy_websocket_shutdown_sends_going_away_and_drops_the_handler() {
     .build()
     .try_spawn_proxy_protocol(listener, router)
     .unwrap();
+
   check_shutdown(server, started, dropped, move || {
     let mut stream = connect_tcp(address)?;
     stream.write_all(b"PROXY TCP4 192.0.2.1 192.0.2.2 40000 80\r\n")?;
@@ -185,12 +190,14 @@ async fn tls_websocket_shutdown_sends_going_away_and_drops_the_handler() {
     .build()
     .try_spawn_tls(listener, router)
     .unwrap();
+
   let mut roots = rustls::RootCertStore::empty();
   roots.add(certificate).unwrap();
   let mut config = rustls::ClientConfig::builder()
     .with_root_certificates(roots)
     .with_no_client_auth();
   config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
   check_shutdown(server, started, dropped, move || {
     let connection = rustls::ClientConnection::new(
       Arc::new(config),

@@ -26,16 +26,18 @@ pub struct PerThreadConfig {
 }
 
 impl PerThreadConfig {
-  /// Checks counts and deadline ranges before worker creation or plugin setup.
-  /// A zero drain or header timeout is an immediate-expiry policy and remains valid.
+  /// Rejects invalid counts and deadlines. Zero timeouts expire immediately and are valid.
   pub fn validate(&self) -> std::io::Result<()> {
     let invalid = |message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
+
     if self.workers == 0 {
       return Err(invalid("workers must be positive"));
     }
+
     if self.backlog <= 0 {
       return Err(invalid("backlog must be positive"));
     }
+
     if let Some(limit) = self.max_connections
       && (limit == 0 || limit > tokio::sync::Semaphore::MAX_PERMITS)
     {
@@ -43,6 +45,7 @@ impl PerThreadConfig {
         "max_connections must be between 1 and Semaphore::MAX_PERMITS",
       ));
     }
+
     let now = Instant::now();
     if now.checked_add(self.drain_timeout).is_none()
       || self
@@ -53,6 +56,7 @@ impl PerThreadConfig {
         "timeouts must fit within the monotonic clock's range",
       ));
     }
+
     Ok(())
   }
 }

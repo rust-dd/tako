@@ -19,43 +19,8 @@
 //! }
 //! ```
 //!
-//! [`spawn_per_thread_supervised`] adds readiness and failure reporting. Its handle's
-//! [`result`](PerThreadHandle::result) resolves immediately on a terminal worker failure and
-//! requests peer shutdown. [`join`](PerThreadHandle::join) blocks until their drain finishes.
-//! Readiness clears when shutdown starts; an individual bind failure is tolerated while a
-//! different worker is listening. Tokio workers with balancing enabled can still serve handed
-//! over connections after their own bind fails.
-//!
-//! To install a Healthcheck probe before spawning the router, capture a shared cell and fill
-//! it with the readiness handle immediately after spawning. An empty cell is unready.
-//!
-//! ```no_run
-//! use std::sync::{Arc, OnceLock};
-//! use tako::middleware::{IntoMiddleware, healthcheck::{Healthcheck, Probe}};
-//! use tako_rs_core::router::Router;
-//! use tako_rs_server_pt::{PerThreadConfig, PerThreadReadiness, spawn_per_thread_supervised};
-//!
-//! # async fn run() -> std::io::Result<()> {
-//! let readiness = Arc::new(OnceLock::<PerThreadReadiness>::new());
-//! let probe_readiness = Arc::clone(&readiness);
-//! let probe = Probe::new("workers", move || {
-//!     let ready = probe_readiness.get().is_some_and(PerThreadReadiness::is_ready);
-//!     async move { if ready { Ok(()) } else { Err("workers are not ready".into()) } }
-//! });
-//! let mut router = Router::new();
-//! router.middleware(Healthcheck::new().probe(probe).into_middleware());
-//! let server = spawn_per_thread_supervised("127.0.0.1:8080", router, PerThreadConfig::default())?;
-//! assert!(readiness.set(server.readiness()).is_ok());
-//! server.wait_ready().await?;
-//! tokio::select! {
-//!     result = server.result() => { if let Err(error) = result { eprintln!("{error}"); } }
-//!     signal = tokio::signal::ctrl_c() => { signal?; }
-//! }
-//! server.shutdown();
-//! tokio::task::spawn_blocking(move || server.join()).await
-//!     .map_err(std::io::Error::other)?.map_err(std::io::Error::from)
-//! # }
-//! ```
+//! [`spawn_per_thread_supervised`] returns a [`PerThreadHandle`] for readiness, shutdown,
+//! and worker failure reporting.
 
 #[cfg(not(feature = "compio"))]
 mod balance;
@@ -113,11 +78,8 @@ pub fn spawn_per_thread(
   }
 }
 
-/// Starts workers with observable readiness and terminal failure reporting.
-///
-/// Startup validation and thread creation errors are returned directly. Runtime, bind and
-/// plugin failures are reported by the handle. A worker panic cancels peers before propagating
-/// to its thread's join result.
+/// Starts supervised workers. Validation and thread creation errors return directly;
+/// worker failures reach the handle and stop peers.
 pub fn spawn_per_thread_supervised(
   addr: &str,
   router: Router,
@@ -152,18 +114,21 @@ fn spawn_workers(
   worker: WorkerFn,
 ) -> io::Result<(Vec<std::thread::JoinHandle<()>>, PerThreadShutdown)> {
   cfg.validate()?;
+
   let addr =
     SocketAddr::from_str(addr).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
   let router = std::sync::Arc::new(router);
   if !cfg.balance_connections || cfg!(feature = "compio") {
     listener::warn_reuseport_platform_once();
   }
+
   let shutdown = PerThreadShutdown::new(cfg.workers);
   #[cfg(not(feature = "compio"))]
   let mut balances = cfg
     .balance_connections
     .then(|| balance::Balancer::for_workers(cfg.workers).into_iter());
   let mut handles = Vec::with_capacity(cfg.workers);
+
   for id in 0..cfg.workers {
     let cfg = cfg.clone();
     let router = router.clone();
@@ -181,6 +146,7 @@ fn spawn_workers(
           worker(id, addr, router, cfg, worker_shutdown.clone())
         }
       }));
+
       match outcome {
         Ok(result) => worker_shutdown.report_exit(id, result),
         Err(payload) => {
@@ -189,6 +155,7 @@ fn spawn_workers(
         }
       }
     };
+
     match std::thread::Builder::new()
       .name(format!("tako-pt-{id}"))
       .spawn(run)
@@ -199,10 +166,12 @@ fn spawn_workers(
         for handle in handles {
           let _ = handle.join();
         }
+
         return Err(error);
       }
     }
   }
+
   Ok((handles, shutdown))
 }
 

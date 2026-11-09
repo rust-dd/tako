@@ -78,6 +78,7 @@ async fn assert_failure_precedes_cleanup(panic: bool, kind: PerThreadErrorKind) 
   );
   cleanup.release();
   let joined = server.join();
+
   assert!(
     ready
       .expect("readiness waited for runtime cleanup")

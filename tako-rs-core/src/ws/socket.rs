@@ -162,6 +162,7 @@ impl Core {
     let Some(io) = &mut self.io else {
       return Poll::Ready(Ok(0));
     };
+
     let want = self
       .protocol
       .wanted(&self.read_buf)
@@ -216,6 +217,7 @@ impl Core {
     let Some(io) = &mut self.io else {
       return Poll::Ready(Err(Error::Closed));
     };
+
     if let Some(kind) = self.write_failed {
       return Poll::Ready(Err(Error::Io(kind.into())));
     }
@@ -245,6 +247,7 @@ impl Core {
     let Some(io) = &mut self.io else {
       return Poll::Ready(Ok(()));
     };
+
     let mut proxy = Context::from_waker(self.write_wake.register(cx));
     ready!(Pin::new(io).poll_shutdown(&mut proxy))?;
     Poll::Ready(Ok(()))

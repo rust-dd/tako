@@ -108,6 +108,52 @@ remain true while another worker listens; runtime, plugin, panic, and unexpected
 exit failures stop the whole group. These workers serve HTTP/1.1. TLS, h2c, and
 PROXY listeners use the regular server builder.
 
+To install a Healthcheck probe before spawning, capture a shared cell and fill
+it with the readiness handle afterward. An empty cell is unready:
+
+```rust
+use std::sync::{Arc, OnceLock};
+use tako::middleware::{IntoMiddleware, healthcheck::{Healthcheck, Probe}};
+use tako::router::Router;
+use tako::{PerThreadConfig, PerThreadReadiness, spawn_per_thread_supervised};
+
+async fn run() -> std::io::Result<()> {
+  let readiness = Arc::new(OnceLock::<PerThreadReadiness>::new());
+  let probe_readiness = Arc::clone(&readiness);
+  let probe = Probe::new("workers", move || {
+    let ready = probe_readiness.get().is_some_and(PerThreadReadiness::is_ready);
+    async move {
+      if ready {
+        Ok(())
+      } else {
+        Err("workers are not ready".into())
+      }
+    }
+  });
+
+  let mut router = Router::new();
+  router.middleware(Healthcheck::new().probe(probe).into_middleware());
+  let server = spawn_per_thread_supervised("127.0.0.1:8080", router, PerThreadConfig::default())?;
+  assert!(readiness.set(server.readiness()).is_ok());
+  server.wait_ready().await?;
+
+  tokio::select! {
+    result = server.result() => {
+      if let Err(error) = result {
+        eprintln!("{error}");
+      }
+    }
+    signal = tokio::signal::ctrl_c() => { signal?; }
+  }
+
+  server.shutdown();
+  tokio::task::spawn_blocking(move || server.join())
+    .await
+    .map_err(std::io::Error::other)?
+    .map_err(std::io::Error::from)
+}
+```
+
 Workers are not pinned to CPU cores by default, so the OS can move a worker off
 a core that another process keeps busy. On a machine the server has to itself,
 pinning keeps each worker's caches warm; set `pin_to_core: true` and worker *n*

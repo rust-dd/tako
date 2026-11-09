@@ -2,7 +2,6 @@ use std::any::Any;
 use std::fmt;
 use std::io;
 
-/// The reason a per-thread worker failed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PerThreadErrorKind {
@@ -10,15 +9,13 @@ pub enum PerThreadErrorKind {
   Bind,
   /// Runtime initialization or plugin setup failed.
   Startup,
-  /// A worker returned an I/O error after startup.
   Io,
-  /// A worker panicked.
   Panic,
-  /// A worker returned without a shutdown request.
+  /// Returned without a shutdown request.
   UnexpectedExit,
 }
 
-/// A clonable worker failure returned by [`PerThreadHandle::result`](crate::PerThreadHandle::result).
+/// Worker failure reported by [`PerThreadHandle`](crate::PerThreadHandle).
 #[derive(Clone, Debug)]
 pub struct PerThreadError {
   worker_id: usize,
@@ -50,6 +47,7 @@ impl PerThreadError {
       .map(String::as_str)
       .or_else(|| payload.downcast_ref::<&str>().copied())
       .unwrap_or("non-string panic payload");
+
     Self::new(
       worker_id,
       PerThreadErrorKind::Panic,

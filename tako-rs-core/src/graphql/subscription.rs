@@ -152,6 +152,7 @@ where
         },
         None => None,
       };
+
       ws::spawn_session(on_upgrade, lease, move |socket| {
         GraphQLWebSocket::new(socket, executor, protocol)
           .with_data(data)

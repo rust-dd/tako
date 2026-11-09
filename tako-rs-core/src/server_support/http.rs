@@ -29,7 +29,7 @@ pub fn http_service(
   service(router, info, None)
 }
 
-/// HTTP service that tracks WebSocket sessions across the HTTP upgrade boundary.
+/// HTTP service with supervised WebSocket sessions.
 pub fn http_service_with_upgrades(
   router: Arc<Router>,
   info: ConnInfo,

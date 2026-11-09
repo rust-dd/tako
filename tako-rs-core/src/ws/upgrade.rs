@@ -163,6 +163,7 @@ where
           Some(registry) => Some(registry.register().ok_or(())?),
           None => None,
         };
+
         Ok::<_, ()>(Session {
           on_upgrade,
           handler,
@@ -176,6 +177,7 @@ where
     let Ok(session) = session else {
       return (handshake::rejection(StatusCode::SERVICE_UNAVAILABLE), None);
     };
+
     (response, session)
   }
 }
@@ -198,6 +200,7 @@ impl<H> Session<H> {
     let lease = self.lease.take();
     let registry = lease.as_ref().map(UpgradeSession::registry);
     let run = self.run_socket(registry);
+
     match lease {
       Some(lease) => lease.run(run).await,
       None => run.await,
@@ -218,11 +221,13 @@ impl<H> Session<H> {
       };
       let stopping = std::pin::pin!(stopping);
       let upgrade = std::pin::pin!(Self::upgrade(self.on_upgrade, self.upgrade_timeout));
+
       match futures_util::future::select(upgrade, stopping).await {
         Either::Left((Some(upgraded), _)) => upgraded,
         _ => return,
       }
     };
+
     let core = runtime::shared(Core::new(upgraded, self.config));
     let socket = WebSocket::new(core.clone());
     let mut driver = Driver::new(
@@ -233,6 +238,7 @@ impl<H> Session<H> {
     if let Some(registry) = registry {
       driver = driver.with_shutdown(registry);
     }
+
     driver.await;
   }
 
@@ -252,6 +258,7 @@ impl<H> Session<H> {
         Err(_) => return None,
       },
     };
+
     Some(upgraded)
   }
 }

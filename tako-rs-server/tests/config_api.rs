@@ -17,8 +17,10 @@ fn fallible_builder_reports_the_invalid_field_without_a_runtime() {
       })
       .try_build()
       .unwrap_err();
+
     assert_eq!(error.field(), "max_connections");
   }
+
   Server::builder().try_build().unwrap();
 }
 
@@ -33,6 +35,7 @@ fn raw_startup_returns_typed_validation_errors_before_binding() {
     .try_spawn_tcp_raw("invalid socket address", |_, _| Box::pin(async { Ok(()) }))
     .err()
     .unwrap();
+
   assert_eq!(
     error.downcast_ref::<ServerConfigError>().unwrap().field(),
     "max_connections"
@@ -57,6 +60,7 @@ fn supported_limit_boundaries_and_immediate_timeout_policies_remain_valid() {
     tls_handshake_timeout: Duration::ZERO,
     ..ServerConfig::default()
   };
+
   config.validate().unwrap();
   Server::builder().config(config).try_build().unwrap();
 }
@@ -72,6 +76,7 @@ fn explicit_protocol_throttling_policies_remain_valid() {
       h3_max_concurrent_uni_streams: uni_streams,
       ..ServerConfig::default()
     };
+
     config.validate().unwrap();
     Server::builder().config(config).try_build().unwrap();
   }
@@ -86,6 +91,7 @@ fn oversized_http2_send_buffer_is_rejected_before_hyper_can_panic() {
   }
   .validate()
   .unwrap_err();
+
   assert_eq!(error.field(), "h2_max_send_buf_size");
 }
 
@@ -128,9 +134,11 @@ fn overflowing_deadlines_are_rejected_with_the_field_name() {
       },
     ),
   ];
+
   for (field, config) in cases {
     let error = config.validate().unwrap_err();
     assert_eq!(error.field(), field);
+
     let io_error = std::io::Error::from(error);
     assert_eq!(io_error.kind(), std::io::ErrorKind::InvalidInput);
   }

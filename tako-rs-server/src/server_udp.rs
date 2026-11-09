@@ -78,7 +78,7 @@ where
   serve_udp_with_config(addr, handler, signal, ServerConfig::default()).await
 }
 
-/// Runs raw UDP with a cap on active handlers. Datagrams received at capacity are dropped.
+/// Drops datagrams received at the configured handler cap.
 #[cfg(not(feature = "compio"))]
 pub async fn serve_udp_with_config<F, S>(
   addr: &str,
@@ -94,6 +94,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   let socket = tokio::net::UdpSocket::bind(addr).await?;
   run_socket(socket, handler, signal, config).await
 }
@@ -113,6 +114,7 @@ where
   S: Future<Output = ()> + Send + 'static,
 {
   config.validate()?;
+
   let socket = Arc::new(socket);
   let mut tasks = tokio::task::JoinSet::new();
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
@@ -143,6 +145,7 @@ where
         if config.max_connections.is_some_and(|max| tasks.len() >= max) {
           continue;
         }
+
         let data = buf[..len].to_vec();
         let socket = Arc::clone(&socket);
         let handler = Arc::clone(&handler);
@@ -162,6 +165,7 @@ where
   {
     tasks.shutdown().await;
   }
+
   #[cfg(feature = "signals")]
   tako_rs_core::signals::transport::emit_server_stopped(
     &socket.local_addr()?.to_string(),
@@ -203,7 +207,7 @@ where
   serve_udp_with_config(addr, handler, signal, ServerConfig::default()).await
 }
 
-/// Runs raw UDP with a cap on active handlers. Datagrams received at capacity are dropped.
+/// Drops datagrams received at the configured handler cap.
 #[cfg(feature = "compio")]
 pub async fn serve_udp_with_config<F, S>(
   addr: &str,
@@ -219,6 +223,7 @@ where
   S: Future<Output = ()> + 'static,
 {
   config.validate()?;
+
   let socket = compio::net::UdpSocket::bind(addr).await?;
   run_socket(socket, handler, signal, config).await
 }
@@ -238,12 +243,14 @@ where
   S: Future<Output = ()> + 'static,
 {
   config.validate()?;
+
   // compio is thread-per-core; the Arc<UdpSocket> never crosses threads.
   #[allow(clippy::arc_with_non_send_sync)]
   let socket = Arc::new(socket);
   tracing::info!("UDP server listening on {}", socket.local_addr()?);
 
   let mut tasks = futures_util::stream::FuturesUnordered::new();
+
   #[cfg(feature = "signals")]
   tako_rs_core::signals::transport::emit_server_started(
     &socket.local_addr()?.to_string(),
@@ -254,22 +261,24 @@ where
 
   let handler = Arc::new(handler);
   let signal = std::pin::pin!(signal);
-
   let mut signal = signal;
 
   loop {
     while tasks.next().now_or_never().flatten().is_some() {}
+
     let buf = vec![0u8; 65535];
     let recv_fut = socket.recv_from(buf);
-
     let recv_fut = std::pin::pin!(recv_fut);
+
     match futures_util::future::select(&mut signal, recv_fut).await {
       futures_util::future::Either::Right((compio::BufResult(result, buf_out), _)) => {
         let (len, peer) = result?;
         while tasks.next().now_or_never().flatten().is_some() {}
+
         if config.max_connections.is_some_and(|max| tasks.len() >= max) {
           continue;
         }
+
         let mut buf = buf_out;
         buf.truncate(len);
         let socket = Arc::clone(&socket);
@@ -296,6 +305,7 @@ where
       task.cancel().await;
     }
   }
+
   #[cfg(feature = "signals")]
   tako_rs_core::signals::transport::emit_server_stopped(
     &socket.local_addr()?.to_string(),

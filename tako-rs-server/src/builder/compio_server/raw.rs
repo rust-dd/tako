@@ -13,7 +13,7 @@ use crate::builder::spawn::make_handle;
 use crate::builder::spawn::spawn_done_compio;
 
 impl CompioServer {
-  /// Spawns raw TCP with the configured connection cap and shutdown deadline.
+  /// Startup errors are returned by [`ServerHandle::result`].
   pub fn spawn_tcp_raw<F>(&self, addr: impl Into<String>, handler: F) -> ServerHandle
   where
     F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
@@ -26,7 +26,7 @@ impl CompioServer {
       .unwrap_or_else(|error| failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Validates configuration and binds the raw TCP listener before starting tasks.
+  /// Returns configuration and bind errors before spawning.
   pub fn try_spawn_tcp_raw<F>(
     &self,
     addr: impl Into<String>,
@@ -39,6 +39,7 @@ impl CompioServer {
       + 'static,
   {
     self.config.validate()?;
+
     let listener = compio::net::TcpListener::from_std(std::net::TcpListener::bind(addr.into())?)?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     let config = self.config.clone();
@@ -50,7 +51,7 @@ impl CompioServer {
     Ok(handle)
   }
 
-  /// Spawns raw UDP; datagrams received at the configured handler cap are dropped.
+  /// Drops datagrams received at the handler cap; startup errors reach [`ServerHandle::result`].
   #[cfg(feature = "udp")]
   pub fn spawn_udp_raw<F>(&self, addr: impl Into<String>, handler: F) -> ServerHandle
   where
@@ -64,7 +65,7 @@ impl CompioServer {
       .unwrap_or_else(|error| failed_handle(error, self.config.drain_timeout))
   }
 
-  /// Validates configuration and binds the raw UDP socket before starting tasks.
+  /// Returns configuration and bind errors before spawning.
   #[cfg(feature = "udp")]
   pub fn try_spawn_udp_raw<F>(
     &self,
@@ -78,6 +79,7 @@ impl CompioServer {
       + 'static,
   {
     self.config.validate()?;
+
     let socket = compio::net::UdpSocket::from_std(std::net::UdpSocket::bind(addr.into())?)?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(socket.local_addr()?));
     let config = self.config.clone();
@@ -89,7 +91,7 @@ impl CompioServer {
     Ok(handle)
   }
 
-  /// Spawns raw Unix sockets; startup errors are returned by [`ServerHandle::result`].
+  /// Startup errors are returned by [`ServerHandle::result`].
   #[cfg(unix)]
   pub fn spawn_unix_raw<F>(&self, path: impl Into<PathBuf>, handler: F) -> ServerHandle
   where
@@ -104,6 +106,7 @@ impl CompioServer {
     if let Err(error) = self.config.validate() {
       return failed_handle(error.into(), self.config.drain_timeout);
     }
+
     let path = path.into();
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
@@ -115,7 +118,7 @@ impl CompioServer {
     handle
   }
 
-  /// Validates configuration and binds the raw Unix listener before starting tasks.
+  /// Returns configuration and bind errors before spawning.
   #[cfg(unix)]
   pub async fn try_spawn_unix_raw<F>(
     &self,
@@ -132,6 +135,7 @@ impl CompioServer {
       + 'static,
   {
     self.config.validate()?;
+
     let path = path.into();
     let listener = crate::server_compio::unix::bind_listener(&path).await?;
     let config = self.config.clone();

@@ -23,6 +23,7 @@ async fn clean_shutdown_clears_readiness_and_joins_every_worker() {
     .unwrap();
   let readiness = handle.readiness();
   assert!(readiness.is_ready());
+
   handle.shutdown();
   assert!(!readiness.is_ready());
   tokio::time::timeout(Duration::from_secs(2), handle.result())
@@ -36,6 +37,7 @@ async fn clean_shutdown_clears_readiness_and_joins_every_worker() {
 #[tokio::test]
 async fn every_bind_failing_reports_an_error_instead_of_waiting_forever() {
   let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+
   for balance_connections in [false, true] {
     let handle = spawn_per_thread_supervised(
       &occupied.local_addr().unwrap().to_string(),
@@ -51,6 +53,7 @@ async fn every_bind_failing_reports_an_error_instead_of_waiting_forever() {
     let result = tokio::time::timeout(Duration::from_secs(2), handle.result()).await;
     handle.shutdown();
     let joined = handle.join();
+
     assert!(ready.unwrap().is_err());
     assert_eq!(
       result.unwrap().unwrap_err().kind(),
@@ -80,6 +83,7 @@ fn invalid_configuration_fails_before_workers_are_spawned() {
       ..PerThreadConfig::default()
     },
   ];
+
   for config in invalid {
     let spawned = spawn_per_thread_supervised("127.0.0.1:0", Router::new(), config);
     assert!(matches!(spawned, Err(error) if error.kind() == std::io::ErrorKind::InvalidInput));

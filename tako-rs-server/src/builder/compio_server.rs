@@ -27,9 +27,10 @@ pub struct CompioServerBuilder {
 }
 
 impl CompioServerBuilder {
-  /// Validates the configuration and produces the [`CompioServer`] before startup side effects.
+  /// Builds the server after validating its configuration.
   pub fn try_build(self) -> Result<CompioServer, crate::config::ServerConfigError> {
     self.config.validate()?;
+
     Ok(self.build())
   }
 
@@ -56,8 +57,7 @@ impl CompioServerBuilder {
     self
   }
 
-  /// Finalize and produce the [`CompioServer`].
-  /// Builds the server, deferring validation to startup. Use [`Self::try_build`] to validate now.
+  /// Defers validation to startup; use [`Self::try_build`] to validate now.
   pub fn build(self) -> CompioServer {
     CompioServer {
       config: self.config,
@@ -107,6 +107,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -139,6 +140,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -169,6 +171,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -191,6 +194,7 @@ impl CompioServer {
     if let Err(error) = self.config.validate() {
       return super::spawn::failed_handle(error.into(), self.config.drain_timeout);
     }
+
     let path = path.into();
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
@@ -210,6 +214,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let listener = crate::server_compio::unix::UnixSocketListener::bind(path.into()).await?;
@@ -244,6 +249,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()
@@ -282,6 +288,7 @@ impl CompioServer {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()

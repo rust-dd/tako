@@ -72,6 +72,7 @@ where
   <L::Stream as Splittable>::WriteHalf: AsyncWrite + Unpin,
 {
   config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 

@@ -27,6 +27,7 @@ pub(crate) async fn run(
   config: ServerConfig,
 ) -> Result<(), BoxError> {
   config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 

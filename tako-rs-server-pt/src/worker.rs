@@ -86,6 +86,7 @@ pub(crate) fn worker_main(
         io::Error::other(error.clone()),
       ));
     }
+
     let mut backoff = Duration::from_millis(5);
     let semaphore = cfg
       .max_connections
@@ -225,10 +226,12 @@ pub(crate) fn worker_main(
       connection_handles.shutdown().await;
       upgrades.join().await;
     }
+
     #[cfg(feature = "signals")]
     tako_rs_core::signals::transport::emit_server_stopped(&local_addr, "tcp", false).await;
     Ok(())
   };
+
   let local = LocalSet::new();
   supervisor.supervise_runtime(worker_id, || {
     local.block_on(&rt, async move {

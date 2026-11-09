@@ -31,9 +31,10 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
-  /// Validates the configuration and produces the [`Server`] before any startup side effects.
+  /// Builds the server after validating its configuration.
   pub fn try_build(self) -> Result<Server, crate::config::ServerConfigError> {
     self.config.validate()?;
+
     Ok(self.build())
   }
 
@@ -59,8 +60,7 @@ impl ServerBuilder {
     self
   }
 
-  /// Finalize and produce the [`Server`].
-  /// Validation runs at startup; use [`Self::try_build`] to validate immediately.
+  /// Defers validation to startup; use [`Self::try_build`] to validate now.
   pub fn build(self) -> Server {
     Server {
       config: self.config,
@@ -109,6 +109,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -141,6 +142,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -167,6 +169,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()
@@ -205,6 +208,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()
@@ -236,6 +240,7 @@ impl Server {
     if let Err(error) = self.config.validate() {
       return super::spawn::failed_handle(error.into(), self.config.drain_timeout);
     }
+
     let path = path.into();
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
@@ -254,6 +259,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     let path = path.into();
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
@@ -285,6 +291,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(cid, port))?;
@@ -321,6 +328,7 @@ impl Server {
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
     self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -369,6 +377,7 @@ impl Server {
       + 'static,
   {
     self.config.validate()?;
+
     let bound = std::net::TcpListener::bind(addr.into())?;
     bound.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(bound)?;
@@ -418,6 +427,7 @@ impl Server {
       + 'static,
   {
     self.config.validate()?;
+
     let bound = std::net::UdpSocket::bind(addr.into())?;
     bound.set_nonblocking(true)?;
     let socket = tokio::net::UdpSocket::from_std(bound)?;
