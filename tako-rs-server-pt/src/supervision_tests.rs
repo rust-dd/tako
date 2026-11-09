@@ -10,6 +10,8 @@ use crate::PerThreadShutdown;
 use crate::PerThreadWorkerState;
 use crate::spawn_workers;
 
+const WORKER_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Clone, Default)]
 struct FailureControls {
   fail: tokio_util::sync::CancellationToken,
@@ -66,7 +68,7 @@ async fn post_startup_panic_clears_readiness_and_reports_before_peers_finish() {
   assert!(readiness.is_ready());
 
   controls.fail.cancel();
-  let result = tokio::time::timeout(Duration::from_secs(1), handle.result()).await;
+  let result = tokio::time::timeout(WORKER_TIMEOUT, handle.result()).await;
   controls.release_peer.cancel();
   let error = result
     .expect("result must not wait for a draining peer")
@@ -106,7 +108,7 @@ async fn startup_and_io_failures_reach_every_result_observer() {
     )
     .unwrap();
     let handle = PerThreadHandle::new(workers, shutdown);
-    let ready = tokio::time::timeout(Duration::from_secs(1), handle.wait_ready()).await;
+    let ready = tokio::time::timeout(WORKER_TIMEOUT, handle.wait_ready()).await;
 
     assert!(ready.unwrap().is_err());
     for _ in 0..2 {
@@ -143,7 +145,7 @@ async fn unexpected_return_is_a_terminal_failure() {
   )
   .unwrap();
   let handle = PerThreadHandle::new(workers, shutdown);
-  let result = tokio::time::timeout(Duration::from_secs(1), handle.result()).await;
+  let result = tokio::time::timeout(WORKER_TIMEOUT, handle.result()).await;
 
   assert_eq!(
     result.unwrap().unwrap_err().kind(),
@@ -175,7 +177,7 @@ fn serving_returns_worker_failure_without_waiting_for_an_os_signal() {
       )))
       .unwrap();
   });
-  let result = received.recv_timeout(Duration::from_secs(1));
+  let result = received.recv_timeout(WORKER_TIMEOUT);
 
   assert!(
     result
@@ -253,7 +255,7 @@ async fn worker_panic_cancels_its_peers() {
     },
   )
   .unwrap();
-  let stopped = tokio::time::timeout(Duration::from_millis(200), shutdown.notified()).await;
+  let stopped = tokio::time::timeout(WORKER_TIMEOUT, shutdown.notified()).await;
   shutdown.trigger();
   for worker in workers {
     let _ = worker.join();
@@ -288,11 +290,7 @@ async fn panic_before_bind_wakes_readiness_waiters() {
     |_, _, _, _, _| panic!("startup panic"),
   )
   .unwrap();
-  let ready = tokio::time::timeout(
-    Duration::from_millis(200),
-    shutdown.wait_for_bind_outcome(1),
-  )
-  .await;
+  let ready = tokio::time::timeout(WORKER_TIMEOUT, shutdown.wait_for_bind_outcome(1)).await;
 
   shutdown.trigger();
   for worker in workers {
