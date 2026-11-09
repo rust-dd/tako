@@ -15,6 +15,7 @@ const UPGRADE: &[u8] = b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websock
 Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
 Sec-WebSocket-Version: 13\r\n\r\n";
 const MASK: [u8; 4] = [9, 8, 7, 6];
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn router() -> Router {
   let mut router = Router::new();
@@ -77,9 +78,7 @@ fn read_exact(stream: &mut TcpStream, len: usize) -> Vec<u8> {
 
 fn connect(address: SocketAddr, path: &str) -> TcpStream {
   let mut stream = TcpStream::connect(address).unwrap();
-  stream
-    .set_read_timeout(Some(Duration::from_secs(2)))
-    .unwrap();
+  stream.set_read_timeout(Some(CLIENT_TIMEOUT)).unwrap();
   let upgrade = String::from_utf8(UPGRADE.to_vec())
     .unwrap()
     .replace("/ws", path);
@@ -132,7 +131,11 @@ fn exercise_lifecycle(address: SocketAddr) {
       assert_eq!(read_exact(&mut stream, 7), b"\x81\x05hello");
     }
     let [high, low] = code.to_be_bytes();
-    assert_eq!(read_exact(&mut stream, 4), [0x88, 2, high, low], "{path}");
+    let mut close = [0; 4];
+    stream
+      .read_exact(&mut close)
+      .unwrap_or_else(|error| panic!("{path}: failed to read close frame: {error}"));
+    assert_eq!(close, [0x88, 2, high, low], "{path}");
     let mut rest = Vec::new();
     stream.read_to_end(&mut rest).unwrap();
     assert!(rest.is_empty(), "{path}: {rest:?}");

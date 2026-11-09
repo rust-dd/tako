@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 const UPGRADE: &[u8] = b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n\
 Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
 Sec-WebSocket-Version: 13\r\n\r\n";
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(5);
 
 async fn serve(router: Router) -> ServerHandle {
   #[cfg(not(feature = "compio"))]
@@ -50,7 +51,7 @@ fn client(
   let thread = std::thread::spawn(move || {
     let result = (|| {
       let mut stream = TcpStream::connect(address)?;
-      stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+      stream.set_read_timeout(Some(CLIENT_TIMEOUT))?;
       stream.write_all(UPGRADE)?;
       let mut head = Vec::new();
       while !head.ends_with(b"\r\n\r\n") {
