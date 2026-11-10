@@ -4,6 +4,7 @@ use std::future::Future;
 
 use compio::net::TcpListener;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::types::BoxError;
 
 use crate::ServerConfig;
@@ -23,8 +24,9 @@ pub(crate) async fn run(
   router: Router,
   signal: impl Future<Output = ()>,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
-  accept_loop(listener, router, signal, config, Protocol::Http1).await
+  accept_loop(listener, router, signal, config, Protocol::Http1, upgrades).await
 }
 
 #[cfg(feature = "http2")]
@@ -34,7 +36,15 @@ pub(crate) async fn run_h2c(
   signal: impl Future<Output = ()>,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
-  accept_loop(listener, router, signal, config, Protocol::H2c).await
+  accept_loop(
+    listener,
+    router,
+    signal,
+    config,
+    Protocol::H2c,
+    UpgradeSupervisor::default(),
+  )
+  .await
 }
 
 #[cfg(feature = "proxy-protocol")]
@@ -43,8 +53,17 @@ pub(crate) async fn run_proxy_protocol(
   router: Router,
   signal: impl Future<Output = ()>,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
-  accept_loop(listener, router, signal, config, Protocol::ProxyHttp1).await
+  accept_loop(
+    listener,
+    router,
+    signal,
+    config,
+    Protocol::ProxyHttp1,
+    upgrades,
+  )
+  .await
 }
 
 #[cfg(unix)]
@@ -53,6 +72,7 @@ pub(crate) async fn run_unix(
   router: Router,
   signal: impl Future<Output = ()>,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
-  accept_loop(listener, router, signal, config, Protocol::Http1).await
+  accept_loop(listener, router, signal, config, Protocol::Http1, upgrades).await
 }

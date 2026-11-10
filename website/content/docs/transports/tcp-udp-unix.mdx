@@ -215,11 +215,61 @@ and writable by the server user. Abstract-namespace sockets use no lockfile.
 
 ## Graceful shutdown
 
-Each function has `…_with_shutdown` and `…_with_shutdown_and_drain` variants that
-take a shutdown-signal future. On signal the listener stops accepting and in-flight
-work is drained, with a default 30-second bound you can override on the
-`_and_drain` form. For HTTP-over-unix, the builder's `spawn_unix_http` takes its
-[`ServerConfig`](/docs/concepts/runtimes) for connection caps and timeouts.
+Each function has a `…_with_shutdown` variant that takes a shutdown-signal future.
+On signal the listener stops accepting and drains active work for up to 30 seconds.
+TCP and Unix also have `…_with_shutdown_and_drain` variants for a different deadline.
+
+For connection limits and a drain deadline together, use
+`serve_tcp_with_config(address, handler, signal, config)`,
+`serve_udp_with_config(address, handler, signal, config)`, or
+`serve_unix_with_config(path, handler, signal, config)`. Each accepts a
+[`ServerConfig`](/docs/concepts/runtimes) and validates it before binding.
+
+`max_connections: Some(n)` limits active TCP and Unix handlers. A slot becomes
+available when its handler returns, and the listener waits for a slot before
+accepting another connection. For UDP, the same setting limits active datagram
+handlers: excess datagrams are dropped immediately, without a queue of waiting
+tasks. `None` leaves admission unlimited. Shutdown still works when every slot is
+occupied and cancels handlers that exceed `drain_timeout`.
+
+Both `Server` and `CompioServer` provide `spawn_tcp_raw`, `spawn_udp_raw`, and
+`spawn_unix_raw`, plus fallible `try_spawn_*` variants that bind before returning.
+The Unix `try_spawn_unix_raw` method is async. Use the builder's `try_build()` to
+check settings before startup; it returns a `ServerConfigError` whose `field()`
+identifies the invalid setting. Existing `build()` calls remain usable, and all
+startup methods still validate the configuration before starting work.
+
+```rust
+use std::time::Duration;
+use tako::{Server, ServerConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), tako::types::BoxError> {
+  let server = Server::builder()
+    .config(ServerConfig {
+      max_connections: Some(100),
+      drain_timeout: Duration::from_secs(10),
+      ..ServerConfig::default()
+    })
+    .try_build()?;
+  let handle = server.try_spawn_tcp_raw("127.0.0.1:9001", |mut stream, _peer| {
+    Box::pin(async move {
+      let (mut reader, mut writer) = stream.split();
+      tokio::io::copy(&mut reader, &mut writer).await?;
+      Ok(())
+    })
+  })?;
+  tako::shutdown_signal().await;
+  handle.shutdown(Duration::from_secs(10)).await;
+  Ok(())
+}
+```
+
+Connection caps must be positive and within the runtime's supported range.
+Validation also rejects values that exceed buffer, QUIC, or clock ranges.
+Protocol stream, header, and send-buffer limits may be zero to preserve explicit
+throttling policies. Zero shutdown and handshake deadlines remain valid
+immediate-expiry policies; a zero HTTP/3 idle timeout disables that timeout.
 
 ## HTTP alternatives
 

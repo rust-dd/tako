@@ -18,6 +18,9 @@ use super::tls_cert::TlsCert;
 use super::tls_cert::build_rustls_server_config;
 use crate::ServerConfig;
 
+#[cfg(unix)]
+mod raw_unix;
+
 /// Fluent constructor for the tokio-runtime [`Server`].
 #[derive(Debug, Default, Clone)]
 pub struct ServerBuilder {
@@ -28,6 +31,13 @@ pub struct ServerBuilder {
 }
 
 impl ServerBuilder {
+  /// Builds the server after validating its configuration.
+  pub fn try_build(self) -> Result<Server, crate::config::ServerConfigError> {
+    self.config.validate()?;
+
+    Ok(self.build())
+  }
+
   /// Override the [`ServerConfig`] (drain timeout, h2 caps, `max_connections`, …).
   #[must_use]
   pub fn config(mut self, config: ServerConfig) -> Self {
@@ -50,7 +60,7 @@ impl ServerBuilder {
     self
   }
 
-  /// Finalize and produce the [`Server`].
+  /// Defers validation to startup; use [`Self::try_build`] to validate now.
   pub fn build(self) -> Server {
     Server {
       config: self.config,
@@ -98,12 +108,20 @@ impl Server {
     listener: TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done(
       &handle,
-      crate::server::run(listener, router, signal, self.config.clone()),
+      crate::server::run(
+        listener,
+        router,
+        signal,
+        self.config.clone(),
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -123,6 +141,8 @@ impl Server {
     listener: TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -148,6 +168,8 @@ impl Server {
     listener: TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()
@@ -158,7 +180,14 @@ impl Server {
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
     spawn_done(
       &handle,
-      crate::server_tls::run_with_config(listener, router, tls, Some(signal), self.config.clone()),
+      crate::server_tls::run_supervised(
+        listener,
+        router,
+        tls,
+        Some(signal),
+        self.config.clone(),
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -178,6 +207,8 @@ impl Server {
     addr: impl Into<String>,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     let tls = self
       .tls
       .as_ref()
@@ -206,11 +237,16 @@ impl Server {
   /// Spawns HTTP over a Unix socket. Bind failures are returned by `result()`.
   #[cfg(unix)]
   pub fn spawn_unix_http(&self, path: impl Into<PathBuf>, router: Router) -> ServerHandle {
+    if let Err(error) = self.config.validate() {
+      return super::spawn::failed_handle(error.into(), self.config.drain_timeout);
+    }
+
     let path = path.into();
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
+    let upgrades = handle.upgrade_supervisor();
     spawn_done(&handle, async move {
-      crate::server_unix::http::run_http(&path, router, signal, config).await
+      crate::server_unix::http::run_http(&path, router, signal, config, upgrades).await
     });
     handle
   }
@@ -222,14 +258,18 @@ impl Server {
     path: impl Into<PathBuf>,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     let path = path.into();
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let listener = crate::server_unix::listener::bind_unix_listener(&path).await?;
     let config = self.config.clone();
     let (handle, signal) = make_handle(config.drain_timeout, None);
+    let upgrades = handle.upgrade_supervisor();
     spawn_done(&handle, async move {
-      crate::server_unix::http::run_listener(listener, &path, router, signal, config).await
+      crate::server_unix::http::run_listener(listener, &path, router, signal, config, upgrades)
+        .await
     });
     Ok(handle)
   }
@@ -250,6 +290,8 @@ impl Server {
     port: u32,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let listener = tokio_vsock::VsockListener::bind(tokio_vsock::VsockAddr::new(cid, port))?;
@@ -257,7 +299,15 @@ impl Server {
     let (handle, signal) = make_handle(config.drain_timeout, None);
     spawn_done(
       &handle,
-      crate::server_vsock::run_listener(listener, cid, port, router, signal, config),
+      crate::server_vsock::run_listener(
+        listener,
+        cid,
+        port,
+        router,
+        signal,
+        config,
+        handle.upgrade_supervisor(),
+      ),
     );
     Ok(handle)
   }
@@ -277,6 +327,8 @@ impl Server {
     listener: TcpListener,
     router: Router,
   ) -> Result<ServerHandle, tako_rs_core::types::BoxError> {
+    self.config.validate()?;
+
     #[cfg(feature = "plugins")]
     router.setup_plugins_once()?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
@@ -287,6 +339,7 @@ impl Server {
         router,
         signal,
         self.config.clone(),
+        handle.upgrade_supervisor(),
       ),
     );
     Ok(handle)
@@ -323,13 +376,15 @@ impl Server {
       + Sync
       + 'static,
   {
+    self.config.validate()?;
+
     let bound = std::net::TcpListener::bind(addr.into())?;
     bound.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(bound)?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(listener.local_addr()?));
-    let drain_timeout = self.config.drain_timeout;
+    let config = self.config.clone();
     spawn_done(&handle, async move {
-      crate::server_tcp::run_listener(listener, handler, signal, drain_timeout)
+      crate::server_tcp::run_listener(listener, handler, signal, config)
         .await
         .map_err(Into::into)
     });
@@ -371,13 +426,15 @@ impl Server {
       + Sync
       + 'static,
   {
+    self.config.validate()?;
+
     let bound = std::net::UdpSocket::bind(addr.into())?;
     bound.set_nonblocking(true)?;
     let socket = tokio::net::UdpSocket::from_std(bound)?;
     let (handle, signal) = make_handle(self.config.drain_timeout, Some(socket.local_addr()?));
-    let drain_timeout = self.config.drain_timeout;
+    let config = self.config.clone();
     spawn_done(&handle, async move {
-      crate::server_udp::run_socket(socket, handler, signal, drain_timeout)
+      crate::server_udp::run_socket(socket, handler, signal, config)
         .await
         .map_err(Into::into)
     });

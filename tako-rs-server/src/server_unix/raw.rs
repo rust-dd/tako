@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 
 use super::listener::bind_unix_listener;
+use crate::ServerConfig;
 
 /// Runs `handler` for every accepted connection until an accept error, which it returns.
 pub async fn serve_unix<F>(path: impl AsRef<Path>, handler: F) -> std::io::Result<()>
@@ -21,26 +22,13 @@ where
     + Sync
     + 'static,
 {
-  let path = path.as_ref();
-  let listener = bind_unix_listener(path).await?;
-  tracing::info!("Unix socket server listening on {}", path.display());
-
-  #[cfg(feature = "signals")]
-  tako_rs_core::signals::transport::emit_server_started(&path.to_string_lossy(), "unix", false)
-    .await;
-
-  let handler = Arc::new(handler);
-
-  loop {
-    let (stream, addr) = listener.accept().await?;
-    let handler = Arc::clone(&handler);
-
-    tokio::spawn(async move {
-      if let Err(e) = handler(stream, addr).await {
-        tracing::error!("Unix socket connection error: {e}");
-      }
-    });
-  }
+  serve_unix_with_config(
+    path,
+    handler,
+    std::future::pending(),
+    ServerConfig::default(),
+  )
+  .await
 }
 
 /// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
@@ -80,8 +68,61 @@ where
     + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
+  serve_unix_with_config(
+    path,
+    handler,
+    signal,
+    ServerConfig {
+      drain_timeout,
+      ..ServerConfig::default()
+    },
+  )
+  .await
+}
+
+/// Enforces the configured connection limit and drain timeout.
+pub async fn serve_unix_with_config<F, S>(
+  path: impl AsRef<Path>,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::UnixStream,
+      tokio::net::unix::SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  config.validate()?;
+
   let path = path.as_ref();
   let listener = bind_unix_listener(path).await?;
+  run_listener(listener, path, handler, signal, config).await
+}
+
+pub(crate) async fn run_listener<F, S>(
+  listener: tokio::net::UnixListener,
+  path: &Path,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::UnixStream,
+      tokio::net::unix::SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  config.validate()?;
+
   tracing::info!("Unix socket server listening on {}", path.display());
 
   #[cfg(feature = "signals")]
@@ -95,7 +136,13 @@ where
 
   loop {
     tokio::select! {
-      result = listener.accept() => {
+      biased;
+      () = &mut signal => {
+        tracing::info!("Unix socket server shutting down, draining {} connections", join_set.len());
+        break;
+      }
+      _ = join_set.join_next(), if !join_set.is_empty() => {}
+      result = listener.accept(), if config.max_connections.is_none_or(|max| join_set.len() < max) => {
         let (stream, addr) = result?;
         let handler = Arc::clone(&handler);
 
@@ -104,16 +151,11 @@ where
             tracing::error!("Unix socket connection error: {e}");
           }
         });
-        while join_set.try_join_next().is_some() {}
-      }
-      () = &mut signal => {
-        tracing::info!("Unix socket server shutting down, draining {} connections", join_set.len());
-        break;
       }
     }
   }
 
-  if tokio::time::timeout(drain_timeout, async {
+  if tokio::time::timeout(config.drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
   .await

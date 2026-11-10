@@ -8,6 +8,7 @@ mod http1_io;
 mod lease;
 mod shutdown;
 mod timer;
+mod upgrades;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -20,10 +21,15 @@ pub use driver::ConnDriver;
 use futures_util::future::Either;
 pub use headers::sanitize_response;
 pub use http::http_service;
+pub use http::http_service_with_upgrades;
 pub use http1_io::Http1Io;
 pub use lease::Leased;
 pub use shutdown::ShutdownSignal;
 pub use timer::ConnectionTimer;
+pub use upgrades::UpgradeRegistry;
+#[cfg(feature = "ws")]
+pub(crate) use upgrades::UpgradeSession;
+pub use upgrades::UpgradeSupervisor;
 
 use crate::router::Router;
 

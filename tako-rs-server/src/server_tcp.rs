@@ -45,6 +45,8 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use crate::ServerConfig;
+
 /// Runs `handler` for every accepted connection until an accept error, which it returns.
 ///
 /// # Examples
@@ -77,30 +79,13 @@ where
     + Sync
     + 'static,
 {
-  let listener = tokio::net::TcpListener::bind(addr).await?;
-  tracing::info!("TCP server listening on {}", listener.local_addr()?);
-
-  #[cfg(feature = "signals")]
-  tako_rs_core::signals::transport::emit_server_started(
-    &listener.local_addr()?.to_string(),
-    "tcp",
-    false,
+  serve_tcp_with_config(
+    addr,
+    handler,
+    std::future::pending(),
+    ServerConfig::default(),
   )
-  .await;
-
-  let handler = Arc::new(handler);
-
-  loop {
-    let (stream, peer_addr) = listener.accept().await?;
-    let _ = stream.set_nodelay(true);
-    let handler = Arc::clone(&handler);
-
-    tokio::spawn(async move {
-      if let Err(e) = handler(stream, peer_addr).await {
-        tracing::error!("TCP connection error from {peer_addr}: {e}");
-      }
-    });
-  }
+  .await
 }
 
 /// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
@@ -138,16 +123,25 @@ where
     + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
-  let listener = tokio::net::TcpListener::bind(addr).await?;
-  run_listener(listener, handler, signal, drain_timeout).await
+  serve_tcp_with_config(
+    addr,
+    handler,
+    signal,
+    ServerConfig {
+      drain_timeout,
+      ..ServerConfig::default()
+    },
+  )
+  .await
 }
 
+/// Enforces the configured connection limit and drain timeout.
 #[cfg(not(feature = "compio"))]
-pub(crate) async fn run_listener<F, S>(
-  listener: tokio::net::TcpListener,
+pub async fn serve_tcp_with_config<F, S>(
+  addr: &str,
   handler: F,
   signal: S,
-  drain_timeout: std::time::Duration,
+  config: ServerConfig,
 ) -> std::io::Result<()>
 where
   F: Fn(
@@ -159,6 +153,31 @@ where
     + 'static,
   S: Future<Output = ()> + Send + 'static,
 {
+  config.validate()?;
+
+  let listener = tokio::net::TcpListener::bind(addr).await?;
+  run_listener(listener, handler, signal, config).await
+}
+
+#[cfg(not(feature = "compio"))]
+pub(crate) async fn run_listener<F, S>(
+  listener: tokio::net::TcpListener,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(
+      tokio::net::TcpStream,
+      SocketAddr,
+    ) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + Send + 'static,
+{
+  config.validate()?;
+
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
   #[cfg(feature = "signals")]
@@ -176,7 +195,13 @@ where
 
   loop {
     tokio::select! {
-      result = listener.accept() => {
+      biased;
+      () = &mut signal => {
+        tracing::info!("TCP server shutting down, draining {} connections", join_set.len());
+        break;
+      }
+      _ = join_set.join_next(), if !join_set.is_empty() => {}
+      result = listener.accept(), if config.max_connections.is_none_or(|max| join_set.len() < max) => {
         let (stream, peer_addr) = result?;
         let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
@@ -186,16 +211,11 @@ where
             tracing::error!("TCP connection error from {peer_addr}: {e}");
           }
         });
-        while join_set.try_join_next().is_some() {}
-      }
-      () = &mut signal => {
-        tracing::info!("TCP server shutting down, draining {} connections", join_set.len());
-        break;
       }
     }
   }
 
-  if tokio::time::timeout(drain_timeout, async {
+  if tokio::time::timeout(config.drain_timeout, async {
     while join_set.join_next().await.is_some() {}
   })
   .await
@@ -223,31 +243,13 @@ where
     + Sync
     + 'static,
 {
-  let listener = compio::net::TcpListener::bind(addr).await?;
-  tracing::info!("TCP server listening on {}", listener.local_addr()?);
-
-  #[cfg(feature = "signals")]
-  tako_rs_core::signals::transport::emit_server_started(
-    &listener.local_addr()?.to_string(),
-    "tcp",
-    false,
+  serve_tcp_with_config(
+    addr,
+    handler,
+    std::future::pending(),
+    ServerConfig::default(),
   )
-  .await;
-
-  let handler = Arc::new(handler);
-
-  loop {
-    let (stream, peer_addr) = listener.accept().await?;
-    let _ = stream.set_nodelay(true);
-    let handler = Arc::clone(&handler);
-
-    compio::runtime::spawn(async move {
-      if let Err(e) = handler(stream, peer_addr).await {
-        tracing::error!("TCP connection error from {peer_addr}: {e}");
-      }
-    })
-    .detach();
-  }
+  .await
 }
 
 /// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
@@ -279,10 +281,58 @@ where
     + 'static,
   S: Future<Output = ()> + 'static,
 {
+  serve_tcp_with_config(
+    addr,
+    handler,
+    signal,
+    ServerConfig {
+      drain_timeout,
+      ..ServerConfig::default()
+    },
+  )
+  .await
+}
+
+/// Enforces the configured connection limit and drain timeout.
+#[cfg(feature = "compio")]
+pub async fn serve_tcp_with_config<F, S>(
+  addr: &str,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + 'static,
+{
+  config.validate()?;
+
+  let listener = compio::net::TcpListener::bind(addr).await?;
+  run_listener(listener, handler, signal, config).await
+}
+
+#[cfg(feature = "compio")]
+pub(crate) async fn run_listener<F, S>(
+  listener: compio::net::TcpListener,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(compio::net::TcpStream, SocketAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + 'static,
+{
   use futures_util::FutureExt;
   use futures_util::StreamExt;
 
-  let listener = compio::net::TcpListener::bind(addr).await?;
+  config.validate()?;
+
   tracing::info!("TCP server listening on {}", listener.local_addr()?);
 
   #[cfg(feature = "signals")]
@@ -300,22 +350,35 @@ where
   let mut signal = signal;
 
   loop {
+    while connections.next().now_or_never().flatten().is_some() {}
+
+    if config
+      .max_connections
+      .is_some_and(|max| connections.len() >= max)
+    {
+      let completed = std::pin::pin!(connections.next());
+      match futures_util::future::select(&mut signal, completed).await {
+        futures_util::future::Either::Left(_) => break,
+        futures_util::future::Either::Right(_) => continue,
+      }
+    }
+
     let accept_fut = listener.accept();
     let accept_fut = std::pin::pin!(accept_fut);
 
-    match futures_util::future::select(accept_fut, &mut signal).await {
-      futures_util::future::Either::Left((result, _)) => {
+    match futures_util::future::select(&mut signal, accept_fut).await {
+      futures_util::future::Either::Right((result, _)) => {
         let (stream, peer_addr) = result?;
         let _ = stream.set_nodelay(true);
         let handler = Arc::clone(&handler);
+
         connections.push(compio::runtime::spawn(async move {
           if let Err(e) = handler(stream, peer_addr).await {
             tracing::error!("TCP connection error from {peer_addr}: {e}");
           }
         }));
-        while connections.next().now_or_never().flatten().is_some() {}
       }
-      futures_util::future::Either::Right(_) => {
+      futures_util::future::Either::Left(_) => {
         tracing::info!(
           "TCP server shutting down, draining {} connections",
           connections.len()
@@ -325,7 +388,7 @@ where
     }
   }
 
-  if compio::time::timeout(drain_timeout, async {
+  if compio::time::timeout(config.drain_timeout, async {
     while connections.next().await.is_some() {}
   })
   .await

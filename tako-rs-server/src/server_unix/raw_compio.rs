@@ -12,6 +12,7 @@ use futures_util::future::Either;
 use futures_util::stream::FuturesUnordered;
 use tako_rs_core::conn_info::UnixPeerAddr;
 
+use crate::ServerConfig;
 use crate::server_compio::unix::bind_listener;
 use crate::server_compio::unix::peer_addr;
 
@@ -23,28 +24,13 @@ where
     + Sync
     + 'static,
 {
-  let path = path.as_ref();
-  let listener = bind_listener(path).await?;
-  tracing::info!("Unix socket server listening on {}", path.display());
-
-  #[cfg(feature = "signals")]
-  tako_rs_core::signals::transport::emit_server_started(&path.to_string_lossy(), "unix", false)
-    .await;
-
-  let handler = Arc::new(handler);
-
-  loop {
-    let (stream, addr) = listener.accept().await?;
-    let peer = peer_addr(addr.as_pathname());
-    let handler = Arc::clone(&handler);
-
-    compio::runtime::spawn(async move {
-      if let Err(e) = handler(stream, peer).await {
-        tracing::error!("Unix socket connection error: {e}");
-      }
-    })
-    .detach();
-  }
+  serve_unix_with_config(
+    path,
+    handler,
+    std::future::pending(),
+    ServerConfig::default(),
+  )
+  .await
 }
 
 /// Stops accepting once `signal` resolves and drains connections for up to 30 seconds; use
@@ -78,8 +64,55 @@ where
     + 'static,
   S: Future<Output = ()> + 'static,
 {
+  serve_unix_with_config(
+    path,
+    handler,
+    signal,
+    ServerConfig {
+      drain_timeout,
+      ..ServerConfig::default()
+    },
+  )
+  .await
+}
+
+/// Enforces the configured connection limit and drain timeout.
+pub async fn serve_unix_with_config<F, S>(
+  path: impl AsRef<Path>,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(compio::net::UnixStream, UnixPeerAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + 'static,
+{
+  config.validate()?;
+
   let path = path.as_ref();
   let listener = bind_listener(path).await?;
+  run_listener(listener, path, handler, signal, config).await
+}
+
+pub(crate) async fn run_listener<F, S>(
+  listener: compio::net::UnixListener,
+  path: &Path,
+  handler: F,
+  signal: S,
+  config: ServerConfig,
+) -> std::io::Result<()>
+where
+  F: Fn(compio::net::UnixStream, UnixPeerAddr) -> Pin<Box<dyn Future<Output = std::io::Result<()>>>>
+    + Send
+    + Sync
+    + 'static,
+  S: Future<Output = ()> + 'static,
+{
+  config.validate()?;
+
   tracing::info!("Unix socket server listening on {}", path.display());
 
   #[cfg(feature = "signals")]
@@ -91,20 +124,34 @@ where
   let mut signal = std::pin::pin!(signal);
 
   loop {
+    while connections.next().now_or_never().flatten().is_some() {}
+
+    if config
+      .max_connections
+      .is_some_and(|max| connections.len() >= max)
+    {
+      let completed = std::pin::pin!(connections.next());
+      match futures_util::future::select(&mut signal, completed).await {
+        Either::Left(_) => break,
+        Either::Right(_) => continue,
+      }
+    }
+
     let accept = std::pin::pin!(listener.accept());
-    match futures_util::future::select(accept, &mut signal).await {
-      Either::Left((result, _)) => {
+
+    match futures_util::future::select(&mut signal, accept).await {
+      Either::Right((result, _)) => {
         let (stream, addr) = result?;
         let peer = peer_addr(addr.as_pathname());
         let handler = Arc::clone(&handler);
+
         connections.push(compio::runtime::spawn(async move {
           if let Err(e) = handler(stream, peer).await {
             tracing::error!("Unix socket connection error: {e}");
           }
         }));
-        while connections.next().now_or_never().flatten().is_some() {}
       }
-      Either::Right(_) => {
+      Either::Left(_) => {
         tracing::info!(
           "Unix socket server shutting down, draining {} connections",
           connections.len()
@@ -114,7 +161,7 @@ where
     }
   }
 
-  if compio::time::timeout(drain_timeout, async {
+  if compio::time::timeout(config.drain_timeout, async {
     while connections.next().await.is_some() {}
   })
   .await

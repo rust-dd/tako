@@ -1,33 +1,27 @@
 use std::io;
 
-/// Worker bind results, so the parent can fail when every worker failed to bind instead of
-/// waiting for a signal with no listener up.
-#[derive(Default)]
-struct BindStatus {
-  succeeded: std::sync::atomic::AtomicUsize,
-  failed: std::sync::atomic::AtomicUsize,
-  first_err: std::sync::Mutex<Option<io::Error>>,
-  notify: tokio::sync::Notify,
-}
+use crate::PerThreadError;
+use crate::PerThreadErrorKind;
+use crate::PerThreadReadiness;
 
-/// Stops the workers of [`spawn_per_thread`](crate::spawn_per_thread); the signal is sticky, so
-/// a worker that starts waiting after [`trigger`](Self::trigger) still sees it.
+/// Sticky shutdown signal: workers that start waiting later still receive it.
 #[derive(Clone)]
 pub struct PerThreadShutdown {
   pub(crate) inner: tokio_util::sync::CancellationToken,
-  bind_status: std::sync::Arc<BindStatus>,
+  pub(crate) readiness: PerThreadReadiness,
 }
 
 impl PerThreadShutdown {
-  pub(crate) fn new() -> Self {
+  pub(crate) fn new(workers: usize) -> Self {
     Self {
       inner: tokio_util::sync::CancellationToken::new(),
-      bind_status: std::sync::Arc::default(),
+      readiness: PerThreadReadiness::new(workers),
     }
   }
 
-  /// Tells every worker to stop accepting and drain; later calls do nothing.
+  /// Clears readiness and starts draining all workers.
   pub fn trigger(&self) {
+    self.readiness.stop();
     self.inner.cancel();
   }
 
@@ -36,60 +30,63 @@ impl PerThreadShutdown {
     self.inner.cancelled().await;
   }
 
-  pub(crate) fn report_bind_success(&self) {
-    self
-      .bind_status
-      .succeeded
-      .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    self.bind_status.notify.notify_waiters();
+  pub(crate) fn report_bind_success(&self, worker_id: usize) {
+    self.readiness.listening(worker_id);
   }
 
-  /// Records a worker's bind failure; only the first error is kept for the caller.
-  pub(crate) fn report_bind_failure(&self, err: io::Error) {
-    {
-      let mut guard = self.bind_status.first_err.lock().unwrap();
-      if guard.is_none() {
-        *guard = Some(err);
-      }
+  #[cfg(not(feature = "compio"))]
+  pub(crate) fn report_handoff_only(&self, worker_id: usize, error: io::Error) {
+    if self.readiness.handoff_only(worker_id, error) {
+      self.trigger();
     }
-    self
-      .bind_status
-      .failed
-      .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    self.bind_status.notify.notify_waiters();
   }
 
-  /// Waits until one worker has bound, or returns the first bind error once all `total` failed.
-  pub async fn wait_for_bind_outcome(&self, total: usize) -> io::Result<()> {
-    use std::sync::atomic::Ordering;
-
-    loop {
-      // Arm the notified future BEFORE reading state so a wake fired
-      // between the load and the await is not lost.
-      let notified = self.bind_status.notify.notified();
-      tokio::pin!(notified);
-      notified.as_mut().enable();
-
-      let succ = self.bind_status.succeeded.load(Ordering::SeqCst);
-      let fail = self.bind_status.failed.load(Ordering::SeqCst);
-
-      if succ > 0 {
-        return Ok(());
-      }
-      if succ + fail >= total {
-        let err = self
-          .bind_status
-          .first_err
-          .lock()
-          .unwrap()
-          .take()
-          .unwrap_or_else(|| {
-            io::Error::other(format!("all {total} per-thread workers failed to bind"))
-          });
-        return Err(err);
-      }
-
-      notified.await;
+  pub(crate) fn report_exit(&self, worker_id: usize, outcome: Result<(), PerThreadError>) {
+    if self.readiness.finished(worker_id, outcome) {
+      self.trigger();
     }
+  }
+
+  /// Publishes failure before the caller drops its runtime and waits for blocking tasks.
+  /// Final thread completion is accounted for separately by `report_exit`.
+  pub(crate) fn supervise_runtime(
+    &self,
+    worker_id: usize,
+    run: impl FnOnce() -> Result<(), PerThreadError>,
+  ) -> Result<(), PerThreadError> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+      Ok(result) => {
+        let result = if result.is_ok() && !self.inner.is_cancelled() {
+          Err(PerThreadError::new(
+            worker_id,
+            PerThreadErrorKind::UnexpectedExit,
+            io::Error::other("worker exited without a shutdown request"),
+          ))
+        } else {
+          result
+        };
+
+        if let Err(error) = &result
+          && self.readiness.failed(worker_id, error.clone())
+        {
+          self.trigger();
+        }
+
+        result
+      }
+      Err(payload) => {
+        self.readiness.failed(
+          worker_id,
+          PerThreadError::panic(worker_id, payload.as_ref()),
+        );
+        self.trigger();
+        std::panic::resume_unwind(payload);
+      }
+    }
+  }
+
+  /// Waits for readiness, failure, or shutdown. `total` is ignored; spawning sets the count.
+  pub async fn wait_for_bind_outcome(&self, _total: usize) -> io::Result<()> {
+    self.readiness.wait_ready().await
   }
 }

@@ -34,9 +34,14 @@ pub struct ServerHandle {
   pub(crate) drain_timeout: Duration,
   pub(crate) result: Arc<Mutex<Option<Result<(), ServerError>>>>,
   pub(crate) local_addr: Option<SocketAddr>,
+  pub(crate) upgrades: tako_rs_core::server_support::UpgradeRegistry,
 }
 
 impl ServerHandle {
+  pub(crate) fn upgrade_supervisor(&self) -> tako_rs_core::server_support::UpgradeSupervisor {
+    tako_rs_core::server_support::UpgradeSupervisor::new(self.upgrades.clone())
+  }
+
   /// Stops accepting and starts draining without waiting for it.
   pub fn trigger(&self) {
     self.shutdown.cancel();

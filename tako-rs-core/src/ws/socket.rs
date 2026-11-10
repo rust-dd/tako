@@ -61,7 +61,7 @@ impl Default for Config {
 }
 
 pub(crate) struct Core {
-  io: Upgraded,
+  io: Option<Upgraded>,
   read_buf: BytesMut,
   write_buf: BytesMut,
   protocol: Protocol,
@@ -80,7 +80,7 @@ pub(crate) struct Core {
 impl Core {
   pub(crate) fn new(io: Upgraded, config: Config) -> Self {
     Self {
-      io,
+      io: Some(io),
       read_buf: BytesMut::with_capacity(config.read_buffer_size),
       write_buf: BytesMut::new(),
       protocol: Protocol::new(config.limits),
@@ -98,6 +98,15 @@ impl Core {
 
   pub(crate) fn close_if_open(&mut self, code: CloseCode) {
     self.protocol.close_if_open(code);
+  }
+
+  pub(crate) fn terminate(&mut self) {
+    self.finished = true;
+    self.read_done = true;
+    self.io = None;
+    self.read_buf = BytesMut::new();
+    self.write_buf = BytesMut::new();
+    self.wake_waiting();
   }
 
   pub(crate) fn wake_waiting(&self) {
@@ -150,6 +159,10 @@ impl Core {
   }
 
   fn poll_read_more(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<usize>> {
+    let Some(io) = &mut self.io else {
+      return Poll::Ready(Ok(0));
+    };
+
     let want = self
       .protocol
       .wanted(&self.read_buf)
@@ -165,7 +178,7 @@ impl Core {
       let spare = self.read_buf.spare_capacity_mut();
       let len = spare.len().min(want);
       let mut buf = ReadBuf::uninit(&mut spare[..len]);
-      ready!(Pin::new(&mut self.io).poll_read(&mut proxy, buf.unfilled()))?;
+      ready!(Pin::new(io).poll_read(&mut proxy, buf.unfilled()))?;
       buf.filled().len()
     };
     // SAFETY: the transport initialized `filled` bytes of the spare capacity.
@@ -201,6 +214,10 @@ impl Core {
   }
 
   pub(crate) fn poll_write_out(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    let Some(io) = &mut self.io else {
+      return Poll::Ready(Err(Error::Closed));
+    };
+
     if let Some(kind) = self.write_failed {
       return Poll::Ready(Err(Error::Io(kind.into())));
     }
@@ -212,9 +229,9 @@ impl Core {
       }
       self.protocol.drain_close(&mut self.write_buf);
       if self.write_buf.is_empty() {
-        break ready!(Pin::new(&mut self.io).poll_flush(&mut proxy));
+        break ready!(Pin::new(&mut *io).poll_flush(&mut proxy));
       }
-      match ready!(Pin::new(&mut self.io).poll_write(&mut proxy, &self.write_buf)) {
+      match ready!(Pin::new(&mut *io).poll_write(&mut proxy, &self.write_buf)) {
         Ok(0) => break Err(io::ErrorKind::WriteZero.into()),
         Ok(written) => self.write_buf.advance(written),
         Err(error) => break Err(error),
@@ -227,8 +244,12 @@ impl Core {
   }
 
   pub(crate) fn poll_shutdown(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+    let Some(io) = &mut self.io else {
+      return Poll::Ready(Ok(()));
+    };
+
     let mut proxy = Context::from_waker(self.write_wake.register(cx));
-    ready!(Pin::new(&mut self.io).poll_shutdown(&mut proxy))?;
+    ready!(Pin::new(io).poll_shutdown(&mut proxy))?;
     Poll::Ready(Ok(()))
   }
 }

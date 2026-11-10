@@ -3,6 +3,7 @@
 mod accept;
 mod serve;
 
+pub(crate) use accept::run_supervised;
 pub use accept::run_with_config;
 pub use serve::serve_tls_with_rustls_config;
 pub use serve::serve_tls_with_rustls_config_and_shutdown;

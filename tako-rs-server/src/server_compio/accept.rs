@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 use futures_util::future::Either;
 use futures_util::stream::FuturesUnordered;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::UpgradeSupervisor;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -63,12 +64,15 @@ pub(crate) async fn accept_loop<L>(
   signal: impl Future<Output = ()>,
   config: ServerConfig,
   protocol: Protocol,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError>
 where
   L: Listener,
   <L::Stream as Splittable>::ReadHalf: AsyncRead + Unpin,
   <L::Stream as Splittable>::WriteHalf: AsyncWrite + Unpin,
 {
+  config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 
@@ -137,7 +141,7 @@ where
           peer,
           router.clone(),
           protocol,
-          settings,
+          settings.clone().with_upgrades(upgrades.registry()),
           cancel.clone(),
           permit,
         )));
@@ -151,16 +155,20 @@ where
   }
 
   cancel.cancel();
+  upgrades.trigger();
   if compio::time::timeout(drain_timeout, async {
     while connections.next().await.is_some() {}
+    upgrades.join().await;
   })
   .await
   .is_err()
   {
     tracing::warn!("drain timeout exceeded; cancelling remaining connections");
+    upgrades.abort();
     for connection in connections {
       connection.cancel().await;
     }
+    upgrades.join().await;
   }
 
   listener.finish();

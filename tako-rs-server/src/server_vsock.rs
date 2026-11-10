@@ -13,6 +13,7 @@ use tako_rs_core::conn_info::Transport;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::ConnectionTimer;
 use tako_rs_core::server_support::Leased;
+use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::connection_router;
 use tako_rs_core::server_support::drive_connection;
 use tako_rs_core::types::BoxError;
@@ -29,7 +30,10 @@ pub(crate) async fn run_listener(
   router: Router,
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
+  upgrades: UpgradeSupervisor,
 ) -> Result<(), BoxError> {
+  config.validate()?;
+
   let router = Arc::new(router);
 
   #[cfg(feature = "plugins")]
@@ -85,9 +89,11 @@ pub(crate) async fn run_listener(
         let router = connection_router(&router);
 
         let conn_cancel = cancel.clone();
+        let registry = upgrades.registry();
         join_set.spawn(async move {
           let peer_label = format!("vsock:{}:{}", peer.cid(), peer.port());
           let svc = service_fn(move |mut req| {
+            registry.attach(&mut req);
             let router = router.clone();
             let peer_label = peer_label.clone();
             async move {
@@ -124,8 +130,10 @@ pub(crate) async fn run_listener(
     }
   }
 
+  upgrades.trigger();
   let drain = tokio::time::timeout(drain_timeout, async {
     while join_set.join_next().await.is_some() {}
+    upgrades.join().await;
   });
   if drain.await.is_err() {
     tracing::warn!(
@@ -133,7 +141,9 @@ pub(crate) async fn run_listener(
       drain_timeout,
       join_set.len()
     );
+    upgrades.abort();
     join_set.shutdown().await;
+    upgrades.join().await;
   }
 
   tracing::info!("vsock HTTP server shut down gracefully");

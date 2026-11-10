@@ -26,6 +26,8 @@ pub(crate) async fn run(
   signal: impl Future<Output = ()> + Send + 'static,
   config: ServerConfig,
 ) -> Result<(), BoxError> {
+  config.validate()?;
+
   #[cfg(feature = "tako-tracing")]
   tako_rs_core::tracing::init_tracing();
 

@@ -45,6 +45,21 @@ fn unrepresentable_limits_are_rejected_before_upgrading() {
 async fn handler(_: crate::ws::WebSocket) {}
 
 #[test]
+fn an_upgrade_requested_before_shutdown_is_rejected_if_it_finishes_during_drain() {
+  let supervisor = crate::server_support::UpgradeSupervisor::default();
+  let mut request = request();
+  let upgrade = hyper::upgrade::on(&mut request);
+  request.extensions_mut().insert(upgrade);
+  supervisor.registry().attach(&mut request);
+  let pending = WebSocketUpgrade::new(request, handler);
+
+  supervisor.trigger();
+  let (response, session) = pending.accept();
+  assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+  assert!(session.is_none());
+}
+
+#[test]
 fn a_protocol_from_a_later_header_is_returned_in_the_upgrade() {
   let mut request = request();
   request.headers_mut().append(
