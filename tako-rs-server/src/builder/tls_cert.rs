@@ -218,13 +218,10 @@ fn build_certified_key(
 
   // Installs aws-lc-rs only when no provider exists yet; otherwise the earlier one, e.g. ring,
   // loads and signs with the key, which the one-time warning below reports.
-  let we_installed = if rustls::crypto::CryptoProvider::get_default().is_none() {
-    rustls::crypto::aws_lc_rs::default_provider()
+  let we_installed = rustls::crypto::CryptoProvider::get_default().is_none()
+    && rustls::crypto::aws_lc_rs::default_provider()
       .install_default()
-      .is_ok()
-  } else {
-    false
-  };
+      .is_ok();
   if !we_installed {
     static WARNED: std::sync::Once = std::sync::Once::new();
     WARNED.call_once(|| {
