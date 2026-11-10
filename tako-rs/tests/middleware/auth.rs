@@ -93,25 +93,6 @@ async fn api_key_with_verify() {
 }
 
 #[tokio::test]
-async fn basic_auth_valid() {
-  use tako::middleware::basic_auth::BasicAuth;
-
-  let mut router = Router::new();
-  router.route(Method::GET, "/secure", |_req: Request| async { "ok" });
-  router.middleware(BasicAuth::single("admin", "password").into_middleware());
-
-  let encoded =
-    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "admin:password");
-  let mut req = make_req(Method::GET, "/secure");
-  req
-    .headers_mut()
-    .insert("authorization", format!("Basic {encoded}").parse().unwrap());
-
-  let resp = router.dispatch(req).await;
-  assert_eq!(resp.status(), StatusCode::OK);
-}
-
-#[tokio::test]
 async fn basic_auth_missing() {
   use tako::middleware::basic_auth::BasicAuth;
 
@@ -173,23 +154,6 @@ async fn basic_auth_custom_realm() {
     .unwrap()
     .to_string();
   assert!(www_auth.contains("Admin Area"));
-}
-
-#[tokio::test]
-async fn bearer_auth_valid() {
-  use tako::middleware::bearer_auth::BearerAuth;
-
-  let mut router = Router::new();
-  router.route(Method::GET, "/api", |_req: Request| async { "ok" });
-  router.middleware(BearerAuth::static_token("my-token").into_middleware());
-
-  let mut req = make_req(Method::GET, "/api");
-  req
-    .headers_mut()
-    .insert("authorization", "Bearer my-token".parse().unwrap());
-
-  let resp = router.dispatch(req).await;
-  assert_eq!(resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

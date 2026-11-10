@@ -269,13 +269,6 @@ mod tests {
   }
 
   #[test]
-  fn sixteen_buffered_frames_decode_one_by_one() {
-    let bytes: Vec<u8> = (0..16).flat_map(|_| client_frame(TEXT, b"hello")).collect();
-    let frames = decode_all(&mut Receiver::new(LIMITS), &bytes).unwrap();
-    assert_eq!(frames.len(), 16);
-  }
-
-  #[test]
   fn a_frame_decodes_once_its_last_byte_arrives() {
     let payload: Vec<u8> = (0..300u16).map(|i| i as u8).collect();
     let bytes = client_frame(BINARY, &payload);

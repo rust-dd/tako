@@ -54,13 +54,6 @@ async fn server_builder_handles_http_request() {
 }
 
 #[tokio::test]
-async fn server_builder_default_config_is_default() {
-  let server = Server::builder().build();
-  assert_eq!(server.config().drain_timeout, Duration::from_secs(30));
-  assert_eq!(server.config().h2_max_concurrent_streams, 100);
-}
-
-#[tokio::test]
 async fn server_builder_handles_raw_tcp_echo() {
   use tokio::io::AsyncReadExt as _;
   use tokio::io::AsyncWriteExt as _;

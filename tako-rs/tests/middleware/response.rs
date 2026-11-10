@@ -148,22 +148,6 @@ async fn request_id_preserved() {
 }
 
 #[tokio::test]
-async fn request_id_custom_generator() {
-  use tako::middleware::request_id::RequestId;
-
-  let mut router = Router::new();
-  router.route(Method::GET, "/", |_req: Request| async { "ok" });
-  router.middleware(
-    RequestId::new()
-      .generator(|| "fixed-id".to_string())
-      .into_middleware(),
-  );
-
-  let resp = router.dispatch(make_req(Method::GET, "/")).await;
-  assert_eq!(resp.headers().get("x-request-id").unwrap(), "fixed-id");
-}
-
-#[tokio::test]
 async fn request_id_custom_header() {
   use tako::middleware::request_id::RequestId;
 

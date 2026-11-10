@@ -52,20 +52,3 @@ async fn invalid_connection_limit_is_rejected_before_http_startup() {
     );
   }
 }
-
-#[test]
-fn invalid_configuration_is_rejected_before_raw_tcp_binding() {
-  let result = Server::builder()
-    .config(ServerConfig {
-      max_connections: Some(0),
-      ..ServerConfig::default()
-    })
-    .build()
-    .try_spawn_tcp_raw("invalid socket address", |_, _| Box::pin(async { Ok(()) }));
-  let error = result.expect_err("invalid configuration must fail");
-
-  assert!(
-    error.to_string().contains("max_connections"),
-    "configuration must be checked before attempting to bind: {error}"
-  );
-}

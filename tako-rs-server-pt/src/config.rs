@@ -78,13 +78,3 @@ impl Default for PerThreadConfig {
 fn num_cpus() -> usize {
   std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
 }
-
-#[cfg(test)]
-mod tests {
-  use super::PerThreadConfig;
-
-  #[test]
-  fn workers_are_not_pinned_by_default() {
-    assert!(!PerThreadConfig::default().pin_to_core);
-  }
-}

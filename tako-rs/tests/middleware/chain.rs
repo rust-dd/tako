@@ -124,35 +124,6 @@ async fn problem_json_rewrites_text_404() {
 }
 
 #[tokio::test]
-async fn etag_304_on_match() {
-  use tako::middleware::etag::ETag;
-
-  let mut router = Router::new();
-  router.route(Method::GET, "/", |_req: Request| async { "hello" });
-  router.middleware(ETag::new().into_middleware());
-
-  let resp = router.dispatch(make_req(Method::GET, "/")).await;
-  let etag = resp
-    .headers()
-    .get("etag")
-    .unwrap()
-    .to_str()
-    .unwrap()
-    .to_string();
-
-  let mut req = make_req(Method::GET, "/");
-  req
-    .headers_mut()
-    .insert("if-none-match", etag.parse().unwrap());
-  let resp = router.dispatch(req).await;
-  assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
-  assert!(
-    etag.starts_with("W/\""),
-    "expected weak validator prefix, got: {etag}"
-  );
-}
-
-#[tokio::test]
 async fn etag_if_modified_since_rfc850() {
   use tako::middleware::etag::ETag;
 

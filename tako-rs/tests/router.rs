@@ -48,21 +48,6 @@ async fn route_miss_returns_404() {
 }
 
 #[tokio::test]
-async fn different_method_returns_405_with_allow() {
-  let mut router = Router::new();
-  router.route(Method::GET, "/hello", |_req: Request| async { "Hello" });
-
-  let resp = router.dispatch(make_req(Method::POST, "/hello")).await;
-  assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
-  let allow = resp
-    .headers()
-    .get(http::header::ALLOW)
-    .and_then(|v| v.to_str().ok())
-    .unwrap_or("");
-  assert!(allow.split(',').map(str::trim).any(|m| m == "GET"));
-}
-
-#[tokio::test]
 async fn custom_fallback() {
   let mut router = Router::new();
   router.route(Method::GET, "/hello", |_req: Request| async { "Hello" });

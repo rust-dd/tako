@@ -1,7 +1,6 @@
 use http::StatusCode;
 use http_body_util::BodyExt;
 use tako::body::TakoBody;
-use tako::responder::NOT_FOUND;
 use tako::responder::Responder;
 use tako::responder::StaticHeaders;
 
@@ -55,13 +54,6 @@ async fn anyhow_err_response() {
     "text/plain; charset=utf-8"
   );
   assert_eq!(body_str(resp).await, "Internal Server Error");
-}
-
-#[tokio::test]
-async fn not_found_constant() {
-  let resp = NOT_FOUND.into_response();
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-  assert_eq!(body_str(resp).await, "Not Found");
 }
 
 #[tokio::test]

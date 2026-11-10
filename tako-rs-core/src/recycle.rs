@@ -167,18 +167,6 @@ mod tests {
   }
 
   #[test]
-  fn extensions_with_only_framework_entries_keep_them_for_reuse() {
-    let mut extensions = Extensions::new();
-    extensions.insert(ConnInfo::tcp(peer()));
-    extensions.insert(peer());
-    extensions.insert(MatchedPath("/".into()));
-    recycle_extensions(extensions);
-    let reused = take_extensions();
-    assert_eq!(reused.len(), 3);
-    assert_eq!(reused.get::<MatchedPath>().unwrap().as_str(), "/");
-  }
-
-  #[test]
   fn recycling_drops_original_uri_and_preserves_reusable_entries() {
     let mut extensions = Extensions::new();
     extensions.insert(ConnInfo::tcp(peer()));

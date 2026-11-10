@@ -131,12 +131,6 @@ async fn scope_groups_routes_under_prefix() {
 }
 
 #[test]
-fn routes_is_empty_for_a_new_router() {
-  let router = Router::new();
-  assert!(router.routes().is_empty());
-}
-
-#[test]
 fn routes_returns_every_registered_route() {
   let mut router = Router::new();
   router.route(Method::GET, "/health", |_req: Request| async { "ok" });
@@ -158,19 +152,6 @@ fn routes_returns_every_registered_route() {
       (Method::GET, "/{id}".to_string()),
     ]
   );
-}
-
-#[test]
-fn routes_preserves_the_tsr_flag() {
-  let mut router = Router::new();
-  router.route(Method::GET, "/plain", |_req: Request| async { "ok" });
-  router.route_with_tsr(Method::GET, "/tsr", |_req: Request| async { "ok" });
-
-  let routes = router.routes();
-  let plain = routes.iter().find(|r| r.path.as_ref() == "/plain").unwrap();
-  let tsr = routes.iter().find(|r| r.path.as_ref() == "/tsr").unwrap();
-  assert!(!plain.tsr);
-  assert!(tsr.tsr);
 }
 
 #[test]

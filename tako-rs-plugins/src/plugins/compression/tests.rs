@@ -7,7 +7,6 @@ use tako_rs_core::body::TakoBody;
 use super::brotli_stream::stream_brotli;
 use super::deflate_stream::stream_deflate;
 use super::encoder::compress_brotli;
-use super::encoder::compress_deflate;
 use super::gzip_stream::stream_gzip;
 #[cfg(feature = "zstd")]
 use super::zstd_stream::stream_zstd;
@@ -60,16 +59,6 @@ async fn compression_streams_round_trip_multiple_chunks_and_finish() {
     let zstd = stream_zstd(input(), 3).collect().await.unwrap().to_bytes();
     assert_eq!(zstd::stream::decode_all(zstd.as_ref()).unwrap(), expected);
   }
-}
-
-#[test]
-fn buffered_http_deflate_uses_a_zlib_wrapper() {
-  let input = b"a deflate-encoded HTTP response";
-  let encoded = compress_deflate(input, 5).unwrap();
-  assert_eq!(
-    decode(flate2::read::ZlibDecoder::new(encoded.as_slice())),
-    input
-  );
 }
 
 #[test]

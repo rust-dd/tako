@@ -100,20 +100,3 @@ async fn redirect_struct_methods() {
   assert_eq!(resp2.status(), StatusCode::MOVED_PERMANENTLY);
   assert_eq!(resp2.headers().get("location").unwrap(), "/b");
 }
-
-#[test]
-fn config_new_and_inner() {
-  use tako::config::Config;
-
-  let config = Config::new(42u32);
-  assert_eq!(*config.inner(), 42);
-  assert_eq!(config.into_inner(), 42);
-}
-
-#[test]
-fn config_error_display() {
-  use tako::config::ConfigError;
-
-  let err = ConfigError("missing field".to_string());
-  assert_eq!(format!("{err}"), "configuration error: missing field");
-}

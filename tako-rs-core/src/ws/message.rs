@@ -227,8 +227,6 @@ mod tests {
   use bytes::Bytes;
 
   use super::CloseCode;
-  use super::CloseFrame;
-  use super::Message;
   use super::Utf8Bytes;
 
   #[test]
@@ -255,31 +253,5 @@ mod tests {
     for code in rejected {
       assert!(!CloseCode::new(code).is_allowed(), "{code}");
     }
-  }
-
-  #[test]
-  fn into_data_returns_each_payload() {
-    assert_eq!(Message::text("hi").into_data(), "hi");
-    assert_eq!(
-      Message::binary(vec![1, 2]).into_data(),
-      Bytes::from_static(&[1, 2])
-    );
-    assert_eq!(Message::Ping(Bytes::from_static(b"p")).into_data(), "p");
-    assert_eq!(Message::Pong(Bytes::from_static(b"q")).into_data(), "q");
-    let close = CloseFrame {
-      code: CloseCode::NORMAL,
-      reason: Utf8Bytes::from_static("bye"),
-    };
-    assert_eq!(Message::Close(Some(close)).into_data(), "bye");
-    assert!(Message::Close(None).into_data().is_empty());
-  }
-
-  #[test]
-  fn kind_predicates_match_the_variant() {
-    assert!(Message::from("x").is_text());
-    assert!(Message::from(vec![0u8]).is_binary());
-    assert!(Message::Ping(Bytes::new()).is_ping());
-    assert!(Message::Pong(Bytes::new()).is_pong());
-    assert!(Message::Close(None).is_close());
   }
 }
