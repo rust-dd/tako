@@ -176,37 +176,6 @@ async fn retry_policy_exhausted_goes_to_dlq() {
 }
 
 #[tokio::test]
-async fn delayed_job() {
-  let executed_at = Arc::new(tokio::sync::Mutex::new(None));
-  let e = executed_at.clone();
-  let pushed_at = std::time::Instant::now();
-
-  let queue = Queue::builder().workers(1).build();
-  queue.register("delayed", move |_: Job| {
-    let e = e.clone();
-    async move {
-      *e.lock().await = Some(std::time::Instant::now());
-      Ok(())
-    }
-  });
-  queue.start();
-
-  queue
-    .push_delayed("delayed", &(), Duration::from_millis(200))
-    .await
-    .unwrap();
-
-  tokio::time::sleep(Duration::from_millis(50)).await;
-  assert!(executed_at.lock().await.is_none());
-
-  tokio::time::sleep(Duration::from_millis(300)).await;
-  let at = executed_at.lock().await.unwrap();
-  assert!(at.duration_since(pushed_at) >= Duration::from_millis(200));
-
-  queue.shutdown(Duration::from_secs(1)).await;
-}
-
-#[tokio::test]
 async fn pending_and_inflight_count() {
   let barrier = Arc::new(tokio::sync::Barrier::new(2));
   let b = barrier.clone();

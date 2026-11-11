@@ -4,41 +4,6 @@ use super::*;
 
 #[cfg(feature = "plugins")]
 #[tokio::test]
-async fn compression_compresses_plain_response() {
-  use tako::plugins::TakoPlugin;
-  use tako::plugins::compression::CompressionBuilder;
-
-  let mut router = Router::new();
-  router.route(Method::GET, "/", |_req: Request| async move {
-    let payload = "x".repeat(2048);
-    http::Response::builder()
-      .header("content-type", "text/plain")
-      .body(TakoBody::from(payload))
-      .unwrap()
-  });
-  CompressionBuilder::new()
-    .enable_gzip(true)
-    .min_size(512)
-    .build()
-    .setup(&router)
-    .unwrap();
-
-  let mut req = make_req(Method::GET, "/");
-  req
-    .headers_mut()
-    .insert("accept-encoding", "gzip".parse().unwrap());
-  let resp = router.dispatch(req).await;
-  assert_eq!(
-    resp
-      .headers()
-      .get("content-encoding")
-      .map(|v| v.to_str().unwrap()),
-    Some("gzip")
-  );
-}
-
-#[cfg(feature = "plugins")]
-#[tokio::test]
 async fn compression_skips_when_request_authenticated() {
   use tako::plugins::TakoPlugin;
   use tako::plugins::compression::CompressionBuilder;

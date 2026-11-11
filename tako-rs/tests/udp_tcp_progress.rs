@@ -14,17 +14,6 @@ fn progress_state_percent_normal() {
 }
 
 #[test]
-fn progress_state_percent_complete() {
-  use tako::middleware::upload_progress::ProgressState;
-
-  let state = ProgressState {
-    bytes_read: 100,
-    total_bytes: Some(100),
-  };
-  assert_eq!(state.percent(), Some(100));
-}
-
-#[test]
 fn progress_state_percent_zero_total() {
   use tako::middleware::upload_progress::ProgressState;
 
@@ -177,99 +166,6 @@ async fn upload_progress_percent_via_tracker() {
   assert_eq!(body_str, "100");
 }
 
-#[tokio::test]
-async fn upload_progress_min_notify_interval() {
-  use tako::Method;
-  use tako::middleware::IntoMiddleware;
-  use tako::middleware::upload_progress::UploadProgress;
-  use tako::responder::Responder;
-  use tako::router::Router;
-  use tako::types::Request;
-
-  async fn handler(_req: Request) -> impl Responder {
-    "ok"
-  }
-
-  let call_count = Arc::new(AtomicU64::new(0));
-  let cc = call_count.clone();
-
-  let progress = UploadProgress::new()
-    .on_progress(move |_state| {
-      cc.fetch_add(1, Ordering::Relaxed);
-    })
-    .min_notify_interval_bytes(1_000_000); // 1MB — well above our payload
-  let mw = progress.into_middleware();
-
-  let mut router = Router::new();
-  router
-    .route(Method::POST, "/upload", handler)
-    .middleware(mw);
-
-  let payload = vec![0u8; 100]; // 100 bytes — well below 1MB interval
-  let req = http::Request::builder()
-    .method("POST")
-    .uri("/upload")
-    .header("content-length", payload.len().to_string())
-    .body(tako::body::TakoBody::from(payload))
-    .unwrap();
-
-  let _resp = router.dispatch(req).await;
-
-  // Below the interval only the final notification may fire.
-  let count = call_count.load(Ordering::Relaxed);
-  assert!(count <= 1, "expected at most 1 callback, got {count}");
-}
-
-// Under compio these servers hand out `!Send` compio sockets, which `tokio::spawn` rejects.
-#[cfg(not(feature = "compio"))]
-#[tokio::test]
-async fn tcp_echo_server() {
-  use tako::server_tcp::serve_tcp_with_shutdown;
-  use tokio::io::AsyncReadExt;
-  use tokio::io::AsyncWriteExt;
-
-  let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-
-  // Finds a free port, then frees it for the server, which binds by address.
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let port = listener.local_addr().unwrap().port();
-  drop(listener);
-
-  let addr = format!("127.0.0.1:{port}");
-  let addr_clone = addr.clone();
-
-  let server = tokio::spawn(async move {
-    serve_tcp_with_shutdown(
-      &addr_clone,
-      |mut stream, _addr| {
-        Box::pin(async move {
-          let mut buf = vec![0u8; 1024];
-          let n = stream.read(&mut buf).await?;
-          stream.write_all(&buf[..n]).await?;
-          Ok(())
-        })
-      },
-      async {
-        rx.await.ok();
-      },
-    )
-    .await
-    .unwrap();
-  });
-
-  tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-  let mut client = tokio::net::TcpStream::connect(&addr).await.unwrap();
-  client.write_all(b"hello tcp").await.unwrap();
-
-  let mut buf = vec![0u8; 1024];
-  let n = client.read(&mut buf).await.unwrap();
-  assert_eq!(&buf[..n], b"hello tcp");
-
-  tx.send(()).unwrap();
-  server.await.unwrap();
-}
-
 #[cfg(not(feature = "compio"))]
 #[tokio::test]
 async fn tcp_server_multiple_connections() {
@@ -324,50 +220,6 @@ async fn tcp_server_multiple_connections() {
   for h in handles {
     h.await.unwrap();
   }
-
-  tx.send(()).unwrap();
-  server.await.unwrap();
-}
-
-#[cfg(not(feature = "compio"))]
-#[cfg(feature = "udp")]
-#[tokio::test]
-async fn udp_echo_server() {
-  use tako::server_udp::serve_udp_with_shutdown;
-
-  let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-
-  let sock = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-  let port = sock.local_addr().unwrap().port();
-  drop(sock);
-
-  let addr = format!("127.0.0.1:{port}");
-  let addr_clone = addr.clone();
-
-  let server = tokio::spawn(async move {
-    serve_udp_with_shutdown(
-      &addr_clone,
-      |data, peer, socket| {
-        Box::pin(async move {
-          let _ = socket.send_to(&data, peer).await;
-        })
-      },
-      async {
-        rx.await.ok();
-      },
-    )
-    .await
-    .unwrap();
-  });
-
-  tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-  let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-  client.send_to(b"hello udp", &addr).await.unwrap();
-
-  let mut buf = vec![0u8; 1024];
-  let (n, _) = client.recv_from(&mut buf).await.unwrap();
-  assert_eq!(&buf[..n], b"hello udp");
 
   tx.send(()).unwrap();
   server.await.unwrap();

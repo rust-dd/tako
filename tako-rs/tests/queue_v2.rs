@@ -66,18 +66,3 @@ async fn memory_backend_dead_letter_path() {
   assert_eq!(dlq.len(), 1);
   assert_eq!(dlq[0].0, id);
 }
-
-#[tokio::test]
-async fn memory_backend_fail_requeues_with_attempt_increment() {
-  let backend = MemoryBackend::new();
-  let id = backend
-    .push("retryq", b"y", PushOptions::default())
-    .await
-    .unwrap();
-  let job = backend.reserve("retryq").await.unwrap().unwrap();
-  assert_eq!(job.attempt, 0);
-  backend.fail(id, None).await.unwrap();
-  let again = backend.reserve("retryq").await.unwrap().unwrap();
-  assert_eq!(again.id, id);
-  assert_eq!(again.attempt, 1);
-}

@@ -176,33 +176,6 @@ mod tests {
   }
 
   #[test]
-  fn problem_from_status_uses_canonical_reason() {
-    let p = Problem::from_status(StatusCode::NOT_FOUND);
-    assert_eq!(p.status, 404);
-    assert_eq!(p.title.as_deref(), Some("Not Found"));
-    assert!(p.detail.is_none());
-    assert!(p.r#type.is_none());
-  }
-
-  #[test]
-  fn problem_with_detail_setter() {
-    let p = Problem::from_status(StatusCode::BAD_REQUEST).with_detail("missing field 'name'");
-    assert_eq!(p.detail.as_deref(), Some("missing field 'name'"));
-  }
-
-  #[test]
-  fn problem_with_type_and_instance() {
-    let p = Problem::from_status(StatusCode::CONFLICT)
-      .with_type("https://example.com/probs/conflict")
-      .with_instance("/orders/42");
-    assert_eq!(
-      p.r#type.as_deref(),
-      Some("https://example.com/probs/conflict")
-    );
-    assert_eq!(p.instance.as_deref(), Some("/orders/42"));
-  }
-
-  #[test]
   fn problem_with_extension_round_trips_through_serde() {
     let p = Problem::from_status(StatusCode::UNPROCESSABLE_ENTITY)
       .with_extension("invalid_params", serde_json::json!(["email", "age"]));

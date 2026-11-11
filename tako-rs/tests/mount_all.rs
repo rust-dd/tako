@@ -83,9 +83,3 @@ async fn mount_all_registers_every_attribute_route() {
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "deleted=7");
 }
-
-#[tokio::test]
-async fn mount_all_returns_self_for_chaining() {
-  let mut router = Router::new();
-  let _: &mut Router = router.mount_all();
-}

@@ -285,7 +285,7 @@ mod tests {
     let mut first = Box::pin(driver(&signal, &ctx, None));
     assert!(futures_util::poll!(first.as_mut()).is_pending());
     drop(first);
-    let mut second = Box::pin(driver(&signal, &ctx, None));
+    let mut second = std::pin::pin!(driver(&signal, &ctx, None));
     assert!(futures_util::poll!(second.as_mut()).is_pending());
     assert_eq!(signal.registered(), 1);
   }
