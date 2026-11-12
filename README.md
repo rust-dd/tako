@@ -24,7 +24,7 @@ Add these dependencies to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tako-rs = "2.6"
+tako-rs = "2.7"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
