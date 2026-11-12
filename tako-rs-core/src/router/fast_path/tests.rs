@@ -256,7 +256,7 @@ async fn unmatched_requests_drop_recycled_route_entries() {
 fn connection_entries_overwrite_a_recycled_map() {
   pool_stale_map();
   let mut extensions = Extensions::new();
-  super::attach_conn(&mut extensions, peer(2));
+  super::attach_info(&mut extensions, &ConnInfo::tcp(peer(2)));
   assert_eq!(extensions.get::<SocketAddr>(), Some(&peer(2)));
   assert!(matches!(
     extensions.get::<ConnInfo>().map(|info| &info.peer),
@@ -268,7 +268,7 @@ fn connection_entries_overwrite_a_recycled_map() {
 fn entries_a_transport_already_added_are_kept() {
   let mut extensions = Extensions::new();
   extensions.insert(7_u8);
-  super::attach_conn(&mut extensions, peer(2));
+  super::attach_info(&mut extensions, &ConnInfo::tcp(peer(2)));
   assert_eq!(extensions.get::<u8>(), Some(&7));
   assert_eq!(extensions.get::<SocketAddr>(), Some(&peer(2)));
 }

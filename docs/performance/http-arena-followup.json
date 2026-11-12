@@ -1,0 +1,2599 @@
+{
+  "measured_dates": "2026-11-11/2026-11-12",
+  "baseline_commit": "28a1e2c7b9e22fac5d0c74444b5c99da17b7acd3",
+  "after_source": "Measurement-time worktree based on baseline_commit; component provenance below. Source hashes describe that snapshot, before later PR integration.",
+  "platform": "macOS arm64, non-isolated workstation, loopback client/server",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo_lock_sha256": "8f99c8c4b177970c4a62913b1864cb78e8c519c8b624d46c02ea1a0e93fb244f",
+  "conditions": [
+    "No concurrent task-owned builds, tests or benchmarks during these runs.",
+    "HTTP1/2/3 and Criterion cases ran A/B/A/B; WebSocket ran three A/B pairs.",
+    "All included rounds retained; earlier overlapping-build H2 probe excluded.",
+    "Network summary is median of all round RPS; WS is median of three rates.",
+    "Criterion summary is median of two run point estimates, not request-latency percentiles.",
+    "HTTP1 uses multithread Server::spawn_http, whereas Arena uses serve_per_thread.",
+    "H3 finish tolerates RemoteTerminate(0) only; response status, body and EOF still checked.",
+    "gRPC group overrides CLI timing: 1 s warmup, 3 s measurement, 50 samples.",
+    "Compression: 1 s warmup, 2 s target, 30 samples; mixed case automatically took longer.",
+    "Compression labels 128/1024/16384 denote actual JSON lengths 140/1031/16394 bytes.",
+    "Microbenchmarks exclude network/TLS; no official Arena or gateway rerun."
+  ],
+  "provenance": {
+    "http1_http3": "Archived baseline HEAD and final worktree; identical harness/lockfile; all workspace crates explicitly rebuilt for each source.",
+    "http2": "Baseline binary preserved before edits; final binary rebuilt after metadata correctness fixes; identical harness.",
+    "grpc": "Shared-worktree builds before/after message.rs MIME fast path; other concurrent transport edits are outside direct extractor path. Not full frozen snapshots.",
+    "compression": "Shared-worktree builds with HEAD vs new compression files; same core artifact 228e2e6ff8253c7c (fingerprint 2024348527227860782). Timed production paths unchanged since capture. Later bench changes only filtered-run guard and setup String::new.",
+    "ws": "Shared-worktree release test builds with default,ws (Tokio); old/new socket.rs differ only in inherent send. Identical buffered echo harness; unrelated later transport edits do not execute in the timed path. Not full frozen snapshots."
+  },
+  "source_sha256": {
+    "tako-rs-core/benches/grpc_decode.rs": "ef082523e1bb69cfb410a7a6298c3475dd33bf5c551acb39182800bedb42d84a",
+    "tako-rs-core/src/grpc/message.rs": "1d654f35c4c0f9a513fdb8987155c9c25a83c2eb241eefb952bbf492f032e7a4",
+    "tako-rs-core/src/router/dispatch.rs": "1d514a86b3ac796dab8297f155f2d7b9cab0fa1c073bdfcc6e3fd8f5f281eecc",
+    "tako-rs-core/src/router/fast_path.rs": "abe8d2b8ded523ff6a10dc60deb825814afed8b8b24cf00b268c23e2b42eb74d",
+    "tako-rs-core/src/router/fast_path/tests.rs": "7103b445d8d7d9a9a81315b27717f73a7e427374f4e96fadfb3c98eac558249d",
+    "tako-rs-core/src/server_support.rs": "bd9cc8f030cdca1ab330a107c943b9f8bbbc7c8c32578fa09af59f07e6c0f990",
+    "tako-rs-core/src/server_support/http.rs": "b9329a8b7c7970e3238069583e24043d9540ef48cdc06253172363ed6e74ef40",
+    "tako-rs-core/src/server_support/http/tests.rs": "e803f289d463859f2eba529dd958d44107648fbb2c3b0c8a90825f233afd6ff1",
+    "tako-rs-core/src/ws/socket.rs": "abf97953b6c801cb0c5d0086c6da68b0d8bf915cc37578f2b24114573e5f48d5",
+    "tako-rs-core/tests/grpc_unary.rs": "7c537a6184666957e5d62830a964e71341a6398ee35a1e34fa8f8986081fe5a8",
+    "tako-rs-plugins/benches/compression.rs": "88aebac3c67f6f64fe64fea3787219b75b13db0dee5a63d461597a8030737f53",
+    "tako-rs-plugins/src/plugins/compression.rs": "a54379938b82b1fb81da61cbf18fb4b19c3a57415eb536fa6b45b23eaefe206f",
+    "tako-rs-plugins/src/plugins/compression/frames.rs": "dd1bd9d8e8ab285a938d09ef044570b2fafbc35049c59eac46491a4f6cc9936d",
+    "tako-rs-plugins/src/plugins/compression/negotiate.rs": "bb3ea7ca425ad05bc6c8e3d60ca8bb33ed3bdae4b0c1d94a730479feed1128d2",
+    "tako-rs-plugins/src/plugins/compression/plugin.rs": "0d264ae9773fa462e861a1a3cdd6c9baf246889a3f3a308ba063d68b4522e35e",
+    "tako-rs-server/benches/http3.rs": "7352a004c880d4ca349e2fb82fe331b3f37002a25e57a3f5eac656847d4a94b2",
+    "tako-rs-server/src/h3_common/request.rs": "e05093aa142ed49630d3b40cd60fee4b7f5f8017aaf2dceb31b42e0db77baedd",
+    "tako-rs-server/src/server_tls_compio/accept.rs": "12a9971e998ba14731894fa8ae936a073e6977dc83ba31ae14ac86a4f4dd2716",
+    "tako-rs-server/tests/tenant_authority.rs": "a597abd9d737e90899147cfe06269648ac825dad43a36ecd058cd04f896b28f4",
+    "tako-rs-core/src/ws/socket/benchmarks.rs": "20fffb8873ec35f04598cf53e40c4b4f8735c4dee84d5762bd6f6dc577b8145f",
+    "tako-rs-core/src/ws/socket/send_tests.rs": "562a5dbdbf1ca78b41a8038bdb9830ab5796bc75d6653be52bb91613dc1ec29c",
+    "tako-rs-core/tests/grpc_allocations.rs": "daa59719b624ecbf71f016705677dc3c051ebde476a747bd6cbdae47a1b66a29",
+    "tako-rs-plugins/src/plugins/compression/buffered_tests.rs": "a23d81d79c6aefb3fa51a5d3363a7833a18987c67e1d50d64c218311037c9fb8",
+    "tako-rs-plugins/src/plugins/compression/negotiation_tests.rs": "be2212a385400f97e07ad15e293fa44b5905efd7a28e6bbb8def2044b65044c5",
+    "tako-rs-plugins/tests/compression_allocations.rs": "039c6327bc53f0c633a77303c6acf8d68a48a8ba1d2006eeeefe8af1016d4477",
+    "tako-rs-server/benches/http1.rs": "0b86d93c22997d3bd94cf7712d64dc420d30dae2b8bd9ec1f2f20f39d557b065",
+    "tako-rs-server/tests/h3_metadata.rs": "2f4a26e91bd393ecacf6867e30dbc45bf8de3a9b757afb7233934b761ea20db2"
+  },
+  "summaries": [
+    {
+      "case": "http1-p1",
+      "unit": "requests/s",
+      "before_median": 184635.0,
+      "after_median": 184783.5,
+      "change_percent": 0.08042895442359477,
+      "before_values": [
+        183781,
+        184346,
+        178213,
+        184083,
+        184026,
+        185489,
+        186468,
+        184924,
+        186257,
+        185356
+      ],
+      "after_values": [
+        182823,
+        184952,
+        184419,
+        184116,
+        184971,
+        184615,
+        185041,
+        185390,
+        179942,
+        185367
+      ]
+    },
+    {
+      "case": "http1-p16",
+      "unit": "requests/s",
+      "before_median": 3013597.5,
+      "after_median": 3026021.5,
+      "change_percent": 0.4122647433839388,
+      "before_values": [
+        2987581,
+        3021619,
+        3008800,
+        2794420,
+        3018395,
+        3043923,
+        2948412,
+        2996695,
+        3054569,
+        3058191
+      ],
+      "after_values": [
+        2977912,
+        2987195,
+        2910345,
+        2992901,
+        3025082,
+        3066513,
+        3026961,
+        3069334,
+        3058213,
+        3063574
+      ]
+    },
+    {
+      "case": "http2",
+      "unit": "requests/s",
+      "before_median": 778449.5,
+      "after_median": 784320.0,
+      "change_percent": 0.754127274794314,
+      "before_values": [
+        784593,
+        774790,
+        751729,
+        782109,
+        771554,
+        792426
+      ],
+      "after_values": [
+        749145,
+        768502,
+        758072,
+        800138,
+        803367,
+        812525
+      ]
+    },
+    {
+      "case": "http3",
+      "unit": "requests/s",
+      "before_median": 111982.5,
+      "after_median": 116634.5,
+      "change_percent": 4.15422052552854,
+      "before_values": [
+        114509,
+        111866,
+        112099,
+        111164,
+        106863,
+        113462
+      ],
+      "after_values": [
+        110146,
+        109888,
+        116591,
+        116678,
+        121364,
+        124739
+      ]
+    },
+    {
+      "case": "ws_buffered_echo/5",
+      "unit": "messages/s",
+      "before_median": 24223401,
+      "after_median": 25451550,
+      "change_percent": 5.070093171474976,
+      "before_values": [
+        24588622,
+        24223401,
+        22791868
+      ],
+      "after_values": [
+        26062045,
+        23402993,
+        25451550
+      ]
+    },
+    {
+      "case": "ws_buffered_echo/64",
+      "unit": "messages/s",
+      "before_median": 23663009,
+      "after_median": 25057568,
+      "change_percent": 5.893413639829159,
+      "before_values": [
+        23928115,
+        23663009,
+        21458891
+      ],
+      "after_values": [
+        25185792,
+        24268734,
+        25057568
+      ]
+    },
+    {
+      "case": "ws_buffered_echo/1024",
+      "unit": "messages/s",
+      "before_median": 11055668,
+      "after_median": 10870090,
+      "change_percent": -1.6785779023031466,
+      "before_values": [
+        11343165,
+        11055668,
+        10826866
+      ],
+      "after_values": [
+        11523480,
+        10870090,
+        10785100
+      ]
+    },
+    {
+      "case": "grpc_decode/unary_sum",
+      "unit": "ns",
+      "before_median": 222.32,
+      "after_median": 199.4,
+      "change_percent": -10.309463835912192,
+      "before_values": [
+        224.99,
+        219.65
+      ],
+      "after_values": [
+        199.49,
+        199.31
+      ]
+    },
+    {
+      "case": "grpc_decode/unary_sum_content_type/proto",
+      "unit": "ns",
+      "before_median": 238.54000000000002,
+      "after_median": 201.85500000000002,
+      "change_percent": -15.378972080154274,
+      "before_values": [
+        237.15,
+        239.93
+      ],
+      "after_values": [
+        205.0,
+        198.71
+      ]
+    },
+    {
+      "case": "grpc_decode/unary_sum_content_type/mixed_case",
+      "unit": "ns",
+      "before_median": 233.375,
+      "after_median": 199.42000000000002,
+      "change_percent": -14.549544724156394,
+      "before_values": [
+        232.19,
+        234.56
+      ],
+      "after_values": [
+        200.13,
+        198.71
+      ]
+    },
+    {
+      "case": "grpc_decode/unary_sum_content_type/parameterized",
+      "unit": "ns",
+      "before_median": 248.96,
+      "after_median": 248.385,
+      "change_percent": -0.23096079691516946,
+      "before_values": [
+        249.43,
+        248.49
+      ],
+      "after_values": [
+        248.51,
+        248.26
+      ]
+    },
+    {
+      "case": "compression_buffered/identity/128",
+      "unit": "ns",
+      "before_median": 642.65,
+      "after_median": 604.985,
+      "change_percent": -5.860888508519402,
+      "before_values": [
+        666.65,
+        618.65
+      ],
+      "after_values": [
+        596.27,
+        613.7
+      ]
+    },
+    {
+      "case": "compression_buffered/gzip/128",
+      "unit": "ns",
+      "before_median": 681.645,
+      "after_median": 630.465,
+      "change_percent": -7.50830711000593,
+      "before_values": [
+        696.48,
+        666.81
+      ],
+      "after_values": [
+        629.61,
+        631.32
+      ]
+    },
+    {
+      "case": "compression_buffered/br/128",
+      "unit": "ns",
+      "before_median": 687.185,
+      "after_median": 623.6949999999999,
+      "change_percent": -9.239142297925596,
+      "before_values": [
+        712.29,
+        662.08
+      ],
+      "after_values": [
+        626.93,
+        620.46
+      ]
+    },
+    {
+      "case": "compression_buffered/deflate/128",
+      "unit": "ns",
+      "before_median": 689.8699999999999,
+      "after_median": 627.53,
+      "change_percent": -9.036485134880479,
+      "before_values": [
+        709.68,
+        670.06
+      ],
+      "after_values": [
+        623.1,
+        631.96
+      ]
+    },
+    {
+      "case": "compression_buffered/identity/1024",
+      "unit": "ns",
+      "before_median": 668.405,
+      "after_median": 602.12,
+      "change_percent": -9.916891704879527,
+      "before_values": [
+        714.2,
+        622.61
+      ],
+      "after_values": [
+        596.77,
+        607.47
+      ]
+    },
+    {
+      "case": "compression_buffered/gzip/1024",
+      "unit": "ns",
+      "before_median": 7001.400000000001,
+      "after_median": 6879.1,
+      "change_percent": -1.7467934984431666,
+      "before_values": [
+        7081.1,
+        6921.700000000001
+      ],
+      "after_values": [
+        6855.2,
+        6903.0
+      ]
+    },
+    {
+      "case": "compression_buffered/br/1024",
+      "unit": "ns",
+      "before_median": 12682.0,
+      "after_median": 12536.5,
+      "change_percent": -1.147295379277713,
+      "before_values": [
+        12903.0,
+        12461.0
+      ],
+      "after_values": [
+        12457.0,
+        12616.0
+      ]
+    },
+    {
+      "case": "compression_buffered/deflate/1024",
+      "unit": "ns",
+      "before_median": 6916.55,
+      "after_median": 6692.900000000001,
+      "change_percent": -3.233548517685836,
+      "before_values": [
+        6986.6,
+        6846.5
+      ],
+      "after_values": [
+        6690.400000000001,
+        6695.400000000001
+      ]
+    },
+    {
+      "case": "compression_buffered/identity/16384",
+      "unit": "ns",
+      "before_median": 633.24,
+      "after_median": 605.27,
+      "change_percent": -4.4169667108837185,
+      "before_values": [
+        646.94,
+        619.54
+      ],
+      "after_values": [
+        594.71,
+        615.83
+      ]
+    },
+    {
+      "case": "compression_buffered/gzip/16384",
+      "unit": "ns",
+      "before_median": 17973.5,
+      "after_median": 17429.5,
+      "change_percent": -3.0266781650763575,
+      "before_values": [
+        18438.0,
+        17509.0
+      ],
+      "after_values": [
+        17391.0,
+        17468.0
+      ]
+    },
+    {
+      "case": "compression_buffered/br/16384",
+      "unit": "ns",
+      "before_median": 26504.0,
+      "after_median": 24144.5,
+      "change_percent": -8.902429821913671,
+      "before_values": [
+        28699.0,
+        24309.0
+      ],
+      "after_values": [
+        24114.0,
+        24175.0
+      ]
+    },
+    {
+      "case": "compression_buffered/deflate/16384",
+      "unit": "ns",
+      "before_median": 17624.0,
+      "after_median": 16962.0,
+      "change_percent": -3.7562414888787976,
+      "before_values": [
+        17318.0,
+        17930.0
+      ],
+      "after_values": [
+        16763.0,
+        17161.0
+      ]
+    },
+    {
+      "case": "compression_negotiation/empty",
+      "unit": "ns",
+      "before_median": 521.035,
+      "after_median": 490.755,
+      "change_percent": -5.811509783411861,
+      "before_values": [
+        498.05,
+        544.02
+      ],
+      "after_values": [
+        488.08,
+        493.43
+      ]
+    },
+    {
+      "case": "compression_negotiation/gzip",
+      "unit": "ns",
+      "before_median": 537.24,
+      "after_median": 498.075,
+      "change_percent": -7.290037971856156,
+      "before_values": [
+        536.3,
+        538.18
+      ],
+      "after_values": [
+        497.5,
+        498.65
+      ]
+    },
+    {
+      "case": "compression_negotiation/browser",
+      "unit": "ns",
+      "before_median": 611.7149999999999,
+      "after_median": 544.3199999999999,
+      "change_percent": -11.017385547191093,
+      "before_values": [
+        615.55,
+        607.88
+      ],
+      "after_values": [
+        536.04,
+        552.6
+      ]
+    },
+    {
+      "case": "compression_negotiation/parameters",
+      "unit": "ns",
+      "before_median": 668.13,
+      "after_median": 597.49,
+      "change_percent": -10.57279271997964,
+      "before_values": [
+        678.67,
+        657.59
+      ],
+      "after_values": [
+        587.09,
+        607.89
+      ]
+    },
+    {
+      "case": "compression_negotiation/unknown_tokens",
+      "unit": "ns",
+      "before_median": 4484.4,
+      "after_median": 2297.45,
+      "change_percent": -48.76795111943627,
+      "before_values": [
+        4505.7,
+        4463.099999999999
+      ],
+      "after_values": [
+        2274.7000000000003,
+        2320.2
+      ]
+    },
+    {
+      "case": "compression_mixed_requests",
+      "unit": "ns",
+      "before_median": 7772000.0,
+      "after_median": 7814900.0,
+      "change_percent": 0.5519814719505911,
+      "before_values": [
+        7810800.0,
+        7733200.0
+      ],
+      "after_values": [
+        7744200.0,
+        7885600.0
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "name": "http1-p1-before-1",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "1",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "59a93a378b1b51c769dfffbdbcba793da50db6cdf3bd006f47a5173bfbeebc71",
+      "elapsed_seconds": 15.476062667003134,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 183781,
+          "elapsed_ms": 2852.8
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 184346,
+          "elapsed_ms": 2844.0
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 178213,
+          "elapsed_ms": 2941.9
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 184083,
+          "elapsed_ms": 2848.1
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 184026,
+          "elapsed_ms": 2849.0
+        }
+      ]
+    },
+    {
+      "name": "http1-p1-after-2",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "1",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "b45ce6aee33d84a194517bbbd342b7e01c5cb643c8d3f9abdee2b51e77773065",
+      "elapsed_seconds": 15.165718791999097,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 182823,
+          "elapsed_ms": 2867.7
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 184952,
+          "elapsed_ms": 2834.7
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 184419,
+          "elapsed_ms": 2842.9
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 184116,
+          "elapsed_ms": 2847.6
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 184971,
+          "elapsed_ms": 2834.4
+        }
+      ]
+    },
+    {
+      "name": "http1-p1-before-3",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "1",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "59a93a378b1b51c769dfffbdbcba793da50db6cdf3bd006f47a5173bfbeebc71",
+      "elapsed_seconds": 14.827064459001122,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 185489,
+          "elapsed_ms": 2826.5
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 186468,
+          "elapsed_ms": 2811.7
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 184924,
+          "elapsed_ms": 2835.2
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 186257,
+          "elapsed_ms": 2814.9
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 185356,
+          "elapsed_ms": 2828.5
+        }
+      ]
+    },
+    {
+      "name": "http1-p1-after-4",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "1",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "b45ce6aee33d84a194517bbbd342b7e01c5cb643c8d3f9abdee2b51e77773065",
+      "elapsed_seconds": 14.950105625001015,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 184615,
+          "elapsed_ms": 2839.9
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 185041,
+          "elapsed_ms": 2833.4
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 185390,
+          "elapsed_ms": 2828.0
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 179942,
+          "elapsed_ms": 2913.7
+        },
+        {
+          "case": "http1-p1",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 185367,
+          "elapsed_ms": 2828.4
+        }
+      ]
+    },
+    {
+      "name": "http1-p16-before-1",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "16",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "59a93a378b1b51c769dfffbdbcba793da50db6cdf3bd006f47a5173bfbeebc71",
+      "elapsed_seconds": 0.9382422499984386,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 2987581,
+          "elapsed_ms": 175.5
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 3021619,
+          "elapsed_ms": 173.5
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 3008800,
+          "elapsed_ms": 174.3
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 2794420,
+          "elapsed_ms": 187.6
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 3018395,
+          "elapsed_ms": 173.7
+        }
+      ]
+    },
+    {
+      "name": "http1-p16-after-2",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "16",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "b45ce6aee33d84a194517bbbd342b7e01c5cb643c8d3f9abdee2b51e77773065",
+      "elapsed_seconds": 0.9326856249972479,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 2977912,
+          "elapsed_ms": 176.1
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 2987195,
+          "elapsed_ms": 175.5
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 2910345,
+          "elapsed_ms": 180.1
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 2992901,
+          "elapsed_ms": 175.2
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 3025082,
+          "elapsed_ms": 173.3
+        }
+      ]
+    },
+    {
+      "name": "http1-p16-before-3",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "16",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "59a93a378b1b51c769dfffbdbcba793da50db6cdf3bd006f47a5173bfbeebc71",
+      "elapsed_seconds": 0.9203617090024636,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 3043923,
+          "elapsed_ms": 172.2
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 2948412,
+          "elapsed_ms": 177.8
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 2996695,
+          "elapsed_ms": 175.0
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 3054569,
+          "elapsed_ms": 171.6
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 3058191,
+          "elapsed_ms": 171.4
+        }
+      ]
+    },
+    {
+      "name": "http1-p16-after-4",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http1-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "PIPELINE": "16",
+        "REQUESTS": "8192",
+        "ROUNDS": "5",
+        "WORKERS": "4"
+      },
+      "sha256": "b45ce6aee33d84a194517bbbd342b7e01c5cb643c8d3f9abdee2b51e77773065",
+      "elapsed_seconds": 0.9072132500004955,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 3066513,
+          "elapsed_ms": 171.0
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 3026961,
+          "elapsed_ms": 173.2
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 3069334,
+          "elapsed_ms": 170.8
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 4,
+          "value": 3058213,
+          "elapsed_ms": 171.4
+        },
+        {
+          "case": "http1-p16",
+          "unit": "requests/s",
+          "round": 5,
+          "value": 3063574,
+          "elapsed_ms": 171.1
+        }
+      ]
+    },
+    {
+      "name": "http2-before-1",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http2-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "32768",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "6bc1c48ff1e1bf0c3bb63f84ebe98e5e59f7eae3c984c6e62b7795d6a8accd5a",
+      "elapsed_seconds": 8.89452387500205,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 784593,
+          "elapsed_ms": 2672.9
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 774790,
+          "elapsed_ms": 2706.7
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 751729,
+          "elapsed_ms": 2789.8
+        }
+      ]
+    },
+    {
+      "name": "http2-after-2",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http2-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "32768",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "3f8add47947fe8832f32b07f6267f023ce454790bbdad1b863714cd3a78bfbcb",
+      "elapsed_seconds": 9.318504708004184,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 749145,
+          "elapsed_ms": 2799.4
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 768502,
+          "elapsed_ms": 2728.9
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 758072,
+          "elapsed_ms": 2766.4
+        }
+      ]
+    },
+    {
+      "name": "http2-before-3",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http2-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "32768",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "6bc1c48ff1e1bf0c3bb63f84ebe98e5e59f7eae3c984c6e62b7795d6a8accd5a",
+      "elapsed_seconds": 8.753621374999057,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 782109,
+          "elapsed_ms": 2681.4
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 771554,
+          "elapsed_ms": 2718.1
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 792426,
+          "elapsed_ms": 2646.5
+        }
+      ]
+    },
+    {
+      "name": "http2-after-4",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http2-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "32768",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "3f8add47947fe8832f32b07f6267f023ce454790bbdad1b863714cd3a78bfbcb",
+      "elapsed_seconds": 8.546865666998201,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 800138,
+          "elapsed_ms": 2621.0
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 803367,
+          "elapsed_ms": 2610.5
+        },
+        {
+          "case": "http2",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 812525,
+          "elapsed_ms": 2581.0
+        }
+      ]
+    },
+    {
+      "name": "http3-before-1",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http3-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "8192",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "8f89cd2451f2e95df132b90a95492f5ac122f87b5b8530135175be6bf609c2b5",
+      "elapsed_seconds": 15.372250125001301,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 114509,
+          "elapsed_ms": 4578.6
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 111866,
+          "elapsed_ms": 4686.7
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 112099,
+          "elapsed_ms": 4677.0
+        }
+      ]
+    },
+    {
+      "name": "http3-after-2",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http3-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "8192",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "17642666b30477510a8df4feea449bc6fa926f5c7b33628e544c4ef813c0fd62",
+      "elapsed_seconds": 15.415741249998973,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 110146,
+          "elapsed_ms": 4760.0
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 109888,
+          "elapsed_ms": 4771.1
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 116591,
+          "elapsed_ms": 4496.8
+        }
+      ]
+    },
+    {
+      "name": "http3-before-3",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http3-before"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "8192",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "8f89cd2451f2e95df132b90a95492f5ac122f87b5b8530135175be6bf609c2b5",
+      "elapsed_seconds": 15.522713082995324,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 111164,
+          "elapsed_ms": 4716.4
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 106863,
+          "elapsed_ms": 4906.2
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 113462,
+          "elapsed_ms": 4620.8
+        }
+      ]
+    },
+    {
+      "name": "http3-after-4",
+      "command": [
+        "/private/tmp/tako-perf-20261111/http3-after"
+      ],
+      "settings": {
+        "CONNECTIONS": "64",
+        "STREAMS": "32",
+        "REQUESTS": "8192",
+        "ROUNDS": "3",
+        "WORKERS": "4"
+      },
+      "sha256": "17642666b30477510a8df4feea449bc6fa926f5c7b33628e544c4ef813c0fd62",
+      "elapsed_seconds": 14.36161033299868,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 1,
+          "value": 116678,
+          "elapsed_ms": 4493.5
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 2,
+          "value": 121364,
+          "elapsed_ms": 4320.0
+        },
+        {
+          "case": "http3",
+          "unit": "requests/s",
+          "round": 3,
+          "value": 124739,
+          "elapsed_ms": 4203.1
+        }
+      ]
+    },
+    {
+      "name": "ws-before-1",
+      "command": [
+        "/private/tmp/tako-ws-before",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "2dc2c00775130d4bc2929176b642987b29e79678d4a35392612a9792da2cfafd",
+      "elapsed_seconds": 0.6069613750005374,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 333162218,
+          "value": 24588622
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 42794847,
+          "value": 23928115
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5642164,
+          "value": 11343165
+        }
+      ]
+    },
+    {
+      "name": "ws-after-2",
+      "command": [
+        "/private/tmp/tako-ws-after",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "175f7550a6045767841915a48b627f88187ae268eb9a979cb35ce2ac4c9a50ad",
+      "elapsed_seconds": 0.3872238749972894,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 314326833,
+          "value": 26062045
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 40657844,
+          "value": 25185792
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5553878,
+          "value": 11523480
+        }
+      ]
+    },
+    {
+      "name": "ws-before-3",
+      "command": [
+        "/private/tmp/tako-ws-before",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "2dc2c00775130d4bc2929176b642987b29e79678d4a35392612a9792da2cfafd",
+      "elapsed_seconds": 0.39659254100115504,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 338185374,
+          "value": 24223401
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 43274293,
+          "value": 23663009
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5788886,
+          "value": 11055668
+        }
+      ]
+    },
+    {
+      "name": "ws-after-4",
+      "command": [
+        "/private/tmp/tako-ws-after",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "175f7550a6045767841915a48b627f88187ae268eb9a979cb35ce2ac4c9a50ad",
+      "elapsed_seconds": 0.4081917910007178,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 350040698,
+          "value": 23402993
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 42194207,
+          "value": 24268734
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5887716,
+          "value": 10870090
+        }
+      ]
+    },
+    {
+      "name": "ws-before-5",
+      "command": [
+        "/private/tmp/tako-ws-before",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "2dc2c00775130d4bc2929176b642987b29e79678d4a35392612a9792da2cfafd",
+      "elapsed_seconds": 0.42425004200049443,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 359426434,
+          "value": 22791868
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 47719148,
+          "value": 21458891
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5911221,
+          "value": 10826866
+        }
+      ]
+    },
+    {
+      "name": "ws-after-6",
+      "command": [
+        "/private/tmp/tako-ws-after",
+        "ws::socket::benchmarks::buffered_echo_throughput",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "settings": {},
+      "sha256": "175f7550a6045767841915a48b627f88187ae268eb9a979cb35ce2ac4c9a50ad",
+      "elapsed_seconds": 0.3786992500026827,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "ws_buffered_echo/5",
+          "unit": "messages/s",
+          "messages": 8192000,
+          "elapsed_ns": 321866452,
+          "value": 25451550
+        },
+        {
+          "case": "ws_buffered_echo/64",
+          "unit": "messages/s",
+          "messages": 1024000,
+          "elapsed_ns": 40865897,
+          "value": 25057568
+        },
+        {
+          "case": "ws_buffered_echo/1024",
+          "unit": "messages/s",
+          "messages": 64000,
+          "elapsed_ns": 5934113,
+          "value": 10785100
+        }
+      ]
+    },
+    {
+      "name": "grpc-before-1",
+      "command": [
+        "/private/tmp/tako-grpc-perf-before",
+        "--bench",
+        "unary_sum",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "118cacd2db2d789691585e1dd4ea0ab9362afee61c1c25037f32a1a86a45489a",
+      "elapsed_seconds": 18.10209274999943,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "grpc_decode/unary_sum",
+          "unit": "ns",
+          "value": 224.99,
+          "criterion_time_estimate_ns": [
+            224.53,
+            224.99,
+            225.51
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/proto",
+          "unit": "ns",
+          "value": 237.15,
+          "criterion_time_estimate_ns": [
+            236.15,
+            237.15,
+            238.13
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/mixed_case",
+          "unit": "ns",
+          "value": 232.19,
+          "criterion_time_estimate_ns": [
+            231.71,
+            232.19,
+            232.73
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/parameterized",
+          "unit": "ns",
+          "value": 249.43,
+          "criterion_time_estimate_ns": [
+            248.18,
+            249.43,
+            250.57
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grpc-after-2",
+      "command": [
+        "/private/tmp/tako-grpc-perf-after",
+        "--bench",
+        "unary_sum",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "29d6cffd5791caa51b5031af566e799c2fc2487e8c08f2ddb45e80b0ce746eb1",
+      "elapsed_seconds": 18.382877042000473,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "grpc_decode/unary_sum",
+          "unit": "ns",
+          "value": 199.49,
+          "criterion_time_estimate_ns": [
+            198.78,
+            199.49,
+            200.4
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/proto",
+          "unit": "ns",
+          "value": 205.0,
+          "criterion_time_estimate_ns": [
+            201.55,
+            205.0,
+            209.8
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/mixed_case",
+          "unit": "ns",
+          "value": 200.13,
+          "criterion_time_estimate_ns": [
+            199.64,
+            200.13,
+            200.68
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/parameterized",
+          "unit": "ns",
+          "value": 248.51,
+          "criterion_time_estimate_ns": [
+            247.6,
+            248.51,
+            249.53
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grpc-before-3",
+      "command": [
+        "/private/tmp/tako-grpc-perf-before",
+        "--bench",
+        "unary_sum",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "118cacd2db2d789691585e1dd4ea0ab9362afee61c1c25037f32a1a86a45489a",
+      "elapsed_seconds": 17.932365583998035,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "grpc_decode/unary_sum",
+          "unit": "ns",
+          "value": 219.65,
+          "criterion_time_estimate_ns": [
+            219.3,
+            219.65,
+            220.06
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/proto",
+          "unit": "ns",
+          "value": 239.93,
+          "criterion_time_estimate_ns": [
+            239.17,
+            239.93,
+            240.62
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/mixed_case",
+          "unit": "ns",
+          "value": 234.56,
+          "criterion_time_estimate_ns": [
+            233.99,
+            234.56,
+            235.2
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/parameterized",
+          "unit": "ns",
+          "value": 248.49,
+          "criterion_time_estimate_ns": [
+            247.43,
+            248.49,
+            249.52
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grpc-after-4",
+      "command": [
+        "/private/tmp/tako-grpc-perf-after",
+        "--bench",
+        "unary_sum",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "29d6cffd5791caa51b5031af566e799c2fc2487e8c08f2ddb45e80b0ce746eb1",
+      "elapsed_seconds": 17.945182082999963,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "grpc_decode/unary_sum",
+          "unit": "ns",
+          "value": 199.31,
+          "criterion_time_estimate_ns": [
+            198.81,
+            199.31,
+            199.88
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/proto",
+          "unit": "ns",
+          "value": 198.71,
+          "criterion_time_estimate_ns": [
+            198.41,
+            198.71,
+            199.01
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/mixed_case",
+          "unit": "ns",
+          "value": 198.71,
+          "criterion_time_estimate_ns": [
+            198.21,
+            198.71,
+            199.28
+          ]
+        },
+        {
+          "case": "grpc_decode/unary_sum_content_type/parameterized",
+          "unit": "ns",
+          "value": 248.26,
+          "criterion_time_estimate_ns": [
+            246.54,
+            248.26,
+            251.07
+          ]
+        }
+      ]
+    },
+    {
+      "name": "compression-before-1",
+      "command": [
+        "/private/tmp/tako-compression-before/compression-bench",
+        "--bench",
+        "compression",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "f829908978f67db57efaacb0ac9d1eab88aa957de7b46124cfe08a6410239fa3",
+      "elapsed_seconds": 64.60811699999613,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "compression_buffered/identity/128",
+          "unit": "ns",
+          "value": 666.65,
+          "criterion_time_estimate_ns": [
+            645.44,
+            666.65,
+            695.83
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/128",
+          "unit": "ns",
+          "value": 696.48,
+          "criterion_time_estimate_ns": [
+            688.06,
+            696.48,
+            707.35
+          ]
+        },
+        {
+          "case": "compression_buffered/br/128",
+          "unit": "ns",
+          "value": 712.29,
+          "criterion_time_estimate_ns": [
+            692.61,
+            712.29,
+            736.48
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/128",
+          "unit": "ns",
+          "value": 709.68,
+          "criterion_time_estimate_ns": [
+            704.12,
+            709.68,
+            716.61
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/1024",
+          "unit": "ns",
+          "value": 714.2,
+          "criterion_time_estimate_ns": [
+            672.51,
+            714.2,
+            777.46
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/1024",
+          "unit": "ns",
+          "value": 7081.1,
+          "criterion_time_estimate_ns": [
+            7039.799999999999,
+            7081.1,
+            7125.3
+          ]
+        },
+        {
+          "case": "compression_buffered/br/1024",
+          "unit": "ns",
+          "value": 12903.0,
+          "criterion_time_estimate_ns": [
+            12791.0,
+            12903.0,
+            13005.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/1024",
+          "unit": "ns",
+          "value": 6986.6,
+          "criterion_time_estimate_ns": [
+            6944.0,
+            6986.6,
+            7031.4
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/16384",
+          "unit": "ns",
+          "value": 646.94,
+          "criterion_time_estimate_ns": [
+            643.02,
+            646.94,
+            652.25
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/16384",
+          "unit": "ns",
+          "value": 18438.0,
+          "criterion_time_estimate_ns": [
+            17999.0,
+            18438.0,
+            19089.0
+          ]
+        },
+        {
+          "case": "compression_buffered/br/16384",
+          "unit": "ns",
+          "value": 28699.0,
+          "criterion_time_estimate_ns": [
+            25892.0,
+            28699.0,
+            33485.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/16384",
+          "unit": "ns",
+          "value": 17318.0,
+          "criterion_time_estimate_ns": [
+            17229.0,
+            17318.0,
+            17432.0
+          ]
+        },
+        {
+          "case": "compression_negotiation/empty",
+          "unit": "ns",
+          "value": 498.05,
+          "criterion_time_estimate_ns": [
+            492.55,
+            498.05,
+            502.32
+          ]
+        },
+        {
+          "case": "compression_negotiation/gzip",
+          "unit": "ns",
+          "value": 536.3,
+          "criterion_time_estimate_ns": [
+            528.88,
+            536.3,
+            541.53
+          ]
+        },
+        {
+          "case": "compression_negotiation/browser",
+          "unit": "ns",
+          "value": 615.55,
+          "criterion_time_estimate_ns": [
+            611.15,
+            615.55,
+            620.03
+          ]
+        },
+        {
+          "case": "compression_negotiation/parameters",
+          "unit": "ns",
+          "value": 678.67,
+          "criterion_time_estimate_ns": [
+            668.84,
+            678.67,
+            685.93
+          ]
+        },
+        {
+          "case": "compression_negotiation/unknown_tokens",
+          "unit": "ns",
+          "value": 4505.7,
+          "criterion_time_estimate_ns": [
+            4478.1,
+            4505.7,
+            4530.3
+          ]
+        },
+        {
+          "case": "compression_mixed_requests",
+          "unit": "ns",
+          "value": 7810800.0,
+          "criterion_time_estimate_ns": [
+            7771500.0,
+            7810800.0,
+            7856300.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "compression-after-2",
+      "command": [
+        "/private/tmp/tako-compression-after-bench",
+        "--bench",
+        "compression",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "b18c6eea37d0509d6c0cab28f889c5e7c676336e5d3fc3674c483a459ba2b69a",
+      "elapsed_seconds": 64.52253329099767,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "compression_buffered/identity/128",
+          "unit": "ns",
+          "value": 596.27,
+          "criterion_time_estimate_ns": [
+            593.15,
+            596.27,
+            599.38
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/128",
+          "unit": "ns",
+          "value": 629.61,
+          "criterion_time_estimate_ns": [
+            627.36,
+            629.61,
+            631.68
+          ]
+        },
+        {
+          "case": "compression_buffered/br/128",
+          "unit": "ns",
+          "value": 626.93,
+          "criterion_time_estimate_ns": [
+            625.71,
+            626.93,
+            628.11
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/128",
+          "unit": "ns",
+          "value": 623.1,
+          "criterion_time_estimate_ns": [
+            620.88,
+            623.1,
+            625.21
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/1024",
+          "unit": "ns",
+          "value": 596.77,
+          "criterion_time_estimate_ns": [
+            595.09,
+            596.77,
+            598.78
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/1024",
+          "unit": "ns",
+          "value": 6855.2,
+          "criterion_time_estimate_ns": [
+            6824.6,
+            6855.2,
+            6889.3
+          ]
+        },
+        {
+          "case": "compression_buffered/br/1024",
+          "unit": "ns",
+          "value": 12457.0,
+          "criterion_time_estimate_ns": [
+            12407.0,
+            12457.0,
+            12514.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/1024",
+          "unit": "ns",
+          "value": 6690.400000000001,
+          "criterion_time_estimate_ns": [
+            6667.5,
+            6690.400000000001,
+            6709.1
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/16384",
+          "unit": "ns",
+          "value": 594.71,
+          "criterion_time_estimate_ns": [
+            591.58,
+            594.71,
+            598.4
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/16384",
+          "unit": "ns",
+          "value": 17391.0,
+          "criterion_time_estimate_ns": [
+            17300.0,
+            17391.0,
+            17498.0
+          ]
+        },
+        {
+          "case": "compression_buffered/br/16384",
+          "unit": "ns",
+          "value": 24114.0,
+          "criterion_time_estimate_ns": [
+            24047.0,
+            24114.0,
+            24184.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/16384",
+          "unit": "ns",
+          "value": 16763.0,
+          "criterion_time_estimate_ns": [
+            16713.0,
+            16763.0,
+            16818.0
+          ]
+        },
+        {
+          "case": "compression_negotiation/empty",
+          "unit": "ns",
+          "value": 488.08,
+          "criterion_time_estimate_ns": [
+            482.2,
+            488.08,
+            495.23
+          ]
+        },
+        {
+          "case": "compression_negotiation/gzip",
+          "unit": "ns",
+          "value": 497.5,
+          "criterion_time_estimate_ns": [
+            491.13,
+            497.5,
+            502.8
+          ]
+        },
+        {
+          "case": "compression_negotiation/browser",
+          "unit": "ns",
+          "value": 536.04,
+          "criterion_time_estimate_ns": [
+            530.81,
+            536.04,
+            540.56
+          ]
+        },
+        {
+          "case": "compression_negotiation/parameters",
+          "unit": "ns",
+          "value": 587.09,
+          "criterion_time_estimate_ns": [
+            582.73,
+            587.09,
+            590.64
+          ]
+        },
+        {
+          "case": "compression_negotiation/unknown_tokens",
+          "unit": "ns",
+          "value": 2274.7000000000003,
+          "criterion_time_estimate_ns": [
+            2263.2,
+            2274.7000000000003,
+            2287.4
+          ]
+        },
+        {
+          "case": "compression_mixed_requests",
+          "unit": "ns",
+          "value": 7744200.0,
+          "criterion_time_estimate_ns": [
+            7679800.0,
+            7744200.0,
+            7823900.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "compression-before-3",
+      "command": [
+        "/private/tmp/tako-compression-before/compression-bench",
+        "--bench",
+        "compression",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "f829908978f67db57efaacb0ac9d1eab88aa957de7b46124cfe08a6410239fa3",
+      "elapsed_seconds": 65.40353474999574,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "compression_buffered/identity/128",
+          "unit": "ns",
+          "value": 618.65,
+          "criterion_time_estimate_ns": [
+            616.24,
+            618.65,
+            621.48
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/128",
+          "unit": "ns",
+          "value": 666.81,
+          "criterion_time_estimate_ns": [
+            661.09,
+            666.81,
+            674.68
+          ]
+        },
+        {
+          "case": "compression_buffered/br/128",
+          "unit": "ns",
+          "value": 662.08,
+          "criterion_time_estimate_ns": [
+            659.98,
+            662.08,
+            664.11
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/128",
+          "unit": "ns",
+          "value": 670.06,
+          "criterion_time_estimate_ns": [
+            667.8,
+            670.06,
+            672.79
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/1024",
+          "unit": "ns",
+          "value": 622.61,
+          "criterion_time_estimate_ns": [
+            619.62,
+            622.61,
+            625.73
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/1024",
+          "unit": "ns",
+          "value": 6921.700000000001,
+          "criterion_time_estimate_ns": [
+            6876.0,
+            6921.700000000001,
+            6959.900000000001
+          ]
+        },
+        {
+          "case": "compression_buffered/br/1024",
+          "unit": "ns",
+          "value": 12461.0,
+          "criterion_time_estimate_ns": [
+            12378.0,
+            12461.0,
+            12533.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/1024",
+          "unit": "ns",
+          "value": 6846.5,
+          "criterion_time_estimate_ns": [
+            6812.400000000001,
+            6846.5,
+            6874.0
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/16384",
+          "unit": "ns",
+          "value": 619.54,
+          "criterion_time_estimate_ns": [
+            616.94,
+            619.54,
+            622.43
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/16384",
+          "unit": "ns",
+          "value": 17509.0,
+          "criterion_time_estimate_ns": [
+            17466.0,
+            17509.0,
+            17547.0
+          ]
+        },
+        {
+          "case": "compression_buffered/br/16384",
+          "unit": "ns",
+          "value": 24309.0,
+          "criterion_time_estimate_ns": [
+            24203.0,
+            24309.0,
+            24451.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/16384",
+          "unit": "ns",
+          "value": 17930.0,
+          "criterion_time_estimate_ns": [
+            17111.0,
+            17930.0,
+            19763.0
+          ]
+        },
+        {
+          "case": "compression_negotiation/empty",
+          "unit": "ns",
+          "value": 544.02,
+          "criterion_time_estimate_ns": [
+            511.64,
+            544.02,
+            592.42
+          ]
+        },
+        {
+          "case": "compression_negotiation/gzip",
+          "unit": "ns",
+          "value": 538.18,
+          "criterion_time_estimate_ns": [
+            533.88,
+            538.18,
+            541.58
+          ]
+        },
+        {
+          "case": "compression_negotiation/browser",
+          "unit": "ns",
+          "value": 607.88,
+          "criterion_time_estimate_ns": [
+            603.74,
+            607.88,
+            611.24
+          ]
+        },
+        {
+          "case": "compression_negotiation/parameters",
+          "unit": "ns",
+          "value": 657.59,
+          "criterion_time_estimate_ns": [
+            652.81,
+            657.59,
+            661.5
+          ]
+        },
+        {
+          "case": "compression_negotiation/unknown_tokens",
+          "unit": "ns",
+          "value": 4463.099999999999,
+          "criterion_time_estimate_ns": [
+            4435.2,
+            4463.099999999999,
+            4493.2
+          ]
+        },
+        {
+          "case": "compression_mixed_requests",
+          "unit": "ns",
+          "value": 7733200.0,
+          "criterion_time_estimate_ns": [
+            7713200.0,
+            7733200.0,
+            7756100.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "compression-after-4",
+      "command": [
+        "/private/tmp/tako-compression-after-bench",
+        "--bench",
+        "compression",
+        "--warm-up-time",
+        "1",
+        "--measurement-time",
+        "2",
+        "--sample-size",
+        "30",
+        "--noplot"
+      ],
+      "settings": {},
+      "sha256": "b18c6eea37d0509d6c0cab28f889c5e7c676336e5d3fc3674c483a459ba2b69a",
+      "elapsed_seconds": 63.68491829200502,
+      "exit_code": 0,
+      "observations": [
+        {
+          "case": "compression_buffered/identity/128",
+          "unit": "ns",
+          "value": 613.7,
+          "criterion_time_estimate_ns": [
+            606.39,
+            613.7,
+            626.01
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/128",
+          "unit": "ns",
+          "value": 631.32,
+          "criterion_time_estimate_ns": [
+            628.12,
+            631.32,
+            634.18
+          ]
+        },
+        {
+          "case": "compression_buffered/br/128",
+          "unit": "ns",
+          "value": 620.46,
+          "criterion_time_estimate_ns": [
+            617.97,
+            620.46,
+            623.63
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/128",
+          "unit": "ns",
+          "value": 631.96,
+          "criterion_time_estimate_ns": [
+            629.32,
+            631.96,
+            635.14
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/1024",
+          "unit": "ns",
+          "value": 607.47,
+          "criterion_time_estimate_ns": [
+            604.3,
+            607.47,
+            611.41
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/1024",
+          "unit": "ns",
+          "value": 6903.0,
+          "criterion_time_estimate_ns": [
+            6878.599999999999,
+            6903.0,
+            6934.1
+          ]
+        },
+        {
+          "case": "compression_buffered/br/1024",
+          "unit": "ns",
+          "value": 12616.0,
+          "criterion_time_estimate_ns": [
+            12491.0,
+            12616.0,
+            12718.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/1024",
+          "unit": "ns",
+          "value": 6695.400000000001,
+          "criterion_time_estimate_ns": [
+            6673.8,
+            6695.400000000001,
+            6718.7
+          ]
+        },
+        {
+          "case": "compression_buffered/identity/16384",
+          "unit": "ns",
+          "value": 615.83,
+          "criterion_time_estimate_ns": [
+            608.41,
+            615.83,
+            621.24
+          ]
+        },
+        {
+          "case": "compression_buffered/gzip/16384",
+          "unit": "ns",
+          "value": 17468.0,
+          "criterion_time_estimate_ns": [
+            17415.0,
+            17468.0,
+            17529.0
+          ]
+        },
+        {
+          "case": "compression_buffered/br/16384",
+          "unit": "ns",
+          "value": 24175.0,
+          "criterion_time_estimate_ns": [
+            24027.0,
+            24175.0,
+            24318.0
+          ]
+        },
+        {
+          "case": "compression_buffered/deflate/16384",
+          "unit": "ns",
+          "value": 17161.0,
+          "criterion_time_estimate_ns": [
+            17060.0,
+            17161.0,
+            17269.0
+          ]
+        },
+        {
+          "case": "compression_negotiation/empty",
+          "unit": "ns",
+          "value": 493.43,
+          "criterion_time_estimate_ns": [
+            487.1,
+            493.43,
+            499.28
+          ]
+        },
+        {
+          "case": "compression_negotiation/gzip",
+          "unit": "ns",
+          "value": 498.65,
+          "criterion_time_estimate_ns": [
+            494.92,
+            498.65,
+            501.7
+          ]
+        },
+        {
+          "case": "compression_negotiation/browser",
+          "unit": "ns",
+          "value": 552.6,
+          "criterion_time_estimate_ns": [
+            547.99,
+            552.6,
+            556.21
+          ]
+        },
+        {
+          "case": "compression_negotiation/parameters",
+          "unit": "ns",
+          "value": 607.89,
+          "criterion_time_estimate_ns": [
+            602.38,
+            607.89,
+            612.83
+          ]
+        },
+        {
+          "case": "compression_negotiation/unknown_tokens",
+          "unit": "ns",
+          "value": 2320.2,
+          "criterion_time_estimate_ns": [
+            2306.0,
+            2320.2,
+            2337.8
+          ]
+        },
+        {
+          "case": "compression_mixed_requests",
+          "unit": "ns",
+          "value": 7885600.0,
+          "criterion_time_estimate_ns": [
+            7814400.0,
+            7885600.0,
+            7964600.0
+          ]
+        }
+      ]
+    }
+  ],
+  "build_commands": {
+    "http1": "cargo bench -p tako-rs-server --bench http1 --no-run",
+    "http3": "cargo bench -p tako-rs-server --features http2,http3 --bench http3 --no-run",
+    "grpc": "cargo bench -p tako-rs-core --features grpc --bench grpc_decode --no-run",
+    "compression": "cargo bench -p tako-rs-plugins --features plugins --bench compression --no-run",
+    "ws": "cargo test --release -p tako-rs-core --features ws --lib --no-run"
+  },
+  "pr_integration": {
+    "base_commit": "e7995eb4c9c95f815b629fbbb9f62931a5c3fcf1",
+    "note": "The patch was rebased onto this newer main after measurement. Benchmark values and source/lockfile hashes above belong to the original measurement snapshots, not the rebased PR. No performance comparison against this newer base is claimed.",
+    "workspace_tests": {
+      "default": {
+        "passed": 502,
+        "failed": 0,
+        "ignored": 13
+      },
+      "tokio-rich": {
+        "passed": 870,
+        "failed": 0,
+        "ignored": 44
+      },
+      "all-features": {
+        "passed": 820,
+        "failed": 0,
+        "ignored": 43
+      }
+    },
+    "test_command": "bash scripts/check-workspace.sh test <profile>",
+    "checks_passed": [
+      "bash scripts/check-workspace.sh clippy default",
+      "bash scripts/check-workspace.sh clippy tokio-rich",
+      "bash scripts/check-workspace.sh clippy all-features",
+      "cargo clippy --workspace --all-features --benches -- -D warnings",
+      "cargo +nightly fmt --all -- --check",
+      "git diff --check"
+    ]
+  }
+}

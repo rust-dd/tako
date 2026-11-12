@@ -62,9 +62,18 @@ async fn native_extractors_accept_only_protobuf_media_types() {
   for content_type in [
     "application/grpcjunk",
     "application/grpc+json",
+    "application/grpc+protojunk",
+    "application/grpc+proto+proto",
     "application/grpc-web",
     "application/grpc-web+proto",
     "application/grpc;broken",
+    "application/grpc+proto;broken",
+    "application/grpc; charset=\"unterminated",
+    "application/grpc+proto; charset=\"unterminated",
+    "application/grpc,application/grpc",
+    "application/grpc ",
+    " application/grpc",
+    "text/grpc",
   ] {
     let mut req = request(vec![encoded("one")]);
     req
@@ -92,7 +101,11 @@ async fn native_extractors_accept_only_protobuf_media_types() {
   for content_type in [
     "application/grpc",
     "application/grpc+proto",
+    "APPLICATION/GRPC",
+    "Application/Grpc+Proto",
+    "application/grpc; charset=utf-8",
     "Application/Grpc+Proto; charset=utf-8",
+    "application/grpc; custom=\"a;b\"",
   ] {
     let mut req = request(vec![encoded("one")]);
     req
@@ -102,6 +115,20 @@ async fn native_extractors_accept_only_protobuf_media_types() {
       .await
       .unwrap();
     assert_eq!(parsed.message.value, "one", "{content_type}");
+
+    let mut req = request(vec![encoded("one")]);
+    req
+      .headers_mut()
+      .insert("content-type", content_type.parse().unwrap());
+    let mut parsed = GrpcClientStream::<Payload>::from_request(&mut req)
+      .await
+      .unwrap();
+    assert_eq!(
+      parsed.next().await.unwrap().unwrap().value,
+      "one",
+      "{content_type}"
+    );
+    assert!(parsed.next().await.is_none());
   }
 }
 

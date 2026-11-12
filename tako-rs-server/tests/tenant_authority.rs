@@ -40,7 +40,13 @@ fn h3_authority_without_host_resolves_the_tenant() {
       )
       .await
       .unwrap();
-    request.finish().await.unwrap();
+    if let Err(error) = request.finish().await {
+      // Quinn can stop an unread request before FIN; the complete response remains valid.
+      assert!(
+        matches!(&error, h3::error::StreamError::RemoteTerminate { code, .. } if code.value() == 0),
+        "{error}"
+      );
+    }
     assert_eq!(request.recv_response().await.unwrap().status(), 200);
     let mut data = request.recv_data().await.unwrap().unwrap();
     assert_eq!(data.copy_to_bytes(data.remaining()), "acme");

@@ -85,6 +85,10 @@ tako-rs = { workspace = true, features = ["sse"] }
 wtransport = { workspace = true, features = ["quinn"] }
 
 [[bench]]
+name = "http1"
+harness = false
+
+[[bench]]
 name = "http2"
 harness = false
 required-features = ["http2"]

@@ -14,7 +14,6 @@ use http::header::CONTENT_TYPE;
 use http::header::VARY;
 use http_body::Body;
 use http_body::Frame;
-use http_body_util::BodyExt;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::middleware::Next;
 use tako_rs_core::plugins::TakoPlugin;
@@ -108,7 +107,8 @@ async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Resp
     return resp;
   };
 
-  let collected = match resp.body_mut().collect().await {
+  let body = std::mem::replace(resp.body_mut(), TakoBody::empty());
+  let (body_bytes, trailers) = match super::frames::collect_buffered(body).await {
     Ok(collected) => collected,
     Err(error) => {
       tracing::warn!(%error, "compression middleware: response body failed");
@@ -124,8 +124,6 @@ async fn compress_middleware(req: Request, next: Next, cfg: Arc<Config>) -> Resp
       return resp;
     }
   };
-  let trailers = collected.trailers().cloned();
-  let body_bytes = collected.to_bytes();
   if body_bytes.len() < cfg.min_size {
     *resp.body_mut() = super::frames::buffered(body_bytes, trailers);
     return resp;

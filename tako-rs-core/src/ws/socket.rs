@@ -273,12 +273,14 @@ impl WebSocket {
 
   /// Queues a message. Called from a task other than the handler's, it writes at once.
   pub async fn send(&mut self, message: Message) -> Result<(), Error> {
-    poll_fn(|cx| lock(&self.shared).poll_ready_send(cx)).await?;
-    let write_through = {
+    let mut message = Some(message);
+    let write_through = poll_fn(|cx| {
       let mut core = lock(&self.shared);
-      core.start_send(message)?;
-      !core.owner.is_current()
-    };
+      ready!(core.poll_ready_send(cx))?;
+      core.start_send(message.take().expect("send is polled until ready"))?;
+      Poll::Ready(Ok::<_, Error>(!core.owner.is_current()))
+    })
+    .await?;
     if write_through {
       self.flush().await
     } else {
@@ -349,3 +351,9 @@ impl Sink<Message> for WebSocket {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod send_tests;
+
+#[cfg(test)]
+mod benchmarks;
