@@ -11,6 +11,9 @@ use tako::plugins::TakoPlugin;
 use tako::router::Router;
 use tako::spawn_per_thread_supervised;
 
+// Cleanup stays gated; the timeout only bounds hangs and allows for slow panic diagnostics.
+const FAILURE_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Clone, Default)]
 struct BlockingCleanup(Arc<(Mutex<bool>, Condvar)>);
 
@@ -72,9 +75,9 @@ async fn assert_failure_precedes_cleanup(panic: bool, kind: PerThreadErrorKind) 
   .unwrap();
   let shutdown = server.shutdown_handle();
   let (ready, result, stopped) = tokio::join!(
-    tokio::time::timeout(Duration::from_secs(1), server.wait_ready()),
-    tokio::time::timeout(Duration::from_secs(1), server.result()),
-    tokio::time::timeout(Duration::from_secs(1), shutdown.notified()),
+    tokio::time::timeout(FAILURE_TIMEOUT, server.wait_ready()),
+    tokio::time::timeout(FAILURE_TIMEOUT, server.result()),
+    tokio::time::timeout(FAILURE_TIMEOUT, shutdown.notified()),
   );
   cleanup.release();
   let joined = server.join();
