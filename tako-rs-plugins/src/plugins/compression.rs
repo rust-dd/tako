@@ -41,6 +41,8 @@
 //! ```
 
 pub mod brotli_stream;
+#[cfg(test)]
+mod buffered_tests;
 mod builder;
 mod config;
 pub mod deflate_stream;
@@ -49,6 +51,8 @@ mod encoding;
 mod frames;
 pub mod gzip_stream;
 mod negotiate;
+#[cfg(test)]
+mod negotiation_tests;
 mod plugin;
 #[cfg(test)]
 mod tests;

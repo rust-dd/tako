@@ -1,5 +1,8 @@
 # HttpArena: HTTP/2, HTTP/3 és gRPC
 
+A novemberi, további protokolloptimalizálásokat és méréseket a
+[követő vizsgálat](http-arena-followup.md) dokumentálja.
+
 Vizsgálat: 2026. október 24. Kiinduló commit: `0fb91ee6`.
 Az aréna közzétett adaptere Tako 2.4.2-t használ; a helyi kiindulópont 2.5.0.
 A rangsor ezért önmagában nem írja le a jelenlegi repository teljesítményét.

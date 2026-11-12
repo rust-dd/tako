@@ -34,10 +34,14 @@ struct SumRequest {
 }
 
 fn request(body: TakoBody) -> Request<TakoBody> {
+  request_with_content_type(body, "application/grpc")
+}
+
+fn request_with_content_type(body: TakoBody, content_type: &'static str) -> Request<TakoBody> {
   Request::builder()
     .method("POST")
     .uri("/bench.Echo/Call")
-    .header("content-type", "application/grpc")
+    .header("content-type", content_type)
     .body(body)
     .unwrap()
 }
@@ -65,6 +69,25 @@ fn bench_decode(c: &mut Criterion) {
       });
     });
   });
+
+  for (name, content_type) in [
+    ("proto", "application/grpc+proto"),
+    ("mixed_case", "Application/Grpc+Proto"),
+    ("parameterized", "application/grpc; charset=utf-8"),
+  ] {
+    group.bench_function(BenchmarkId::new("unary_sum_content_type", name), |b| {
+      b.iter(|| {
+        runtime.block_on(async {
+          let mut request = request_with_content_type(TakoBody::from(sum.clone()), content_type);
+          black_box(
+            GrpcRequest::<SumRequest>::from_request(&mut request)
+              .await
+              .unwrap(),
+          );
+        });
+      });
+    });
+  }
 
   for size in [32, 1024, 64 * 1024] {
     let message = Payload {

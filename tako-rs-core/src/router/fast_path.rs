@@ -35,8 +35,14 @@ impl Router {
   /// Starts the handler at once when no middleware, timeout, guard, signal or error hook
   /// applies; with `peer` set, a plain route gets only the entries its extractors list.
   pub(crate) fn begin(&self, req: Request, peer: Option<SocketAddr>) -> Dispatch {
+    let info = peer.map(ConnInfo::tcp);
+    self.begin_with_info(req, info.as_ref())
+  }
+
+  /// Attaches transport metadata only when the handler or full pipeline can read it.
+  pub(crate) fn begin_with_info(&self, req: Request, info: Option<&ConnInfo>) -> Dispatch {
     if req.method() == Method::HEAD || !self.serves_plain_routes() {
-      return Dispatch::Full(with_conn(req, peer));
+      return Dispatch::Full(with_info(req, info));
     }
     let (mut parts, body) = req.into_parts();
     let Some(matched) = self
@@ -44,16 +50,16 @@ impl Router {
       .get(&parts.method)
       .and_then(|routes| routes.at(parts.uri.path()).ok())
     else {
-      return Dispatch::Full(with_conn(Request::from_parts(parts, body), peer));
+      return Dispatch::Full(with_info(Request::from_parts(parts, body), info));
     };
     let route: &Route = matched.value;
     if !self.is_plain(route) {
-      return Dispatch::Full(with_conn(Request::from_parts(parts, body), peer));
+      return Dispatch::Full(with_info(Request::from_parts(parts, body), info));
     }
     let needs = route.handler.entries();
     if needs == Entries::ALL {
-      if let Some(peer) = peer {
-        attach_conn(&mut parts.extensions, peer);
+      if let Some(info) = info {
+        attach_info(&mut parts.extensions, info);
       }
       set_params(&mut parts.extensions, route, &matched.params);
       set_matched_path(&mut parts.extensions, route);
@@ -62,7 +68,7 @@ impl Router {
         .extensions
         .get_or_insert_with(|| crate::router_state::OriginalUriMarker(parts.uri.clone()));
     } else if needs != Entries::NONE {
-      self.attach_listed(&mut parts.extensions, route, &matched.params, peer, needs);
+      self.attach_listed(&mut parts.extensions, route, &matched.params, info, needs);
     }
     Dispatch::Handler(route.handler.call(Request::from_parts(parts, body)))
   }
@@ -74,19 +80,19 @@ impl Router {
     extensions: &mut Extensions,
     route: &Route,
     params: &matchit::Params<'_, '_>,
-    peer: Option<SocketAddr>,
+    info: Option<&ConnInfo>,
     needs: Entries,
   ) {
-    let recycled = peer.is_some() && extensions.is_empty();
+    let recycled = info.is_some() && extensions.is_empty();
     if recycled {
       *extensions = recycle::take_extensions();
     }
     let mut set = Entries::NONE;
     let mut count = 0;
-    if let Some(peer) = peer.filter(|_| needs.contains(Entries::CONN)) {
-      set_conn(extensions, peer);
+    if let Some(info) = info.filter(|_| needs.contains(Entries::CONN)) {
+      set_info(extensions, info);
       set = set.union(Entries::CONN);
-      count += 2;
+      count += 1 + usize::from(info.peer.as_socket().is_some());
     }
     if needs.contains(Entries::PARAMS) && !params.is_empty() {
       set_params(extensions, route, params);
@@ -185,34 +191,39 @@ impl Router {
 }
 
 /// Adds the connection entries for a full-pipeline request.
-fn with_conn(mut req: Request, peer: Option<SocketAddr>) -> Request {
-  if let Some(peer) = peer {
-    attach_conn(req.extensions_mut(), peer);
+fn with_info(mut req: Request, info: Option<&ConnInfo>) -> Request {
+  if let Some(info) = info {
+    let extensions = req.extensions_mut();
+    let recycled = extensions.is_empty();
+    attach_info(extensions, info);
+    if recycled {
+      // The full pipeline may start on a worker that has never pooled a body limit.
+      extensions.remove::<BodyLimit>();
+    }
   }
   req
 }
 
 /// Adds `ConnInfo` and the peer address, building on a recycled map unless the
 /// transport already attached entries, such as hyper's upgrade handle.
-pub(super) fn attach_conn(extensions: &mut Extensions, peer: SocketAddr) {
+pub(super) fn attach_info(extensions: &mut Extensions, info: &ConnInfo) {
   if extensions.is_empty() {
     *extensions = recycle::take_extensions();
   }
-  set_conn(extensions, peer);
+  set_info(extensions, info);
 }
 
-fn set_conn(extensions: &mut Extensions, peer: SocketAddr) {
+fn set_info(extensions: &mut Extensions, info: &ConnInfo) {
   match extensions.get_mut::<ConnInfo>() {
-    Some(info) => *info = ConnInfo::tcp(peer),
+    Some(current) => *current = info.clone(),
     None => {
-      extensions.insert(ConnInfo::tcp(peer));
+      extensions.insert(info.clone());
     }
   }
-  match extensions.get_mut::<SocketAddr>() {
-    Some(addr) => *addr = peer,
-    None => {
-      extensions.insert(peer);
-    }
+  if let Some(peer) = info.peer.as_socket() {
+    *extensions.get_or_insert(*peer) = *peer;
+  } else {
+    extensions.remove::<SocketAddr>();
   }
 }
 

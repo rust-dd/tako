@@ -3,62 +3,48 @@ use super::encoding::Encoding;
 /// RFC 9110 q-values: `q=0` rejects a coding and unlisted codings follow `*`. The server
 /// prefers br, gzip, deflate, then zstd.
 pub(crate) fn choose_encoding(header: &str, enabled: &[Encoding]) -> Option<Encoding> {
-  let parsed = parse_accept_encoding(header);
-  let wildcard_q = parsed.iter().find(|(c, _)| c == "*").map(|(_, q)| *q);
-
-  let acceptable = |enc: Encoding| -> bool {
-    let name = enc.as_str();
-    match parsed.iter().find(|(c, _)| c == name) {
-      Some((_, q)) => *q > 0.0,
-      None => wildcard_q.is_some_and(|q| q > 0.0),
-    }
-  };
-
-  // Server preference order — Brotli first for ratio, Gzip second for compatibility.
-  let server_order: [Encoding; 3] = [Encoding::Brotli, Encoding::Gzip, Encoding::Deflate];
-  if let Some(enc) = server_order
-    .into_iter()
-    .find(|&enc| enabled.contains(&enc) && acceptable(enc))
-  {
-    return Some(enc);
-  }
-
-  #[cfg(feature = "zstd")]
-  {
-    if enabled.contains(&Encoding::Zstd) && acceptable(Encoding::Zstd) {
-      return Some(Encoding::Zstd);
+  const SERVER_ORDER: &[Encoding] = &[
+    Encoding::Brotli,
+    Encoding::Gzip,
+    Encoding::Deflate,
+    #[cfg(feature = "zstd")]
+    Encoding::Zstd,
+  ];
+  let mut accepted = [None; SERVER_ORDER.len()];
+  let mut wildcard = None;
+  for (coding, allowed) in header.split(',').filter_map(parse_coding) {
+    if coding == "*" {
+      wildcard.get_or_insert(allowed);
+    } else if let Some(index) = SERVER_ORDER
+      .iter()
+      .position(|encoding| coding.eq_ignore_ascii_case(encoding.as_str()))
+    {
+      accepted[index].get_or_insert(allowed);
     }
   }
 
-  None
+  SERVER_ORDER.iter().enumerate().find_map(|(index, &enc)| {
+    (enabled.contains(&enc) && accepted[index].or(wildcard).unwrap_or(false)).then_some(enc)
+  })
 }
 
-/// Lowercased `(coding, q)` pairs. A missing q is 1.0; per RFC 9110 an entry with an
+/// Borrows each coding. A missing q is 1.0; per RFC 9110 an entry with an
 /// unparsable q is dropped rather than defaulted to full strength.
-fn parse_accept_encoding(header: &str) -> Vec<(String, f32)> {
-  header
-    .split(',')
-    .filter_map(|piece| {
-      let piece = piece.trim();
-      if piece.is_empty() {
-        return None;
-      }
-      let mut parts = piece.split(';');
-      let coding = parts.next()?.trim().to_ascii_lowercase();
-      if coding.is_empty() {
-        return None;
-      }
-      let mut q: f32 = 1.0;
-      for param in parts {
-        let param = param.trim();
-        let qv = param
-          .strip_prefix("q=")
-          .or_else(|| param.strip_prefix("Q="));
-        if let Some(qv) = qv {
-          q = qv.parse().ok()?;
-        }
-      }
-      Some((coding, q))
-    })
-    .collect()
+fn parse_coding(piece: &str) -> Option<(&str, bool)> {
+  let mut parts = piece.trim().split(';');
+  let coding = parts.next()?.trim();
+  if coding.is_empty() {
+    return None;
+  }
+  let mut q = 1.0_f32;
+  for param in parts {
+    let param = param.trim();
+    let qv = param
+      .strip_prefix("q=")
+      .or_else(|| param.strip_prefix("Q="));
+    if let Some(qv) = qv {
+      q = qv.parse().ok()?;
+    }
+  }
+  Some((coding, q > 0.0))
 }

@@ -1,6 +1,5 @@
 //! Compio TLS accept loop: handshake, HTTP/1.1 or HTTP/2 by ALPN, graceful shutdown and draining.
 
-use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -14,16 +13,14 @@ use futures_util::stream::FuturesUnordered;
 use hyper::server::conn::http1;
 #[cfg(feature = "http2")]
 use hyper::server::conn::http2;
-use hyper::service::service_fn;
 use rustls::ServerConfig as RustlsServerConfig;
-use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
 use tako_rs_core::server_support::Leased;
 use tako_rs_core::server_support::UpgradeSupervisor;
 use tako_rs_core::server_support::drive_connection;
-use tako_rs_core::server_support::sanitize_response;
+use tako_rs_core::server_support::http_service_with_upgrades;
 #[cfg(feature = "signals")]
 use tako_rs_core::signals::transport as signal_tx;
 use tako_rs_core::types::BoxError;
@@ -206,23 +203,7 @@ pub(crate) async fn run_supervised(
 
           let io = Leased::new(HyperStream::new_tls(tls_stream), permit);
 
-          let svc = service_fn(move |mut req| {
-            registry.attach(&mut req);
-            let r = router.clone();
-            let conn_info = conn_info.clone();
-            async move {
-              req.extensions_mut().insert(addr);
-              req.extensions_mut().insert(conn_info);
-              let multiplexed = req.version() == http::Version::HTTP_2;
-              let response = r.dispatch(req.map(TakoBody::new)).await;
-              let response = if multiplexed {
-                sanitize_response(response)
-              } else {
-                response
-              };
-              Ok::<_, Infallible>(response)
-            }
-          });
+          let svc = http_service_with_upgrades(router, conn_info, registry);
 
           #[cfg(feature = "http2")]
           if proto.as_deref() == Some(b"h2") {

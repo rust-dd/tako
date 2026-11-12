@@ -9,11 +9,55 @@ use futures_util::Stream;
 use http::HeaderMap;
 use http_body::Body;
 use http_body::Frame;
+use http_body_util::BodyExt;
 use pin_project_lite::pin_project;
 use tako_rs_core::body::TakoBody;
 use tako_rs_core::types::BoxError;
 
 type Trailers = Arc<Mutex<Option<HeaderMap>>>;
+
+pub(super) async fn collect_buffered(
+  mut body: TakoBody,
+) -> Result<(Bytes, Option<HeaderMap>), BoxError> {
+  let Some(first) = body.frame().await.transpose()? else {
+    return Ok((Bytes::new(), None));
+  };
+  if body.is_end_stream() {
+    return Ok(match first.into_data() {
+      Ok(data) => (data, None),
+      Err(frame) => (Bytes::new(), frame.into_trailers().ok()),
+    });
+  }
+  let collected = PrefixedBody {
+    first: Some(first),
+    body,
+  }
+  .collect()
+  .await?;
+  let trailers = collected.trailers().cloned();
+  Ok((collected.to_bytes(), trailers))
+}
+
+struct PrefixedBody {
+  first: Option<Frame<Bytes>>,
+  body: TakoBody,
+}
+
+impl Body for PrefixedBody {
+  type Data = Bytes;
+  type Error = BoxError;
+
+  fn poll_frame(
+    mut self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+  ) -> Poll<Option<Result<Frame<Bytes>, BoxError>>> {
+    if let Some(first) = self.first.take() {
+      Poll::Ready(Some(Ok(first)))
+    } else {
+      Pin::new(&mut self.body).poll_frame(cx)
+    }
+  }
+}
 
 pub(super) fn encode<B, S>(body: B, encoder: impl FnOnce(DataFrames<B>) -> S) -> TakoBody
 where

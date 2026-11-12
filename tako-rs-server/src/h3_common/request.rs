@@ -16,6 +16,7 @@ use tako_rs_core::body::TakoBody;
 use tako_rs_core::conn_info::ConnInfo;
 use tako_rs_core::conn_info::TlsInfo;
 use tako_rs_core::router::Router;
+use tako_rs_core::server_support::dispatch_with_info;
 use tako_rs_core::server_support::sanitize_response;
 use tako_rs_core::types::BoxError;
 
@@ -72,30 +73,32 @@ where
   <S as BidiStream<Bytes>>::SendStream: RuntimeSend + 'static,
   <S as BidiStream<Bytes>>::RecvStream: RuntimeSend + 'static,
 {
-  // Split into send and recv halves so the handler can stream the body while we
-  // hold the send half locally for the response.
   let (mut send_stream, recv_stream) = stream.split();
 
   let (parts, ()) = req.into_parts();
   let body = build_h3_body(recv_stream);
-  let mut tako_req = Request::from_parts(parts, body);
-  annotate(&mut tako_req, remote_addr);
+  let tako_req = Request::from_parts(parts, body);
 
-  let response = router.dispatch(tako_req).await;
+  let response = dispatch_with_info(&router, tako_req, &connection_info(remote_addr)).await;
   respond(&mut send_stream, response).await
 }
 
 /// Inserts the connection details every HTTP/3 request carries.
+#[cfg(feature = "webtransport")]
 pub(crate) fn annotate(req: &mut Request<TakoBody>, remote_addr: SocketAddr) {
   req.extensions_mut().insert(remote_addr);
-  req.extensions_mut().insert(ConnInfo::h3(
+  req.extensions_mut().insert(connection_info(remote_addr));
+}
+
+fn connection_info(remote_addr: SocketAddr) -> ConnInfo {
+  ConnInfo::h3(
     remote_addr,
     TlsInfo {
       alpn: Some(bytes::Bytes::from_static(b"h3")),
       sni: None,
       version: Some("TLSv1.3"),
     },
-  ));
+  )
 }
 
 /// Sends a router response, streaming its body and trailers.

@@ -73,15 +73,6 @@ impl Router {
       let original = crate::router_state::OriginalUriMarker(req.uri().clone());
       req.extensions_mut().insert(original);
     }
-    let request_parts = self.error_handler_with_parts.as_ref().map(|_| {
-      let mut saved = Request::default();
-      *saved.method_mut() = req.method().clone();
-      *saved.uri_mut() = req.uri().clone();
-      *saved.version_mut() = req.version();
-      *saved.headers_mut() = req.headers().clone();
-      *saved.extensions_mut() = req.extensions().clone();
-      saved.into_parts().0
-    });
     let is_head = req.method() == Method::HEAD;
 
     let (mut parts, body) = req.into_parts();
@@ -111,6 +102,15 @@ impl Router {
     };
     self.set_route_entries(&mut parts.extensions, route);
     let req = Request::from_parts(parts, body);
+    let request_parts = self.error_handler_with_parts.as_ref().map(|_| {
+      let mut saved = Request::default();
+      *saved.method_mut() = req.method().clone();
+      *saved.uri_mut() = req.uri().clone();
+      *saved.version_mut() = req.version();
+      *saved.headers_mut() = req.headers().clone();
+      *saved.extensions_mut() = req.extensions().clone();
+      saved.into_parts().0
+    });
 
     #[cfg(feature = "signals")]
     let signals = super::request_signals::RequestSignals::new(&self.signals, route, &req);

@@ -61,10 +61,18 @@ where
 }
 
 pub(crate) fn is_grpc_content_type(req: &Request) -> bool {
-  req
-    .headers()
-    .get(http::header::CONTENT_TYPE)
-    .and_then(|v| v.to_str().ok())
+  let Some(value) = req.headers().get(http::header::CONTENT_TYPE) else {
+    return false;
+  };
+  let bytes = value.as_bytes();
+  if bytes.eq_ignore_ascii_case(b"application/grpc")
+    || bytes.eq_ignore_ascii_case(b"application/grpc+proto")
+  {
+    return true;
+  }
+  value
+    .to_str()
+    .ok()
     .and_then(|ct| ct.parse::<mime::Mime>().ok())
     .is_some_and(|ct| {
       ct.type_() == mime::APPLICATION

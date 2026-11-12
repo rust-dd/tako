@@ -68,15 +68,11 @@ fn service(
 )]
 fn start_request(
   router: Arc<Arc<Router>>,
-  mut req: Request,
+  req: Request,
   info: &ConnInfo,
 ) -> impl Future<Output = Result<Response, Infallible>> + use<> {
-  if let Some(peer) = info.peer.as_socket() {
-    req.extensions_mut().insert(*peer);
-  }
-  req.extensions_mut().insert(info.clone());
   let multiplexed = matches!(req.version(), http::Version::HTTP_2 | http::Version::HTTP_3);
-  let pending = match router.begin(req, None) {
+  let pending = match router.begin_with_info(req, Some(info)) {
     Dispatch::Handler(handler) => Either::Left(handler),
     Dispatch::Full(req) => Either::Right(Box::pin(async move { router.dispatch_full(req).await })),
   };
@@ -87,6 +83,15 @@ fn start_request(
     } else {
       response
     })
+  }
+}
+
+/// Dispatches a transport request, providing connection metadata to every middleware and
+/// to handlers whose extractors need it. Pre-existing request extensions are preserved.
+pub async fn dispatch_with_info(router: &Router, req: Request, info: &ConnInfo) -> Response {
+  match router.begin_with_info(req, Some(info)) {
+    Dispatch::Handler(handler) => handler.await,
+    Dispatch::Full(req) => router.dispatch_full(req).await,
   }
 }
 

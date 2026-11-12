@@ -20,6 +20,7 @@ pub use conn::tcp_service;
 pub use driver::ConnDriver;
 use futures_util::future::Either;
 pub use headers::sanitize_response;
+pub use http::dispatch_with_info;
 pub use http::http_service;
 pub use http::http_service_with_upgrades;
 pub use http1_io::Http1Io;
