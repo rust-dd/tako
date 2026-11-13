@@ -1,6 +1,7 @@
 //! HTTP/3 over QUIC on Tokio, using `h3` with `quinn` as the transport.
 
 mod connection;
+pub(crate) mod quic;
 pub(crate) mod run;
 mod serve;
 

@@ -5,7 +5,7 @@ use h3::server::Connection;
 
 /// The QUIC connection type h3 runs on for this runtime.
 #[cfg(not(feature = "compio"))]
-pub(crate) type QuicConnection = h3_quinn::Connection;
+pub(crate) type QuicConnection = crate::server_h3::quic::Connection;
 #[cfg(feature = "compio")]
 pub(crate) type QuicConnection = compio::quic::Connection;
 

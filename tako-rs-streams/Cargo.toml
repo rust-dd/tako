@@ -28,6 +28,8 @@ mime_guess = { workspace = true }
 percent-encoding = { workspace = true }
 pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
+quinn-proto = { workspace = true, optional = true }
+quinn-udp = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 send_wrapper = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
@@ -42,7 +44,7 @@ file-stream = ["tako-rs/file-stream"]
 plugins = ["tako-rs/plugins"]
 signals = ["tako-rs/signals", "tako-rs-core/signals"]
 compio = ["tako-rs/compio", "dep:compio", "dep:send_wrapper", "tako-rs-core/compio"]
-http3 = ["tako-rs/http3", "dep:quinn", "dep:rustls", "tako-rs-core/http3"]
+http3 = ["tako-rs/http3", "dep:quinn", "dep:quinn-proto", "dep:quinn-udp", "dep:rustls", "tako-rs-core/http3"]
 webtransport = ["tako-rs/webtransport", "http3"]
 
 [lints]

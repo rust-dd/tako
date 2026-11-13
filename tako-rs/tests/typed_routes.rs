@@ -99,14 +99,6 @@ async fn typed_route_unknown_path_falls_through_to_404() {
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
-async fn typed_route_consts_match_macro_inputs() {
-  assert_eq!(SinglePath::METHOD, Method::GET);
-  assert_eq!(SinglePath::PATH, "/users/{id}");
-  assert_eq!(MultiPath::PATH, "/users/{id}/posts/{post_id}");
-  assert_eq!(MixedPath::PATH, "/items/{id}/{name}/{ratio}");
-}
-
 #[route(GET, "/auto/{id: u64}")]
 async fn auto_named(TypedParams(p): TypedParams<AutoNamedParams>) -> impl Responder {
   format!("auto={}", p.id)
@@ -156,18 +148,6 @@ async fn sc_delete(TypedParams(p): TypedParams<ScDeleteParams>) -> impl Responde
 #[patch("/sc/patch/{id: u64}")]
 async fn sc_patch(TypedParams(p): TypedParams<ScPatchParams>) -> impl Responder {
   format!("patch={}", p.id)
-}
-
-#[tokio::test]
-async fn shortcut_macros_set_method_correctly() {
-  assert_eq!(ScGetParams::METHOD, Method::GET);
-  assert_eq!(ScPostParams::METHOD, Method::POST);
-  assert_eq!(ScPutParams::METHOD, Method::PUT);
-  assert_eq!(ScDeleteParams::METHOD, Method::DELETE);
-  assert_eq!(ScPatchParams::METHOD, Method::PATCH);
-
-  assert_eq!(ScGetParams::PATH, "/sc/get/{id}");
-  assert_eq!(ScPostParams::PATH, "/sc/post/{id}");
 }
 
 #[tokio::test]

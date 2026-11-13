@@ -31,26 +31,40 @@ pub(crate) trait RuntimeSend {}
 #[cfg(feature = "compio")]
 impl<T> RuntimeSend for T {}
 
+struct RequestBodyStream<R: RecvStream> {
+  stream: RequestStream<R, Bytes>,
+  finished: bool,
+}
+
+impl<R: RecvStream> Drop for RequestBodyStream<R> {
+  fn drop(&mut self) {
+    if !self.finished {
+      // RFC 9114 permits early responses, but a transport's default stop(0) invalidates them.
+      self.stream.stop_sending(h3::error::Code::H3_NO_ERROR);
+    }
+  }
+}
+
 /// Poll QUIC data and trailers only while the application polls its request body.
 fn build_h3_body<R>(recv: RequestStream<R, Bytes>) -> TakoBody
 where
   R: RecvStream + RuntimeSend + 'static,
 {
+  let recv = RequestBodyStream {
+    stream: recv,
+    finished: false,
+  };
   let stream = futures_util::stream::try_unfold(Some(recv), |state| async move {
     let Some(mut recv) = state else {
       return Ok::<_, BoxError>(None);
     };
-    match recv.recv_data().await? {
-      Some(mut chunk) => {
-        let bytes = chunk.copy_to_bytes(chunk.remaining());
-        Ok(Some((Frame::data(bytes), Some(recv))))
-      }
-      None => Ok(
-        recv
-          .recv_trailers()
-          .await?
-          .map(|trailers| (Frame::trailers(trailers), None)),
-      ),
+    if let Some(mut chunk) = recv.stream.recv_data().await? {
+      let bytes = chunk.copy_to_bytes(chunk.remaining());
+      Ok(Some((Frame::data(bytes), Some(recv))))
+    } else {
+      let trailers = recv.stream.recv_trailers().await?;
+      recv.finished = true;
+      Ok(trailers.map(|trailers| (Frame::trailers(trailers), None)))
     }
   });
   #[cfg(not(feature = "compio"))]

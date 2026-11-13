@@ -90,9 +90,15 @@ fn h3_preserves_metadata_for_extractors_middleware_and_fallback() {
         .await
         .unwrap();
       if let Err(error) = stream.finish().await {
-        // Quinn can stop an unread request before FIN; the complete response remains valid.
+        // An early response may cancel the upload before FIN with H3_NO_ERROR.
         assert!(
-          matches!(&error, h3::error::StreamError::RemoteTerminate { code, .. } if code.value() == 0),
+          matches!(
+            &error,
+            h3::error::StreamError::RemoteTerminate {
+              code: h3::error::Code::H3_NO_ERROR,
+              ..
+            }
+          ),
           "{error}"
         );
       }

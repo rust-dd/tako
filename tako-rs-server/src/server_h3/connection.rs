@@ -19,7 +19,8 @@ pub(crate) async fn handle_connection(
   shutdown: tokio_util::sync::CancellationToken,
   goaway_grace: Duration,
 ) -> Result<(), BoxError> {
-  let mut h3_conn = crate::h3_common::connection::accept(h3_quinn::Connection::new(conn)).await?;
+  let mut h3_conn =
+    crate::h3_common::connection::accept(super::quic::Connection::new(conn)).await?;
   // Per-stream clones share this connection's refcount, avoiding cross-connection contention.
   let router = Arc::new(router);
   let mut request_tasks = tokio::task::JoinSet::new();
