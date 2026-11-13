@@ -90,13 +90,7 @@ registry_version() {
 }
 
 publish_one() {
-  local spec="$1"
-  # spec may be "crate-name" or "crate-name --no-verify"
-  local crate="${spec%% *}"
-  local extra=()
-  if [[ "$spec" == *" "* ]]; then
-    read -r -a extra <<< "${spec#* }"
-  fi
+  local crate="$1"
 
   local lv rv
   lv=$(local_version)
@@ -115,7 +109,6 @@ publish_one() {
   set -x
   set +e
   cargo publish -p "$crate" \
-    ${extra[@]+"${extra[@]}"} \
     ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
     ${ALLOW_DIRTY[@]+"${ALLOW_DIRTY[@]}"} 2>&1 | tee "$logf"
   status=${PIPESTATUS[0]}
@@ -138,8 +131,8 @@ publish_one() {
   rm -f "$logf"
 }
 
-for spec in "${PUBLISH_ORDER[@]}"; do
-  publish_one "$spec"
+for crate in "${PUBLISH_ORDER[@]}"; do
+  publish_one "$crate"
 done
 
 echo

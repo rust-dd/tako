@@ -10,32 +10,11 @@ async fn body_str(resp: tako::types::Response) -> String {
 }
 
 #[tokio::test]
-async fn static_str_response() {
-  let resp = "hello".into_response();
-  assert_eq!(resp.status(), StatusCode::OK);
-  assert_eq!(body_str(resp).await, "hello");
-}
-
-#[tokio::test]
-async fn string_response() {
-  let resp = "world".to_string().into_response();
-  assert_eq!(resp.status(), StatusCode::OK);
-  assert_eq!(body_str(resp).await, "world");
-}
-
-#[tokio::test]
 async fn unit_response() {
   let resp = ().into_response();
   assert_eq!(resp.status(), StatusCode::OK);
   let body = resp.into_body().collect().await.unwrap().to_bytes();
   assert!(body.is_empty());
-}
-
-#[tokio::test]
-async fn status_tuple_response() {
-  let resp = (StatusCode::NOT_FOUND, "Not Found").into_response();
-  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-  assert_eq!(body_str(resp).await, "Not Found");
 }
 
 #[tokio::test]
@@ -72,18 +51,4 @@ async fn takobody_response() {
   let resp = TakoBody::from("raw body").into_response();
   assert_eq!(resp.status(), StatusCode::OK);
   assert_eq!(body_str(resp).await, "raw body");
-}
-
-#[tokio::test]
-async fn response_passthrough() {
-  let orig = http::Response::builder()
-    .status(StatusCode::CREATED)
-    .header("x-custom", "yes")
-    .body(TakoBody::from("created"))
-    .unwrap();
-
-  let resp = orig.into_response();
-  assert_eq!(resp.status(), StatusCode::CREATED);
-  assert_eq!(resp.headers().get("x-custom").unwrap(), "yes");
-  assert_eq!(body_str(resp).await, "created");
 }

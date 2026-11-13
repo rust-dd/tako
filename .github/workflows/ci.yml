@@ -171,6 +171,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTFLAGS: ""
+      # Reuse dependencies across the standalone example workspaces.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

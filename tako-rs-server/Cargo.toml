@@ -33,6 +33,8 @@ hyper-util = { workspace = true }
 listenfd = { workspace = true, optional = true }
 pin-project-lite = { workspace = true }
 quinn = { workspace = true, optional = true }
+quinn-proto = { workspace = true, optional = true }
+quinn-udp = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 send_wrapper = { workspace = true, optional = true }
 tako-rs-core = { workspace = true }
@@ -52,7 +54,7 @@ http2 = ["tako-rs/http2", "hyper/http2", "hyper-util/http2", "tako-rs-core/http2
 # http3 requires the same rustls assembly as `tls` (cert resolver, mTLS,
 # ReloadableResolver) so it pulls the `tls` feature in to share the helpers.
 # On compio it also turns on `compio-quic` with its ring-backed rustls glue.
-http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "tako-rs-core/http3", "compio?/h3", "compio?/ring"]
+http3 = ["tako-rs/http3", "tls", "dep:h3", "dep:h3-quinn", "dep:quinn", "dep:quinn-proto", "dep:quinn-udp", "tako-rs-core/http3", "compio?/h3", "compio?/ring"]
 http3-qlog = ["tako-rs/http3-qlog", "http3", "quinn/qlog", "compio?/qlog"]
 # W3C WebTransport sessions on the HTTP/3 server, on either runtime.
 webtransport = ["tako-rs/webtransport", "http3", "dep:h3-datagram", "h3/i-implement-a-third-party-backend-and-opt-into-breaking-changes", "h3-quinn/datagram"]

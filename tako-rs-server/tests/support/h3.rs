@@ -10,6 +10,7 @@ use tako_rs_server::TlsCert;
 
 pub struct Client {
   pub sender: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
+  pub connection: quinn::Connection,
   endpoint: quinn::Endpoint,
   driver: tokio::task::JoinHandle<h3::error::ConnectionError>,
 }
@@ -31,19 +32,21 @@ impl Client {
       .unwrap()
       .await
       .unwrap();
-    let (mut driver, sender) = h3::client::new(h3_quinn::Connection::new(connection))
+    let (mut driver, sender) = h3::client::new(h3_quinn::Connection::new(connection.clone()))
       .await
       .unwrap();
     let driver =
       tokio::spawn(async move { std::future::poll_fn(|cx| driver.poll_close(cx)).await });
     Self {
       sender,
+      connection,
       endpoint,
       driver,
     }
   }
 
   pub async fn close(self) {
+    self.connection.close(0u32.into(), b"finished");
     self.endpoint.close(0u32.into(), b"finished");
     self.driver.await.unwrap();
   }

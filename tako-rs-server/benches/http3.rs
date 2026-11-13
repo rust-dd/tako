@@ -132,7 +132,16 @@ mod tokio_benchmark {
               let mut stream = client.send_request(request).await.unwrap();
               if let Err(error) = stream.finish().await {
                 // Quinn can stop an unread request before FIN; the complete response remains valid.
-                assert!(matches!(&error, h3::error::StreamError::RemoteTerminate { code, .. } if code.value() == 0), "{error}");
+                assert!(
+                  matches!(
+                    &error,
+                    h3::error::StreamError::RemoteTerminate {
+                      code: h3::error::Code::H3_NO_ERROR,
+                      ..
+                    }
+                  ),
+                  "{error}"
+                );
               }
               let response = stream.recv_response().await.unwrap();
               assert_eq!(response.status(), 200);
